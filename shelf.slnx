@@ -15,6 +15,7 @@
     <File Path="Directory.Build.props" />
     <File Path="Directory.Packages.props" />
     <File Path="nuget.config" />
+    <File Path="README.md" />
   </Folder>
 
   <!-- The Aspire AppHost is a file-based app, not a project, so it is listed as solution items

@@ -506,3 +506,4 @@ override.tf.json
 
 # Claude factory runtime state (never committed; see CLAUDE.md)
 .factory-runs/
+.factory-runs-sim/
