@@ -1,0 +1,44 @@
+namespace shelf.data;
+
+/// <summary>
+/// The names that keep the AppHost's container choice, the API's EF provider choice and the
+/// per-provider migrations assemblies from drifting apart.
+/// </summary>
+/// <remarks>
+/// These live here rather than next to the configurator in shelf.api because the design-time
+/// factory, the runtime configurator and the migrations projects all need them, and this is the one
+/// assembly all three can see.
+/// </remarks>
+public static class DatabaseProvider
+{
+    /// <summary>Config key naming the provider. The AppHost reads the same key.</summary>
+    public const string ConfigurationKey = "Database:Provider";
+
+    /// <summary>Connection-string name, which is also the Aspire resource name.</summary>
+    public const string ConnectionName = "appdb";
+
+    public const string Postgres = "postgres";
+
+    public const string SqlServer = "sqlserver";
+
+    /// <summary>
+    /// A local file, with no container behind it. The AppHost declares no database resource for
+    /// this provider and injects the connection string directly, so `aspire run` needs no Docker.
+    /// </summary>
+    public const string Sqlite = "sqlite";
+
+    public const string Default = Sqlite;
+
+    // EF discovers migrations by scanning a single assembly, and two providers' migrations cannot
+    // share one: the generated SQL differs and the migration ids collide. Hence a project per
+    // provider, which is Microsoft's documented answer for multiple providers.
+
+
+    public const string SqliteMigrationsAssembly = "shelf.api.migrations.sqlite";
+
+    public static bool IsSqlServer(string? provider) =>
+        string.Equals(provider, SqlServer, StringComparison.OrdinalIgnoreCase);
+
+    public static bool IsSqlite(string? provider) =>
+        string.Equals(provider, Sqlite, StringComparison.OrdinalIgnoreCase);
+}

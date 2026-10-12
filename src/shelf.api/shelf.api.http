@@ -1,0 +1,6 @@
+@shelf.api_HostAddress = http://localhost:5058
+
+GET {{shelf.api_HostAddress}}/books/
+Accept: application/json
+
+###

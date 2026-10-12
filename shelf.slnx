@@ -1,0 +1,69 @@
+<Solution>
+  <Configurations>
+    <BuildType Name="Debug" />
+    <!-- 'Development' is what selects the MAUI host's DeveloperTools.cs. It must be declared
+         here and in every project's <Configurations> (supplied by Directory.Build.props) or
+         `dotnet build -c Development` fails with MSB4126. -->
+    <BuildType Name="Development" />
+    <BuildType Name="Release" />
+  </Configurations>
+
+  <!-- CLAUDE.md, .claude/ and specs/ are deliberately absent: this solution sits at the workspace
+       root beside them, but they are workspace-level files rather than scaffold source and must
+       not end up in a scaffold. -->
+  <Folder Name="/Solution Items/">
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="nuget.config" />
+  </Folder>
+
+  <!-- The Aspire AppHost is a file-based app, not a project, so it is listed as solution items
+       rather than under <Project>. Nothing here is compiled by the solution build; the files are
+       listed only so the AppHost is visible in the IDE instead of being a folder you have to
+       remember exists. -->
+  <Folder Name="/aspire/">
+    <File Path=".aspire/apphost.cs" />
+    <File Path=".aspire/apphost.run.json" />
+    <File Path=".aspire/appsettings.json" />
+    <File Path=".aspire/appsettings.Development.json" />
+    <File Path=".aspire/Directory.Packages.props" />
+    <File Path="aspire.config.json" />
+  </Folder>
+
+  <!-- Terraform for Azure. Only the README is listed: IaC/ holds two dozen files whose set depends
+       on which add-ons a scaffold has, and a solution folder enumerating them would rot the first
+       time one is added. The README is the entry point worth having in the IDE. -->
+  <Folder Name="/IaC/">
+    <File Path="IaC/README.md" />
+  </Folder>
+
+  <Folder Name="/src/">
+    <Project Path="src/shelf.api/shelf.api.csproj" />
+    <!-- The entity, DbContext, seeder and repository. Its own project so that shelf.api can
+         reference the migrations projects without a cycle - see shelf.data.csproj. -->
+    <Project Path="src/shelf.data/shelf.data.csproj" />
+    <!-- Migrations only, one project per provider: EF scans a single assembly for migrations and
+         two providers' migrations cannot share it. See PersistenceConfigurator. Only the provider
+         a scaffold asked for survives; in this workspace all three are present because
+         Database:Provider picks between them at run time. -->
+    <Project Path="src/shelf.api.migrations.sqlite/shelf.api.migrations.sqlite.csproj" />
+    <Project Path="src/shelf.servicedefaults/shelf.servicedefaults.csproj" />
+    <!-- <<addon-src-projects>> - scaffolding inserts add-on src projects above this line. -->
+  </Folder>
+
+  <!-- src/ui/react is absent on purpose: it is an npm workspace, not an MSBuild project. The
+       AppHost owns it via AddViteApp. -->
+  <Folder Name="/src/ui/blazor/">
+    <!-- <<addon-ui-projects>> - scaffolding inserts add-on UI projects above this line. -->
+  </Folder>
+
+  <Folder Name="/tests/">
+    <!-- Two test projects, not one. The API suite and the Blazor suite were a single assembly
+         until the UI became an optional part of a scaffold: a project referencing both
+         shelf.api and Shelf.Blazor.Maui.Pages cannot be pruned when either side is left
+         out. Splitting them is what makes each independently omittable. -->
+    <Project Path="tests/shelf.api.tests/shelf.api.tests.csproj" />
+    <!-- <<addon-test-projects>> - scaffolding inserts add-on test projects above this line. -->
+  </Folder>
+
+</Solution>
