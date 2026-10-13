@@ -228,7 +228,7 @@ target's own `<target>.wt`; the card opens a large modal (Edit | Preview, Artifa
 Timeline); Done lists the full paths the merge added. See "Targets" in `docs/FACTORY-CONTRACT.md`.
 
 1. Restart `serve.ps1`. Discard the legacy J-001 and J-002.
-2. Submit the idea with a target you type, for example `D:\code\Scratchpad	odo-app`. The hint
+2. Submit the idea with a target you type, for example `D:\code\Scratchpad\todo-app`. The hint
    must say "New repo".
 3. In Backlog, check each spec's `Repo:` is exactly your path and its `## Gate` commands make sense
    for the stack; edit in the modal and Save, then Approve spec 1 first (later specs depend on it).
