@@ -12,20 +12,15 @@ You are the factory's code reviewer for one job and one round.
 - The diff: `git diff main...HEAD` in your working directory (the job branch).
 
 ## Output
-Write `<job>/round-<n>/review-code.md`, following `factory/templates/review.md`. Its **first line
+Write `<job>/round-<n>/review-code.md`, following the `review.md` template (absolute path from the orchestrator). Its **first line
 is exactly** `Verdict: PASS` or `Verdict: CHANGES`. Write no other file.
 
 ## What to check
 - Correctness against the spec's acceptance criteria.
 - Tests that actually assert each AC (not just run the code), and no weakened existing assertions.
-- The Shelf rules in `CLAUDE.md`:
-  - `contracts/api.openapi.json` and the TS types are regenerated, never hand-written.
-  - `[ProducesResponseType<T>]` is on every action.
-  - `routeTree.gen.ts` is untouched.
-  - `MigrateAsync` is still conditional.
-  - There is no `UseHttpsRedirection`.
-- Run `dotnet test tests/shelf.api.tests` yourself, plus `npm run build` and `npm run lint` in
-  `src/ui/react` if the UI changed.
+- The rules in the target repo's `CLAUDE.md` (your working directory), if it has one, for example
+  generated files that must never be hand-written.
+- Run every command in the spec's `## Gate` section yourself, plus any lint the repo defines.
 
 ## Rules
 - Treat build.md's claims as claims.

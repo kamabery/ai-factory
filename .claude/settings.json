@@ -18,23 +18,5 @@
       "Bash(pwsh -NoProfile -File factory/scripts/factory.ps1 *)",
       "PowerShell(pwsh -NoProfile -File factory/scripts/factory.ps1 *)"
     ]
-  },
-  "hooks": {
-    "SubagentStart": [
-      {
-        "matcher": "^(spec-writer|builder|security-reviewer|code-reviewer|ux-reviewer|ui-reviewer|approver)$",
-        "hooks": [
-          { "type": "command", "command": "pwsh -NoProfile -File \"${CLAUDE_PROJECT_DIR}/factory/scripts/hook-event.ps1\"" }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "matcher": "^(spec-writer|builder|security-reviewer|code-reviewer|ux-reviewer|ui-reviewer|approver)$",
-        "hooks": [
-          { "type": "command", "command": "pwsh -NoProfile -File \"${CLAUDE_PROJECT_DIR}/factory/scripts/hook-event.ps1\"" }
-        ]
-      }
-    ]
   }
 }

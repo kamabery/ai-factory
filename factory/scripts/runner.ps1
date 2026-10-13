@@ -3,16 +3,15 @@
   Drains the Approved queue one job at a time in the factory worktree; see "Runner" in
   docs/FACTORY-CONTRACT.md. Started by serve.ps1 after an approve or rework; safe to start twice.
 .DESCRIPTION
-  $env:FACTORY_CLAUDE_CMD, when set, replaces `claude -p "/factory run <id>"` (it runs through
-  pwsh -Command with FACTORY_JOB set), so tests spend no tokens.
+  Each pass runs in the job target's worktree through claude-run.ps1 (plugin, headless settings,
+  stream-json to run-<n>.jsonl). $env:FACTORY_CLAUDE_CMD, when set, replaces claude (it runs
+  through pwsh -Command with FACTORY_JOB set), so tests spend no tokens.
 #>
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 3
 
 $Factory = Join-Path $PSScriptRoot 'factory.ps1'
-# Headless runs: edits are auto-accepted in the worktree and the state dir; Bash goes through the
-# allowlist in .claude/settings.json; no factory job may edit the factory itself.
-$fence = @('Edit(/factory/**)', 'Edit(/.claude/**)', 'Edit(/docs/FACTORY-CONTRACT.md)')
+. (Join-Path $PSScriptRoot 'claude-run.ps1')
 $Building = 'build', 'review', 'approve', 'gate'
 
 function F { & $Factory @args }
@@ -61,27 +60,20 @@ try {
         }
 
         $jobDir = Join-Path $env:FACTORY_HOME "jobs/$id"
-        $n = @(Get-ChildItem $jobDir -Filter 'run-*.json' -ErrorAction SilentlyContinue).Count + 1
+        $n = @(Get-ChildItem $jobDir -Filter 'run-*.jsonl' -ErrorAction SilentlyContinue).Count + 1
         $env:FACTORY_JOB = $id
 
         Push-Location $wt
         try {
-            $out = if ($env:FACTORY_CLAUDE_CMD) {
-                & pwsh -NoProfile -Command $env:FACTORY_CLAUDE_CMD
-            } else {
-                & claude -p "/factory run $id $($env:FACTORY_HOME.Replace('\', '/'))" --output-format json --permission-mode acceptEdits `
-                    --add-dir $env:FACTORY_HOME --disallowedTools @fence
-            }
-            $code = $LASTEXITCODE
+            $state = $env:FACTORY_HOME.Replace('\', '/')
+            $run = Invoke-ClaudeStream "/factory:factory run $id $state $($Factory.Replace('\', '/'))" (Join-Path $jobDir "run-$n.jsonl")
+            $code = $run.Code
+            $result = $run.Result
         } finally {
             Pop-Location
             Remove-Item Env:FACTORY_JOB -ErrorAction SilentlyContinue
         }
 
-        $text = ($out | Out-String).Trim()
-        Set-Content (Join-Path $jobDir "run-$n.json") $text
-        $result = $null
-        try { $result = ($text -split "`n" | Select-Object -Last 1) | ConvertFrom-Json } catch { }
         if ($result -and $result.PSObject.Properties['total_cost_usd']) {
             $ms = if ($result.PSObject.Properties['duration_ms']) { $result.duration_ms } else { 0 }
             F set-cost $id ([string]::Format([Globalization.CultureInfo]::InvariantCulture, '{0}', $result.total_cost_usd)) $ms | Out-Null
@@ -89,7 +81,7 @@ try {
 
         if ((Stage $id) -in $Building) {
             $why = if ($code -ne 0) { "claude exited with exit $code" } else { 'claude finished but the job is still in Building' }
-            F set-stage $id ready -By runner -Reason escalated -Detail "$why; see run-$n.json" | Out-Null
+            F set-stage $id ready -By runner -Reason escalated -Detail "$why; see run-$n.jsonl" | Out-Null
         }
     }
 }

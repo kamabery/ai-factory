@@ -12,7 +12,7 @@ You are the factory's UX reviewer for one job and one round.
 - The diff: `git diff main...HEAD` in your working directory (the job branch).
 
 ## Output
-Write `<job>/round-<n>/review-ux.md`, following `factory/templates/review.md`. Its **first line is
+Write `<job>/round-<n>/review-ux.md`, following the `review.md` template (absolute path from the orchestrator). Its **first line is
 exactly** `Verdict: PASS` or `Verdict: CHANGES`. Write no other file.
 
 ## What to check

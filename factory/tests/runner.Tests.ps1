@@ -13,10 +13,10 @@ BeforeAll {
     function Events { Get-Content (Join-Path $env:FACTORY_HOME 'events.jsonl') | ForEach-Object { $_ | ConvertFrom-Json -AsHashtable -DateKind String } }
     function Run-Runner { & pwsh -NoProfile -File $script:Runner 2>&1 | Out-String }
 
-    function New-ApprovedJob([string]$title) {
-        $idea = F new-idea "idea for $title"
+    function New-ApprovedJob([string]$title, [string]$target = $script:Repo) {
+        $idea = F new-idea "idea for $title" -Target $target
         $spec = Join-Path $TestDrive "spec-$([guid]::NewGuid().ToString('N')).md"
-        Set-Content $spec "# Spec: $title"
+        Set-Content $spec "# Spec: $title`n`n## Target`n- Repo: $target`n`n## Gate`n- build: ``exit 0``"
         $id = F add-spec $idea $spec
         F approve $id | Out-Null
         Start-Sleep -Milliseconds 15
@@ -33,8 +33,13 @@ BeforeAll {
 `$f = '$script:Factory'
 `$building = @((& `$f status -Json | ConvertFrom-Json).jobs | Where-Object { `$_.stage -in 'build','review','approve','gate' })
 Add-Content (Join-Path `$env:FACTORY_HOME 'fake.log') "`$id building=`$(`$building.Count) cwd=`$((Get-Location).Path) branch=`$(git branch --show-current)"
+`$runs = Join-Path `$env:FACTORY_HOME "jobs/`$id"
+'{"type":"system","subtype":"init"}'
+Start-Sleep -Milliseconds 1500
+`$live = @(Get-ChildItem `$runs -Filter 'run-*.jsonl' | Where-Object { (Get-Content `$_.FullName -Raw) -match 'init' }).Count -gt 0
+Add-Content (Join-Path `$env:FACTORY_HOME 'fake.log') "`$id live=`$live"
 if ('$mode' -eq 'crash') { exit 1 }
-if ('$mode' -eq 'stall') { '{"total_cost_usd":0.1,"duration_ms":10}'; exit 0 }
+if ('$mode' -eq 'stall') { '{"type":"result","total_cost_usd":0.1,"duration_ms":10}'; exit 0 }
 Add-Content "`$id.txt" ([guid]::NewGuid())
 git add -A 2>&1 | Out-Null; git commit -q -m "work `$id" 2>&1 | Out-Null
 `$job = (& `$f status -Json | ConvertFrom-Json).jobs | Where-Object id -eq `$id
@@ -103,7 +108,7 @@ Describe 'runner.ps1 and hook-event.ps1' {
 
             (Job $a).stage | Should -Be 'ready'
             (Job $b).stage | Should -Be 'ready'
-            $log = Get-Content (Join-Path $env:FACTORY_HOME 'fake.log')
+            $log = @(Get-Content (Join-Path $env:FACTORY_HOME 'fake.log') | Where-Object { $_ -match 'building=' })
             $log.Count | Should -Be 2
             $log[0] | Should -Match "^$a building=1 "
             $log[1] | Should -Match "^$b building=1 "
@@ -122,13 +127,42 @@ Describe 'runner.ps1 and hook-event.ps1' {
             git status --porcelain | Should -BeNullOrEmpty
         }
 
-        It 'records cost, duration and run-<n>.json' {
+        It 'streams claude output live to run-<n>.jsonl and records cost and duration from the result line' {
             $id = New-ApprovedJob 'A'
             Set-FakeClaude
             Run-Runner | Out-Null
             (Job $id).costUsd | Should -Be 0.5
             (Job $id).durationMs | Should -Be 2000
-            Test-Path (Join-Path $env:FACTORY_HOME "jobs/$id/run-1.json") | Should -BeTrue
+            $run = Get-Content (Join-Path $env:FACTORY_HOME "jobs/$id/run-1.jsonl")
+            $run[0] | Should -Match '"subtype":"init"'
+            $run[-1] | Should -Match '"type":"result"'
+            Get-Content (Join-Path $env:FACTORY_HOME 'fake.log') | Should -Contain "$id live=True"
+        }
+
+        It "runs claude in the target's own worktree for a job on another repo" {
+            Remove-Item Env:FACTORY_WORKTREE
+            $target = Join-Path $TestDrive "target-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+            $id = New-ApprovedJob 'Elsewhere' $target
+            Set-FakeClaude
+            Run-Runner | Out-Null
+            (Job $id).stage | Should -Be 'ready'
+            Get-Content (Join-Path $env:FACTORY_HOME 'fake.log') | Where-Object { $_ -match 'building=' } |
+                Should -Match ([regex]::Escape("cwd=$target.wt") + " branch=factory/$id$")
+            git -C $target branch --list "factory/$id" | Should -Not -BeNullOrEmpty
+            git -C $script:Repo branch --list "factory/$id" | Should -BeNullOrEmpty
+        }
+
+        It 'writes headless-settings.json with the absolute factory.ps1 allow rule and the edit fence' {
+            New-ApprovedJob 'A' | Out-Null
+            Set-FakeClaude
+            Run-Runner | Out-Null
+            $settings = Get-Content (Join-Path $env:FACTORY_HOME 'headless-settings.json') -Raw | ConvertFrom-Json
+            $abs = $script:Factory -replace '\\', '/'
+            $settings.permissions.allow | Should -Contain "Bash(pwsh -NoProfile -File $abs *)"
+            $state = ($env:FACTORY_HOME -replace '\\', '/') -replace '^([A-Za-z]):', { '/' + $_.Groups[1].Value.ToLowerInvariant() }
+            $settings.permissions.deny | Should -Contain "Edit(/$state/jobs/*/spec.md)"
+            $settings.permissions.deny | Should -Contain 'Edit(/factory/**)'
+            $settings.permissions.deny | Should -Contain 'Edit(/.claude/**)'
         }
 
         It 'reuses the existing branch for a reworked job' {
@@ -140,7 +174,7 @@ Describe 'runner.ps1 and hook-event.ps1' {
             Run-Runner | Out-Null
             git rev-list --count "factory/$id" | Should -Be 3
             git merge-base --is-ancestor $first "factory/$id"; $LASTEXITCODE | Should -Be 0
-            Test-Path (Join-Path $env:FACTORY_HOME "jobs/$id/run-2.json") | Should -BeTrue
+            Test-Path (Join-Path $env:FACTORY_HOME "jobs/$id/run-2.jsonl") | Should -BeTrue
         }
 
         It 'escalates a job whose claude process exits non-zero' {
@@ -165,8 +199,8 @@ Describe 'runner.ps1 and hook-event.ps1' {
     Context 'spec-run' {
         BeforeAll { $script:SpecRun = Join-Path $script:Scripts 'spec-run.ps1' }
 
-        It 'runs the spec command with FACTORY_IDEA set and saves run.json' {
-            $idea = F new-idea 'find books'
+        It 'runs the spec command with FACTORY_IDEA set and streams run.jsonl' {
+            $idea = F new-idea 'find books' -Target $script:Repo
             $fake = Join-Path $TestDrive 'fake-spec.ps1'
             @"
 `$f = '$script:Factory'
@@ -181,11 +215,11 @@ Set-Content `$s '# Spec: Book search filter'
             $LASTEXITCODE | Should -Be 0
             ((Board).ideas | Where-Object id -eq $idea).status | Should -Be 'done'
             (Job 'J-001').title | Should -Be 'Book search filter'
-            Test-Path (Join-Path $env:FACTORY_HOME "ideas/$idea/run.json") | Should -BeTrue
+            Get-Content (Join-Path $env:FACTORY_HOME "ideas/$idea/run.jsonl") | Should -Contain '{"total_cost_usd":0.2,"duration_ms":900}'
         }
 
         It 'marks the idea failed when the spec run leaves it drafting' {
-            $idea = F new-idea 'vague'
+            $idea = F new-idea 'vague' -Target $script:Repo
             $env:FACTORY_CLAUDE_CMD = 'exit 1'
             & pwsh -NoProfile -File $script:SpecRun $idea | Out-Null
             $i = (Board).ideas | Where-Object id -eq $idea
@@ -198,7 +232,7 @@ Set-Content `$s '# Spec: Book search filter'
         It 'resolves FACTORY_HOME from inside the worktree to the main checkout' {
             Remove-Item Env:FACTORY_HOME
             $env:FACTORY_HOME = $null
-            & $script:Factory new-idea 'x' 2>$null | Out-Null
+            & $script:Factory new-idea 'x' -Target $script:Repo 2>$null | Out-Null
             & $script:Factory add-spec I-001 (New-Item (Join-Path $TestDrive 's.md') -Value '# Spec: A' -Force) 2>$null | Out-Null
             & $script:Factory checkout J-001 2>$null | Out-Null
             Push-Location $env:FACTORY_WORKTREE
@@ -225,15 +259,25 @@ Set-Content `$s '# Spec: Book search filter'
             $e[1].kind | Should -Be 'agent-stop'
         }
 
+        It "strips the plugin's factory: prefix and records the agent id and its transcript path" {
+            $id = New-ApprovedJob 'A'
+            $env:FACTORY_JOB = $id
+            Get-Content (Join-Path $script:Fixtures 'subagent-start-plugin.json') -Raw | & pwsh -NoProfile -File $script:Hook
+            $e = Events | Where-Object kind -eq 'agent-start'
+            $e.agent | Should -Be 'builder'
+            $e.agentId | Should -Be 'a2f500956fbe5654a'
+            $e.transcript | Should -Be ([IO.Path]::GetFullPath('C:/Users/me/.claude/projects/x/00893aaf/subagents/agent-a2f500956fbe5654a.jsonl'))
+        }
+
         It 'attributes to FACTORY_IDEA when there is no job' {
-            F new-idea 'x' | Out-Null
+            F new-idea 'x' -Target $script:Repo | Out-Null
             $env:FACTORY_IDEA = 'I-001'
             Get-Content (Join-Path $script:Fixtures 'subagent-start.json') -Raw | & pwsh -NoProfile -File $script:Hook
             (Events | Where-Object kind -eq 'agent-start').idea | Should -Be 'I-001'
         }
 
         It 'exits 0 silently and appends nothing with no active job or idea' {
-            F new-idea 'x' | Out-Null
+            F new-idea 'x' -Target $script:Repo | Out-Null
             $before = @(Events).Count
             $out = Get-Content (Join-Path $script:Fixtures 'subagent-start.json') -Raw | & pwsh -NoProfile -File $script:Hook 2>&1
             $LASTEXITCODE | Should -Be 0

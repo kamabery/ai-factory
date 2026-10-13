@@ -3,6 +3,15 @@
 ## Intent
 <One paragraph: what the user wants and why, in the requester's words.>
 
+## Target
+<!-- Copied verbatim from the idea. A path that does not exist yet becomes a new git repo. -->
+- Repo: <absolute path>
+
+## Gate
+<!-- The commands the gate runs in the target's worktree, in order. Each must exit 0. -->
+- build: `<command>`
+- test: `<command>`
+
 ## Acceptance criteria
 <!-- Each one observable, and each named with the test or command that proves it. -->
 - [ ] AC1: <behaviour> — proven by `<test name or command>`

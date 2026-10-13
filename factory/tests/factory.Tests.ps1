@@ -14,19 +14,26 @@ BeforeAll {
     function Events { Get-Content (Join-Path $env:FACTORY_HOME 'events.jsonl') | ForEach-Object { $_ | ConvertFrom-Json -AsHashtable -DateKind String } }
     function JobDir([string]$id) { Join-Path $env:FACTORY_HOME "jobs/$id" }
 
-    function New-Spec([string]$title) {
+    function Spec-Text([string]$title, [string]$repo = $script:Repo, [string[]]$gate = @('build: `exit 0`')) {
+        $t = "# Spec: $title`n`n## Intent`nDo $title.`n"
+        if ($repo) { $t += "`n## Target`n- Repo: $repo`n" }
+        if ($gate) { $t += "`n## Gate`n" + (($gate | ForEach-Object { "- $_" }) -join "`n") + "`n" }
+        $t
+    }
+
+    function New-Spec([string]$title, [string]$repo = $script:Repo, [string[]]$gate = @('build: `exit 0`')) {
         $p = Join-Path $TestDrive "spec-$([guid]::NewGuid().ToString('N')).md"
-        Set-Content $p "# Spec: $title`n`n## Intent`nDo $title.`n"
+        Set-Content $p (Spec-Text $title $repo $gate)
         $p
     }
 
-    function New-BacklogJob([string]$title = 'Thing') {
-        $idea = F new-idea "idea for $title"
-        F add-spec $idea (New-Spec $title)
+    function New-BacklogJob([string]$title = 'Thing', [string]$repo = $script:Repo, [string[]]$gate = @('build: `exit 0`')) {
+        $idea = F new-idea "idea for $title" -Target $repo
+        F add-spec $idea (New-Spec $title $repo $gate)
     }
 
-    function New-ApprovedJob([string]$title = 'Thing') {
-        $id = New-BacklogJob $title
+    function New-ApprovedJob([string]$title = 'Thing', [string]$repo = $script:Repo, [string[]]$gate = @('build: `exit 0`')) {
+        $id = New-BacklogJob $title $repo $gate
         F approve $id | Out-Null
         $id
     }
@@ -109,7 +116,7 @@ AfterEach {
 
 Describe 'ideas and specs' {
     It 'allocates I-001, then J-001 and J-002 in backlog, titled from the spec heading' {
-        $idea = F new-idea 'find books fast'
+        $idea = F new-idea 'find books fast' -Target $script:Repo
         $idea | Should -Be 'I-001'
         Get-Content (Join-Path $env:FACTORY_HOME 'ideas/I-001/idea.md') -Raw | Should -Match 'find books fast'
         (Board).ideas[0].status | Should -Be 'drafting'
@@ -126,8 +133,8 @@ Describe 'ideas and specs' {
     }
 
     It 'idea-done closes an idea, and -Failed keeps the reason' {
-        $a = F new-idea 'good'
-        $b = F new-idea 'vague'
+        $a = F new-idea 'good' -Target $script:Repo
+        $b = F new-idea 'vague' -Target $script:Repo
         F idea-done $a | Out-Null
         F idea-done $b -Failed -Reason 'too vague to spec' | Out-Null
         $LASTEXITCODE | Should -Be 0
@@ -139,8 +146,7 @@ Describe 'ideas and specs' {
 
     It 'edit-spec replaces spec.md in backlog and is refused in any other stage' {
         $id = New-BacklogJob
-        $new = Join-Path $TestDrive 'edited.md'
-        Set-Content $new '# Spec: edited'
+        $new = New-Spec 'edited'
         F edit-spec $id -File $new | Out-Null
         $LASTEXITCODE | Should -Be 0
         Get-Content (Join-Path (JobDir $id) 'spec.md') -Raw | Should -Match 'edited'
@@ -464,6 +470,123 @@ Describe 'bookkeeping' {
     It 'status -Json prints the board' {
         New-BacklogJob | Out-Null
         (F status -Json | ConvertFrom-Json).jobs[0].id | Should -Be 'J-001'
+    }
+}
+
+Describe 'targets' {
+    BeforeEach {
+        # These tests use each target's own <target>.wt, not the shared override.
+        Remove-Item Env:FACTORY_WORKTREE -ErrorAction SilentlyContinue
+        $script:New = Join-Path $TestDrive "target-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+    }
+
+    It 'new-idea refuses a missing, relative or non-repo non-empty target and leaves the board empty' {
+        F new-idea 'no target' | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        F new-idea 'relative' -Target 'Scratchpad\todo' | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        New-Item -ItemType Directory $script:New | Out-Null
+        Set-Content (Join-Path $script:New 'loose.txt') 'not a repo'
+        F new-idea 'non-repo' -Target $script:New | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        Test-Path (Join-Path $env:FACTORY_HOME 'board.json') | Should -BeFalse
+    }
+
+    It 'new-idea stores the target on the idea and as the last line of idea.md' {
+        $idea = F new-idea 'a todo app' -Target $script:New
+        $LASTEXITCODE | Should -Be 0
+        ((Board).ideas | Where-Object id -eq $idea).target | Should -Be $script:New
+        Get-Content (Join-Path $env:FACTORY_HOME "ideas/$idea/idea.md") | Select-Object -Last 1 | Should -Be "Target: $script:New"
+    }
+
+    It 'approve refuses a spec with no Target, a relative Repo, or no Gate' -ForEach @(
+        @{ case = 'no target'; repo = $null; gate = @('build: `exit 0`') }
+        @{ case = 'relative'; repo = 'Scratchpad\todo'; gate = @('build: `exit 0`') }
+        @{ case = 'no gate'; repo = 'NEW'; gate = @() }
+    ) {
+        $r = if ($repo -eq 'NEW') { $script:New } else { $repo }
+        $idea = F new-idea 'x' -Target $script:Repo
+        $id = F add-spec $idea (New-Spec $case $r $gate)
+        F approve $id | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        (Job $id).stage | Should -Be 'backlog'
+    }
+
+    It 'add-spec, edit-spec and approve take job.target from the spec' {
+        $id = New-BacklogJob 'T' $script:Repo
+        (Job $id).target | Should -Be $script:Repo
+        F edit-spec $id -File (New-Spec 'T' $script:New) | Out-Null
+        (Job $id).target | Should -Be $script:New
+        F approve $id | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        (Job $id).target | Should -Be $script:New
+    }
+
+    It 'checkout creates a missing target repo on main with one commit, and <target>.wt on factory/<id>' {
+        $id = New-ApprovedJob 'New app' $script:New
+        $wt = F checkout $id
+        $LASTEXITCODE | Should -Be 0
+        $wt | Should -Be "$script:New.wt"
+        git -C $script:New branch --show-current | Should -Be 'main'
+        @(git -C $script:New log --oneline main).Count | Should -Be 1
+        git -C "$script:New.wt" branch --show-current | Should -Be "factory/$id"
+        git -C $script:Repo branch --list "factory/$id" | Should -BeNullOrEmpty
+    }
+
+    It 'checkout fails when the target became a non-empty folder that is not a repo' {
+        $id = New-ApprovedJob 'Late' $script:New
+        New-Item -ItemType Directory $script:New | Out-Null
+        Set-Content (Join-Path $script:New 'loose.txt') 'x'
+        F checkout $id | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+    }
+
+    It "the gate runs the spec's Gate commands in the target worktree" {
+        Remove-Item Env:FACTORY_GATE_CMDS
+        $id = New-ApprovedJob 'Gated' $script:New @('smoke: `Set-Content gate-ran.txt ok`', 'test: `exit 3`')
+        F checkout $id | Out-Null
+        Move-ToGate $id
+        F gate $id | Out-Null
+        $g = (Job $id).gate
+        $g.smoke | Should -Be 0
+        $g.test | Should -Be 3
+        Test-Path (Join-Path "$script:New.wt" 'gate-ran.txt') | Should -BeTrue
+        (Job $id).flag.reason | Should -Be 'gate-failed'
+    }
+
+    It "merge lands --no-ff on the target's main and records the absolute added and modified paths" {
+        $id = New-ApprovedJob 'Ship' $script:New
+        $wt = F checkout $id
+        New-Item -ItemType Directory (Join-Path $wt 'src') | Out-Null
+        Set-Content (Join-Path $wt 'src/app.txt') 'app'
+        git -C $wt add -A 2>&1 | Out-Null
+        git -C $wt -c user.email=f@t -c user.name=f commit -q -m 'ship' 2>&1 | Out-Null
+        Move-ToGate $id
+        F gate $id | Out-Null
+        F merge $id | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        $j = Job $id
+        $j.stage | Should -Be 'done'
+        $j.merged.repo | Should -Be $script:New
+        $j.merged.added | Should -Be @(Join-Path $script:New 'src\app.txt')
+        $j.merged.sha | Should -Be (git -C $script:New rev-parse main)
+        @(git -C $script:New log --merges --oneline main).Count | Should -Be 1
+        git -C $script:Repo log --merges --oneline main | Should -BeNullOrEmpty
+    }
+
+    It 'a legacy ready job with no target still merges into this repo' {
+        $env:FACTORY_WORKTREE = "$script:Repo.wt"
+        $id = New-ApprovedJob 'Legacy'
+        Commit-OnBranch $id
+        Move-ToGate $id
+        F gate $id | Out-Null
+        # Simulate a job created before targets existed.
+        $b = Board
+        ($b.jobs | Where-Object id -eq $id).Remove('target')
+        [IO.File]::WriteAllText((Join-Path $env:FACTORY_HOME 'board.json'), ($b | ConvertTo-Json -Depth 20))
+        F merge $id | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        (Job $id).merged.added | Should -Be @(Join-Path $script:Repo 'feature.txt')
     }
 }
 

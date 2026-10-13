@@ -13,7 +13,7 @@ does not merge anything: it sends the job to the deterministic gate, and from th
 - The diff: `git diff main...HEAD` in your working directory.
 
 ## Output
-Write `<job>/decision.md`, following `factory/templates/decision.md`. Its **first line is exactly**
+Write `<job>/decision.md`, following the `decision.md` template (absolute path from the orchestrator). Its **first line is exactly**
 `Decision: APPROVE` or `Decision: ESCALATE`. Write no other file.
 
 ## Rules

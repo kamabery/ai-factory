@@ -19,6 +19,7 @@ param(
     [string] $Idea,
     [string] $Kind,
     [string] $Agent,
+    [string] $Target,
     [switch] $Failed,
     [switch] $Json
 )
@@ -54,10 +55,41 @@ New-Item -ItemType Directory -Force $Home_ | Out-Null
 $BoardPath = Join-Path $Home_ 'board.json'
 $EventsPath = Join-Path $Home_ 'events.jsonl'
 
-function WorktreePath {
+# The repo a job builds in and merges to: its target, or this repo for legacy jobs with none.
+function JobRoot($j) {
+    if ($j -and $j.Contains('target') -and $j.target) { return $j.target }
+    MainRoot
+}
+
+function WorktreePath($j) {
     if ($env:FACTORY_WORKTREE) { return $env:FACTORY_WORKTREE }
-    $root = MainRoot
-    Join-Path (Split-Path $root -Parent) ((Split-Path $root -Leaf) + '.wt')
+    (JobRoot $j).TrimEnd('\', '/') + '.wt'
+}
+
+# Returns $null for a usable target ('repo' or 'new'), or why it is refused.
+function Test-Target([string] $path) {
+    if (-not $path) { return 'a target repo path is required' }
+    if (-not [IO.Path]::IsPathFullyQualified($path)) { return "target '$path' is not an absolute path" }
+    if (-not (Test-Path $path)) { return $null }
+    if (-not (Test-Path $path -PathType Container)) { return "target '$path' is a file" }
+    if (Test-Path (Join-Path $path '.git')) { return $null }
+    if (@(Get-ChildItem $path -Force).Count -eq 0) { return $null }
+    "target '$path' is a non-empty folder that is not a git repo"
+}
+
+# Reads `## Target` (- Repo: <path>) and `## Gate` (- <name>: `<cmd>`) from a spec file.
+function Read-SpecMeta([string] $path) {
+    $meta = @{ repo = $null; gate = @() }
+    if (-not (Test-Path $path)) { return $meta }
+    $section = ''
+    foreach ($line in Get-Content $path) {
+        if ($line -match '^##\s+(.+?)\s*$') { $section = $Matches[1].ToLowerInvariant(); continue }
+        if ($section -eq 'target' -and $line -match '^\s*-\s*Repo:\s*(.+?)\s*$') { $meta.repo = $Matches[1] }
+        if ($section -eq 'gate' -and $line -match '^\s*-\s*([a-z0-9-]+):\s*`(.+)`\s*$') {
+            $meta.gate += [pscustomobject]@{ name = $Matches[1]; cmd = $Matches[2] }
+        }
+    }
+    $meta
 }
 
 function JobDir([string] $id) { Join-Path $Home_ "jobs/$id" }
@@ -146,25 +178,45 @@ function Invoke-Git([string] $Where) {
     [pscustomobject]@{ Code = $LASTEXITCODE; Out = ($out | Out-String).Trim() }
 }
 
-function Branch-Exists([string] $branch) { (Invoke-Git (MainRoot) rev-parse --verify --quiet "refs/heads/$branch").Code -eq 0 }
+function Branch-Exists([string] $root, [string] $branch) { (Invoke-Git $root rev-parse --verify --quiet "refs/heads/$branch").Code -eq 0 }
+
+# Creates a missing (or empty) target as a git repo with an empty initial commit on main.
+function Ensure-Repo([string] $root) {
+    $err = Test-Target $root
+    if ($err) { return $err }
+    if (Test-Path (Join-Path $root '.git')) { return $null }
+    New-Item -ItemType Directory -Force $root | Out-Null
+    $r = Invoke-Git $root init -q -b main
+    if ($r.Code -ne 0) { return "git init failed: $($r.Out)" }
+    $r = Invoke-Git $root -c user.name=factory -c user.email=factory@localhost commit -q --allow-empty -m 'Initial commit (factory)'
+    if ($r.Code -ne 0) { return "initial commit failed: $($r.Out)" }
+    $null
+}
 
 function Ensure-Worktree([string] $id) {
-    $wt = WorktreePath
+    $j = Get-Job $id
+    $root = JobRoot $j
+    $err = Ensure-Repo $root
+    if ($err) { return $err }
+    $wt = WorktreePath $j
     $branch = "factory/$id"
     if (-not (Test-Path $wt)) {
-        $r = Invoke-Git (MainRoot) worktree add --detach $wt main
+        $r = Invoke-Git $root worktree add --detach $wt main
         if ($r.Code -ne 0) { return "worktree add failed: $($r.Out)" }
     }
     $current = (Invoke-Git $wt branch --show-current).Out
     if ($current -eq $branch) { return $null }
     if ((Invoke-Git $wt status --porcelain).Out) { return "worktree $wt has uncommitted changes on '$current'" }
-    $r = if (Branch-Exists $branch) { Invoke-Git $wt checkout -q $branch } else { Invoke-Git $wt checkout -q -b $branch main }
+    $r = if (Branch-Exists $root $branch) { Invoke-Git $wt checkout -q $branch } else { Invoke-Git $wt checkout -q -b $branch main }
     if ($r.Code -ne 0) { return "checkout $branch failed: $($r.Out)" }
     $null
 }
 
-function Gate-Commands {
+function Gate-Commands($j) {
     if ($env:FACTORY_GATE_CMDS) { return @($env:FACTORY_GATE_CMDS | ConvertFrom-Json) }
+    $gate = (Read-SpecMeta (Join-Path (JobDir $j.id) 'spec.md')).gate
+    if ($gate) { return $gate }
+    if ($j.Contains('target') -and $j.target) { return @() }
     @(
         [pscustomobject]@{ name = 'build'; cmd = 'dotnet build shelf.slnx' }
         [pscustomobject]@{ name = 'test'; cmd = 'dotnet test tests/shelf.api.tests' }
@@ -179,14 +231,16 @@ function Invoke-Gate([string] $id) {
     $err = Ensure-Worktree $id
     if ($err) { return $err }
     $j = Get-Job $id
-    $wt = WorktreePath
+    $wt = WorktreePath $j
+    $cmds = @(Gate-Commands $j)
+    if (-not $cmds) { return 'no gate commands in the spec' }
     $log = Join-Path (JobDir $j.id) 'gate.log'
     New-Item -ItemType Directory -Force (JobDir $j.id) | Out-Null
     Set-Content $log "# gate $($j.id) at $(Now)"
     $result = [ordered]@{}
     $Mutex.ReleaseMutex()
     try {
-    foreach ($c in Gate-Commands) {
+    foreach ($c in $cmds) {
         Add-Content $log "`n## $($c.name): $($c.cmd)"
         Push-Location $wt
         try {
@@ -202,7 +256,7 @@ function Invoke-Gate([string] $id) {
         $script:Board = Load-Board
     }
     $j = Get-Job $id
-    $result.sha = (Invoke-Git (MainRoot) rev-parse "factory/$($j.id)").Out
+    $result.sha = (Invoke-Git (JobRoot $j) rev-parse "factory/$($j.id)").Out
     $result.at = Now
     $j.gate = $result
     $detail = ($result.Keys | Where-Object { $_ -notin 'sha', 'at' } | ForEach-Object { "$_=$($result[$_])" }) -join ' '
@@ -214,7 +268,7 @@ function Invoke-Gate([string] $id) {
 function Gate-Green($j) {
     if (-not $j.gate) { return $false }
     foreach ($k in $j.gate.Keys) { if ($k -notin 'sha', 'at' -and $j.gate[$k] -ne 0) { return $false } }
-    $head = (Invoke-Git (MainRoot) rev-parse "factory/$($j.id)").Out
+    $head = (Invoke-Git (JobRoot $j) rev-parse "factory/$($j.id)").Out
     $j.gate.sha -eq $head
 }
 
@@ -224,12 +278,14 @@ try {
     switch ($Command) {
 
         'new-idea' {
-            if (-not $Arg1) { Fail 'usage: new-idea <text>' }
+            if (-not $Arg1) { Fail 'usage: new-idea <text> -Target <path>' }
+            $err = Test-Target $Target
+            if ($err) { Fail "new-idea refused: $err" }
             $id = Next-Id 'I' $Board.ideas
             $dir = Join-Path $Home_ "ideas/$id"
             New-Item -ItemType Directory -Force $dir | Out-Null
-            Set-Content (Join-Path $dir 'idea.md') $Arg1
-            $Board.ideas = @($Board.ideas) + [ordered]@{ id = $id; text = $Arg1; status = 'drafting'; jobs = @(); createdAt = Now }
+            Set-Content (Join-Path $dir 'idea.md') @($Arg1, '', "Target: $Target")
+            $Board.ideas = @($Board.ideas) + [ordered]@{ id = $id; text = $Arg1; target = $Target; status = 'drafting'; jobs = @(); createdAt = Now }
             Save-Board $Board
             Add-Event ([ordered]@{ idea = $id; kind = 'idea'; detail = 'drafting' })
             $id
@@ -251,7 +307,8 @@ try {
             $ts = Now
             $j = [ordered]@{
                 id = $id; idea = $i.id; title = $title; stage = 'backlog'; round = 1; branch = "factory/$id"
-                reviews = $null; decision = $null; gate = $null; flag = $null; approvedAt = $null
+                target = (Read-SpecMeta $Arg2).repo
+                reviews = $null; decision = $null; gate = $null; flag = $null; merged = $null; approvedAt = $null
                 costUsd = $null; durationMs = $null; createdAt = $ts; updatedAt = $ts; history = @()
             }
             Reset-Reviews $j
@@ -275,6 +332,7 @@ try {
             Require-Stage $j 'backlog' 'edit-spec'
             if (-not $File -or -not (Test-Path $File)) { Fail "spec file not found: $File" }
             Copy-Item $File (Join-Path (JobDir $j.id) 'spec.md') -Force
+            $j.target = (Read-SpecMeta $File).repo
             $j.updatedAt = Now
             Save-Board $Board
             Add-Event ([ordered]@{ job = $j.id; kind = 'note'; detail = 'spec edited' })
@@ -283,7 +341,14 @@ try {
         'approve' {
             $j = Get-Job $Arg1
             Require-Stage $j 'backlog' 'approve'
-            if (-not (Test-Path (Join-Path (JobDir $j.id) 'spec.md'))) { Fail "$($j.id) has no spec.md" }
+            $spec = Join-Path (JobDir $j.id) 'spec.md'
+            if (-not (Test-Path $spec)) { Fail "$($j.id) has no spec.md" }
+            $meta = Read-SpecMeta $spec
+            if (-not $meta.repo) { Fail "approve refused: the spec has no '## Target' with '- Repo: <path>'" }
+            $err = Test-Target $meta.repo
+            if ($err) { Fail "approve refused: $err" }
+            if (-not $meta.gate) { Fail "approve refused: the spec's '## Gate' has no '- <name>: ``<command>``' lines" }
+            $j.target = $meta.repo
             $j.approvedAt = Now
             Move-Job $j 'approved' 'human'
         }
@@ -304,13 +369,14 @@ try {
             $j = Get-Job $Arg1
             Require-Stage $j 'backlog', 'ready' 'discard'
             $branch = "factory/$($j.id)"
-            if (Branch-Exists $branch) {
-                $wt = WorktreePath
+            $root = JobRoot $j
+            if ((Test-Path (Join-Path $root '.git')) -and (Branch-Exists $root $branch)) {
+                $wt = WorktreePath $j
                 if ((Test-Path $wt) -and (Invoke-Git $wt branch --show-current).Out -eq $branch) {
                     $r = Invoke-Git $wt checkout -q --detach
                     if ($r.Code -ne 0) { Fail "cannot detach worktree: $($r.Out)" }
                 }
-                $r = Invoke-Git (MainRoot) branch -D $branch
+                $r = Invoke-Git $root branch -D $branch
                 if ($r.Code -ne 0) { Fail "cannot delete $($branch): $($r.Out)" }
             }
             Move-Job $j 'discarded' 'human'
@@ -329,7 +395,7 @@ try {
                 if ($g -ne $true) { Move-Job $j 'ready' 'gate' 'merge-blocked' $g; Fail "merge blocked: $g" }
                 if (-not (Gate-Green $j)) { Move-Job $j 'ready' 'gate' 'gate-failed' 'gate red at merge; see gate.log'; Fail 'merge refused: gate red' }
             }
-            $root = MainRoot
+            $root = JobRoot $j
             $current = (Invoke-Git $root branch --show-current).Out
             if ($current -ne 'main') { Move-Job $j 'ready' 'human' 'merge-blocked' "release checkout is on '$current', not main"; Fail 'merge blocked: not on main' }
             $dirty = (Invoke-Git $root status --porcelain).Out
@@ -341,6 +407,13 @@ try {
                 Fail "merge blocked: $($r.Out)"
             }
             $sha = (Invoke-Git $root rev-parse HEAD).Out
+            $added = @(); $modified = @()
+            foreach ($line in (Invoke-Git $root -c core.quotepath=false diff --name-status --no-renames "$sha^1" $sha).Out -split "`n") {
+                if ($line -notmatch '^([A-Z])\t(.+)$') { continue }
+                $full = Join-Path $root ($Matches[2] -replace '/', '\')
+                if ($Matches[1] -eq 'A') { $added += $full } elseif ($Matches[1] -eq 'M') { $modified += $full }
+            }
+            $j.merged = [ordered]@{ sha = $sha; repo = $root; added = $added; modified = $modified }
             Move-Job $j 'done' 'human'
             Add-Event ([ordered]@{ job = $j.id; kind = 'merge'; detail = $sha })
         }
@@ -354,7 +427,7 @@ try {
             $j = Get-Job $Arg1
             $err = Ensure-Worktree $j.id
             if ($err) { Fail $err }
-            WorktreePath
+            WorktreePath (Get-Job $j.id)
         }
 
         'set-cost' {

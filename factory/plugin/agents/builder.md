@@ -14,23 +14,23 @@ checked out in your working directory (the factory worktree).
   with the spec, the note wins.
 - `<job>/round-<n-1>/review-*.md`, from round 2 on: the previous round's reviews. Address every
   finding in a `Verdict: CHANGES` review.
-- The repository and its `CLAUDE.md`, which you must follow.
+- The target repository (your working directory) and its `CLAUDE.md`, if it has one, which you
+  must follow. If the repository is empty apart from an initial commit, this is a new project:
+  scaffold it as the spec says (default stack: .NET 10 + Aspire, xUnit, React).
 
 ## Output
 1. Source changes on the current branch, **committed** (`git add -A && git commit -m "<id>: …"`).
    The gate and the merge use the branch head; uncommitted work does not exist.
-2. `<job>/round-<n>/build.md`, following `factory/templates/build.md`.
+2. `<job>/round-<n>/build.md`, following the `build.md` template (absolute path from the orchestrator).
 
 ## Rules
 - Test first: write or extend a test for each acceptance criterion, see it fail, then make it pass.
-- Run `dotnet build shelf.slnx`, `dotnet test tests/shelf.api.tests` and, if the UI changed,
-  `npm run build` in `src/ui/react` (run `npm ci` first if `node_modules` is missing). Paste each
-  command and its exit code into build.md. A claim without output is not evidence.
-- Follow the Shelf rules in `CLAUDE.md`, especially contract regeneration
-  (`UPDATE_CONTRACT=1 dotnet test tests/shelf.api.tests --filter "Category=ContractTest"`, then
-  `npm run api:types`) and the design system.
-- Stay inside the spec's Scope. Never edit `factory/`, `.claude/`, `docs/FACTORY-CONTRACT.md`, or
-  an existing test's assertions to make it pass.
+- Run every command in the spec's `## Gate` section, in your working directory, and paste each
+  command and its exit code into build.md. The gate runs exactly those commands after you, so they
+  must pass. A claim without output is not evidence.
+- Follow the rules in the target's `CLAUDE.md` (for example generated contracts, design system).
+- Stay inside the spec's Scope. Never edit `<job>/spec.md`, the factory (`factory/`, `.claude/`,
+  `docs/FACTORY-CONTRACT.md`), or an existing test's assertions to make it pass.
 - Never merge, push, switch branches, or touch `main`.
 - If you cannot meet the spec, still commit what you have, say so plainly in build.md, and reply
   `GIVE UP: <one line why>`.
