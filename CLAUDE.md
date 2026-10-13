@@ -7,7 +7,8 @@ Two things live in this repo:
 2. **The factory**, a Claude Code software factory installed into Shelf, as in the ZazenCodes
    "Build Your Own AI Software Factory with Claude Code" video. A `/factory` skill orchestrates
    spec, build, four parallel reviewers and an approver. A deterministic PowerShell control plane
-   owns state, the gate and the merge, and a local dashboard shows jobs moving through it.
+   owns state, the gate and the merge. A local dashboard is where the human works the factory:
+   ideas in, specs edited and approved by drag and drop, and finished work reviewed and merged.
 
 The design rationale is in `D:\code\main-vault\ai-engineering\software-factories-agentic-os-and-harnesses.md`
 and `...\build-your-own-ai-software-factory-with-claude-code.md`. How to build the rest of it is in
@@ -23,8 +24,13 @@ and `...\build-your-own-ai-software-factory-with-claude-code.md`. How to build t
 - **`.factory-runs/` is gitignored on purpose.** Factory state must never dirty the release checkout.
   In the source video, a modified `backlog.md` blocked an approved merge. Don't move state into
   tracked files.
-- **Approval is not merge.** The approver's `APPROVE` only moves a job to `gate`; `factory.ps1 gate`
-  and `merge` decide the rest from exit codes and a clean tree.
+- **Approval is not merge.** The approver's `APPROVE` only moves a job to `gate`, and a green gate
+  only moves it to Ready for review. Only a human drag to Done runs `factory.ps1 merge`, which
+  still requires a green gate and a clean tree.
+- **The dashboard's write endpoints are thin `factory.ps1` wrappers.** `serve.ps1` holds no
+  transition logic of its own.
+- **Jobs build in one reusable worktree, `..\claude-factory.wt`**, one at a time. The main checkout
+  stays on a clean `main`.
 - **No agent weakens the thing that judges it.** Factory jobs never edit `factory/`, `.claude/`,
   `docs/FACTORY-CONTRACT.md` or test assertions in order to pass. Changes to the factory itself are
   made by a human session, not by `/factory`.
@@ -58,6 +64,7 @@ dotnet test tests/shelf.api.tests
 cd src/ui/react; npm install; npm run build
 aspire run                                   # no Docker needed (SQLite)
 
-pwsh factory/scripts/serve.ps1               # dashboard on http://localhost:4317 (after step 2)
-Invoke-Pester factory/tests                  # control-plane tests (after step 1)
+pwsh factory/scripts/serve.ps1               # dashboard on http://localhost:4317 (after step 3)
+pwsh factory/scripts/runner.ps1              # drains the Approved queue; serve.ps1 starts it for you (after step 2)
+Invoke-Pester factory/tests                  # control-plane and runner tests (after steps 1-2)
 ```

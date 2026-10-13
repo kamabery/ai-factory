@@ -1,16 +1,24 @@
 # Build guide: finishing the factory
 
-What already exists: Shelf is scaffolded and green (22 API tests, the AppHost build and the React
-build all pass), the contract is in `docs/FACTORY-CONTRACT.md`, the seed backlog and artifact
-templates are in `factory/`, and the empty folders are in place. Everything below is still to do.
+**The target:** you type an idea into the dashboard, and the spec-writer turns it into backlog cards.
+You edit each spec and drag the ones you want to **Approved**. Each approved card is built, reviewed
+by four agents, judged by the approver and gated, then lands in **Ready for review**. You inspect it
+and drag it to **Done**, which merges it, or send it back with a rework note. The contract for all
+of this is `docs/FACTORY-CONTRACT.md`. Read it before any step.
+
+**What already exists:** Shelf is scaffolded and green (22 API tests, the AppHost build and the React
+build all pass). The contract, the artifact templates and the empty folders are in place, and
+`factory/backlog.md` holds sample ideas. Everything below is still to do.
 
 Each step gives a prompt to paste into Claude Code in `D:\code\claude-factory`, the test that has to
 be **seen red before it goes green**, and the evidence that closes the step. Do the steps in order,
-committing each one on `main` once its evidence is in. Steps 1–4 build the factory, steps 5–6 prove
-it on real work, and step 7 makes it parallel.
+committing each one on `main` once its evidence is in.
+- Steps 1–3 build the deterministic parts and can be tested without spending a token.
+- Steps 4–5 add the agents.
+- Steps 6–7 prove it on real work.
 
-Keep a scratch log of the wall-clock time and the token or cost figures for steps 5–7. Those
-numbers are half of the "validated" bar.
+Keep a scratch log of the wall-clock time and the cost figures for steps 6–7. The dashboard shows
+cost per card from step 2 onward. Those numbers are half of the "validated" bar.
 
 ---
 
@@ -18,72 +26,118 @@ numbers are half of the "validated" bar.
 
 **Prompt:**
 
-> Read docs/FACTORY-CONTRACT.md. Using TDD with Pester 6, build `factory/scripts/factory.ps1`: a single
-> script with subcommands `new-job <title> [-RequestFile]`, `set-stage <id> <to> [-By] [-Reason] [-Detail]`,
-> `set-review <id> <role> <pending|running|PASS|CHANGES>`, `read-reviews <id>` (parses the 4 verdict
-> first-lines of the current round into the board and moves the job review→build / review→approve /
-> review→needs-human per the contract), `read-decision <id>`, `event <json|-Job -Kind -Agent>`,
-> `gate <id>`, `merge <id>`, `status [-Json]`, `approve <id>`, `rework <id> <note>`, `active <id>`.
-> It resolves state from `$env:FACTORY_HOME`, else `<repo root>/.factory-runs`. Writes to board.json
-> are atomic: write a temp file, then rename. Write `factory/tests/factory.Tests.ps1` FIRST, and
-> run it and show me it failing before you write the script. Tests use a temp git repo fixture,
-> never this repo's state. The gate commands must be injectable (`$env:FACTORY_GATE_CMDS` as JSON)
-> so the tests can use `exit 0` and `exit 1` instead of dotnet.
+> Read docs/FACTORY-CONTRACT.md. Using TDD with Pester 6, build `factory/scripts/factory.ps1`: one
+> script with every subcommand in the contract's "factory.ps1 commands" table, enforcing the
+> "Job transitions" table exactly. Write `factory/tests/factory.Tests.ps1` FIRST, and run it and show me
+> it failing before you write the script. Tests use a temp git repo fixture with a `main` branch and
+> `$env:FACTORY_HOME` pointed at a temp dir, never this repo's state. Inject the gate commands
+> through `$env:FACTORY_GATE_CMDS`, using `exit 0` / `exit 1`.
 
 **The tests must cover at least the following:**
-- `new-job` allocates `J-001`, then `J-002`, creates `jobs/<id>/request.md`, and puts the job in `backlog`.
-- An illegal transition (`spec → merged`) throws, and the board is unchanged.
-- Four `PASS` verdicts move a job `review → approve`; one `CHANGES` at round 1 moves it to `build` round 2,
-  with every review reset to `pending`; `CHANGES` at round 2 lands it in `needs-human/max-rounds`.
+- `new-idea` allocates `I-001`; `add-spec` twice from it allocates `J-001` and `J-002` in `backlog`,
+  with titles taken from the `# Spec:` heading and both ids listed on the idea; `idea-done -Failed` keeps the reason.
+- `edit-spec` replaces spec.md in `backlog` and is refused in any other stage.
+- An illegal transition (`backlog → done`, `approved → ready`) exits non-zero, and the board is byte-for-byte unchanged.
+- `next` returns the oldest `approvedAt`, and returns nothing while any job is in build/review/approve/gate.
+- `approved → build` is refused while another job is in Building; `build → review` is refused until `round-<n>/build.md` exists.
+- Four `PASS` → `review → approve`. One `CHANGES` at round 1 → `build`, round 2, reviews reset to `pending`.
+  `CHANGES` at round 2 → `ready` with flag `max-rounds`.
 - A missing or malformed verdict line counts as no verdict, and the job doesn't move.
-- `Decision: ESCALATE` → `needs-human/escalated`.
-- `gate` with a failing command → `needs-human/gate-failed`, with the exit codes on `gate` and the output in `gate.log`.
-- `merge` on a dirty fixture tree → `needs-human/merge-blocked`, and nothing gets merged.
-- `merge` on a clean tree → a `--no-ff` merge commit on `main` and the job in `merged`.
-- `approve` from needs-human → gate; `rework` → build with round + 1 and the note in `jobs/<id>/rework-<n>.md`.
-- Every transition appends a `stage` event to `events.jsonl`.
+- `Decision: ESCALATE` → `ready` with flag `escalated`; `APPROVE` → `gate`.
+- `gate` green → `ready` with no flag and `gate.sha` set. A red gate → `ready`, flag `gate-failed`, exit codes on `gate`, output in `gate.log`.
+- `merge` with a dirty fixture tree → stays `ready`, flag `merge-blocked`, nothing merged.
+- `merge` on a job flagged `max-rounds` (no gate recorded) runs the gate first. If the gate is red, the job
+  stays `ready` with `gate-failed`; if it's green and the tree is clean, a `--no-ff` merge commit lands on `main` and the job is `done`.
+- `rework` from `ready` → `approved`, round + 1, the note in `rework-<n>.md`, flag cleared.
+- `discard` from `backlog` and from `ready` → `discarded`, and the `factory/<id>` branch is deleted.
+- `set-cost` adds to `costUsd`/`durationMs` and appends a `cost` event.
+- Every transition appends a `stage` event to `events.jsonl` with `by`.
 
 **Evidence:** red output, then `Invoke-Pester factory/tests` green.
 
 ---
 
-## Step 2: Dashboard and simulator
+## Step 2: Runner and hooks, test-first with Pester
 
 **Prompt:**
 
-> Build the factory dashboard per docs/FACTORY-CONTRACT.md, test first.
+> Read the "Runner" section and the Agents table of docs/FACTORY-CONTRACT.md. TDD with Pester again.
+> 1. `factory/scripts/runner.ps1` per the contract. The claude command is injectable through
+>    `$env:FACTORY_CLAUDE_CMD`, so tests use a fake that prints a JSON result (`total_cost_usd`,
+>    `duration_ms`) and drives the job with factory.ps1 calls, or exits 1.
+> 2. `factory/scripts/hook-event.ps1`: reads SubagentStart/SubagentStop hook JSON from stdin and appends
+>    agent-start/agent-stop through `factory.ps1 event` for `$env:FACTORY_JOB`, or for the idea in `$env:FACTORY_IDEA`.
+>    It exits 0 silently when neither is set, so hooks never break a normal session. First confirm
+>    the current SubagentStart/SubagentStop input fields (agent type/name) from the Claude Code hooks
+>    documentation, and capture sample payloads as fixtures; don't assume the fields.
+> Write the tests first and show them failing.
+
+**The tests must cover at least the following:**
+- A second runner started while `runner.lock` exists exits 0 at once and does nothing.
+- Two approved jobs drain strictly in order: the second goes to `build` only after the first leaves Building.
+  The lock is gone afterwards.
+- The worktree is created once and reused for the second job, and the main checkout's branch and status are untouched.
+- A reworked job reuses its existing `factory/<id>` branch.
+- `FACTORY_HOME` resolved from inside the worktree finds the main checkout's `.factory-runs`.
+- The fake claude's cost and duration land on the job, and `run-<n>.json` is saved.
+- A fake claude that exits 1 while the job is in Building → `ready` with flag `escalated`.
+- hook-event: each fixture payload appends the right event; with no job or idea set, it appends nothing and exits 0.
+
+**Evidence:** red output, then `Invoke-Pester factory/tests` green.
+
+---
+
+## Step 3: Dashboard, server and simulator
+
+**Prompt:**
+
+> Build the dashboard per the "Dashboard API" and "Board columns" sections of docs/FACTORY-CONTRACT.md, test first.
 > 1. `factory/scripts/simulate.ps1 [-Speed 1.0] [-Reset]`: using ONLY factory.ps1 calls, with
->    `$env:FACTORY_HOME` pointed at `.factory-runs-sim/` (gitignore it), it drives `SIM-001` through
->    spec → build → review (agent-start/stop events for all 4 reviewers in parallel) → approve → gate → merged,
->    and `SIM-002` through a CHANGES round to `needs-human/max-rounds`, and `SIM-003` to `needs-human/merge-blocked`.
+>    `$env:FACTORY_HOME` at `.factory-runs-sim/`, it drives:
+>    - `SIM-I-001` into three backlog cards
+>    - `SIM-001` through approved → build → review (agent-start/stop for all 4 reviewers in parallel) →
+>      approve → gate → ready → done
+>    - `SIM-002` through a CHANGES round to `ready`/`max-rounds`, then rework → approved → … → `ready`
+>    - `SIM-003` to `ready`/`merge-blocked`
+>    - `SIM-004` discarded from backlog
+>
 >    The gate and merge use injected commands; the simulator never touches git or dotnet.
-> 2. `factory/scripts/serve.ps1 [-Port 4317] [-StateDir]`: an HttpListener on localhost only. It serves
->    `factory/dashboard/index.html` and read-only GETs under the state dir. Reject `..` path traversal,
->    and serve `.md` as text/plain.
-> 3. A Playwright test in `factory/tests/dashboard/` (an `npx playwright test` project with its own
->    package.json). It starts serve.ps1 against `.factory-runs-sim`, runs simulate.ps1 at high speed,
->    and asserts that SIM-001's card ends in the Merged column, SIM-002 and SIM-003 end in Needs human
->    with their reason codes visible, the reviewer chips show PASS/CHANGES, and opening SIM-001's
->    drawer shows a timeline with ≥ 10 events and a working link to spec.md. Run it and show it failing.
+> 2. `factory/scripts/serve.ps1 [-Port 4317] [-StateDir]`: an HttpListener on localhost only, with the GETs
+>    and the write endpoints in the contract, each a thin wrapper over one factory.ps1 call. It starts the
+>    runner and spawns the spec run as the contract says, using `$env:FACTORY_CLAUDE_CMD` when it is set.
+> 3. A Playwright test in `factory/tests/dashboard/` (its own package.json). It starts serve.ps1 against
+>    `.factory-runs-sim` with `FACTORY_CLAUDE_CMD` set to a no-op, and asserts the following:
+>    - After simulate.ps1 at high speed: SIM-001 is in Done, SIM-002 and SIM-003 are in Ready for review
+>      with their flag reasons visible, the reviewer chips show PASS/CHANGES, and SIM-001's drawer has
+>      ≥ 10 timeline events, a working link to spec.md, and a cost badge.
+>    - Submitting an idea in the idea box adds a card to Ideas.
+>    - Editing a backlog card's spec in the drawer and saving it changes spec.md on disk.
+>    - Dragging a backlog card to Approved moves it, and board.json shows `approved`.
+>    - Dragging a backlog card straight to Done snaps back and shows the refusal message.
+>    - Dragging a ready card to Done calls merge (injected green) and lands it in Done.
+>    - Rework from a ready card with a note moves it to Approved.
+>
+>    Run it and show it failing.
 > 4. Then build `factory/dashboard/index.html` (one file, no build step, no CDN dependencies) until it passes:
->    - a pipeline strip that redraws the video's graph: spec-writer → builder → [security, code, ux, ui]
->      → approver → gate → merge. A node pulses while an agent-start has no matching agent-stop, and
->      shows a badge for each job id it's working on.
->    - a Kanban board with columns Backlog · Spec · Build · Review · Approve · Gate · Merged · Needs human.
->      Cards animate between columns (a FLIP transition) and show the id, title, round, reviewer chips,
->      elapsed time, and cost when present.
->    - a job drawer with links to the artifacts (fetched and shown as preformatted text), the timeline,
->      the gate exit codes, the needs-human reason + detail, and a copy button for the recovery command
->      (`/factory approve <id>` or `/factory rework <id> "<note>"`).
+>    - an idea box at the top
+>    - a pipeline strip that redraws the video's graph: spec-writer → builder → [security, code, ux, ui] →
+>      approver → gate. A node pulses while an agent-start has no matching agent-stop, and shows a badge
+>      for each job or idea id it's working on.
+>    - a Kanban board with the six columns from the contract. Drag and drop only into the columns the
+>      contract allows. Cards animate between columns (a FLIP transition) and show the id, title,
+>      sub-stage and round in Building, reviewer chips, the flag badge, elapsed time, and cost.
+>    - a job drawer with an editable spec (Backlog only, with Save), links to the artifacts shown as
+>      preformatted text, the timeline, the gate exit codes and sha, and the flag reason + detail. On a
+>      ready card it has Rework (with a note), Discard, and "Merge" (the same as dragging to Done).
 >    - polling of board.json and events.jsonl every 1.5 s, with light and dark themes.
 
 **Evidence:** the Playwright test red, then green. Then **watch it by eye**: run `serve.ps1` and
 `simulate.ps1 -Speed 0.5`, open `http://localhost:4317`, and confirm the cards visibly travel the
-board and the pipeline nodes light up. This is the "things running through the factory" view.
+board and the pipeline nodes light up.
 
 ---
 
-## Step 3: Agents
+## Step 4: Agents
 
 **Prompt:**
 
@@ -92,119 +146,107 @@ board and the pipeline nodes light up. This is the "things running through the f
 > `tools` list. Reviewers and the approver get Read, Grep, Glob and Bash (for git diff and running tests)
 > plus Write, and may write only their own output file. The builder gets the full edit tools.
 > Each prompt states its exact input files, its exact output path, and that the output must follow
-> `factory/templates/<kind>.md`, verdict line first. Reviewer prompts include:
+> `factory/templates/<kind>.md`, with the verdict line first.
+>
+> The spec-writer gets Read, Grep, Glob and Write, and writes only under `ideas/<id>/`. It splits an idea
+> into the fewest independently buildable specs that cover it (1..5), each small enough for one build round,
+> with every AC observable and named with the test or command that proves it. When an idea is too vague
+> to spec, it writes no specs and explains why, so the idea is marked failed.
+>
+> Reviewer prompts include:
 > "Return CHANGES only for a blocking defect you can point to at file:line, with a fix; everything else is a Note."
-> (This is the counter to the over-escalation seen in the video.) The security reviewer checks
-> secrets/PII in logs, authz on new endpoints, input validation and injection. The code reviewer checks
-> correctness, tests that actually assert the ACs, and the contract regeneration rules in CLAUDE.md. The UX
-> reviewer checks behaviour against the spec's ACs from a user's point of view. The UI reviewer checks
-> docs/DESIGN.md compliance (no raw values, components from src/components/ui). The approver decides
-> APPROVE only if every AC is evidenced and every review is PASS; otherwise ESCALATE with the single
-> decision a human must make.
+> (This is the counter to the over-escalation seen in the video.) Each reviewer's focus:
+> - **Security:** secrets/PII in logs, authz on new endpoints, input validation and injection.
+> - **Code:** correctness, tests that actually assert the ACs, and the contract regeneration rules in CLAUDE.md.
+> - **UX:** behaviour against the spec's ACs from a user's point of view.
+> - **UI:** docs/DESIGN.md compliance (no raw values, components from src/components/ui).
+>
+> The approver decides APPROVE only if every AC is evidenced and every review is PASS. Otherwise it
+> returns ESCALATE with the single decision a human must make.
 
-**Test:** this step has no executable test of its own. Its proof is step 5. Before moving on,
+**Test:** this step has no executable test of its own. Its proof is step 6. Before moving on,
 review the seven files yourself: this is where the factory's quality bar lives.
 
 ---
 
-## Step 4: Orchestrator skill and hooks
+## Step 5: Orchestrator skill, hooks and permissions
 
 **Prompt:**
 
-> Write `.claude/skills/factory/SKILL.md`, the /factory orchestrator. Commands:
-> `/factory <feature text>` (new job from text), `/factory next` (first backlog.md heading with no job
-> of the same title on the board), `/factory run <id>`, `/factory status`, `/factory approve <id>`,
-> `/factory rework <id> <note>`. Rules: the orchestrator stays thin. It never writes code or artifacts
-> itself; every state change is a factory.ps1 call; it checks that the release checkout is clean and on main
-> before creating a job branch; it calls `factory.ps1 active <id>`; it runs the spec-writer, then
-> the builder on branch `factory/<id>`, then the 4 reviewers as 4 parallel Agent calls in ONE message,
-> then `read-reviews`, looping per the contract; then the approver, `read-decision`, `gate`, and `merge`.
-> When the script puts a job in needs-human, it stops and prints the reason and the recovery command.
+> Write `.claude/skills/factory/SKILL.md`, the /factory orchestrator. It has three commands, which are
+> what serve.ps1 and runner.ps1 invoke:
+> - `/factory spec <ideaId>`: run the spec-writer, then `add-spec` for each spec file and `idea-done`
+>   (or `idea-done -Failed` if it wrote none).
+> - `/factory run <id>`: for a job already in `build` in the current worktree, run the builder, then the
+>   4 reviewers as 4 parallel Agent calls in ONE message, then `read-reviews`, looping per the contract;
+>   then the approver, `read-decision` and `gate`. It stops when the job reaches `ready`.
+> - `/factory status`: print `factory.ps1 status`.
 >
-> Then add `.claude/settings.json` hooks: SubagentStart and SubagentStop call
-> `pwsh -NoProfile -File factory/scripts/hook-event.ps1`, which reads the hook JSON from stdin and appends
-> agent-start/agent-stop for the job in `$env:FACTORY_JOB`, else `.factory-runs/active-job`. It exits 0
-> silently when there's no active job, so hooks never break a normal session.
-> First confirm the current SubagentStart/SubagentStop hook input fields (agent type/name)
-> from the Claude Code hooks documentation; don't assume them. Write Pester tests for hook-event.ps1
-> using captured sample hook payloads, and see them fail first.
+> Rules: the orchestrator stays thin. It never writes code or artifacts itself; every state change is
+> a factory.ps1 call; it never merges, approves or reworks (those are human drags); and when it gives
+> up, it calls `set-stage <id> ready -Reason escalated -Detail "<why>"`.
+>
+> Then `.claude/settings.json`:
+> - SubagentStart and SubagentStop hooks calling `pwsh -NoProfile -File factory/scripts/hook-event.ps1`.
+> - A narrow `permissions.allow` for the headless runs: dotnet, npm, npx, git, `pwsh factory/scripts/*`,
+>   and Edit/Write. Not `--dangerously-skip-permissions`.
 
-**Test:** the Pester tests for `hook-event.ps1` go red, then green. Then a smoke run: `/factory status`
-on an empty board prints an empty board without error.
+**Test:** a smoke run. `/factory status` on an empty board prints an empty board without error.
+Then type a trivial idea into the dashboard (serve.ps1 with no `FACTORY_CLAUDE_CMD`) and confirm that
+it becomes at least one backlog card with a sensible spec, and that the spec-writer pulse showed on
+the pipeline strip. Discard the card afterwards.
 
 ---
 
-## Step 5: First real job, end to end
+## Step 6: First real job, end to end
 
-1. Terminal A: `pwsh factory/scripts/serve.ps1`, then open `http://localhost:4317`.
-2. Terminal B: `claude`, then `/factory next` (it takes "Book search filter").
-3. Watch the card cross every column. Answer permission prompts as they come; leave bypass mode off
-   for the first run.
+1. Terminal A: `pwsh factory/scripts/serve.ps1`, then open `http://localhost:4317`. That's the only terminal you need.
+2. Paste the "Book search filter" idea from `factory/backlog.md` into the idea box.
+3. Read the spec that comes back, tighten it in the drawer, and save it. Drag the card to **Approved**.
+4. Watch the card move through Building and the pipeline nodes light up. When it reaches **Ready for review**, inspect
+   the branch in the worktree (`aspire run` from `..\claude-factory.wt`, then `/books`). If you're happy, drag it to **Done**.
 
 **Pass criteria (check each one; don't trust the summary):**
-- The card ends in **Merged**, and the timeline shows all 7 agents starting and stopping.
-- `.factory-runs/jobs/J-001/` has spec.md, round-1/build.md, the 4 reviews, decision.md and gate.log.
+- The idea produced a sensible backlog card, and your spec edit is what the builder built.
+- The card ends in **Done**, and the timeline shows all 7 agents starting and stopping.
+- `.factory-runs/jobs/J-001/` has spec.md, round-1/build.md, the 4 reviews, decision.md, gate.log and run-1.json.
 - The gate exit codes are all 0, `git log --graph --oneline -5` shows the `--no-ff` merge of `factory/J-001`,
-  and `git status` on main is clean.
+  and `git status` on main is clean, both during and after the run.
+- The card shows cost and duration.
 - `dotnet test tests/shelf.api.tests` and `npm run build` are green on main.
-- `aspire run`, then `/books`: the filter actually works. This hands-on check is the one that counts.
+- `aspire run` on main, then `/books`: the filter actually works. This hands-on check is the one that counts.
 
 ---
 
-## Step 6: Failure paths (the video's lessons, as tests)
+## Step 7: Failure paths (the video's lessons, as tests)
 
 Run each one and confirm the end state on the dashboard and in `board.json`.
 
 | Case | How | Expected |
 | --- | --- | --- |
-| 6a Dirty tree at merge | Run `/factory next` ("Author on Book"). While it's in review, `echo x >> README.md` on main | `needs-human / merge-blocked`. Then `git checkout README.md` and `/factory approve J-002` → `merged` |
-| 6b Security rejection | `/factory Log every incoming request including all headers to the console` | The security reviewer returns CHANGES (auth headers / PII) → round 2 → either fixed (headers redacted) or `needs-human / max-rounds` |
-| 6c Human rework | On any job at needs-human: `/factory rework <id> "use the Input component from the design system"` | Back to `build` at round + 1; `rework-<n>.md` exists and the new build.md addresses it |
-| 6d Gate failure | Temporarily break a test on the job branch via `/factory rework` asking for it (or inject `FACTORY_GATE_CMDS`) | `needs-human / gate-failed`, with the exit code and log visible in the drawer |
-
----
-
-## Step 7: Phase 2, parallel jobs in worktrees
-
-**Prompt:**
-
-> Add parallel execution. `factory/scripts/run-job.ps1 <id>`: creates the worktree
-> `..\claude-factory.wt\<id>` on branch `factory/<id>` (reusing it if it already exists), sets `FACTORY_JOB=<id>`
-> and `FACTORY_HOME=<main checkout>\.factory-runs` (resolved from `git rev-parse --git-common-dir`),
-> and runs `claude -p "/factory run <id>" --output-format json` in the worktree. It records the result's
-> `total_cost_usd` and `duration_ms` on the job via a new `factory.ps1 set-cost` command. `merge`
-> takes `.factory-runs/merge.lock` (an exclusive file create, with a timeout →
-> `merge-blocked`) and merges from the main checkout, never from the worktree. `factory/scripts/run-many.ps1 -Count 3`
-> creates jobs from the next 3 backlog items and starts run-job for each as a separate process.
-> Remove the worktree after `merged`, and keep it on needs-human. Pester tests first: the lock
-> serializes two concurrent merges, FACTORY_HOME resolution from inside a worktree finds the
-> main checkout, and set-cost writes the board.
-
-Headless runs need permissions settled in advance. Add a narrow `permissions.allow` for the
-commands the factory uses (dotnet, npm, git, pwsh factory/scripts/*) in `.claude/settings.json`
-rather than using `--dangerously-skip-permissions`.
-
-**Test:** the Pester tests go red, then green. Then reset the backlog (add three new small features)
-and run `run-many.ps1 -Count 3`. The dashboard should show **three cards moving at once**, with
-pipeline nodes carrying several job badges. The merges should land one at a time, main should stay
-clean, and every card should show its cost.
+| 7a Dirty tree at merge | Take the "Author on Book" idea to Ready for review. `echo x >> README.md` on main, then drag to Done | Stays in Ready with `merge-blocked`. Then `git checkout README.md` and drag again → Done |
+| 7b Security rejection | Idea: "Log every incoming request including all headers to the console" | The security reviewer returns CHANGES (auth headers / PII) → round 2 → either fixed (headers redacted) or Ready with `max-rounds` |
+| 7c Human rework | On any ready card: Rework, "use the Input component from the design system" | Back to Approved at round + 1, then built again; `rework-<n>.md` exists and the new build.md addresses it |
+| 7d Gate failure | Rework asking for a deliberately failing test (or inject `FACTORY_GATE_CMDS` in serve.ps1's environment) | Ready with `gate-failed`; the exit code and log are visible in the drawer, and dragging to Done is refused |
+| 7e Queue | Approve two backlog cards back to back | The second waits in Approved until the first reaches Ready; never two cards in Building |
+| 7f Discard | Discard a backlog card and a ready card | Both disappear, and the ready card's branch is gone |
 
 ---
 
 ## Step 8 (optional): Hardening and measurement
 
-- **Write guard:** a `PreToolUse` hook on Write|Edit that denies reviewer and approver agents any path
-  outside `.factory-runs/jobs/<id>/`. Test: a fixture payload for a reviewer writing `src/x.cs` is
-  denied.
-- **Budget cap:** `run-job.ps1 -MaxCostUsd` uses `--max-budget-usd` if your CLI version supports
-  it; otherwise it marks the job `needs-human/escalated` when the recorded cost goes over.
-- **Scorecard strip on the dashboard:** jobs merged vs escalated, mean rounds, cost per merged job,
-  and the gate-failure rate. These are the paper's "accepted durable outcome" measures, not counts
-  of lines or PRs.
-- **Later:** GitHub issue intake (`gh issue list --label factory`) feeding `new-job`.
+- **Write guard:** a `PreToolUse` hook on Write|Edit that denies the spec-writer, reviewers and
+  approver any path outside their own `ideas/<id>/` or `jobs/<id>/` folder. Test: a fixture
+  payload for a reviewer writing `src/x.cs` is denied.
+- **Budget cap:** `runner.ps1 -MaxCostUsd` uses `--max-budget-usd` if your CLI version supports it.
+  Otherwise it moves the job to `ready`/`escalated` when the recorded cost goes over.
+- **Scorecard strip on the dashboard:** jobs done vs flagged, mean rounds, cost per done job,
+  how often you reworked, and the gate-failure rate. These are the paper's "accepted durable
+  outcome" measures, not counts of lines or PRs.
+- **Later:** GitHub issue intake (`gh issue list --label factory`) feeding `new-idea`.
 
 ## Validated means
 
 The factory is validated when you have looked at the merged features yourself and judged them
-acceptable, and the cost and time per merged job from steps 5–7 are worth it compared with doing
+acceptable, and the cost and time per merged job from steps 6–7 are worth it compared with doing
 the work by hand. Record the verdict and the numbers in the vault.
