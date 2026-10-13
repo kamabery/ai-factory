@@ -140,8 +140,11 @@ function Handle($ctx) {
         $text = $req.text
         if (-not $text -or -not $text.Trim()) { return Send $ctx 400 '{"ok":false,"message":"an idea needs some text"}' }
         $target = if ($req.PSObject.Properties['target'] -and $req.target) { $req.target.Trim() } else { '' }
-        $r = Invoke-Factory new-idea $text.Trim() -Target $target
-        if ($r.Ok) { Start-Detached 'spec-run.ps1' @($r.Message) }
+        $argv = @('new-idea', $text.Trim(), '-Target', $target)
+        if ($req.PSObject.Properties['scaffold'] -and $req.scaffold) { $argv += '-Scaffold', ($req.scaffold | ConvertTo-Json -Compress) }
+        $r = Invoke-Factory @argv
+        # "I-NNN" means drafting; "I-NNN J-NNN" means the idea waits for its bootstrap job.
+        if ($r.Ok -and $r.Message -match '^I-\d+$') { Start-Detached 'spec-run.ps1' @($r.Message) }
         return Send-Result $ctx $r
     }
 
@@ -174,6 +177,7 @@ function Handle($ctx) {
             default { [pscustomobject]@{ Ok = $false; Message = "move to '$to' refused: not a human move" } }
         }
         if ($r.Ok -and $to -eq 'approved') { Start-Detached 'runner.ps1' }
+        if ($r.Ok -and $to -eq 'done' -and $r.Message -match 'released (I-\d+)') { Start-Detached 'spec-run.ps1' @($Matches[1]) }
         return Send-Result $ctx $r
     }
 

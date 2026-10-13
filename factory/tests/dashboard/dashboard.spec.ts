@@ -118,6 +118,47 @@ test.describe.serial('factory dashboard', () => {
     expect(idea.target).toBe(sandbox);
   });
 
+  test('a new target shows scaffold options with defaults; an existing repo hides them', async ({ page }) => {
+    await page.goto('/');
+    const target = page.locator('#idea-target');
+    await target.fill(sandbox);
+    await expect(page.locator('#target-hint')).toContainText(/existing repo/i);
+    await expect(page.locator('#scaffold')).toBeHidden();
+    await target.fill(path.join(simDir, 'apps', 'my-shop'));
+    await expect(page.locator('#target-hint')).toContainText(/new repo/i);
+    await expect(page.locator('#scaffold')).toBeVisible();
+    await expect(page.locator('#sc-name')).toHaveValue('myshop');
+    await expect(page.locator('#sc-resource')).toHaveValue('Widget');
+    await expect(page.locator('#sc-db')).toHaveValue('sqlite');
+    await expect(page.locator('#sc-ui')).toHaveValue('react');
+  });
+
+  test('an idea for a new target waits, and its bootstrap job lands in Backlog', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('#idea-text').fill('A shop with products');
+    await page.locator('#idea-target').fill(path.join(simDir, 'apps', 'shop'));
+    await expect(page.locator('#scaffold')).toBeVisible();
+    await page.locator('#sc-resource').fill('Product');
+    await page.locator('#idea-submit').click();
+    await expect.poll(() => board().ideas.find((i: { text: string }) => i.text === 'A shop with products')?.status).toBe('waiting');
+    const idea = board().ideas.find((i: { text: string }) => i.text === 'A shop with products');
+    expect(idea.scaffold).toMatchObject({ name: 'shop', resource: 'Product', db: 'sqlite', ui: 'react', events: false });
+    const boot = idea.jobs[0];
+    expect(job(boot)).toMatchObject({ stage: 'backlog', kind: 'bootstrap' });
+    await expect(column(page, 'backlog').locator(`[data-card="${boot}"] [data-kind="bootstrap"]`)).toBeVisible();
+    await expect(column(page, 'ideas').locator(`[data-idea="${idea.id}"]`)).toContainText(`waiting for bootstrap ${boot}`);
+  });
+
+  test('merging a ready bootstrap job releases its idea to the spec-writer', async ({ page }) => {
+    const idea = board().ideas.find((i: { text: string }) => i.text === 'A todo app, bootstrapped');
+    const boot = idea.jobs[0];
+    expect(idea.status).toBe('waiting');
+    await page.goto('/');
+    await card(page, boot).dragTo(column(page, 'done'));
+    await expect(column(page, 'done').locator(`[data-card="${boot}"]`)).toBeVisible();
+    await expect.poll(() => board().ideas.find((i: { id: string }) => i.id === idea.id).status).not.toBe('waiting');
+  });
+
   test('a backlog card opens a large modal with Edit and a live Preview, and Save writes to disk', async ({ page }) => {
     await page.goto('/');
     await card(page, 'J-005').click();

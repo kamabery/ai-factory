@@ -36,6 +36,12 @@
   .target-wrap { flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   #idea-target { width: 100%; font-family: var(--mono); font-size: 12.5px; }
   #target-hint { font-size: 11.5px; color: var(--muted); min-height: 15px; }
+  #scaffold { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin: 0; border: 1px dashed var(--run); border-radius: 6px; padding: 6px 10px; font-size: 12.5px; }
+  #scaffold[hidden] { display: none; }
+  #scaffold legend { color: var(--run); padding: 0 4px; }
+  #scaffold label { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); }
+  #scaffold input:not([type="checkbox"]), #scaffold select { font: inherit; font-size: 12.5px; color: var(--text); background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; width: 130px; }
+  .chip.kind { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
   #target-hint.bad { color: var(--warn); }
   #target-hint.new { color: var(--run); }
   #target-hint.repo { color: var(--ok); }
@@ -145,6 +151,14 @@
     </div>
     <datalist id="targets"></datalist>
     <button id="idea-submit" class="primary" type="submit" disabled>Submit idea</button>
+    <fieldset id="scaffold" hidden>
+      <legend>New repo: scaffold from template-projects</legend>
+      <label>Name <input id="sc-name" pattern="[a-z][a-z0-9]*" spellcheck="false"></label>
+      <label>Resource <input id="sc-resource" value="Widget" spellcheck="false"></label>
+      <label>Data store <select id="sc-db"><option>sqlite</option><option>sqlserver</option><option>postgres</option></select></label>
+      <label>Front end <select id="sc-ui"><option>react</option><option>blazor</option><option value="blazor-maui">blazor + mobile</option><option>none</option></select></label>
+      <label><input id="sc-events" type="checkbox"> Events</label>
+    </fieldset>
   </form>
   <button id="theme" type="button" title="Toggle theme">◐</button>
 </header>
@@ -269,14 +283,15 @@ function jobCard(j) {
   const flag = j.flag ? `<span class="flag" data-flag title="${esc(j.flag.detail)}">${esc(j.flag.reason)}</span>` : '';
   const cost = j.costUsd != null ? `<span data-cost>$${Number(j.costUsd).toFixed(2)}</span>` : '';
   const repo = j.target ? `<div class="repo" title="${esc(j.target)}">→ ${esc(leaf(j.target))}</div>` : '';
+  const kind = j.kind === 'bootstrap' ? '<span class="chip kind" data-kind="bootstrap">bootstrap</span>' : '';
   return `<div class="card${state.open?.id === j.id ? ' selected' : ''}" data-card="${esc(j.id)}" data-stage="${esc(j.stage)}" draggable="${draggable}">
     <div class="top"><span>${esc(j.id)}</span><span>r${j.round} · ${elapsed(j)}</span></div>
     <div class="title">${esc(j.title)}</div>${repo}
-    <div class="meta">${sub}${flag}${reviews}${cost}</div></div>`;
+    <div class="meta">${kind}${sub}${flag}${reviews}${cost}</div></div>`;
 }
 function ideaCard(i) {
   return `<div class="card idea-card ${esc(i.status)}" data-idea="${esc(i.id)}">
-    <div class="top"><span>${esc(i.id)}</span><span>${i.status === 'failed' ? 'failed' : 'drafting…'}</span></div>
+    <div class="top"><span>${esc(i.id)}</span><span>${i.status === 'failed' ? 'failed' : i.status === 'waiting' ? `waiting for bootstrap ${esc(i.jobs?.[0] ?? '')}` : 'drafting…'}</span></div>
     <div class="title">${esc(i.text)}</div>
     ${i.target ? `<div class="repo" title="${esc(i.target)}">→ ${esc(leaf(i.target))}</div>` : ''}
     ${i.reason ? `<div class="meta">${esc(i.reason)}</div>` : ''}</div>`;
@@ -558,18 +573,25 @@ function renderTargets() {
   $('#targets').innerHTML = [...seen].map((t) => `<option value="${esc(t)}">`).join('');
 }
 try { const t = localStorage.getItem('factory-target'); if (t) $('#idea-target').value = t; } catch {}
-let targetTimer, targetSeq = 0;
+let targetTimer, targetSeq = 0, scNameEdited = false;
+$('#sc-name').addEventListener('input', () => { scNameEdited = true; });
 async function checkTarget() {
   const p = $('#idea-target').value.trim();
   const hint = $('#target-hint');
   const seq = ++targetSeq;
-  const set = (cls, text, ok) => { if (seq !== targetSeq) return; hint.className = cls; hint.textContent = text; $('#idea-submit').disabled = !ok; };
+  const set = (cls, text, ok, isNew = false) => {
+    if (seq !== targetSeq) return;
+    hint.className = cls; hint.textContent = text; $('#idea-submit').disabled = !ok;
+    $('#scaffold').hidden = !isNew;
+    // The templates' -n is lower-case letters and digits; default it from the folder name.
+    if (isNew && !scNameEdited) $('#sc-name').value = leaf(p).toLowerCase().replace(/[^a-z0-9]/g, '').replace(/^[0-9]+/, '');
+  };
   if (!p) return set('bad', 'A target repo is required.', false);
   let r; try { r = await (await fetch(`/api/target?path=${encodeURIComponent(p)}`, { cache: 'no-store' })).json(); } catch { return set('bad', 'Could not check the path.', false); }
   if (!r.absolute) return set('bad', 'The path must be absolute.', false);
   if (r.isRepo) return set('repo', 'Existing repo: work branches from its main and merges back.', true);
-  if (!r.exists) return set('new', 'New repo: created on the first build.', true);
-  if (r.empty) return set('new', 'Empty folder: becomes a new repo on the first build.', true);
+  if (!r.exists) return set('new', 'New repo: a bootstrap job scaffolds it first.', true, true);
+  if (r.empty) return set('new', 'Empty folder: a bootstrap job scaffolds it as a new repo.', true, true);
   set('bad', 'Not a git repo, and not empty.', false);
 }
 $('#idea-target').addEventListener('input', () => { clearTimeout(targetTimer); targetTimer = setTimeout(checkTarget, 200); });
@@ -581,12 +603,18 @@ $('#idea-form').addEventListener('submit', async (e) => {
   const target = $('#idea-target').value.trim();
   if (!text) { toast('An idea needs some text', true); return; }
   $('#idea-submit').disabled = true;
-  const res = await api('POST', '/api/ideas', { text, target });
+  const scaffold = $('#scaffold').hidden ? undefined : {
+    name: $('#sc-name').value.trim(), resource: $('#sc-resource').value.trim(),
+    db: $('#sc-db').value, ui: $('#sc-ui').value, events: $('#sc-events').checked,
+  };
+  const res = await api('POST', '/api/ideas', { text, target, scaffold });
   $('#idea-submit').disabled = false;
   if (res.ok) {
     $('#idea-text').value = '';
     try { localStorage.setItem('factory-target', target); } catch {}
-    toast(`${res.message}: the spec-writer is on it`);
+    const [ideaId, boot] = String(res.message).split(' ');
+    toast(boot ? `${ideaId} waits for bootstrap ${boot}: review and approve it in Backlog` : `${ideaId}: the spec-writer is on it`);
+    scNameEdited = false; checkTarget();
   } else toast(res.message, true);
   state.boardText = '';
   poll();

@@ -10,7 +10,6 @@ export const port = 4318;
 export const factoryEnv = {
   FACTORY_HOME: simDir,
   FACTORY_REPO: path.join(simDir, 'repo'),
-  FACTORY_WORKTREE: path.join(simDir, 'repo.wt'),
   FACTORY_GATE_CMDS: '[{"name":"build","cmd":"exit 0"},{"name":"test","cmd":"exit 0"},{"name":"ui","cmd":"exit 0"}]',
   FACTORY_CLAUDE_CMD: 'exit 0',
 };

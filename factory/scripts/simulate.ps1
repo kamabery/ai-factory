@@ -23,7 +23,7 @@ $StateDir = [IO.Path]::GetFullPath($StateDir)
 
 $env:FACTORY_HOME = $StateDir
 $env:FACTORY_REPO = Join-Path $StateDir 'repo'
-$env:FACTORY_WORKTREE = Join-Path $StateDir 'repo.wt'
+Remove-Item Env:FACTORY_WORKTREE -ErrorAction SilentlyContinue   # each target uses its own <target>.wt
 if (-not $env:FACTORY_GATE_CMDS) {
     $env:FACTORY_GATE_CMDS = '[{"name":"build","cmd":"exit 0"},{"name":"test","cmd":"exit 0"},{"name":"ui","cmd":"exit 0"}]'
 }
@@ -125,10 +125,10 @@ function Sim-Build([string] $id) {
     Set-Content $transcript @((Think), (Say 'Writing the failing test first.'),
         (Tool 'b1' 'Bash' @{ command = 'dotnet test' }), (Result 'b1' 'Failed: 1'), (Say 'Now the implementation.'))
     F-Must event (J @{ job = $id; kind = 'agent-start'; agent = 'builder'; agentId = $agentId; transcript = $transcript }) | Out-Null
-    F-Must checkout $id | Out-Null
-    Add-Content (Join-Path $env:FACTORY_WORKTREE "$id.txt") "round $round"
-    git -C $env:FACTORY_WORKTREE add -A 2>&1 | Out-Null
-    git -C $env:FACTORY_WORKTREE commit -q -m "$($id): round $round" 2>&1 | Out-Null
+    $wt = F-Must checkout $id
+    Add-Content (Join-Path $wt "$id.txt") "round $round"
+    git -C $wt add -A 2>&1 | Out-Null
+    git -C $wt -c user.email=sim@factory -c user.name=simulator commit -q -m "$($id): round $round" 2>&1 | Out-Null
     $dir = Join-Path $StateDir "jobs/$id/round-$round"
     New-Item -ItemType Directory -Force $dir | Out-Null
     Set-Content (Join-Path $dir 'build.md') "# Build: $id — round $round`n`nBranch: factory/$id`n`n## Evidence`n- simulated → exit 0"
@@ -204,6 +204,13 @@ Remove-Item $dirt
 # J-004: discarded from the backlog. J-005 stays in the backlog for a human.
 Tick 1
 F-Must discard $b[0] | Out-Null
+
+# I-005 / J-006: a new target. The bootstrap job reaches Ready for review; its idea waits for the merge.
+$boot = (F-Must new-idea 'A todo app, bootstrapped' -Target (Join-Path $StateDir 'apps/todo') `
+    -Scaffold '{"name":"todo","resource":"Todo","db":"sqlite","ui":"react","events":false}') -split ' '
+F-Must approve $boot[1] | Out-Null
+Sim-Start $boot[1]; Sim-Build $boot[1]; Sim-Review $boot[1] @{}; Sim-Approve $boot[1]
+F gate $boot[1] | Out-Null
 
 Write-Host 'simulation complete'
 F-Must status
