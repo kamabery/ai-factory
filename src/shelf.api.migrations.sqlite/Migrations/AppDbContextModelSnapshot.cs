@@ -41,6 +41,25 @@ namespace shelf.api.migrations.sqlite.Migrations
 
                     b.ToTable("Books");
                 });
+
+            modelBuilder.Entity("shelf.data.Todo", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsCompleted")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Todos");
+                });
 #pragma warning restore 612, 618
         }
     }
