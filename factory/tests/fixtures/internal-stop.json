@@ -1,0 +1,12 @@
+{
+  "session_id": "abc123",
+  "transcript_path": "C:/Users/me/.claude/projects/x/abc123.jsonl",
+  "cwd": "D:/code/claude-factory",
+  "hook_event_name": "SubagentStop",
+  "stop_hook_active": false,
+  "agent_id": "agent-internal",
+  "agent_type": "",
+  "last_assistant_message": "suggestion",
+  "background_tasks": [],
+  "session_crons": []
+}

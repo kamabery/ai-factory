@@ -1,0 +1,14 @@
+{
+  "session_id": "abc123",
+  "transcript_path": "C:/Users/me/.claude/projects/x/abc123.jsonl",
+  "cwd": "D:/code/claude-factory.wt",
+  "permission_mode": "default",
+  "hook_event_name": "SubagentStop",
+  "stop_hook_active": false,
+  "agent_id": "agent-abc123",
+  "agent_type": "security-reviewer",
+  "agent_transcript_path": "C:/Users/me/.claude/projects/x/abc123/subagents/agent-abc123.jsonl",
+  "last_assistant_message": "Verdict written to review-security.md",
+  "background_tasks": [],
+  "session_crons": []
+}

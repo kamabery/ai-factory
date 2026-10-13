@@ -1,0 +1,8 @@
+{
+  "session_id": "abc123",
+  "transcript_path": "C:/Users/me/.claude/projects/x/00893aaf.jsonl",
+  "cwd": "D:/code/claude-factory.wt",
+  "hook_event_name": "SubagentStart",
+  "agent_id": "agent-abc123",
+  "agent_type": "security-reviewer"
+}

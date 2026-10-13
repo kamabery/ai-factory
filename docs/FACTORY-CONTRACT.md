@@ -256,7 +256,8 @@ command is taken from `$env:FACTORY_CLAUDE_CMD` when it is set, so tests spend n
 ## Runner
 
 `runner.ps1` drains the Approved queue one job at a time. It exits at once if it cannot create
-`runner.lock` (an exclusive file create). Otherwise it loops:
+`runner.lock` (an exclusive file create holding its PID). It takes over a lock whose PID is no
+longer running. Otherwise it loops:
 
 1. `factory.ps1 next`. If nothing comes back, it deletes the lock and exits.
 2. It creates `..\claude-factory.wt` if it doesn't exist, or reuses it. It then checks out
@@ -265,8 +266,8 @@ command is taken from `$env:FACTORY_CLAUDE_CMD` when it is set, so tests spend n
    `FACTORY_HOME=<main checkout>\.factory-runs`, and runs
    `claude -p "/factory run <id>" --output-format json` in the worktree.
 4. It saves the result to `jobs/<id>/run-<n>.json` and calls `set-cost` with `total_cost_usd` and
-   `duration_ms`. If claude exited non-zero and the job is still in Building, it moves the job to
-   `ready` with flag `escalated`.
+   `duration_ms`. If the job is still in Building afterwards, whether claude exited non-zero or
+   not, it moves the job to `ready` with flag `escalated`. That way the queue never stalls.
 
 The `/factory spec` run for an idea doesn't use the runner or the lock. It reads the repo and
 writes only under `ideas/`, so it can run while a job builds.

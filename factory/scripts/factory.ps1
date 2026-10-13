@@ -457,7 +457,7 @@ try {
                 if ($Detail) { $e.detail = $Detail }
             }
             if ($e.kind -notin $EventKinds) { Fail "unknown event kind '$($e.kind)'" }
-            if ($e.job -and -not $e.Contains('round')) {
+            if ($e.Contains('job') -and $e.job -and -not $e.Contains('round')) {
                 $j = $Board.jobs | Where-Object { $_.id -eq $e.job } | Select-Object -First 1
                 if ($j) { $e.round = $j.round }
             }
