@@ -9,6 +9,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 {
     public DbSet<Book> Books => Set<Book>();
 
+    public DbSet<Todo> Todos => Set<Todo>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Book>(book =>
@@ -21,6 +23,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             book.HasIndex(w => w.Name).IsUnique();
 
             book.Property(w => w.Name).HasMaxLength(64);
+        });
+
+        modelBuilder.Entity<Todo>(todo =>
+        {
+            todo.HasKey(t => t.Id);
+
+            todo.Property(t => t.Title).HasMaxLength(Todo.TitleMaxLength);
         });
     }
 }

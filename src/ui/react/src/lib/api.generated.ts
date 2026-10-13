@@ -21,6 +21,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/Todos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List every todo */
+        get: operations["GetTodos"];
+        put?: never;
+        /** Create a todo */
+        post: operations["CreateTodo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/Todos/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get one todo */
+        get: operations["GetTodo"];
+        /** Replace a todo's title and completed flag */
+        put: operations["UpdateTodo"];
+        post?: never;
+        /** Delete a todo */
+        delete: operations["DeleteTodo"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/Todos/{id}/completed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Check a todo off, or un-check it */
+        put: operations["SetTodoCompleted"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/client-telemetry/config": {
         parameters: {
             query?: never;
@@ -93,6 +147,16 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        Book: {
+            /** Format: int32 */
+            id?: number;
+            isLowStock?: boolean;
+            name: string;
+            /** Format: int32 */
+            quantity: number;
+            /** Format: date */
+            updatedOn: string;
+        };
         ClientTelemetryConfig: {
             endpoint: null | string;
             headers: null | string;
@@ -120,15 +184,25 @@ export interface components {
             title?: null | string;
             type?: null | string;
         };
-        Book: {
+        Todo: {
             /** Format: int32 */
             id?: number;
-            isLowStock?: boolean;
-            name: string;
+            isCompleted: boolean;
+            title: string;
+        };
+        TodoCompletion: {
+            isCompleted: boolean;
+        };
+        ValidationProblemDetails: {
+            detail?: null | string;
+            errors?: {
+                [key: string]: string[];
+            };
+            instance?: null | string;
             /** Format: int32 */
-            quantity: number;
-            /** Format: date */
-            updatedOn: string;
+            status?: number;
+            title?: null | string;
+            type?: null | string;
         };
     };
     responses: never;
@@ -165,6 +239,226 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    GetTodos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Todo"][];
+                    "text/json": components["schemas"]["Todo"][];
+                    "text/plain": components["schemas"]["Todo"][];
+                };
+            };
+        };
+    };
+    CreateTodo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/*+json": components["schemas"]["Todo"];
+                "application/json": components["schemas"]["Todo"];
+                "text/json": components["schemas"]["Todo"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Todo"];
+                    "text/json": components["schemas"]["Todo"];
+                    "text/plain": components["schemas"]["Todo"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblemDetails"];
+                    "text/json": components["schemas"]["ValidationProblemDetails"];
+                    "text/plain": components["schemas"]["ValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    GetTodo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Todo"];
+                    "text/json": components["schemas"]["Todo"];
+                    "text/plain": components["schemas"]["Todo"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                    "text/json": components["schemas"]["ProblemDetails"];
+                    "text/plain": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    UpdateTodo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/*+json": components["schemas"]["Todo"];
+                "application/json": components["schemas"]["Todo"];
+                "text/json": components["schemas"]["Todo"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Todo"];
+                    "text/json": components["schemas"]["Todo"];
+                    "text/plain": components["schemas"]["Todo"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationProblemDetails"];
+                    "text/json": components["schemas"]["ValidationProblemDetails"];
+                    "text/plain": components["schemas"]["ValidationProblemDetails"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                    "text/json": components["schemas"]["ProblemDetails"];
+                    "text/plain": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    DeleteTodo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                    "text/json": components["schemas"]["ProblemDetails"];
+                    "text/plain": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    SetTodoCompleted: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/*+json": components["schemas"]["TodoCompletion"];
+                "application/json": components["schemas"]["TodoCompletion"];
+                "text/json": components["schemas"]["TodoCompletion"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Todo"];
+                    "text/json": components["schemas"]["Todo"];
+                    "text/plain": components["schemas"]["Todo"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                    "text/json": components["schemas"]["ProblemDetails"];
+                    "text/plain": components["schemas"]["ProblemDetails"];
+                };
             };
         };
     };
