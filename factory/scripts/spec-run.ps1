@@ -9,6 +9,7 @@ param([Parameter(Mandatory)] [string] $IdeaId)
 $ErrorActionPreference = 'Stop'
 $Factory = Join-Path $PSScriptRoot 'factory.ps1'
 function F { & $Factory @args }
+$fence = @('Edit(/factory/**)', 'Edit(/.claude/**)', 'Edit(/docs/FACTORY-CONTRACT.md)')
 
 $mainRoot = if ($env:FACTORY_REPO) { $env:FACTORY_REPO } else {
     Split-Path ((git rev-parse --path-format=absolute --git-common-dir) -replace '/', '\') -Parent
@@ -22,7 +23,8 @@ try {
     $out = if ($env:FACTORY_CLAUDE_CMD) {
         & pwsh -NoProfile -Command $env:FACTORY_CLAUDE_CMD
     } else {
-        & claude -p "/factory spec $IdeaId" --output-format json
+        & claude -p "/factory spec $IdeaId $($env:FACTORY_HOME.Replace('\', '/'))" --output-format json --permission-mode acceptEdits `
+            --add-dir $env:FACTORY_HOME --disallowedTools @fence
     }
     $code = $LASTEXITCODE
 } finally {

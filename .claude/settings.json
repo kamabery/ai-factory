@@ -1,0 +1,40 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet build *)",
+      "Bash(dotnet test *)",
+      "Bash(UPDATE_CONTRACT=1 dotnet test *)",
+      "Bash(dotnet ef *)",
+      "Bash(npm ci)",
+      "Bash(npm install)",
+      "Bash(npm run *)",
+      "Bash(npx vite build)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git branch --show-current)",
+      "Bash(pwsh -NoProfile -File factory/scripts/factory.ps1 *)",
+      "PowerShell(pwsh -NoProfile -File factory/scripts/factory.ps1 *)"
+    ]
+  },
+  "hooks": {
+    "SubagentStart": [
+      {
+        "matcher": "^(spec-writer|builder|security-reviewer|code-reviewer|ux-reviewer|ui-reviewer|approver)$",
+        "hooks": [
+          { "type": "command", "command": "pwsh -NoProfile -File \"${CLAUDE_PROJECT_DIR}/factory/scripts/hook-event.ps1\"" }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "^(spec-writer|builder|security-reviewer|code-reviewer|ux-reviewer|ui-reviewer|approver)$",
+        "hooks": [
+          { "type": "command", "command": "pwsh -NoProfile -File \"${CLAUDE_PROJECT_DIR}/factory/scripts/hook-event.ps1\"" }
+        ]
+      }
+    ]
+  }
+}

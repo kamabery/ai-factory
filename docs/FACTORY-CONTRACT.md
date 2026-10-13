@@ -266,14 +266,17 @@ longer running. Otherwise it loops:
 2. It creates `..\claude-factory.wt` if it doesn't exist, or reuses it. It then checks out
    `factory/<id>`: an existing branch when the job is reworked, otherwise a new one from `main`.
 3. It calls `factory.ps1 set-stage <id> build -By runner`, sets `FACTORY_JOB=<id>` and
-   `FACTORY_HOME=<main checkout>\.factory-runs`, and runs
-   `claude -p "/factory run <id>" --output-format json` in the worktree.
+   `FACTORY_HOME=<main checkout>\.factory-runs`, and runs this in the worktree:
+   `claude -p "/factory run <id> <stateDir>" --output-format json --permission-mode acceptEdits --add-dir <stateDir> --disallowedTools "Edit(/factory/**)" "Edit(/.claude/**)" "Edit(/docs/FACTORY-CONTRACT.md)"`.
+   Bash commands are limited to the allowlist in `.claude/settings.json`. The skill calls
+   `factory.ps1` by relative path with no `$VARIABLES`, because a headless permission check can't
+   approve a variable it can't see.
 4. It saves the result to `jobs/<id>/run-<n>.json` and calls `set-cost` with `total_cost_usd` and
    `duration_ms`. If the job is still in Building afterwards, whether claude exited non-zero or
    not, it moves the job to `ready` with flag `escalated`. That way the queue never stalls.
 
 The spec run for an idea doesn't use the runner or the lock. It reads the repo and writes only
 under `ideas/`, so it can run while a job builds. `spec-run.ps1 <ideaId>` sets `FACTORY_IDEA`, runs
-`claude -p "/factory spec <ideaId>" --output-format json` in the main checkout (or
+`claude -p "/factory spec <ideaId> <stateDir>"` in the main checkout, with the same flags as the runner (or
 `FACTORY_CLAUDE_CMD`), and saves `ideas/<id>/run.json`. If the idea is still `drafting` afterwards,
 it marks the idea `failed`.

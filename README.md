@@ -5,14 +5,15 @@ result, and agents do everything in between (build → four parallel reviewers �
 deterministic gate). It is installed into **Shelf**, a small .NET 10 + Aspire + React app, and a
 live dashboard is where you work it.
 
-- **Status:** the workspace is scaffolded. The factory itself gets built by following [docs/BUILD-GUIDE.md](docs/BUILD-GUIDE.md).
+- **Status:** the factory is built (guide steps 1–5) and tested; it has not run a real job yet.
 - **Contract:** [docs/FACTORY-CONTRACT.md](docs/FACTORY-CONTRACT.md) covers stages, files, board and event formats.
 - **Rules for agents:** [CLAUDE.md](CLAUDE.md).
 
 ## Getting started
 
-The factory works once steps 1–5 of [docs/BUILD-GUIDE.md](docs/BUILD-GUIDE.md) are built. Until
-then, follow the guide; this section describes the finished process.
+Steps 1–5 of [docs/BUILD-GUIDE.md](docs/BUILD-GUIDE.md) are built: the control plane, runner,
+dashboard, agents and `/factory` skill. Step 6, the first real job, is yours. To see the board move
+without spending tokens, run the simulator first (see "Checking without spending tokens" below).
 
 **Prerequisites:** .NET 10 SDK, Aspire CLI, Node 22+, PowerShell 7 with Pester 6, git, and the
 `claude` CLI signed in.
@@ -77,6 +78,16 @@ pwsh factory/scripts/factory.ps1 status   # the board as text
 Invoke-Pester factory/tests               # control plane and runner
 ```
 
+### Checking without spending tokens
+
+```powershell
+$env:FACTORY_REPO = "$PWD/.factory-runs-sim/repo"; $env:FACTORY_WORKTREE = "$PWD/.factory-runs-sim/repo.wt"
+$env:FACTORY_CLAUDE_CMD = 'exit 0'
+pwsh factory/scripts/serve.ps1 -StateDir .factory-runs-sim      # terminal A
+pwsh factory/scripts/simulate.ps1 -Reset -Speed 0.5              # terminal B
+cd factory/tests/dashboard; npm ci; npx playwright test          # the dashboard tests
+```
+
 Factory state lives in `.factory-runs/` (gitignored). Never edit it by hand; see [CLAUDE.md](CLAUDE.md).
 
 ## Layout
@@ -86,7 +97,7 @@ Factory state lives in `.factory-runs/` (gitignored). Never edit it by hand; see
 .claude/skills/factory/    /factory spec | run | status (step 5)
 factory/backlog.md         sample ideas for the idea box
 factory/templates/         spec / build / review / decision formats
-factory/scripts/           factory.ps1 (control plane), runner.ps1, serve.ps1, simulate.ps1, hook-event.ps1
+factory/scripts/           factory.ps1 (control plane), runner.ps1, spec-run.ps1, serve.ps1, simulate.ps1, hook-event.ps1
 factory/dashboard/         index.html, the live view
 factory/tests/             Pester + Playwright
 .factory-runs/             runtime state (gitignored)

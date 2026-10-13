@@ -10,6 +10,9 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 3
 
 $Factory = Join-Path $PSScriptRoot 'factory.ps1'
+# Headless runs: edits are auto-accepted in the worktree and the state dir; Bash goes through the
+# allowlist in .claude/settings.json; no factory job may edit the factory itself.
+$fence = @('Edit(/factory/**)', 'Edit(/.claude/**)', 'Edit(/docs/FACTORY-CONTRACT.md)')
 $Building = 'build', 'review', 'approve', 'gate'
 
 function F { & $Factory @args }
@@ -66,7 +69,8 @@ try {
             $out = if ($env:FACTORY_CLAUDE_CMD) {
                 & pwsh -NoProfile -Command $env:FACTORY_CLAUDE_CMD
             } else {
-                & claude -p "/factory run $id" --output-format json
+                & claude -p "/factory run $id $($env:FACTORY_HOME.Replace('\', '/'))" --output-format json --permission-mode acceptEdits `
+                    --add-dir $env:FACTORY_HOME --disallowedTools @fence
             }
             $code = $LASTEXITCODE
         } finally {
