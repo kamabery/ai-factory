@@ -186,13 +186,18 @@ stderr and leaves the board unchanged.
 | `new-idea <text>` · `add-spec <ideaId> <file>` · `idea-done <ideaId> [-Failed -Reason]` | serve.ps1, `/factory spec` |
 | `edit-spec <id> -File <path>` (backlog only) | serve.ps1 |
 | `approve <id>` · `rework <id> <note>` · `discard <id>` · `merge <id>` | serve.ps1 (human drags) |
-| `next` (prints the next runnable approved id, or nothing) · `set-cost <id> <usd> <ms>` | runner.ps1 |
+| `next` (prints the next runnable approved id, or nothing) · `checkout <id>` (creates or reuses the worktree on `factory/<id>`) · `set-cost <id> <usd> <ms>` | runner.ps1 |
 | `set-stage <id> <to> [-By] [-Reason] [-Detail]` · `set-review <id> <role> <state>` · `read-reviews <id>` · `read-decision <id>` · `gate <id>` | `/factory run` |
 | `event <json \| -Job -Idea -Kind -Agent>` | hook-event.ps1 |
 | `status [-Json]` | anyone |
 
-`gate` and `merge` take their commands from `$env:FACTORY_GATE_CMDS` (JSON) when it is set, so
-tests can use `exit 0` / `exit 1` instead of dotnet.
+`read-reviews` and `read-decision` exit 2 when a verdict line is missing or malformed; the job
+does not move. `set-stage` only performs `approved → build`, `build → review` and
+`Building → ready -Reason escalated`; every other transition has its own command.
+
+Overrides, for tests: `$env:FACTORY_GATE_CMDS` (JSON `[{ "name", "cmd" }]`, so tests can use
+`exit 0` / `exit 1` instead of dotnet), `$env:FACTORY_WORKTREE` (the worktree path) and
+`$env:FACTORY_REPO` (the main checkout).
 
 ## Agents
 
