@@ -20,6 +20,7 @@ param(
     [string] $Kind,
     [string] $Agent,
     [string] $Target,
+    [string] $Scaffold,
     [switch] $Failed,
     [switch] $Json
 )
@@ -75,6 +76,52 @@ function Test-Target([string] $path) {
     if (Test-Path (Join-Path $path '.git')) { return $null }
     if (@(Get-ChildItem $path -Force).Count -eq 0) { return $null }
     "target '$path' is a non-empty folder that is not a git repo"
+}
+
+# A new target gets scaffolded by a bootstrap job: it does not exist yet, or is an empty folder.
+function Test-NewTarget([string] $path) {
+    -not (Test-Path $path) -or (-not (Test-Path (Join-Path $path '.git')) -and @(Get-ChildItem $path -Force).Count -eq 0)
+}
+
+# Returns $null for valid scaffold options (see "Targets" in the contract), or why they are refused.
+function Test-Scaffold($sc) {
+    if ($sc -isnot [Collections.IDictionary]) { return 'the scaffold options must be a JSON object' }
+    if ("$($sc.name)" -cnotmatch '^[a-z][a-z0-9]*$') { return "scaffold name '$($sc.name)' must be lower-case letters and digits, starting with a letter" }
+    if ("$($sc.resource)" -cnotmatch '^[A-Z][A-Za-z0-9]*$') { return "scaffold resource '$($sc.resource)' must be PascalCase" }
+    if ($sc.db -cnotin 'sqlite', 'sqlserver', 'postgres') { return "scaffold db '$($sc.db)' must be sqlite, sqlserver or postgres" }
+    if ($sc.ui -cnotin 'react', 'blazor', 'blazor-maui', 'none') { return "scaffold ui '$($sc.ui)' must be react, blazor, blazor-maui or none" }
+    if ($sc.Contains('events') -and $sc.events -isnot [bool]) { return 'scaffold events must be true or false' }
+    $null
+}
+
+function TemplatesRoot {
+    if ($env:FACTORY_TEMPLATES) { return $env:FACTORY_TEMPLATES }
+    Join-Path (Split-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) -Parent) 'template-projects'
+}
+
+# The bootstrap job's spec: factory/templates/bootstrap.md with the human's scaffold options filled in.
+function Bootstrap-Spec($sc, [string] $target) {
+    $n = $sc.name; $r = $sc.resource
+    $cmds = @("dotnet new aspire-base -n $n -o . --dbProvider $($sc.db) --resource $r")
+    switch ($sc.ui) {
+        'react' { $cmds += "dotnet new aspire-ui-react -n $n -o . --resource $r" }
+        'blazor' { $cmds += "dotnet new aspire-ui-blazor -n $n -o . --web true --maui false --resource $r" }
+        'blazor-maui' { $cmds += "dotnet new aspire-ui-blazor -n $n -o . --web true --maui true --resource $r" }
+    }
+    if ($sc.events) {
+        $store = @{ sqlite = 'fisher'; sqlserver = 'polecat'; postgres = 'marten' }[$sc.db]
+        $cmds += "dotnet new aspire-events -n $n -o . --eventStore $store --resource $r"
+    }
+    $gate = @("- build: ``dotnet build $n.slnx``", "- test: ``dotnet test $n.slnx``")
+    if ($sc.ui -eq 'react') { $gate += '- ui: `Set-Location src/ui/react; npm ci; npm run build`' }
+    $text = Get-Content (Join-Path (Split-Path $PSScriptRoot -Parent) 'templates/bootstrap.md') -Raw
+    $values = @{
+        name = $n; resource = $r; db = $sc.db; ui = $sc.ui; events = "$([bool]$sc.events)".ToLowerInvariant()
+        target = $target; templates = (TemplatesRoot); gate = ($gate -join "`n")
+        commands = (($cmds | ForEach-Object { "  - ``$_``" }) -join "`n")
+    }
+    foreach ($k in $values.Keys) { $text = $text.Replace("{{$k}}", $values[$k]) }
+    $text -split "`r?`n"
 }
 
 # Reads `## Target` (- Repo: <path>) and `## Gate` (- <name>: `<cmd>`) from a spec file.
@@ -137,6 +184,33 @@ function Next-Id([string] $prefix, $items) {
     $max = 0
     foreach ($x in $items) { if ($x.id -match "^$prefix-(\d+)$") { $max = [Math]::Max($max, [int]$Matches[1]) } }
     '{0}-{1:D3}' -f $prefix, ($max + 1)
+}
+
+# Creates a backlog job from spec lines (heading '# Spec: <title>'); returns its id.
+function Add-Job($i, [string[]] $lines, [string] $source, [string] $kind) {
+    $h = [Array]::FindIndex([string[]]$lines, [Predicate[string]] { param($l) $l -match '^#\s*Spec:' })
+    if ($h -lt 0) { Fail "no '# Spec:' heading in $source" }
+    $title = ($lines[$h] -replace '^#\s*Spec:\s*', '').Trim()
+    if ($title -match '\s[—-]\s(.+)$') { $title = $Matches[1].Trim() }
+    if (-not $title) { Fail "empty title in $source" }
+    $id = Next-Id 'J' $Board.jobs
+    $lines[$h] = "# Spec: $id — $title"
+    New-Item -ItemType Directory -Force (JobDir $id) | Out-Null
+    $spec = Join-Path (JobDir $id) 'spec.md'
+    Set-Content $spec $lines
+    $ts = Now
+    $j = [ordered]@{
+        id = $id; idea = $i.id; kind = $kind; title = $title; stage = 'backlog'; round = 1; branch = "factory/$id"
+        target = (Read-SpecMeta $spec).repo
+        reviews = $null; decision = $null; gate = $null; flag = $null; merged = $null; approvedAt = $null
+        costUsd = $null; durationMs = $null; createdAt = $ts; updatedAt = $ts; history = @()
+    }
+    Reset-Reviews $j
+    $Board.jobs = @($Board.jobs) + $j
+    $i.jobs = @($i.jobs) + $id
+    Save-Board $Board
+    Add-Event ([ordered]@{ job = $id; kind = 'stage'; from = $null; to = 'backlog'; by = 'orchestrator'; idea = $i.id })
+    $id
 }
 
 function Reset-Reviews($j) { $j.reviews = [ordered]@{ security = 'pending'; code = 'pending'; ux = 'pending'; ui = 'pending' } }
@@ -278,45 +352,33 @@ try {
     switch ($Command) {
 
         'new-idea' {
-            if (-not $Arg1) { Fail 'usage: new-idea <text> -Target <path>' }
+            if (-not $Arg1) { Fail 'usage: new-idea <text> -Target <path> [-Scaffold <json>]' }
             $err = Test-Target $Target
             if ($err) { Fail "new-idea refused: $err" }
+            $new = Test-NewTarget $Target
+            $sc = $null
+            if ($new) {
+                if (-not $Scaffold) { Fail "new-idea refused: '$Target' is a new repo, so it needs scaffold options" }
+                try { $sc = $Scaffold | ConvertFrom-Json -AsHashtable } catch { Fail 'new-idea refused: the scaffold options are not valid JSON' }
+                $err = Test-Scaffold $sc
+                if ($err) { Fail "new-idea refused: $err" }
+            } elseif ($Scaffold) { Fail "new-idea refused: '$Target' is an existing repo; scaffold options are only for a new one" }
+            $status = if ($new) { 'waiting' } else { 'drafting' }
             $id = Next-Id 'I' $Board.ideas
             $dir = Join-Path $Home_ "ideas/$id"
             New-Item -ItemType Directory -Force $dir | Out-Null
             Set-Content (Join-Path $dir 'idea.md') @($Arg1, '', "Target: $Target")
-            $Board.ideas = @($Board.ideas) + [ordered]@{ id = $id; text = $Arg1; target = $Target; status = 'drafting'; jobs = @(); createdAt = Now }
+            $i = [ordered]@{ id = $id; text = $Arg1; target = $Target; scaffold = $sc; status = $status; jobs = @(); createdAt = Now }
+            $Board.ideas = @($Board.ideas) + $i
             Save-Board $Board
-            Add-Event ([ordered]@{ idea = $id; kind = 'idea'; detail = 'drafting' })
-            $id
+            Add-Event ([ordered]@{ idea = $id; kind = 'idea'; detail = $status })
+            if ($new) { "$id $(Add-Job $i (Bootstrap-Spec $sc $Target) 'the bootstrap template' 'bootstrap')" } else { $id }
         }
 
         'add-spec' {
             $i = Get-Idea $Arg1
             if (-not $Arg2 -or -not (Test-Path $Arg2)) { Fail "spec file not found: $Arg2" }
-            $lines = @(Get-Content $Arg2)
-            $h = [Array]::FindIndex([string[]]$lines, [Predicate[string]] { param($l) $l -match '^#\s*Spec:' })
-            if ($h -lt 0) { Fail "no '# Spec:' heading in $Arg2" }
-            $title = ($lines[$h] -replace '^#\s*Spec:\s*', '').Trim()
-            if ($title -match '\s[—-]\s(.+)$') { $title = $Matches[1].Trim() }
-            if (-not $title) { Fail "empty title in $Arg2" }
-            $id = Next-Id 'J' $Board.jobs
-            $lines[$h] = "# Spec: $id — $title"
-            New-Item -ItemType Directory -Force (JobDir $id) | Out-Null
-            Set-Content (Join-Path (JobDir $id) 'spec.md') $lines
-            $ts = Now
-            $j = [ordered]@{
-                id = $id; idea = $i.id; title = $title; stage = 'backlog'; round = 1; branch = "factory/$id"
-                target = (Read-SpecMeta $Arg2).repo
-                reviews = $null; decision = $null; gate = $null; flag = $null; merged = $null; approvedAt = $null
-                costUsd = $null; durationMs = $null; createdAt = $ts; updatedAt = $ts; history = @()
-            }
-            Reset-Reviews $j
-            $Board.jobs = @($Board.jobs) + $j
-            $i.jobs = @($i.jobs) + $id
-            Save-Board $Board
-            Add-Event ([ordered]@{ job = $id; kind = 'stage'; from = $null; to = 'backlog'; by = 'orchestrator'; idea = $i.id })
-            $id
+            Add-Job $i @(Get-Content $Arg2) $Arg2 'feature'
         }
 
         'idea-done' {
@@ -421,6 +483,14 @@ try {
             $j.merged = [ordered]@{ sha = $sha; repo = $root; added = $added; modified = $modified }
             Move-Job $j 'done' 'human'
             Add-Event ([ordered]@{ job = $j.id; kind = 'merge'; detail = $sha })
+            # A merged bootstrap releases its idea to the spec-writer (serve.ps1 starts spec-run).
+            $i = if ($j.Contains('kind') -and $j.kind -eq 'bootstrap' -and $j.idea) { $Board.ideas | Where-Object { $_.id -eq $j.idea } | Select-Object -First 1 }
+            if ($i -and $i.status -eq 'waiting') {
+                $i.status = 'drafting'
+                Save-Board $Board
+                Add-Event ([ordered]@{ idea = $i.id; kind = 'idea'; detail = 'drafting' })
+                "released $($i.id)"
+            }
         }
 
         'next' {

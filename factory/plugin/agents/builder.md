@@ -15,8 +15,9 @@ checked out in your working directory (the factory worktree).
 - `<job>/round-<n-1>/review-*.md`, from round 2 on: the previous round's reviews. Address every
   finding in a `Verdict: CHANGES` review.
 - The target repository (your working directory) and its `CLAUDE.md`, if it has one, which you
-  must follow. If the repository is empty apart from an initial commit, this is a new project:
-  scaffold it as the spec says (default stack: .NET 10 + Aspire, xUnit, React).
+  must follow. A **bootstrap** spec (title "Bootstrap … from template-projects") scaffolds an empty
+  repo: run its `dotnet new` commands verbatim and follow the template workspace's
+  `scaffold-aspire-app` skill as the spec says; the workspace is read-only for you.
 
 ## Output
 1. Source changes on the current branch, **committed** (`git add -A && git commit -m "<id>: …"`).

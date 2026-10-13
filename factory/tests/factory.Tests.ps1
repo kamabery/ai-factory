@@ -28,7 +28,7 @@ BeforeAll {
     }
 
     function New-BacklogJob([string]$title = 'Thing', [string]$repo = $script:Repo, [string[]]$gate = @('build: `exit 0`')) {
-        $idea = F new-idea "idea for $title" -Target $repo
+        $idea = F new-idea "idea for $title" -Target $script:Repo
         F add-spec $idea (New-Spec $title $repo $gate)
     }
 
@@ -492,11 +492,78 @@ Describe 'targets' {
         Test-Path (Join-Path $env:FACTORY_HOME 'board.json') | Should -BeFalse
     }
 
-    It 'new-idea stores the target on the idea and as the last line of idea.md' {
-        $idea = F new-idea 'a todo app' -Target $script:New
+    It 'new-idea on an existing repo stores the target and goes straight to drafting' {
+        $idea = F new-idea 'a filter' -Target $script:Repo
         $LASTEXITCODE | Should -Be 0
-        ((Board).ideas | Where-Object id -eq $idea).target | Should -Be $script:New
-        Get-Content (Join-Path $env:FACTORY_HOME "ideas/$idea/idea.md") | Select-Object -Last 1 | Should -Be "Target: $script:New"
+        $i = (Board).ideas | Where-Object id -eq $idea
+        $i.target | Should -Be $script:Repo
+        $i.status | Should -Be 'drafting'
+        @((Board).jobs).Count | Should -Be 0
+        Get-Content (Join-Path $env:FACTORY_HOME "ideas/$idea/idea.md") | Select-Object -Last 1 | Should -Be "Target: $script:Repo"
+    }
+
+    It 'new-idea refuses a new target without valid scaffold options, and scaffold options for an existing repo' -ForEach @(
+        @{ case = 'new, none'; target = 'NEW'; scaffold = $null }
+        @{ case = 'bad name'; target = 'NEW'; scaffold = '{"name":"Todo-App","resource":"Todo","db":"sqlite","ui":"react","events":false}' }
+        @{ case = 'bad resource'; target = 'NEW'; scaffold = '{"name":"todo","resource":"todo","db":"sqlite","ui":"react","events":false}' }
+        @{ case = 'bad db'; target = 'NEW'; scaffold = '{"name":"todo","resource":"Todo","db":"mysql","ui":"react","events":false}' }
+        @{ case = 'bad ui'; target = 'NEW'; scaffold = '{"name":"todo","resource":"Todo","db":"sqlite","ui":"vue","events":false}' }
+        @{ case = 'existing'; target = 'REPO'; scaffold = '{"name":"todo","resource":"Todo","db":"sqlite","ui":"react","events":false}' }
+    ) {
+        $t = if ($target -eq 'NEW') { $script:New } else { $script:Repo }
+        if ($scaffold) { F new-idea $case -Target $t -Scaffold $scaffold | Out-Null } else { F new-idea $case -Target $t | Out-Null }
+        $LASTEXITCODE | Should -Not -Be 0
+        Test-Path (Join-Path $env:FACTORY_HOME 'board.json') | Should -BeFalse
+    }
+
+    It 'new-idea on a new target with scaffold options waits, and creates a bootstrap job in backlog' {
+        $out = F new-idea 'a todo app' -Target $script:New -Scaffold '{"name":"todo","resource":"Todo","db":"sqlite","ui":"react","events":false}'
+        $LASTEXITCODE | Should -Be 0
+        $out | Should -Be 'I-001 J-001'
+        $i = (Board).ideas[0]
+        $i.status | Should -Be 'waiting'
+        $i.scaffold.name | Should -Be 'todo'
+        $i.jobs | Should -Be @('J-001')
+        $j = Job 'J-001'
+        $j.kind | Should -Be 'bootstrap'
+        $j.stage | Should -Be 'backlog'
+        $j.target | Should -Be $script:New
+        $spec = Get-Content (Join-Path (JobDir 'J-001') 'spec.md') -Raw
+        $spec | Should -Match '# Spec: J-001 — Bootstrap todo from template-projects'
+        $spec | Should -Match ([regex]::Escape("- Repo: $script:New"))
+        $spec | Should -Match ([regex]::Escape('dotnet new aspire-base -n todo -o . --dbProvider sqlite --resource Todo'))
+        $spec | Should -Match ([regex]::Escape('dotnet new aspire-ui-react -n todo -o . --resource Todo'))
+        $spec | Should -Not -Match 'aspire-events'
+        $spec | Should -Match ([regex]::Escape('- build: `dotnet build todo.slnx`'))
+        $spec | Should -Match ([regex]::Escape('- test: `dotnet test todo.slnx`'))
+        $spec | Should -Match ([regex]::Escape('- ui: `Set-Location src/ui/react; npm ci; npm run build`'))
+        $spec | Should -Not -Match '\{\{'
+        F approve 'J-001' | Out-Null
+        $LASTEXITCODE | Should -Be 0
+    }
+
+    It 'the bootstrap spec maps blazor, postgres and events to their template flags' {
+        F new-idea 'x' -Target $script:New -Scaffold '{"name":"shop","resource":"Product","db":"postgres","ui":"blazor-maui","events":true}' | Out-Null
+        $spec = Get-Content (Join-Path (JobDir 'J-001') 'spec.md') -Raw
+        $spec | Should -Match ([regex]::Escape('dotnet new aspire-ui-blazor -n shop -o . --web true --maui true --resource Product'))
+        $spec | Should -Match ([regex]::Escape('dotnet new aspire-events -n shop -o . --eventStore marten --resource Product'))
+        $spec | Should -Not -Match 'aspire-ui-react'
+        $spec | Should -Not -Match '- ui:'
+    }
+
+    It 'merging a bootstrap job releases its idea to drafting and prints released <idea>' {
+        F new-idea 'a todo app' -Target $script:New -Scaffold '{"name":"todo","resource":"Todo","db":"sqlite","ui":"none","events":false}' | Out-Null
+        F approve 'J-001' | Out-Null
+        $wt = F checkout 'J-001'
+        Set-Content (Join-Path $wt 'todo.slnx') '<Solution />'
+        git -C $wt add -A 2>&1 | Out-Null
+        git -C $wt -c user.email=f@t -c user.name=f commit -q -m 'scaffold' 2>&1 | Out-Null
+        Move-ToGate 'J-001'
+        F gate 'J-001' | Out-Null
+        $out = F merge 'J-001'
+        $LASTEXITCODE | Should -Be 0
+        $out | Should -Contain 'released I-001'
+        (Board).ideas[0].status | Should -Be 'drafting'
     }
 
     It 'approve refuses a spec with no Target, a relative Repo, or no Gate' -ForEach @(

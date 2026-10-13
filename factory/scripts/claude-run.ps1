@@ -7,6 +7,10 @@
 
 $FactoryRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $FactoryPs1 = Join-Path $PSScriptRoot 'factory.ps1'
+# The template-projects workspace bootstrap jobs scaffold from: readable, never editable.
+$TemplatesRoot = if ($env:FACTORY_TEMPLATES) { $env:FACTORY_TEMPLATES } else {
+    [IO.Path]::GetFullPath((Join-Path (Split-Path $FactoryRoot -Parent) 'template-projects'))
+}
 
 # Claude Code permission paths: forward slashes; '//d/...' is absolute on Windows.
 function ConvertTo-RulePath([string] $path) {
@@ -32,13 +36,14 @@ function Write-HeadlessSettings([string] $stateDir) {
     $settings = [ordered]@{
         permissions = [ordered]@{
             allow = @(& $both $AllowCommands) + @("Bash(pwsh -NoProfile -File $factory *)", "PowerShell(pwsh -NoProfile -File $factory *)")
-            additionalDirectories = @((Join-Path $FactoryRoot 'factory/templates') -replace '\\', '/')
+            additionalDirectories = @(((Join-Path $FactoryRoot 'factory/templates') -replace '\\', '/'), ($TemplatesRoot -replace '\\', '/'))
             deny = @(& $both $DenyCommands) + @(
                 'Edit(/factory/**)', 'Edit(/.claude/**)', 'Edit(/docs/FACTORY-CONTRACT.md)',
                 "Edit($(ConvertTo-RulePath (Join-Path $FactoryRoot 'factory'))/**)",
                 "Edit($(ConvertTo-RulePath (Join-Path $FactoryRoot '.claude'))/**)",
                 "Edit($(ConvertTo-RulePath (Join-Path $FactoryRoot 'docs/FACTORY-CONTRACT.md')))",
-                "Edit($(ConvertTo-RulePath $stateDir)/jobs/*/spec.md)"
+                "Edit($(ConvertTo-RulePath $stateDir)/jobs/*/spec.md)",
+                "Edit($(ConvertTo-RulePath $TemplatesRoot)/**)"
             )
         }
     }

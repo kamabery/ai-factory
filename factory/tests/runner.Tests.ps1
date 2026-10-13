@@ -14,7 +14,7 @@ BeforeAll {
     function Run-Runner { & pwsh -NoProfile -File $script:Runner 2>&1 | Out-String }
 
     function New-ApprovedJob([string]$title, [string]$target = $script:Repo) {
-        $idea = F new-idea "idea for $title" -Target $target
+        $idea = F new-idea "idea for $title" -Target $script:Repo
         $spec = Join-Path $TestDrive "spec-$([guid]::NewGuid().ToString('N')).md"
         Set-Content $spec "# Spec: $title`n`n## Target`n- Repo: $target`n`n## Gate`n- build: ``exit 0``"
         $id = F add-spec $idea $spec
@@ -179,6 +179,10 @@ Describe 'runner.ps1 and hook-event.ps1' {
             $p.deny | Should -Contain 'Bash(git merge*)'
             $templates = (Join-Path (Split-Path $script:Scripts -Parent) 'templates') -replace '\\', '/'
             $p.additionalDirectories | Should -Contain $templates
+            $workspace = ([IO.Path]::GetFullPath((Join-Path $script:Scripts '..\..\..\template-projects'))) -replace '\\', '/'
+            $p.additionalDirectories | Should -Contain $workspace
+            $rule = ($workspace -replace '^([A-Za-z]):', { '/' + $_.Groups[1].Value.ToLowerInvariant() })
+            $p.deny | Should -Contain "Edit(/$rule/**)"
         }
 
         It 'keeps non-ASCII text from claude intact in run-<n>.jsonl' {

@@ -47,11 +47,35 @@ Every idea names a **target**: the absolute path of the git repo the work lands 
 types it next to the idea; nothing defaults it. The factory itself (this repo's `factory/`,
 `.claude/`, `.factory-runs/` and dashboard) never moves; only the code it builds goes to the target.
 
-- An existing git repo: jobs branch from its `main` and merge back into it.
-- A path that does not exist yet, or an empty folder: the first `checkout` for a job creates it
-  with `git init -b main` and an empty initial commit. The control plane does this, never an agent.
-- Anything else (a non-empty folder that is not a git repo, a relative path) is refused by
-  `new-idea` and `approve`.
+- An existing git repo: jobs branch from its `main` and merge back into it. The idea goes straight
+  to the spec-writer.
+- A **new** target (a path that does not exist yet, or an empty folder) needs **scaffold options**,
+  chosen by the human in the idea form. `new-idea` then creates a **bootstrap job** instead of
+  starting the spec-writer: its spec, generated from `factory/templates/bootstrap.md`, scaffolds
+  the project from the `template-projects` templates. The idea waits (`waiting`) until that job is
+  merged; the merge releases it to the spec-writer, which then specs features against real code.
+  The first `checkout` creates the target with `git init -b main` and an empty initial commit;
+  the control plane does this, never an agent.
+- Anything else (a non-empty folder that is not a git repo, a relative path, scaffold options for an
+  existing repo, a new target without them) is refused by `new-idea`, and the same target checks
+  by `approve`.
+
+Scaffold options (`-Scaffold <json>` on `new-idea`, `idea.scaffold` on the board):
+
+```json
+{ "name": "todo", "resource": "Todo", "db": "sqlite", "ui": "react", "events": false }
+```
+
+| Key | Values |
+| --- | --- |
+| `name` | `^[a-z][a-z0-9]*$`; the templates' `-n` (gives `todo.slnx`, `src/todo.api`, `tests/todo.api.tests`) |
+| `resource` | `^[A-Z][A-Za-z0-9]*$`; the templates' `--resource` |
+| `db` | `sqlite`, `sqlserver`, `postgres` |
+| `ui` | `react`, `blazor`, `blazor-maui`, `none` |
+| `events` | `true` / `false`; the event store follows `db` (fisher, polecat, marten) |
+
+The template workspace is `$env:FACTORY_TEMPLATES`, else `<parent of this repo>\template-projects`.
+Agents may read it and never edit it.
 
 Each target has one sibling worktree, `<target>.wt`, reused by every job on that target. One job
 builds at a time across all targets. A job with no `target` (created before targets existed) uses
@@ -80,12 +104,15 @@ in `backlog`.
 
 ```
 board.ideas[] = { "id": "I-001", "text": "...", "target": "D:\\code\\Scratchpad\\todo-app",
-                  "status": "drafting|done|failed", "jobs": ["J-004", "J-005"], "createdAt": "..." }
+                  "scaffold": null, "status": "waiting|drafting|done|failed", "jobs": ["J-004", "J-005"],
+                  "createdAt": "..." }
 ```
 
-- `factory.ps1 new-idea <text> -Target <path>` validates the target (see [Targets](#targets)),
-  allocates `I-NNN`, writes `ideas/I-NNN/idea.md` (the text, then a last line `Target: <path>`) and
-  sets status `drafting`.
+- `factory.ps1 new-idea <text> -Target <path> [-Scaffold <json>]` validates the target and options
+  (see [Targets](#targets)), allocates `I-NNN` and writes `ideas/I-NNN/idea.md` (the text, then a
+  last line `Target: <path>`). For an existing repo it sets status `drafting`. For a new target it
+  sets status `waiting`, creates the bootstrap job in `backlog` (`kind: "bootstrap"`, listed in the
+  idea's `jobs`) and prints `I-NNN J-NNN`.
 - The spec-writer writes `ideas/I-NNN/spec-1.md .. spec-N.md`, following `factory/templates/spec.md`.
   It copies the idea's target into each spec's `## Target` verbatim and never chooses one.
 - `factory.ps1 add-spec <ideaId> <file>` allocates `J-NNN`, copies the file to `jobs/J-NNN/spec.md`,
@@ -111,7 +138,7 @@ board.ideas[] = { "id": "I-001", "text": "...", "target": "D:\\code\\Scratchpad\
 | approve | ready | `Decision: ESCALATE` | `escalated` |
 | gate | ready | every gate command exited 0 (no flag), or any one did not | `gate-failed` |
 | build / review / approve / gate | ready | the orchestrator gives up, or the runner's `claude` process exits non-zero | `escalated` |
-| ready | done | human `merge`; see [Gate and merge](#gate-and-merge) | |
+| ready | done | human `merge`; see [Gate and merge](#gate-and-merge). A bootstrap job's merge moves its idea `waiting` → `drafting` and prints `released <ideaId>` | |
 | ready | ready | human `merge` refused: dirty checkout or merge conflict / red gate | `merge-blocked` / `gate-failed` |
 | ready | approved | human `rework <id> <note>`; writes `jobs/<id>/rework-<n>.md`, round += 1, sets `approvedAt` | |
 | ready | discarded | human; deletes branch `factory/<id>` | |
@@ -173,6 +200,7 @@ those lines and nothing else; if one is missing or malformed, the script treats 
       "stage": "review",
       "round": 1,
       "branch": "factory/J-001",
+      "kind": "feature",
       "target": "D:\\code\\Scratchpad\\todo-app",
       "reviews": { "security": "running", "code": "PASS", "ux": "pending", "ui": "CHANGES" },
       "decision": null,
@@ -199,6 +227,7 @@ those lines and nothing else; if one is missing or malformed, the script treats 
 - `merged` is `null` until a merge, then `{ "sha": "<merge commit>", "repo": "<target>", "added": ["<absolute path>", ...], "modified": [...] }`,
   from `git diff --name-status --no-renames <sha>^1 <sha>` in the target.
 - `target` is absent on legacy jobs, which use this repo.
+- `kind` is `feature` (from a spec-writer spec) or `bootstrap` (generated by `new-idea`); absent means `feature`.
 - `costUsd` and `durationMs` are summed over every runner pass on the job.
 - Ids are `I-NNN` and `J-NNN`, allocated by the script. The simulator uses the same ids in its own
   state dir (`.factory-runs-sim/`), with a throwaway sandbox repo at `.factory-runs-sim/repo`.
@@ -231,7 +260,7 @@ stderr and leaves the board unchanged.
 
 | Command | Used by |
 | --- | --- |
-| `new-idea <text> -Target <path>` · `add-spec <ideaId> <file>` · `idea-done <ideaId> [-Failed -Reason]` | serve.ps1, `/factory spec` |
+| `new-idea <text> -Target <path> [-Scaffold <json>]` · `add-spec <ideaId> <file>` · `idea-done <ideaId> [-Failed -Reason]` | serve.ps1, `/factory spec` |
 | `edit-spec <id> -File <path>` (backlog only) | serve.ps1 |
 | `approve <id>` · `rework <id> <note>` · `discard <id>` · `merge <id>` | serve.ps1 (human drags) |
 | `next` (prints the next runnable approved id, or nothing) · `checkout <id>` (creates the target repo if needed, then creates or reuses `<target>.wt` on `factory/<id>`; prints the worktree path) · `set-cost <id> <usd> <ms>` | runner.ps1 |
@@ -273,6 +302,7 @@ and `npm run build` in `src/ui/react`.
 
 `factory.ps1 merge <id>` runs in the target's main checkout:
 
+0. It refuses a branch with no commits beyond the target's `main` (`merge-blocked`, "nothing to merge").
 1. If no all-zero gate is recorded for the current head sha of `factory/<id>`, it runs `gate`
    first. A red gate leaves the job in `ready` with flag `gate-failed`. A human can overrule a
    reviewer flag by dragging to Done, but cannot skip the gate.
@@ -295,11 +325,11 @@ and a refused move snaps the card back and shows the message.
 | `GET /api/jobs/<id>/files` | (read-only) | the job's artifact paths, relative to `jobs/<id>/` |
 | `GET /api/target?path=<p>` | (read-only) | `{ "ok", "absolute", "exists", "isRepo", "empty" }` for the target hint |
 | `GET /api/agents/<agentId>/transcript` | (read-only) | the `transcript` file named by that agent's `agent-start` event; no other path is served |
-| `POST /api/ideas` `{ "text", "target" }` | `new-idea -Target` | starts `spec-run.ps1 I-NNN` detached (see below) |
+| `POST /api/ideas` `{ "text", "target", "scaffold"? }` | `new-idea -Target [-Scaffold]` | starts `spec-run.ps1 I-NNN` detached when the idea is `drafting` (not for a bootstrap) |
 | `PUT /api/jobs/<id>/spec` (text/markdown) | `edit-spec` | |
 | `POST /api/jobs/<id>/move` `{ "to": "approved" }` from backlog | `approve` | starts the runner |
 | `POST /api/jobs/<id>/move` `{ "to": "approved", "note" }` from ready | `rework` | starts the runner |
-| `POST /api/jobs/<id>/move` `{ "to": "done" }` | `merge` | |
+| `POST /api/jobs/<id>/move` `{ "to": "done" }` | `merge` | starts `spec-run.ps1 I-NNN` when the merge printed `released I-NNN` |
 | `POST /api/jobs/<id>/move` `{ "to": "discarded" }` | `discard` | |
 
 "Starts the runner" means: spawn `runner.ps1` detached, unless `runner.lock` is held. The claude
@@ -323,12 +353,17 @@ longer running. Otherwise it loops:
    writes `<stateDir>/headless-settings.json`, and runs this in the target's worktree:
    `claude -p "/factory:factory run <id> <stateDir> <factory.ps1>" --plugin-dir <this repo>/factory/plugin --settings <stateDir>/headless-settings.json --add-dir <stateDir> --output-format stream-json --verbose --permission-mode acceptEdits`
    (`claude-run.ps1` builds this command for both scripts).
-   - `headless-settings.json` `permissions.allow` is the Bash allowlist, with the absolute
-     `factory.ps1` path written in. The skill calls `factory.ps1` by that absolute path with no
+   - `headless-settings.json` `permissions.allow` lets agents run the toolchain (`dotnet`, `npm`,
+     `npx`, `node`), git reads and commits, and read-only shell commands, in both the Bash and the
+     PowerShell tool; `deny` blocks `git push`, `merge`, `rebase`, `reset --hard`, switching to
+     `main` and `git worktree`. `additionalDirectories` makes `factory/templates` and the template
+     workspace readable. The allowlist also holds the absolute
+     `factory.ps1` path. The skill calls `factory.ps1` by that absolute path with no
      `$VARIABLES`, because a headless permission check can't approve a variable it can't see.
    - `permissions.deny` is the fence: `Edit` on `/factory/**`, `/.claude/**` and
-     `/docs/FACTORY-CONTRACT.md` in the worktree, the same three by absolute path in this repo, and
-     `<stateDir>/jobs/*/spec.md`.
+     `/docs/FACTORY-CONTRACT.md` in the worktree, the same three by absolute path in this repo,
+     `<stateDir>/jobs/*/spec.md`, and the template workspace.
+   - claude's output is read as UTF-8 whatever the console's codepage.
    - stderr goes to the same log, so a reader skips lines that are not JSON.
 4. It appends each stdout line to `jobs/<id>/run-<n>.jsonl` as it arrives, and calls `set-cost`
    with `total_cost_usd` and `duration_ms` from the final `"type":"result"` line. If the job is still in Building afterwards, whether claude exited non-zero or
