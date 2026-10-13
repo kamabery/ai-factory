@@ -385,6 +385,11 @@ try {
         'merge' {
             $j = Get-Job $Arg1
             Require-Stage $j 'ready' 'merge'
+            $ahead = (Invoke-Git (JobRoot $j) rev-list --count "main..factory/$($j.id)").Out
+            if ($ahead -notmatch '^[1-9]\d*$') {
+                Move-Job $j 'ready' 'human' 'merge-blocked' "nothing to merge: factory/$($j.id) adds no commits to main"
+                Fail 'merge blocked: nothing to merge'
+            }
             if (-not (Gate-Green $j)) {
                 if ($Board.jobs | Where-Object { $_.stage -in $Building }) {
                     Move-Job $j 'ready' 'human' 'merge-blocked' 'gate must re-run but the worktree is busy; retry when Building is empty'

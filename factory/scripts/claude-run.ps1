@@ -15,19 +15,25 @@ function ConvertTo-RulePath([string] $path) {
     "/$p"
 }
 
+# Agents work in a throwaway worktree, so the whole toolchain (scaffolding included) is allowed, plus
+# read-only shell commands. Anything that would leave the branch (push, merge, switching to main) is
+# denied. Each rule is given for both the Bash and the PowerShell tool.
+$AllowCommands = @(
+    'dotnet *', 'npm *', 'npx *', 'node *', 'aspire *',
+    'git status*', 'git diff*', 'git log*', 'git show*', 'git add *', 'git commit *', 'git branch*', 'git rev-parse*', 'git ls-files*',
+    'ls*', 'cat *', 'head *', 'tail *', 'wc *', 'grep *', 'echo *', 'pwd', 'cd *', 'which *', 'printenv*',
+    'Get-ChildItem*', 'Get-Content *', 'Select-String *', 'Test-Path *', 'Resolve-Path *', 'Get-Location', 'Set-Location *', 'Write-Output *'
+)
+$DenyCommands = @('git push*', 'git merge*', 'git rebase*', 'git reset --hard*', 'git checkout main*', 'git switch main*', 'git branch -D*', 'git worktree*')
+
 function Write-HeadlessSettings([string] $stateDir) {
     $factory = $FactoryPs1 -replace '\\', '/'
+    $both = { param($cmds) foreach ($c in $cmds) { "Bash($c)"; "PowerShell($c)" } }
     $settings = [ordered]@{
         permissions = [ordered]@{
-            allow = @(
-                'Bash(dotnet build *)', 'Bash(dotnet test *)', 'Bash(UPDATE_CONTRACT=1 dotnet test *)', 'Bash(dotnet ef *)',
-                'Bash(dotnet new *)', 'Bash(dotnet sln *)', 'Bash(dotnet add *)', 'Bash(dotnet restore *)',
-                'Bash(npm ci)', 'Bash(npm install)', 'Bash(npm install *)', 'Bash(npm run *)', 'Bash(npx vite build)',
-                'Bash(git status *)', 'Bash(git diff *)', 'Bash(git log *)', 'Bash(git add *)', 'Bash(git commit *)',
-                'Bash(git branch --show-current)',
-                "Bash(pwsh -NoProfile -File $factory *)", "PowerShell(pwsh -NoProfile -File $factory *)"
-            )
-            deny = @(
+            allow = @(& $both $AllowCommands) + @("Bash(pwsh -NoProfile -File $factory *)", "PowerShell(pwsh -NoProfile -File $factory *)")
+            additionalDirectories = @((Join-Path $FactoryRoot 'factory/templates') -replace '\\', '/')
+            deny = @(& $both $DenyCommands) + @(
                 'Edit(/factory/**)', 'Edit(/.claude/**)', 'Edit(/docs/FACTORY-CONTRACT.md)',
                 "Edit($(ConvertTo-RulePath (Join-Path $FactoryRoot 'factory'))/**)",
                 "Edit($(ConvertTo-RulePath (Join-Path $FactoryRoot '.claude'))/**)",
@@ -56,12 +62,18 @@ function Invoke-ClaudeStream([string] $prompt, [string] $log, [string[]] $addDir
             if ($line -match '"total_cost_usd"') { try { $script:LastResult = $line | ConvertFrom-Json } catch { } }
         }
     }
-    if ($env:FACTORY_CLAUDE_CMD) {
-        & pwsh -NoProfile -Command $env:FACTORY_CLAUDE_CMD 2>&1 | & $sink
-    } else {
-        $dirs = @($stateDir) + $addDirs | ForEach-Object { '--add-dir'; $_ }
-        & claude -p $prompt --plugin-dir (Join-Path $FactoryRoot 'factory/plugin') --settings $settings @dirs `
-            --output-format stream-json --verbose --permission-mode acceptEdits 2>&1 | & $sink
-    }
-    @{ Code = $LASTEXITCODE; Result = $script:LastResult }
+    # claude writes UTF-8; a runner started by serve.ps1 has a fresh console on the OEM codepage.
+    $enc = [Console]::OutputEncoding
+    [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+    try {
+        if ($env:FACTORY_CLAUDE_CMD) {
+            & pwsh -NoProfile -Command $env:FACTORY_CLAUDE_CMD 2>&1 | & $sink
+        } else {
+            $dirs = @($stateDir) + $addDirs | ForEach-Object { '--add-dir'; $_ }
+            & claude -p $prompt --plugin-dir (Join-Path $FactoryRoot 'factory/plugin') --settings $settings @dirs `
+                --output-format stream-json --verbose --permission-mode acceptEdits 2>&1 | & $sink
+        }
+        $code = $LASTEXITCODE
+    } finally { [Console]::OutputEncoding = $enc }
+    @{ Code = $code; Result = $script:LastResult }
 }

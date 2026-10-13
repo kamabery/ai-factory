@@ -574,6 +574,20 @@ Describe 'targets' {
         git -C $script:Repo log --merges --oneline main | Should -BeNullOrEmpty
     }
 
+    It 'merge refuses a branch that adds nothing to the target main, and records no merge' {
+        $id = New-ApprovedJob 'Empty' $script:New
+        F checkout $id | Out-Null
+        Move-ToGate $id
+        F gate $id | Out-Null
+        F merge $id | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        $j = Job $id
+        $j.stage | Should -Be 'ready'
+        $j.flag.reason | Should -Be 'merge-blocked'
+        $j.flag.detail | Should -Match 'nothing to merge'
+        $j.merged | Should -BeNullOrEmpty
+    }
+
     It 'a legacy ready job with no target still merges into this repo' {
         $env:FACTORY_WORKTREE = "$script:Repo.wt"
         $id = New-ApprovedJob 'Legacy'

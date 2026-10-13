@@ -165,6 +165,36 @@ Describe 'runner.ps1 and hook-event.ps1' {
             $settings.permissions.deny | Should -Contain 'Edit(/.claude/**)'
         }
 
+        It 'lets agents run the toolchain and read-only shell commands in either shell, and read the templates' {
+            New-ApprovedJob 'A' | Out-Null
+            Set-FakeClaude
+            Run-Runner | Out-Null
+            $p = (Get-Content (Join-Path $env:FACTORY_HOME 'headless-settings.json') -Raw | ConvertFrom-Json).permissions
+            foreach ($rule in 'dotnet *', 'npm *', 'npx *', 'node *', 'git status*', 'ls*', 'cat *') {
+                $p.allow | Should -Contain "Bash($rule)"
+                $p.allow | Should -Contain "PowerShell($rule)"
+            }
+            $p.allow | Should -Contain 'PowerShell(Get-ChildItem*)'
+            $p.deny | Should -Contain 'Bash(git push*)'
+            $p.deny | Should -Contain 'Bash(git merge*)'
+            $templates = (Join-Path (Split-Path $script:Scripts -Parent) 'templates') -replace '\\', '/'
+            $p.additionalDirectories | Should -Contain $templates
+        }
+
+        It 'keeps non-ASCII text from claude intact in run-<n>.jsonl' {
+            $id = New-ApprovedJob 'A'
+            $fake = Join-Path $TestDrive 'fake-utf8.ps1'
+            Set-Content $fake -Encoding utf8 @'
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+'{"type":"assistant","text":"done — ✓ ⚠"}'
+'{"type":"result","total_cost_usd":0.1,"duration_ms":10}'
+'@
+            $env:FACTORY_CLAUDE_CMD = "& '$fake'"
+            # serve.ps1 starts the runner in a fresh hidden console, which is on the OEM codepage.
+            & pwsh -NoProfile -Command "[Console]::OutputEncoding = [Text.Encoding]::GetEncoding(437); & '$script:Runner'" 2>&1 | Out-Null
+            Get-Content (Join-Path $env:FACTORY_HOME "jobs/$id/run-1.jsonl") -Encoding utf8 | Should -Contain '{"type":"assistant","text":"done — ✓ ⚠"}'
+        }
+
         It 'reuses the existing branch for a reworked job' {
             $id = New-ApprovedJob 'A'
             Set-FakeClaude
