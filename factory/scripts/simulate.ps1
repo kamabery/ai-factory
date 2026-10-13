@@ -60,6 +60,13 @@ function Spec-Text([string] $title, [string] $intent) {
 ## Intent
 $intent
 
+## Target
+- Repo: $($env:FACTORY_REPO)
+
+## Gate
+- build: ``exit 0``
+- test: ``exit 0``
+
 ## Acceptance criteria
 - [ ] AC1: $title works as described — proven by ``dotnet test tests/shelf.api.tests``
 - [ ] AC2: the UI builds — proven by ``npm run build``
@@ -73,9 +80,20 @@ None beyond the usual.
 "@
 }
 
+# Fake stream-json lines, shaped like `claude -p --output-format stream-json --verbose`.
+function J([hashtable] $o) { $o | ConvertTo-Json -Compress -Depth 10 }
+function Say([string] $text, [string] $parent = $null) { J @{ type = 'assistant'; parent_tool_use_id = $parent; message = @{ content = @(@{ type = 'text'; text = $text }) } } }
+function Think([string] $parent = $null) { J @{ type = 'assistant'; parent_tool_use_id = $parent; message = @{ content = @(@{ type = 'thinking'; thinking = ''; signature = 'sim' }) } } }
+function Tool([string] $id, [string] $name, [hashtable] $in) { J @{ type = 'assistant'; message = @{ content = @(@{ type = 'tool_use'; id = $id; name = $name; input = $in }) } } }
+function Result([string] $id, [string] $text) { J @{ type = 'user'; message = @{ content = @(@{ type = 'tool_result'; tool_use_id = $id; content = $text }) } } }
+function Done([double] $usd, [int] $ms) { J @{ type = 'result'; subtype = 'success'; total_cost_usd = $usd; duration_ms = $ms; result = 'done' } }
+
 function Sim-Idea([string] $text, [object[]] $specs) {
-    $idea = F-Must new-idea $text
+    $idea = F-Must new-idea $text -Target $env:FACTORY_REPO
     F-Must event -Idea $idea -Kind agent-start -Agent spec-writer | Out-Null
+    $why = if ($specs.Count) { "Writing $($specs.Count) spec(s)." } else { 'This idea is too vague to spec: which list, and what counts as fast?' }
+    Set-Content (Join-Path $StateDir "ideas/$idea/run.jsonl") @(
+        (J @{ type = 'system'; subtype = 'init'; session_id = 'sim' }), (Think), (Say $why), (Done 0.05 4000))
     Tick 2
     $ids = @()
     $k = 0
@@ -96,7 +114,17 @@ function Round([string] $id) { ((F-Must status -Json | ConvertFrom-Json).jobs | 
 
 function Sim-Build([string] $id) {
     $round = Round $id
-    Ev $id agent-start builder
+    # The orchestrator's stream, and the builder's own transcript, as the Output tab reads them.
+    $agentId = "sim$($id -replace '\D', '')r$round"
+    $transcript = Join-Path $StateDir "transcripts/agent-$agentId.jsonl"
+    New-Item -ItemType Directory -Force (Split-Path $transcript -Parent) | Out-Null
+    Set-Content (Join-Path $StateDir "jobs/$id/run-$round.jsonl") @(
+        (J @{ type = 'system'; subtype = 'init'; session_id = 'sim' }), (Say "Starting $id, round $round."),
+        (Tool 't1' 'Agent' @{ subagent_type = 'factory:builder'; description = "Build $id" }),
+        (Result 't1' 'Built and committed.'), (Done 0.42 95000))
+    Set-Content $transcript @((Think), (Say 'Writing the failing test first.'),
+        (Tool 'b1' 'Bash' @{ command = 'dotnet test' }), (Result 'b1' 'Failed: 1'), (Say 'Now the implementation.'))
+    F-Must event (J @{ job = $id; kind = 'agent-start'; agent = 'builder'; agentId = $agentId; transcript = $transcript }) | Out-Null
     F-Must checkout $id | Out-Null
     Add-Content (Join-Path $env:FACTORY_WORKTREE "$id.txt") "round $round"
     git -C $env:FACTORY_WORKTREE add -A 2>&1 | Out-Null

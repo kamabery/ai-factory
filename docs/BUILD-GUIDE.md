@@ -219,6 +219,24 @@ the pipeline strip. Discard the card afterwards.
 
 ---
 
+### Step 6 re-run (after the first-run feedback)
+
+The first run (I-001, a todo app) built inside Shelf even though the work was meant to be a separate
+app. Since then: every idea names a **target repo** (an existing repo, or a path that becomes a new
+one); the spec carries `## Target` and `## Gate`; the factory runs from `factory/plugin` in the
+target's own `<target>.wt`; the card opens a large modal (Edit | Preview, Artifacts, Output,
+Timeline); Done lists the full paths the merge added. See "Targets" in `docs/FACTORY-CONTRACT.md`.
+
+1. Restart `serve.ps1`. Discard the legacy J-001 and J-002.
+2. Submit the idea with a target you type, for example `D:\code\Scratchpad	odo-app`. The hint
+   must say "New repo".
+3. In Backlog, check each spec's `Repo:` is exactly your path and its `## Gate` commands make sense
+   for the stack; edit in the modal and Save, then Approve spec 1 first (later specs depend on it).
+4. Watch the **Output** tab: orchestrator lines, then each agent's narration and tool calls.
+   (Claude Code records thinking blocks without text, so they show as a marker only.)
+5. At Ready for review, run the app from `<target>.wt`; drag to Done; the modal lists the added
+   files by full path, and the merge is on the target's `main`, not this repo's.
+
 ## Step 7: Failure paths (the video's lessons, as tests)
 
 Run each one and confirm the end state on the dashboard and in `board.json`.

@@ -6,12 +6,19 @@ import { simDir, factoryEnv } from './playwright.config';
 
 const repo = path.resolve(import.meta.dirname, '../../..');
 
-type Job = { id: string; stage: string; round: number; history: { from: string; to: string; by: string }[] };
+type Job = {
+  id: string; stage: string; round: number; target?: string;
+  merged?: { sha: string; repo: string; added: string[]; modified: string[] };
+  history: { from: string; to: string; by: string }[];
+};
 const board = () => JSON.parse(readFileSync(path.join(simDir, 'board.json'), 'utf8'));
 const job = (id: string): Job => board().jobs.find((j: Job) => j.id === id);
 
 const column = (page: Page, name: string) => page.locator(`[data-column="${name}"]`);
 const card = (page: Page, id: string) => page.locator(`[data-card="${id}"]`);
+const modal = (page: Page) => page.locator('#modal');
+const tab = (page: Page, name: string) => modal(page).locator(`[data-tab="${name}"]`);
+const sandbox = path.join(simDir, 'repo');
 
 test.describe.serial('factory dashboard', () => {
   test.beforeAll(() => {
@@ -41,16 +48,48 @@ test.describe.serial('factory dashboard', () => {
     await expect(card(page, 'J-001').locator('[data-cost]')).toBeVisible();
   });
 
-  test('the drawer shows the timeline, artifacts and gate result', async ({ page }) => {
+  test('the modal shows the timeline, artifacts rendered as markdown, and the gate result', async ({ page }) => {
     await page.goto('/');
     await card(page, 'J-001').click();
-    const drawer = page.locator('#drawer');
-    await expect(drawer).toBeVisible();
-    expect(await drawer.locator('[data-timeline] li').count()).toBeGreaterThanOrEqual(10);
-    await expect(drawer.locator('[data-gate]')).toContainText('test=0');
+    await expect(modal(page)).toBeVisible();
+    await expect(modal(page).locator('[data-gate]')).toContainText('test=0');
+    await expect(modal(page)).toContainText(sandbox);
 
-    await drawer.locator('a[data-file="spec.md"]').click();
-    await expect(page.locator('#viewer')).toContainText('# Spec: J-001');
+    await tab(page, 'timeline').click();
+    expect(await modal(page).locator('[data-timeline] li').count()).toBeGreaterThanOrEqual(10);
+
+    await tab(page, 'artifacts').click();
+    await modal(page).locator('[data-file="round-1/build.md"]').click();
+    await expect(modal(page).locator('#viewer h1')).toContainText('Build: J-001');
+  });
+
+  test('Done shows the full paths the merge added', async ({ page }) => {
+    await page.goto('/');
+    await card(page, 'J-001').click();
+    const merged = modal(page).locator('[data-merged]');
+    await expect(merged).toContainText(job('J-001').merged!.sha.slice(0, 7));
+    await expect(merged).toContainText(path.join(sandbox, 'J-001.txt'));
+  });
+
+  test('the Output tab streams the orchestrator and each agent, tagged', async ({ page }) => {
+    await page.goto('/');
+    await card(page, 'J-001').click();
+    await tab(page, 'output').click();
+    const out = modal(page).locator('[data-output]');
+    await expect(out).toContainText('Starting J-001');                 // orchestrator text
+    await expect(out).toContainText('▸ Agent');                        // orchestrator tool call
+    await expect(out.locator('[data-agent="builder"]').first()).toBeVisible();
+    await expect(out).toContainText('Writing the failing test first'); // builder transcript text
+    await expect(out.locator('.thinking').first()).toBeVisible();      // thinking marker
+    await expect(out).toContainText('$0.42');                          // result line
+  });
+
+  test('an idea card opens its spec-writer output', async ({ page }) => {
+    await page.goto('/');
+    await column(page, 'ideas').locator('[data-idea="I-003"]').click();
+    await expect(modal(page)).toBeVisible();
+    await expect(modal(page)).toContainText('Make it faster');
+    await expect(modal(page).locator('[data-output]')).toContainText('too vague');
   });
 
   test('the pipeline strip has a node for every agent and the gate', async ({ page }) => {
@@ -60,20 +99,38 @@ test.describe.serial('factory dashboard', () => {
     }
   });
 
-  test('submitting an idea adds a card to Ideas', async ({ page }) => {
+  test('an idea needs a target; the hint tells a new repo from an existing one', async ({ page }) => {
     await page.goto('/');
     await page.locator('#idea-text').fill('Show a count of books in the header');
+    const target = page.locator('#idea-target');
+    await target.fill('');
+    await expect(page.locator('#idea-submit')).toBeDisabled();
+    await target.fill('relative\\path');
+    await expect(page.locator('#target-hint')).toContainText(/absolute/i);
+    await expect(page.locator('#idea-submit')).toBeDisabled();
+    await target.fill(path.join(simDir, 'brand-new-app'));
+    await expect(page.locator('#target-hint')).toContainText(/new repo/i);
+    await target.fill(sandbox);
+    await expect(page.locator('#target-hint')).toContainText(/existing repo/i);
     await page.locator('#idea-submit').click();
     await expect(column(page, 'ideas')).toContainText('Show a count of books in the header');
-    expect(board().ideas.some((i: { text: string }) => i.text === 'Show a count of books in the header')).toBe(true);
+    const idea = board().ideas.find((i: { text: string }) => i.text === 'Show a count of books in the header');
+    expect(idea.target).toBe(sandbox);
   });
 
-  test('editing a backlog spec in the drawer saves it to disk', async ({ page }) => {
+  test('a backlog card opens a large modal with Edit and a live Preview, and Save writes to disk', async ({ page }) => {
     await page.goto('/');
     await card(page, 'J-005').click();
+    await expect(modal(page)).toBeVisible();
+    expect((await modal(page).boundingBox())!.width).toBeGreaterThanOrEqual(1000);
     const editor = page.locator('#spec-editor');
     await expect(editor).toHaveValue(/# Spec: J-005/);
-    await editor.fill('# Spec: J-005 — Not-found page\n\n## Intent\nEdited by a human.\n');
+    const text = `# Spec: J-005 — Not-found page\n\n## Intent\nEdited by a human.\n\n## Target\n- Repo: ${sandbox}\n\n## Gate\n- build: \`exit 0\`\n\n## Acceptance criteria\n- [ ] AC1: shows a page\n`;
+    await editor.fill(text);
+    const preview = page.locator('#spec-preview');
+    await expect(preview.locator('h2', { hasText: 'Acceptance criteria' })).toBeVisible();
+    await expect(preview.locator('input[type="checkbox"]')).toHaveCount(1);
+    await expect(preview).toContainText(`Repo: ${sandbox}`); // Windows backslashes survive markdown
     await page.locator('#spec-save').click();
     await expect(page.locator('#toast')).toContainText(/saved/i);
     expect(readFileSync(path.join(simDir, 'jobs/J-005/spec.md'), 'utf8')).toContain('Edited by a human.');

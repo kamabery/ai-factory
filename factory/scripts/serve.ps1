@@ -2,7 +2,8 @@
 .SYNOPSIS
   The factory dashboard server: http://localhost:4317. See "Dashboard API" in docs/FACTORY-CONTRACT.md.
 .DESCRIPTION
-  Serves factory/dashboard/index.html and read-only files under the state dir (/state/...). Every
+  Serves factory/dashboard/index.html, its vendor/ files, read-only files under the state dir
+  (/state/...) and agent transcripts named by agent-start events. Every
   write is one factory.ps1 call; this script holds no transition logic. After an approve or rework
   it starts runner.ps1, and after a new idea it starts spec-run.ps1, both detached.
 #>
@@ -15,6 +16,7 @@ $ErrorActionPreference = 'Stop'
 $Scripts = $PSScriptRoot
 $Factory = Join-Path $Scripts 'factory.ps1'
 $Index = Join-Path (Split-Path $Scripts -Parent) 'dashboard/index.html'
+$Vendor = Join-Path (Split-Path $Scripts -Parent) 'dashboard/vendor'
 
 if (-not $StateDir) {
     $StateDir = if ($env:FACTORY_HOME) { $env:FACTORY_HOME } else {
@@ -95,6 +97,33 @@ function Handle($ctx) {
         return Send-File $ctx $full
     }
 
+    if ($method -eq 'GET' -and $path -like '/vendor/*') {
+        $full = [IO.Path]::GetFullPath((Join-Path $Vendor $path.Substring(8)))
+        if (-not $full.StartsWith($Vendor, [StringComparison]::OrdinalIgnoreCase)) { return Send $ctx 400 '{"ok":false,"message":"bad path"}' }
+        return Send-File $ctx $full
+    }
+
+    if ($method -eq 'GET' -and $path -eq '/api/target') {
+        $p = $ctx.Request.QueryString['path']
+        $abs = [bool]($p -and [IO.Path]::IsPathFullyQualified($p))
+        $exists = $abs -and (Test-Path $p -PathType Container)
+        $isRepo = $exists -and (Test-Path (Join-Path $p '.git'))
+        $empty = $exists -and -not $isRepo -and @(Get-ChildItem $p -Force).Count -eq 0
+        $ok = $abs -and (-not (Test-Path $p) -or $isRepo -or $empty)
+        return Send $ctx 200 (@{ ok = $ok; absolute = $abs; exists = $exists; isRepo = $isRepo; empty = $empty } | ConvertTo-Json -Compress)
+    }
+
+    if ($method -eq 'GET' -and $path -match '^/api/agents/([A-Za-z0-9_-]+)/transcript$') {
+        $agentId = $Matches[1]
+        $events = Join-Path $StateDir 'events.jsonl'
+        $start = if (Test-Path $events) {
+            Get-Content $events | Where-Object { $_ -match '"agent-start"' -and $_ -match [regex]::Escape("`"agentId`":`"$agentId`"") } |
+                Select-Object -Last 1 | ConvertFrom-Json
+        }
+        if (-not $start -or -not $start.PSObject.Properties['transcript']) { return Send $ctx 404 '{"ok":false,"message":"no such agent"}' }
+        return Send-File $ctx $start.transcript
+    }
+
     if ($method -eq 'GET' -and $path -match '^/api/jobs/([A-Z]+-\d+)/files$') {
         $dir = Join-Path $StateDir "jobs/$($Matches[1])"
         $files = @()
@@ -107,9 +136,11 @@ function Handle($ctx) {
     }
 
     if ($method -eq 'POST' -and $path -eq '/api/ideas') {
-        $text = (Read-Body $ctx | ConvertFrom-Json).text
+        $req = Read-Body $ctx | ConvertFrom-Json
+        $text = $req.text
         if (-not $text -or -not $text.Trim()) { return Send $ctx 400 '{"ok":false,"message":"an idea needs some text"}' }
-        $r = Invoke-Factory new-idea $text.Trim()
+        $target = if ($req.PSObject.Properties['target'] -and $req.target) { $req.target.Trim() } else { '' }
+        $r = Invoke-Factory new-idea $text.Trim() -Target $target
         if ($r.Ok) { Start-Detached 'spec-run.ps1' @($r.Message) }
         return Send-Result $ctx $r
     }
