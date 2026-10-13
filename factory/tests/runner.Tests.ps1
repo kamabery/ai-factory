@@ -162,6 +162,38 @@ Describe 'runner.ps1 and hook-event.ps1' {
         }
     }
 
+    Context 'spec-run' {
+        BeforeAll { $script:SpecRun = Join-Path $script:Scripts 'spec-run.ps1' }
+
+        It 'runs the spec command with FACTORY_IDEA set and saves run.json' {
+            $idea = F new-idea 'find books'
+            $fake = Join-Path $TestDrive 'fake-spec.ps1'
+            @"
+`$f = '$script:Factory'
+`$s = Join-Path `$env:FACTORY_HOME "ideas/`$env:FACTORY_IDEA/spec-1.md"
+Set-Content `$s '# Spec: Book search filter'
+& `$f add-spec `$env:FACTORY_IDEA `$s | Out-Null
+& `$f idea-done `$env:FACTORY_IDEA | Out-Null
+'{"total_cost_usd":0.2,"duration_ms":900}'
+"@ | Set-Content $fake
+            $env:FACTORY_CLAUDE_CMD = "& '$fake'"
+            & pwsh -NoProfile -File $script:SpecRun $idea | Out-Null
+            $LASTEXITCODE | Should -Be 0
+            ((Board).ideas | Where-Object id -eq $idea).status | Should -Be 'done'
+            (Job 'J-001').title | Should -Be 'Book search filter'
+            Test-Path (Join-Path $env:FACTORY_HOME "ideas/$idea/run.json") | Should -BeTrue
+        }
+
+        It 'marks the idea failed when the spec run leaves it drafting' {
+            $idea = F new-idea 'vague'
+            $env:FACTORY_CLAUDE_CMD = 'exit 1'
+            & pwsh -NoProfile -File $script:SpecRun $idea | Out-Null
+            $i = (Board).ideas | Where-Object id -eq $idea
+            $i.status | Should -Be 'failed'
+            $i.reason | Should -Match 'exit 1'
+        }
+    }
+
     Context 'state resolution' {
         It 'resolves FACTORY_HOME from inside the worktree to the main checkout' {
             Remove-Item Env:FACTORY_HOME

@@ -100,6 +100,7 @@ facts. The board records each one on its own. Only a human drag to Done merges.
   ideas/<id>/
     idea.md                    the idea text, verbatim
     spec-<k>.md                spec-writer output, one per proposed job
+    run.json                   the claude -p result of the spec run
   jobs/<id>/
     spec.md                    copied from the idea, then edited by the human in Backlog
     rework-<n>.md              the human's rework note for round n
@@ -155,7 +156,8 @@ those lines and nothing else; if one is missing or malformed, the script treats 
 - `flag` is `null` or `{ "reason": "<code from the table>", "detail": "<one line>" }`. Only a
   `ready` job carries one.
 - `costUsd` and `durationMs` are summed over every runner pass on the job.
-- Ids are `I-NNN` and `J-NNN`, allocated by the script. Simulator ids are `SIM-I-NNN` and `SIM-NNN`.
+- Ids are `I-NNN` and `J-NNN`, allocated by the script. The simulator uses the same ids in its own
+  state dir (`.factory-runs-sim/`), with a throwaway sandbox repo at `.factory-runs-sim/repo`.
 
 ## `events.jsonl`
 
@@ -243,7 +245,8 @@ and a refused move snaps the card back and shows the message.
 
 | Request | Calls | Then |
 | --- | --- | --- |
-| `POST /api/ideas` `{ "text" }` | `new-idea` | spawns `claude -p "/factory spec I-NNN"` in the main checkout, detached, with `FACTORY_IDEA=I-NNN` |
+| `GET /api/jobs/<id>/files` | (read-only) | the job's artifact paths, relative to `jobs/<id>/` |
+| `POST /api/ideas` `{ "text" }` | `new-idea` | starts `spec-run.ps1 I-NNN` detached (see below) |
 | `PUT /api/jobs/<id>/spec` (text/markdown) | `edit-spec` | |
 | `POST /api/jobs/<id>/move` `{ "to": "approved" }` from backlog | `approve` | starts the runner |
 | `POST /api/jobs/<id>/move` `{ "to": "approved", "note" }` from ready | `rework` | starts the runner |
@@ -269,5 +272,8 @@ longer running. Otherwise it loops:
    `duration_ms`. If the job is still in Building afterwards, whether claude exited non-zero or
    not, it moves the job to `ready` with flag `escalated`. That way the queue never stalls.
 
-The `/factory spec` run for an idea doesn't use the runner or the lock. It reads the repo and
-writes only under `ideas/`, so it can run while a job builds.
+The spec run for an idea doesn't use the runner or the lock. It reads the repo and writes only
+under `ideas/`, so it can run while a job builds. `spec-run.ps1 <ideaId>` sets `FACTORY_IDEA`, runs
+`claude -p "/factory spec <ideaId>" --output-format json` in the main checkout (or
+`FACTORY_CLAUDE_CMD`), and saves `ideas/<id>/run.json`. If the idea is still `drafting` afterwards,
+it marks the idea `failed`.

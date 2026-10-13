@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Factory board</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --panel-2: #f0f2f5; --text: #1b1f24; --muted: #5d6673;
+    --border: #d9dde3; --accent: #3b5bdb; --accent-soft: #e5ebff; --ok: #2b8a3e; --ok-soft: #e3f5e7;
+    --warn: #c92a2a; --warn-soft: #fde8e8; --run: #e8590c; --run-soft: #fff0e3; --shadow: 0 1px 2px rgba(0,0,0,.08);
+    --radius: 8px; --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #111418; --panel: #1a1e24; --panel-2: #222730; --text: #e6e9ee; --muted: #9aa3ae;
+      --border: #2e343d; --accent: #7b93ff; --accent-soft: #232c4a; --ok: #69db7c; --ok-soft: #1c3324;
+      --warn: #ff8787; --warn-soft: #3d1f22; --run: #ffa94d; --run-soft: #3a2a19; --shadow: 0 1px 2px rgba(0,0,0,.4);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #111418; --panel: #1a1e24; --panel-2: #222730; --text: #e6e9ee; --muted: #9aa3ae;
+    --border: #2e343d; --accent: #7b93ff; --accent-soft: #232c4a; --ok: #69db7c; --ok-soft: #1c3324;
+    --warn: #ff8787; --warn-soft: #3d1f22; --run: #ffa94d; --run-soft: #3a2a19; --shadow: 0 1px 2px rgba(0,0,0,.4);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; gap: 12px; align-items: center; padding: 12px 16px; background: var(--panel); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0 8px 0 0; white-space: nowrap; }
+  #idea-form { display: flex; gap: 8px; flex: 1; min-width: 260px; }
+  #idea-text { flex: 1; min-width: 0; }
+  input, textarea { font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+  textarea { width: 100%; font-family: var(--mono); font-size: 12.5px; }
+  button { font: inherit; cursor: pointer; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); border-radius: 6px; padding: 6px 12px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--warn); }
+  button:disabled { opacity: .5; cursor: default; }
+
+  #pipeline { display: flex; align-items: center; gap: 6px; padding: 10px 16px; overflow-x: auto; border-bottom: 1px solid var(--border); background: var(--panel); }
+  .node { position: relative; border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px; white-space: nowrap; background: var(--panel-2); color: var(--muted); }
+  .node.active { color: var(--run); border-color: var(--run); background: var(--run-soft); animation: pulse 1.2s ease-in-out infinite; }
+  .node .badges { display: inline-flex; gap: 3px; margin-left: 6px; }
+  .node .badge { font-size: 11px; font-family: var(--mono); background: var(--run); color: #fff; border-radius: 4px; padding: 0 4px; }
+  .arrow { color: var(--muted); }
+  .group { display: inline-flex; gap: 4px; padding: 3px; border: 1px dashed var(--border); border-radius: 999px; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 4px var(--run-soft); } }
+
+  #board { display: grid; grid-template-columns: repeat(6, minmax(200px, 1fr)); gap: 12px; padding: 16px; overflow-x: auto; align-items: start; }
+  .column { background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius); min-height: 200px; display: flex; flex-direction: column; }
+  .column h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0; padding: 10px 12px; display: flex; justify-content: space-between; }
+  .column .cards { display: flex; flex-direction: column; gap: 8px; padding: 0 8px 8px; min-height: 120px; flex: 1; }
+  .column.drop-ok { outline: 2px dashed var(--accent); outline-offset: -2px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; box-shadow: var(--shadow); cursor: pointer; }
+  .card[draggable="true"] { cursor: grab; }
+  .card.selected { border-color: var(--accent); }
+  .card .top { display: flex; justify-content: space-between; gap: 6px; font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+  .card .title { font-weight: 600; margin: 3px 0 5px; }
+  .card .meta { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 11.5px; color: var(--muted); }
+  .chip { font-size: 11px; font-family: var(--mono); padding: 0 5px; border-radius: 4px; border: 1px solid var(--border); }
+  .chip.PASS { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
+  .chip.CHANGES { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
+  .chip.running { color: var(--run); background: var(--run-soft); border-color: transparent; }
+  .flag { font-size: 11px; font-weight: 600; color: #fff; background: var(--warn); border-radius: 4px; padding: 0 6px; }
+  .sub { font-size: 11px; color: var(--run); background: var(--run-soft); border-radius: 4px; padding: 0 5px; }
+  .idea-card .title { font-weight: 500; }
+  .idea-card.failed { border-color: var(--warn); }
+
+  #drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100vw); background: var(--panel); border-left: 1px solid var(--border); box-shadow: -4px 0 16px rgba(0,0,0,.15); overflow-y: auto; padding: 16px; transform: translateX(100%); transition: transform .2s ease; z-index: 10; }
+  #drawer.open { transform: none; }
+  #drawer h3 { margin: 0 0 4px; font-size: 17px; }
+  #drawer h4 { margin: 16px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  #drawer .close { float: right; }
+  #drawer .flagbox { background: var(--warn-soft); color: var(--warn); border-radius: 6px; padding: 8px 10px; margin-top: 8px; }
+  #drawer .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  #drawer .files a { display: inline-block; margin: 0 8px 4px 0; font-family: var(--mono); font-size: 12px; color: var(--accent); }
+  pre { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; white-space: pre-wrap; word-break: break-word; font-family: var(--mono); font-size: 12.5px; max-height: 50vh; overflow: auto; margin: 0; }
+  [data-timeline] { list-style: none; padding: 0; margin: 0; font-size: 12px; }
+  [data-timeline] li { display: grid; grid-template-columns: 70px 1fr; gap: 8px; padding: 2px 0; border-bottom: 1px dotted var(--border); }
+  [data-timeline] time { font-family: var(--mono); color: var(--muted); }
+
+  #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 6px; max-width: min(90vw, 640px); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 20; }
+  #toast.show { opacity: 1; }
+  #toast.error { background: var(--warn); color: #fff; }
+  @media (max-width: 700px) { #board { grid-template-columns: repeat(6, 78vw); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Factory</h1>
+  <form id="idea-form">
+    <input id="idea-text" placeholder="Describe an idea… the spec-writer turns it into backlog cards" autocomplete="off">
+    <button id="idea-submit" class="primary" type="submit">Submit idea</button>
+  </form>
+  <button id="theme" type="button" title="Toggle theme">◐</button>
+</header>
+
+<nav id="pipeline" aria-label="Pipeline"></nav>
+<main id="board"></main>
+<aside id="drawer" aria-label="Job details"></aside>
+<div id="toast" role="status"></div>
+
+<script>
+const COLUMNS = [
+  { key: 'ideas', label: 'Ideas' },
+  { key: 'backlog', label: 'Backlog', stages: ['backlog'] },
+  { key: 'approved', label: 'Approved', stages: ['approved'] },
+  { key: 'building', label: 'Building', stages: ['build', 'review', 'approve', 'gate'] },
+  { key: 'ready', label: 'Ready for review', stages: ['ready'] },
+  { key: 'done', label: 'Done', stages: ['done'] },
+];
+const DROP_TARGETS = { backlog: ['approved', 'done'], ready: ['approved', 'done'] };
+const ROLES = ['security', 'code', 'ux', 'ui'];
+const NODES = ['spec-writer', 'builder', ['security-reviewer', 'code-reviewer', 'ux-reviewer', 'ui-reviewer'], 'approver', 'gate'];
+
+const state = { board: { jobs: [], ideas: [] }, events: [], boardText: '', eventsText: '', openId: null, files: [], specText: null, specDirty: false, viewer: null };
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// --- theme -------------------------------------------------------------------------------
+try { const t = localStorage.getItem('factory-theme'); if (t) document.documentElement.dataset.theme = t; } catch {}
+$('#theme').onclick = () => {
+  const dark = document.documentElement.dataset.theme
+    ? document.documentElement.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  document.documentElement.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('factory-theme', document.documentElement.dataset.theme); } catch {}
+};
+
+// --- data ----------------------------------------------------------------------------------
+async function getText(url) {
+  const r = await fetch(url, { cache: 'no-store' });
+  return r.ok ? r.text() : '';
+}
+async function poll() {
+  try {
+    const [b, e] = await Promise.all([getText('/state/board.json'), getText('/state/events.jsonl')]);
+    if (b === state.boardText && e === state.eventsText) return;
+    state.boardText = b; state.eventsText = e;
+    state.board = b ? JSON.parse(b) : { jobs: [], ideas: [] };
+    state.board.jobs ??= []; state.board.ideas ??= [];
+    state.events = e.split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+    render();
+    if (state.openId) refreshFiles();
+  } catch (err) { console.warn('poll failed', err); }
+}
+async function api(method, url, body, type = 'application/json') {
+  const r = await fetch(url, { method, headers: { 'Content-Type': type }, body: type === 'application/json' ? JSON.stringify(body) : body });
+  let res; try { res = await r.json(); } catch { res = { ok: false, message: `HTTP ${r.status}` }; }
+  return res;
+}
+
+let toastTimer;
+function toast(msg, error = false) {
+  const t = $('#toast');
+  t.textContent = msg; t.className = 'show' + (error ? ' error' : '');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.className = ''; }, 4000);
+}
+
+// --- pipeline ------------------------------------------------------------------------------
+function activeAgents() {
+  const running = new Map();
+  for (const ev of state.events) {
+    if (ev.kind !== 'agent-start' && ev.kind !== 'agent-stop') continue;
+    const key = `${ev.job ?? ev.idea}|${ev.agent}`;
+    if (ev.kind === 'agent-start') running.set(key, { id: ev.job ?? ev.idea, agent: ev.agent });
+    else running.delete(key);
+  }
+  const byAgent = {};
+  for (const { id, agent } of running.values()) (byAgent[agent] ??= new Set()).add(id);
+  for (const j of state.board.jobs) if (j.stage === 'gate') (byAgent.gate ??= new Set()).add(j.id);
+  return byAgent;
+}
+function renderPipeline() {
+  const active = activeAgents();
+  const node = (n) => {
+    const ids = [...(active[n] ?? [])];
+    return `<span class="node${ids.length ? ' active' : ''}" data-node="${n}">${esc(n)}${ids.length ? `<span class="badges">${ids.map((i) => `<span class="badge">${esc(i)}</span>`).join('')}</span>` : ''}</span>`;
+  };
+  $('#pipeline').innerHTML = NODES.map((n) => Array.isArray(n) ? `<span class="group">${n.map(node).join('')}</span>` : node(n)).join('<span class="arrow">→</span>');
+}
+
+// --- board ---------------------------------------------------------------------------------
+function elapsed(j) {
+  const start = Date.parse(j.approvedAt ?? j.createdAt);
+  const end = ['done', 'discarded', 'ready', 'backlog'].includes(j.stage) ? Date.parse(j.updatedAt) : Date.now();
+  if (!start || !end) return '';
+  const s = Math.max(0, Math.round((end - start) / 1000));
+  return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+}
+function jobCard(j) {
+  const draggable = j.stage === 'backlog' || j.stage === 'ready';
+  const reviews = j.reviews && ROLES.some((r) => j.reviews[r] && j.reviews[r] !== 'pending')
+    ? ROLES.map((r) => `<span class="chip ${esc(j.reviews[r])}" data-review="${r}" title="${r}">${r}:${esc(j.reviews[r])}</span>`).join('') : '';
+  const sub = ['build', 'review', 'approve', 'gate'].includes(j.stage) ? `<span class="sub">${j.stage} r${j.round}</span>` : '';
+  const flag = j.flag ? `<span class="flag" data-flag title="${esc(j.flag.detail)}">${esc(j.flag.reason)}</span>` : '';
+  const cost = j.costUsd != null ? `<span data-cost>$${Number(j.costUsd).toFixed(2)}</span>` : '';
+  return `<div class="card${state.openId === j.id ? ' selected' : ''}" data-card="${esc(j.id)}" data-stage="${esc(j.stage)}" draggable="${draggable}">
+    <div class="top"><span>${esc(j.id)}</span><span>r${j.round} · ${elapsed(j)}</span></div>
+    <div class="title">${esc(j.title)}</div>
+    <div class="meta">${sub}${flag}${reviews}${cost}</div></div>`;
+}
+function ideaCard(i) {
+  return `<div class="card idea-card ${esc(i.status)}" data-idea="${esc(i.id)}">
+    <div class="top"><span>${esc(i.id)}</span><span>${i.status === 'failed' ? 'failed' : 'drafting…'}</span></div>
+    <div class="title">${esc(i.text)}</div>
+    ${i.reason ? `<div class="meta">${esc(i.reason)}</div>` : ''}</div>`;
+}
+function renderBoard() {
+  const before = new Map([...document.querySelectorAll('[data-card]')].map((el) => [el.dataset.card, el.getBoundingClientRect()]));
+  $('#board').innerHTML = COLUMNS.map((c) => {
+    const items = c.key === 'ideas'
+      ? state.board.ideas.filter((i) => i.status !== 'done').map(ideaCard)
+      : state.board.jobs.filter((j) => c.stages.includes(j.stage)).map(jobCard);
+    return `<section class="column" data-column="${c.key}"><h2>${c.label}<span>${items.length}</span></h2><div class="cards">${items.join('')}</div></section>`;
+  }).join('');
+  // FLIP: animate each card from where it was to where it is now.
+  for (const el of document.querySelectorAll('[data-card]')) {
+    const was = before.get(el.dataset.card);
+    if (!was) continue;
+    const now = el.getBoundingClientRect();
+    const dx = was.left - now.left, dy = was.top - now.top;
+    if (dx || dy) el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: 450, easing: 'cubic-bezier(.2,.7,.2,1)' });
+  }
+}
+
+// --- drag and drop -------------------------------------------------------------------------
+let dragging = null;
+document.addEventListener('dragstart', (e) => {
+  const el = e.target.closest?.('[data-card]');
+  if (!el) return;
+  dragging = { id: el.dataset.card, stage: el.dataset.stage };
+  e.dataTransfer.setData('text/plain', dragging.id);
+  e.dataTransfer.effectAllowed = 'move';
+  for (const t of DROP_TARGETS[dragging.stage] ?? []) document.querySelector(`[data-column="${t}"]`)?.classList.add('drop-ok');
+});
+document.addEventListener('dragend', () => { dragging = null; document.querySelectorAll('.drop-ok').forEach((c) => c.classList.remove('drop-ok')); });
+document.addEventListener('dragover', (e) => { if (dragging && e.target.closest?.('[data-column]')) e.preventDefault(); });
+document.addEventListener('drop', async (e) => {
+  const col = e.target.closest?.('[data-column]');
+  if (!col || !dragging) return;
+  e.preventDefault();
+  const { id, stage } = dragging;
+  const to = col.dataset.column;
+  dragging = null;
+  document.querySelectorAll('.drop-ok').forEach((c) => c.classList.remove('drop-ok'));
+  if (COLUMNS.find((c) => c.key === to)?.stages?.includes(stage)) return;
+  if (stage === 'ready' && to === 'approved') {
+    openDrawer(id);
+    toast('Add a rework note, then press Rework');
+    setTimeout(() => $('#rework-note')?.focus(), 50);
+    return;
+  }
+  await move(id, to);
+});
+
+async function move(id, to, note) {
+  if (to === 'done') toast(`${id}: merging…`);
+  const res = await api('POST', `/api/jobs/${id}/move`, note ? { to, note } : { to });
+  if (res.ok) toast(`${id} → ${to === 'discarded' ? 'discarded' : COLUMNS.find((c) => c.key === to)?.label ?? to}`);
+  else toast(res.message || 'refused', true);
+  state.boardText = '';
+  await poll();
+  return res.ok;
+}
+
+// --- drawer --------------------------------------------------------------------------------
+document.addEventListener('click', (e) => {
+  const c = e.target.closest?.('[data-card]');
+  if (c && !e.target.closest('#drawer')) openDrawer(c.dataset.card);
+});
+async function openDrawer(id) {
+  if (state.openId !== id) { state.specText = null; state.specDirty = false; state.viewer = null; state.files = []; }
+  state.openId = id;
+  $('#drawer').classList.add('open');
+  renderDrawer();
+  renderBoard();
+  const spec = await getText(`/state/jobs/${id}/spec.md`);
+  if (state.openId === id && !state.specDirty) { state.specText = spec; renderDrawer(); }
+  refreshFiles();
+}
+function closeDrawer() { state.openId = null; $('#drawer').classList.remove('open'); renderBoard(); }
+async function refreshFiles() {
+  const id = state.openId;
+  const r = await fetch(`/api/jobs/${id}/files`, { cache: 'no-store' });
+  const files = r.ok ? await r.json() : [];
+  if (state.openId !== id) return;
+  if (JSON.stringify(files) !== JSON.stringify(state.files)) { state.files = files; renderDrawer(); }
+}
+function renderDrawer() {
+  const d = $('#drawer');
+  const j = state.board.jobs.find((x) => x.id === state.openId);
+  if (!j) { d.innerHTML = state.openId ? `<button class="close" onclick="closeDrawer()">✕</button><p>${esc(state.openId)} is not on the board.</p>` : ''; return; }
+
+  const editor = $('#spec-editor', d);
+  if (editor && state.specDirty) { state.specText = editor.value; }
+  const reworkDraft = $('#rework-note', d)?.value ?? '';
+
+  const flag = j.flag ? `<div class="flagbox"><b>${esc(j.flag.reason)}</b> — ${esc(j.flag.detail)}</div>` : '';
+  let actions = '';
+  if (j.stage === 'backlog') actions = `<button class="primary" id="approve-btn">Approve</button><button class="danger" id="discard-btn">Discard</button>`;
+  if (j.stage === 'ready') actions = `<button class="primary" id="merge-btn">Merge (Done)</button><button class="danger" id="discard-btn">Discard</button>`;
+  const rework = j.stage === 'ready' ? `<h4>Rework</h4><textarea id="rework-note" rows="3" placeholder="What should change? The note goes to the builder.">${esc(reworkDraft)}</textarea>
+    <div class="actions"><button id="rework-btn">Rework</button></div>` : '';
+  const spec = j.stage === 'backlog'
+    ? `<textarea id="spec-editor" rows="16" spellcheck="false">${esc(state.specText ?? '')}</textarea><div class="actions"><button id="spec-save" class="primary">Save spec</button></div>`
+    : `<pre>${esc(state.specText ?? '')}</pre>`;
+  const gate = j.gate ? Object.entries(j.gate).filter(([k]) => k !== 'at' && k !== 'sha').map(([k, v]) => `${k}=${v}`).join(' ') + (j.gate.sha ? ` · ${j.gate.sha.slice(0, 7)}` : '') : '';
+  const files = state.files.filter((f) => f !== 'spec.md');
+  const timeline = state.events.filter((e) => e.job === j.id || (j.idea && e.idea === j.idea && !e.job)).map((e) => {
+    const t = new Date(e.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const what = e.kind === 'stage' ? `${e.from ?? '∅'} → ${e.to}${e.by ? ` (${e.by})` : ''}${e.reason ? ` [${e.reason}]` : ''}`
+      : e.kind === 'cost' ? `cost $${Number(e.costUsd).toFixed(2)}, ${Math.round(e.durationMs / 1000)}s`
+      : `${e.kind}${e.agent ? ` ${e.agent}` : ''}${e.round ? ` r${e.round}` : ''}${e.detail ? ` — ${e.detail}` : ''}`;
+    return `<li><time>${t}</time><span>${esc(what)}</span></li>`;
+  }).join('');
+
+  d.innerHTML = `<button class="close" onclick="closeDrawer()" aria-label="Close">✕</button>
+    <h3>${esc(j.title)}</h3>
+    <div style="color:var(--muted)">${esc(j.id)} · ${esc(j.stage)} · round ${j.round}${j.idea ? ` · from ${esc(j.idea)}` : ''}${j.costUsd != null ? ` · $${Number(j.costUsd).toFixed(2)}` : ''}${j.durationMs ? ` · ${Math.round(j.durationMs / 1000)}s` : ''}</div>
+    ${flag}
+    <div class="actions">${actions}</div>
+    ${rework}
+    <h4>Spec</h4>${spec}
+    <h4>Artifacts</h4><div class="files"><a href="#" data-file="spec.md">spec.md</a>${files.map((f) => `<a href="#" data-file="${esc(f)}">${esc(f)}</a>`).join('')}</div>
+    ${state.viewer ? `<pre id="viewer">${esc(state.viewer)}</pre>` : '<pre id="viewer" hidden></pre>'}
+    ${gate ? `<h4>Gate</h4><div data-gate>${esc(gate)}</div>` : ''}
+    <h4>Timeline</h4><ul data-timeline>${timeline}</ul>`;
+
+  const ed = $('#spec-editor', d);
+  if (ed) ed.oninput = () => { state.specDirty = true; };
+  $('#spec-save', d)?.addEventListener('click', async () => {
+    const res = await api('PUT', `/api/jobs/${j.id}/spec`, $('#spec-editor').value, 'text/markdown');
+    if (res.ok) { state.specDirty = false; toast(res.message || 'spec saved'); } else toast(res.message, true);
+  });
+  $('#approve-btn', d)?.addEventListener('click', () => move(j.id, 'approved'));
+  $('#merge-btn', d)?.addEventListener('click', () => move(j.id, 'done'));
+  $('#discard-btn', d)?.addEventListener('click', () => move(j.id, 'discarded'));
+  $('#rework-btn', d)?.addEventListener('click', async () => {
+    const note = $('#rework-note').value.trim();
+    if (!note) { toast('A rework needs a note', true); return; }
+    await move(j.id, 'approved', note);
+  });
+  for (const a of d.querySelectorAll('[data-file]')) a.addEventListener('click', async (e) => {
+    e.preventDefault();
+    state.viewer = await getText(`/state/jobs/${j.id}/${a.dataset.file}`) || '(empty)';
+    renderDrawer();
+  });
+}
+
+function render() { renderPipeline(); renderBoard(); if (state.openId) renderDrawer(); }
+
+// --- ideas ---------------------------------------------------------------------------------
+$('#idea-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const text = $('#idea-text').value.trim();
+  if (!text) return;
+  $('#idea-submit').disabled = true;
+  const res = await api('POST', '/api/ideas', { text });
+  $('#idea-submit').disabled = false;
+  if (res.ok) { $('#idea-text').value = ''; toast(`${res.message}: the spec-writer is on it`); } else toast(res.message, true);
+  state.boardText = '';
+  poll();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && state.openId) closeDrawer(); });
+
+render();
+poll();
+setInterval(poll, 1500);
+setInterval(() => { if (!dragging) renderBoard(); }, 15000);
+</script>
+</body>
+</html>

@@ -93,22 +93,23 @@ cost per card from step 2 onward. Those numbers are half of the "validated" bar.
 
 > Build the dashboard per the "Dashboard API" and "Board columns" sections of docs/FACTORY-CONTRACT.md, test first.
 > 1. `factory/scripts/simulate.ps1 [-Speed 1.0] [-Reset]`: using ONLY factory.ps1 calls, with
->    `$env:FACTORY_HOME` at `.factory-runs-sim/`, it drives:
->    - `SIM-I-001` into three backlog cards
->    - `SIM-001` through approved → build → review (agent-start/stop for all 4 reviewers in parallel) →
+>    `$env:FACTORY_HOME` at `.factory-runs-sim/` and a throwaway sandbox repo at `.factory-runs-sim/repo`, it drives:
+>    - an idea into three backlog cards, and a vague idea that fails
+>    - `J-001` through approved → build → review (agent-start/stop for all 4 reviewers in parallel) →
 >      approve → gate → ready → done
->    - `SIM-002` through a CHANGES round to `ready`/`max-rounds`, then rework → approved → … → `ready`
->    - `SIM-003` to `ready`/`merge-blocked`
->    - `SIM-004` discarded from backlog
+>    - `J-002` through a CHANGES round to `ready`/`max-rounds`, then rework → approved → … → `max-rounds` again
+>    - `J-003` to `ready`/`merge-blocked` (dirty sandbox at merge), then cleans the sandbox
+>    - `J-004` discarded from backlog, and `J-005` left in backlog
 >
->    The gate and merge use injected commands; the simulator never touches git or dotnet.
+>    The gate and merge use injected commands; the simulator never touches this repo's git, dotnet or npm.
 > 2. `factory/scripts/serve.ps1 [-Port 4317] [-StateDir]`: an HttpListener on localhost only, with the GETs
->    and the write endpoints in the contract, each a thin wrapper over one factory.ps1 call. It starts the
->    runner and spawns the spec run as the contract says, using `$env:FACTORY_CLAUDE_CMD` when it is set.
+>    and the write endpoints in the contract, each a thin wrapper over one factory.ps1 call. It starts
+>    `runner.ps1` and `spec-run.ps1` as the contract says (Pester-test spec-run first), using
+>    `$env:FACTORY_CLAUDE_CMD` when it is set.
 > 3. A Playwright test in `factory/tests/dashboard/` (its own package.json). It starts serve.ps1 against
 >    `.factory-runs-sim` with `FACTORY_CLAUDE_CMD` set to a no-op, and asserts the following:
->    - After simulate.ps1 at high speed: SIM-001 is in Done, SIM-002 and SIM-003 are in Ready for review
->      with their flag reasons visible, the reviewer chips show PASS/CHANGES, and SIM-001's drawer has
+>    - After simulate.ps1 at high speed: J-001 is in Done, J-002 and J-003 are in Ready for review
+>      with their flag reasons visible, the reviewer chips show PASS/CHANGES, and J-001's drawer has
 >      ≥ 10 timeline events, a working link to spec.md, and a cost badge.
 >    - Submitting an idea in the idea box adds a card to Ideas.
 >    - Editing a backlog card's spec in the drawer and saving it changes spec.md on disk.
