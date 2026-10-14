@@ -313,6 +313,9 @@ function Invoke-Gate([string] $id) {
     Set-Content $log "# gate $($j.id) at $(Now)"
     $result = [ordered]@{}
     $Mutex.ReleaseMutex()
+    # npm and vite write UTF-8; a runner started by serve.ps1 has a fresh console on the OEM codepage.
+    $enc = [Console]::OutputEncoding
+    [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
     try {
     foreach ($c in $cmds) {
         Add-Content $log "`n## $($c.name): $($c.cmd)"
@@ -326,6 +329,7 @@ function Invoke-Gate([string] $id) {
         $result[$c.name] = $code
     }
     } finally {
+        [Console]::OutputEncoding = $enc
         $null = $Mutex.WaitOne()
         $script:Board = Load-Board
     }

@@ -333,6 +333,20 @@ Describe 'gate' {
         $j.gate.test | Should -Be 3
         Test-Path (Join-Path (JobDir $id) 'gate.log') | Should -BeTrue
     }
+
+    It 'keeps UTF-8 output from gate commands intact in gate.log' {
+        # npm/vite write raw UTF-8 bytes whatever the console codepage is.
+        $text = "built $([char]0x2502) ok $([char]0x2713)"
+        $emit = '$b = [Text.Encoding]::UTF8.GetBytes(''built '' + [char]0x2502 + '' ok '' + [char]0x2713); $s = [Console]::OpenStandardOutput(); $s.Write($b, 0, $b.Length); $s.Flush()'
+        $env:FACTORY_GATE_CMDS = ConvertTo-Json -Compress @(@{ name = 'ui'; cmd = $emit })
+        $id = New-ApprovedJob
+        Commit-OnBranch $id
+        Move-ToGate $id
+        # The runner that calls the gate lives in serve.ps1's hidden console, which is on the OEM codepage.
+        & pwsh -NoProfile -Command "[Console]::OutputEncoding = [Text.Encoding]::GetEncoding(437); & '$script:Factory' gate $id" 2>&1 | Out-Null
+        (Job $id).gate.ui | Should -Be 0
+        Get-Content (Join-Path (JobDir $id) 'gate.log') -Encoding utf8 | Should -Contain $text
+    }
 }
 
 Describe 'merge' {
