@@ -16,7 +16,17 @@
       "Bash(git commit *)",
       "Bash(git branch --show-current)",
       "Bash(pwsh -NoProfile -File factory/scripts/factory.ps1 *)",
-      "PowerShell(pwsh -NoProfile -File factory/scripts/factory.ps1 *)"
+      "PowerShell(pwsh -NoProfile -File factory/scripts/factory.ps1 *)",
+      "Bash(pwsh -NoProfile -Command \"Start-Process pwsh -ArgumentList '-NoProfile','-File','factory/scripts/runner.ps1' -WindowStyle Hidden\")",
+      "PowerShell(pwsh -NoProfile -Command \"Start-Process pwsh -ArgumentList '-NoProfile','-File','factory/scripts/runner.ps1' -WindowStyle Hidden\")",
+      "Write(/.factory-runs/ideas/**)",
+      "Edit(/.factory-runs/ideas/**)"
+    ],
+    "deny": [
+      "Edit(/.factory-runs/board.json)",
+      "Write(/.factory-runs/board.json)",
+      "Edit(/.factory-runs/events.jsonl)",
+      "Write(/.factory-runs/events.jsonl)"
     ]
   }
 }

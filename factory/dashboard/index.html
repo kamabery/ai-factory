@@ -31,20 +31,9 @@
   body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
   header { display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; background: var(--panel); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
   header h1 { font-size: 16px; margin: 6px 8px 0 0; white-space: nowrap; }
-  #idea-form { display: flex; gap: 8px; flex: 1; min-width: 260px; flex-wrap: wrap; align-items: flex-start; }
-  #idea-text { flex: 2 1 280px; min-width: 0; }
-  .target-wrap { flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-  #idea-target { width: 100%; font-family: var(--mono); font-size: 12.5px; }
-  #target-hint { font-size: 11.5px; color: var(--muted); min-height: 15px; }
-  #scaffold { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin: 0; border: 1px dashed var(--run); border-radius: 6px; padding: 6px 10px; font-size: 12.5px; }
-  #scaffold[hidden] { display: none; }
-  #scaffold legend { color: var(--run); padding: 0 4px; }
-  #scaffold label { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); }
-  #scaffold input:not([type="checkbox"]), #scaffold select { font: inherit; font-size: 12.5px; color: var(--text); background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; width: 130px; }
+  #idea-hint { flex: 1; margin-top: 7px; color: var(--muted); font-size: 12.5px; }
+  #purge-btn { font-size: 11px; text-transform: none; letter-spacing: 0; padding: 1px 8px; margin-left: 8px; }
   .chip.kind { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
-  #target-hint.bad { color: var(--warn); }
-  #target-hint.new { color: var(--run); }
-  #target-hint.repo { color: var(--ok); }
   input, textarea { font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
   textarea { width: 100%; font-family: var(--mono); font-size: 12.5px; }
   button { font: inherit; cursor: pointer; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); border-radius: 6px; padding: 6px 12px; }
@@ -143,23 +132,7 @@
 <body>
 <header>
   <h1>Factory</h1>
-  <form id="idea-form">
-    <input id="idea-text" placeholder="Describe an idea… the spec-writer turns it into backlog cards" autocomplete="off">
-    <div class="target-wrap">
-      <input id="idea-target" list="targets" placeholder="Target repo, e.g. D:\code\Scratchpad\todo-app" autocomplete="off" spellcheck="false">
-      <span id="target-hint"></span>
-    </div>
-    <datalist id="targets"></datalist>
-    <button id="idea-submit" class="primary" type="submit" disabled>Submit idea</button>
-    <fieldset id="scaffold" hidden>
-      <legend>New repo: scaffold from template-projects</legend>
-      <label>Name <input id="sc-name" pattern="[a-z][a-z0-9]*" spellcheck="false"></label>
-      <label>Resource <input id="sc-resource" value="Widget" spellcheck="false"></label>
-      <label>Data store <select id="sc-db"><option>sqlite</option><option>sqlserver</option><option>postgres</option></select></label>
-      <label>Front end <select id="sc-ui"><option>react</option><option>blazor</option><option value="blazor-maui">blazor + mobile</option><option>none</option></select></label>
-      <label><input id="sc-events" type="checkbox"> Events</label>
-    </fieldset>
-  </form>
+  <span id="idea-hint">New idea: <code>pwsh factory/scripts/idea.ps1 &lt;target&gt;</code> opens a Claude session that grills you, writes the specs and puts the ones you approve on the board.</span>
   <button id="theme" type="button" title="Toggle theme">◐</button>
 </header>
 
@@ -226,7 +199,6 @@ async function poll() {
     state.board.jobs ??= []; state.board.ideas ??= [];
     state.events = e.split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
     render();
-    renderTargets();
     if (state.open) { renderHead(); refreshFiles(); if (state.tab === 'timeline') renderBody(); if (state.tab === 'output') refreshOutput(); }
   } catch (err) { console.warn('poll failed', err); }
 }
@@ -291,7 +263,7 @@ function jobCard(j) {
 }
 function ideaCard(i) {
   return `<div class="card idea-card ${esc(i.status)}" data-idea="${esc(i.id)}">
-    <div class="top"><span>${esc(i.id)}</span><span>${i.status === 'failed' ? 'failed' : i.status === 'waiting' ? `waiting for bootstrap ${esc(i.jobs?.[0] ?? '')}` : 'drafting…'}</span></div>
+    <div class="top"><span>${esc(i.id)}</span><span>${i.status === 'failed' ? 'failed' : i.status === 'waiting' ? `waiting for bootstrap ${esc(i.jobs?.[0] ?? '')}` : `spec it: <code>/factory:idea ${esc(i.id)}</code>`}</span></div>
     <div class="title">${esc(i.text)}</div>
     ${i.target ? `<div class="repo" title="${esc(i.target)}">→ ${esc(leaf(i.target))}</div>` : ''}
     ${i.reason ? `<div class="meta">${esc(i.reason)}</div>` : ''}</div>`;
@@ -302,7 +274,8 @@ function renderBoard() {
     const items = c.key === 'ideas'
       ? state.board.ideas.filter((i) => i.status !== 'done').map(ideaCard)
       : state.board.jobs.filter((j) => c.stages.includes(j.stage)).map(jobCard);
-    return `<section class="column" data-column="${c.key}"><h2>${c.label}<span>${items.length}</span></h2><div class="cards">${items.join('')}</div></section>`;
+    const clear = c.key === 'done' ? '<button id="purge-btn" type="button" title="Remove done and discarded cards, their folders and branches">Clear</button>' : '';
+    return `<section class="column" data-column="${c.key}"><h2>${c.label}<span>${items.length}${clear}</span></h2><div class="cards">${items.join('')}</div></section>`;
   }).join('');
   // FLIP: animate each card from where it was to where it is now.
   for (const el of document.querySelectorAll('[data-card]')) {
@@ -370,10 +343,14 @@ async function openModal(kind, id) {
   if (state.open?.id !== id) Object.assign(state, { specText: null, specDirty: false, viewerFile: null, viewerText: null, files: [], outputKey: '' });
   state.open = { kind, id };
   const j = openJob();
-  state.tab = kind === 'idea' ? 'output' : j && BUILDING.includes(j.stage) ? 'output' : 'spec';
+  state.tab = kind === 'idea' ? 'brief' : j && BUILDING.includes(j.stage) ? 'output' : 'spec';
   $('#backdrop').classList.add('open');
   renderBoard();
   renderHead(); renderTabs(); renderBody();
+  if (kind === 'idea') {
+    const brief = await getText(`/state/ideas/${id}/brief.md`);
+    if (state.open?.id === id) { state.specText = brief || '(no brief)'; if (state.tab === 'brief') renderBody(); }
+  }
   if (kind === 'job') {
     const spec = await getText(`/state/jobs/${id}/spec.md`);
     if (state.open?.id === id && !state.specDirty) { state.specText = spec; if (state.tab === 'spec') renderBody(); }
@@ -434,7 +411,12 @@ function renderHead() {
     if (state.specDirty) { toast('Save the spec first', true); return; }
     await move(j.id, 'approved');
   });
-  $('#merge-btn', h)?.addEventListener('click', () => move(j.id, 'done'));
+  // A merge may run the whole gate first (minutes): block a second click, and on success get out of
+  // the way so the card can be seen landing in Done. On a refusal the modal stays, showing the flag.
+  $('#merge-btn', h)?.addEventListener('click', async (e) => {
+    const b = e.currentTarget; b.disabled = true; b.textContent = 'Merging…';
+    if (await move(j.id, 'done')) closeModal();
+  });
   $('#discard-btn', h)?.addEventListener('click', () => move(j.id, 'discarded'));
   $('#copy-paths', h)?.addEventListener('click', async () => {
     try { await navigator.clipboard.writeText([...(m.added ?? []), ...(m.modified ?? [])].join('\n')); toast('Paths copied'); } catch { toast('Copy failed', true); }
@@ -447,7 +429,7 @@ function renderHead() {
 }
 
 function renderTabs() {
-  const tabs = state.open?.kind === 'idea' ? ['output'] : ['spec', 'artifacts', 'output', 'timeline'];
+  const tabs = state.open?.kind === 'idea' ? ['brief', 'output'] : ['spec', 'artifacts', 'output', 'timeline'];
   $('#m-tabs').innerHTML = tabs.map((t) => `<button type="button" data-tab="${t}" class="${t === state.tab ? 'on' : ''}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('');
   for (const b of $('#m-tabs').querySelectorAll('[data-tab]')) b.onclick = () => {
     if (state.tab === 'spec' && $('#spec-editor')) state.specText = $('#spec-editor').value;
@@ -459,6 +441,7 @@ function renderBody() {
   const body = $('#m-body');
   const j = openJob();
   if (state.tab === 'output') { body.innerHTML = '<div class="term" data-output></div>'; refreshOutput(); return; }
+  if (state.tab === 'brief') { body.innerHTML = `<div class="md" data-brief>${md(state.specText ?? '')}</div>`; return; }
   if (!j) { body.innerHTML = ''; return; }
   if (state.tab === 'spec') {
     if (j.stage === 'backlog') {
@@ -542,8 +525,7 @@ async function refreshOutput() {
   try {
     const { kind, id } = state.open;
     const sources = [];
-    if (kind === 'idea') sources.push({ title: 'spec run', who: 'orchestrator', url: `/state/ideas/${id}/run.jsonl` });
-    else for (const f of state.files.filter((f) => /^run-\d+\.jsonl$/.test(f)).sort((a, b) => parseInt(a.slice(4)) - parseInt(b.slice(4))))
+    if (kind === 'job') for (const f of state.files.filter((f) => /^run-\d+\.jsonl$/.test(f)).sort((a, b) => parseInt(a.slice(4)) - parseInt(b.slice(4))))
       sources.push({ title: f.replace('.jsonl', ''), who: 'orchestrator', url: `/state/jobs/${id}/${f}` });
     for (const e of state.events.filter((e) => e.kind === 'agent-start' && e.agentId && (kind === 'job' ? e.job === id : e.idea === id && !e.job)))
       sources.push({ title: `${e.agent}${e.round ? ` · round ${e.round}` : ''}`, who: e.agent, url: `/api/agents/${encodeURIComponent(e.agentId)}/transcript` });
@@ -567,55 +549,10 @@ async function refreshOutput() {
 
 function render() { renderPipeline(); renderBoard(); }
 
-// --- ideas and their target ----------------------------------------------------------------
-function renderTargets() {
-  const seen = new Set([...state.board.ideas.map((i) => i.target), ...state.board.jobs.map((j) => j.target)].filter(Boolean));
-  $('#targets').innerHTML = [...seen].map((t) => `<option value="${esc(t)}">`).join('');
-}
-try { const t = localStorage.getItem('factory-target'); if (t) $('#idea-target').value = t; } catch {}
-let targetTimer, targetSeq = 0, scNameEdited = false;
-$('#sc-name').addEventListener('input', () => { scNameEdited = true; });
-async function checkTarget() {
-  const p = $('#idea-target').value.trim();
-  const hint = $('#target-hint');
-  const seq = ++targetSeq;
-  const set = (cls, text, ok, isNew = false) => {
-    if (seq !== targetSeq) return;
-    hint.className = cls; hint.textContent = text; $('#idea-submit').disabled = !ok;
-    $('#scaffold').hidden = !isNew;
-    // The templates' -n is lower-case letters and digits; default it from the folder name.
-    if (isNew && !scNameEdited) $('#sc-name').value = leaf(p).toLowerCase().replace(/[^a-z0-9]/g, '').replace(/^[0-9]+/, '');
-  };
-  if (!p) return set('bad', 'A target repo is required.', false);
-  let r; try { r = await (await fetch(`/api/target?path=${encodeURIComponent(p)}`, { cache: 'no-store' })).json(); } catch { return set('bad', 'Could not check the path.', false); }
-  if (!r.absolute) return set('bad', 'The path must be absolute.', false);
-  if (r.isRepo) return set('repo', 'Existing repo: work branches from its main and merges back.', true);
-  if (!r.exists) return set('new', 'New repo: a bootstrap job scaffolds it first.', true, true);
-  if (r.empty) return set('new', 'Empty folder: a bootstrap job scaffolds it as a new repo.', true, true);
-  set('bad', 'Not a git repo, and not empty.', false);
-}
-$('#idea-target').addEventListener('input', () => { clearTimeout(targetTimer); targetTimer = setTimeout(checkTarget, 200); });
-checkTarget();
-
-$('#idea-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const text = $('#idea-text').value.trim();
-  const target = $('#idea-target').value.trim();
-  if (!text) { toast('An idea needs some text', true); return; }
-  $('#idea-submit').disabled = true;
-  const scaffold = $('#scaffold').hidden ? undefined : {
-    name: $('#sc-name').value.trim(), resource: $('#sc-resource').value.trim(),
-    db: $('#sc-db').value, ui: $('#sc-ui').value, events: $('#sc-events').checked,
-  };
-  const res = await api('POST', '/api/ideas', { text, target, scaffold });
-  $('#idea-submit').disabled = false;
-  if (res.ok) {
-    $('#idea-text').value = '';
-    try { localStorage.setItem('factory-target', target); } catch {}
-    const [ideaId, boot] = String(res.message).split(' ');
-    toast(boot ? `${ideaId} waits for bootstrap ${boot}: review and approve it in Backlog` : `${ideaId}: the spec-writer is on it`);
-    scNameEdited = false; checkTarget();
-  } else toast(res.message, true);
+document.addEventListener('click', async (e) => {
+  if (!e.target.closest?.('#purge-btn')) return;
+  const res = await api('POST', '/api/purge');
+  toast(res.ok ? (res.message ? `Cleared ${res.message.split('\n').join(', ')}` : 'Nothing to clear') : res.message, !res.ok);
   state.boardText = '';
   poll();
 });

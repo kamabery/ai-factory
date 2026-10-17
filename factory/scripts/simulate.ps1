@@ -90,10 +90,10 @@ function Done([double] $usd, [int] $ms) { J @{ type = 'result'; subtype = 'succe
 
 function Sim-Idea([string] $text, [object[]] $specs) {
     $idea = F-Must new-idea $text -Target $env:FACTORY_REPO
+    # The brief the /factory:idea session would have grilled out of the human.
+    $unsure = if ($specs.Count) { 'Nothing.' } else { '- which list, and what counts as fast?' }
+    Set-Content (Join-Path $StateDir "ideas/$idea/brief.md") "# Brief: $text`n`n## What it is for`n$text`n`n## Not sure`n$unsure"
     F-Must event -Idea $idea -Kind agent-start -Agent spec-writer | Out-Null
-    $why = if ($specs.Count) { "Writing $($specs.Count) spec(s)." } else { 'This idea is too vague to spec: which list, and what counts as fast?' }
-    Set-Content (Join-Path $StateDir "ideas/$idea/run.jsonl") @(
-        (J @{ type = 'system'; subtype = 'init'; session_id = 'sim' }), (Think), (Say $why), (Done 0.05 4000))
     Tick 2
     $ids = @()
     $k = 0
@@ -106,7 +106,7 @@ function Sim-Idea([string] $text, [object[]] $specs) {
     }
     F-Must event -Idea $idea -Kind agent-stop -Agent spec-writer | Out-Null
     if ($specs.Count) { F-Must idea-done $idea | Out-Null }
-    else { F-Must idea-done $idea -Failed -Reason 'too vague to spec: which list, and what counts as fast?' | Out-Null }
+    else { F-Must idea-done $idea -Failed -Reason 'rejected in session: too vague' | Out-Null }
     , $ids
 }
 
@@ -196,10 +196,10 @@ Sim-Start $a[1]; Sim-Build $a[1]; Sim-Review $a[1] @{ ui = 'CHANGES' }
 F-Must approve $a[2] | Out-Null
 Sim-Start $a[2]; Sim-Build $a[2]; Sim-Review $a[2] @{}; Sim-Approve $a[2]
 F gate $a[2] | Out-Null
-$dirt = Join-Path $env:FACTORY_REPO 'scratch.txt'
-Set-Content $dirt 'uncommitted'
+# Dirty by content: an edit to a tracked file. An untracked file is left to git and does not block.
+Add-Content (Join-Path $env:FACTORY_REPO 'README.md') 'uncommitted'
 F merge $a[2] | Out-Null
-Remove-Item $dirt
+git -C $env:FACTORY_REPO checkout -- README.md 2>&1 | Out-Null
 
 # J-004: discarded from the backlog. J-005 stays in the backlog for a human.
 Tick 1

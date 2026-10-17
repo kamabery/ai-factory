@@ -237,6 +237,18 @@ Timeline); Done lists the full paths the merge added. See "Targets" in `docs/FAC
 5. At Ready for review, run the app from `<target>.wt`; drag to Done; the modal lists the added
    files by full path, and the merge is on the target's `main`, not this repo's.
 
+### Ideas move into a Claude session
+
+Ideas no longer come from the dashboard. `pwsh factory/scripts/idea.ps1 <target | I-NNN>` opens an
+interactive session on `/factory:idea`: the plugin's `grill` skill (ported from `ai-dlc-grill`)
+interrogates you until nothing is assumed, the confirmed brief goes to `ideas/<id>/brief.md`, the
+spec-writer specs from it, and you approve, change, defer or reject each spec in the session. An
+approved spec goes straight to Approved and the session starts the runner. `spec-run.ps1`, the idea
+form, `POST /api/ideas` and `GET /api/target` are gone. A merged bootstrap leaves its idea
+`drafting`; resume it with `idea.ps1 I-NNN`. Finished cards are cleared with `factory.ps1 purge`
+(the Done column's **Clear**), and `board.seq` keeps ids from being reused. The step 5 and 6
+instructions above that mention the idea box and `/factory spec` describe the earlier design.
+
 ## Step 7: Failure paths (the video's lessons, as tests)
 
 Run each one and confirm the end state on the dashboard and in `board.json`.

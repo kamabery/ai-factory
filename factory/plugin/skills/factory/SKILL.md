@@ -1,8 +1,8 @@
 ---
 name: factory
-description: The factory orchestrator. `/factory:factory spec <ideaId> <stateDir> <factory.ps1>` turns an idea into backlog specs; `/factory:factory run <id> <stateDir> <factory.ps1>` builds, reviews, approves and gates one job; `/factory:factory status <stateDir> <factory.ps1>` prints the board. Invoked by spec-run.ps1 and runner.ps1, rarely by hand.
+description: The factory orchestrator. `/factory:factory run <id> <stateDir> <factory.ps1>` builds, reviews, approves and gates one job; `/factory:factory status <stateDir> <factory.ps1>` prints the board. Invoked by runner.ps1, rarely by hand. Ideas and specs are /factory:idea's job, not this skill's.
 disable-model-invocation: true
-argument-hint: spec <ideaId> <stateDir> <factory.ps1> | run <id> <stateDir> <factory.ps1> | status <stateDir> <factory.ps1>
+argument-hint: run <id> <stateDir> <factory.ps1> | status <stateDir> <factory.ps1>
 ---
 
 # /factory
@@ -26,7 +26,7 @@ Don't put `$VARIABLES` in commands: the permission check can't approve them in a
 that holds `factory.ps1` (for example `D:/code/claude-factory/factory/templates`). Pass agents
 **absolute** paths, including the template each one follows.
 
-The agents are this plugin's: `factory:spec-writer`, `factory:builder`, `factory:security-reviewer`,
+The agents are this plugin's: `factory:builder`, `factory:security-reviewer`,
 `factory:code-reviewer`, `factory:ux-reviewer`, `factory:ui-reviewer`, `factory:approver`.
 
 A non-zero exit from `F` means the contract refused the move. Never retry it a different way and
@@ -35,16 +35,6 @@ never touch `board.json` or `events.jsonl` yourself; give up instead (see the en
 ## `/factory status`
 
 Run `F status` and print its output verbatim.
-
-## `/factory spec <ideaId> <stateDir> <factory.ps1>`
-
-1. Run the **spec-writer** agent with: the idea file `<stateDir>/ideas/<ideaId>/idea.md` (its last
-   line is the target repo), the output folder `<stateDir>/ideas/<ideaId>/`, and the template
-   `<templates>/spec.md`.
-2. For each `spec-<k>.md` it wrote, in order: `F add-spec <ideaId> "<absolute path>"`.
-3. If it wrote at least one spec: `F idea-done <ideaId>`. If it wrote none:
-   `F idea-done <ideaId> -Failed -Reason "<its one-sentence reason>"`.
-4. Print the job ids created.
 
 ## `/factory run <id> <stateDir> <factory.ps1>`
 
@@ -82,5 +72,4 @@ Finish by printing `F status` for the job and one line on where it landed.
 - Never edit `<job>/spec.md`, the factory repo's `factory/`, `.claude/` or
   `docs/FACTORY-CONTRACT.md`, or test assertions, and never let an agent do it.
 - Don't summarise agents' work into artifacts yourself; if an agent didn't write its file, re-run it once.
-- **Giving up:** `F set-stage <id> ready -Reason escalated -Detail "<one line why>"`, then stop. For a
-  spec run, `F idea-done <ideaId> -Failed -Reason "<why>"`.
+- **Giving up:** `F set-stage <id> ready -Reason escalated -Detail "<one line why>"`, then stop.

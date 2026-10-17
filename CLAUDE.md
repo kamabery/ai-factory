@@ -6,9 +6,10 @@ Two things live in this repo:
    scaffolded from `D:\code\template-projects` (`aspire-base` + `aspire-ui-react`, resource `Book`).
 2. **The factory**, a Claude Code software factory installed into Shelf, as in the ZazenCodes
    "Build Your Own AI Software Factory with Claude Code" video. A `/factory` skill orchestrates
-   spec, build, four parallel reviewers and an approver. A deterministic PowerShell control plane
+   spec, build, four parallel reviewers and an approver; ideas are grilled and specced in an
+   interactive `/factory:idea` session. A deterministic PowerShell control plane
    owns state, the gate and the merge. A local dashboard is where the human works the factory:
-   ideas in, specs edited and approved by drag and drop, and finished work reviewed and merged.
+   backlog specs edited and approved by drag and drop, and finished work reviewed, merged and cleared.
 
 The design rationale is in `D:\code\main-vault\ai-engineering\software-factories-agentic-os-and-harnesses.md`
 and `...\build-your-own-ai-software-factory-with-claude-code.md`. How to build the rest of it is in
@@ -65,6 +66,7 @@ cd src/ui/react; npm install; npm run build
 aspire run                                   # no Docker needed (SQLite)
 
 pwsh factory/scripts/serve.ps1               # dashboard on http://localhost:4317 (after step 3)
+pwsh factory/scripts/idea.ps1 <target|I-NNN> # Claude session: grill -> brief -> specs -> you approve -> Approved
 pwsh factory/scripts/runner.ps1              # drains the Approved queue; serve.ps1 starts it for you (after step 2)
 Invoke-Pester factory/tests                  # control-plane and runner tests (after steps 1-2)
 ```

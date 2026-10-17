@@ -27,13 +27,19 @@ pwsh factory/scripts/serve.ps1        # http://localhost:4317
 That's the only process you start. The dashboard starts the agent runs itself. Keep the main
 checkout on a clean `main`: jobs build in `..\claude-factory.wt`, never in your checkout.
 
-### 2. Submit an idea → backlog
+### 2. Work out an idea in a Claude session
 
-Type a feature into the idea box (samples in [factory/backlog.md](factory/backlog.md)). The
-spec-writer splits it into 1–5 small specs, and each one appears as a card in **Backlog**. If the
-idea is too vague to spec, it stays in **Ideas**, marked failed, with the reason.
+```powershell
+pwsh factory/scripts/idea.ps1 D:\code\Scratchpad\todo-app   # or an I-NNN to resume one
+```
 
-### 3. Edit and approve
+This opens Claude Code on `/factory:idea` (samples in [factory/backlog.md](factory/backlog.md)).
+It grills you until nothing in the idea is assumed and reads the brief back for your yes. The
+spec-writer then splits it into 1–5 small specs, which the session shows you one at a time:
+approve, change, "not yet" or reject. Approved specs land in **Approved** and the session starts
+the runner; "not yet" goes to **Backlog**; rejected specs never reach the board.
+
+### 3. Backlog (optional)
 
 Open a backlog card, read its spec (intent, acceptance criteria, scope, risks), edit it in the
 drawer and save. When it says what you want built, drag it to **Approved**. Discard the cards you
@@ -94,10 +100,10 @@ Factory state lives in `.factory-runs/` (gitignored). Never edit it by hand; see
 
 ```
 .claude/agents/            7 factory agents (step 4)
-.claude/skills/factory/    /factory spec | run | status (step 5)
-factory/backlog.md         sample ideas for the idea box
+factory/plugin/            agents, /factory run | status, /factory:idea, grill, hooks
+factory/backlog.md         sample ideas for /factory:idea
 factory/templates/         spec / build / review / decision formats
-factory/scripts/           factory.ps1 (control plane), runner.ps1, spec-run.ps1, serve.ps1, simulate.ps1, hook-event.ps1
+factory/scripts/           factory.ps1 (control plane), runner.ps1, idea.ps1, serve.ps1, simulate.ps1, hook-event.ps1
 factory/dashboard/         index.html, the live view
 factory/tests/             Pester + Playwright
 .factory-runs/             runtime state (gitignored)

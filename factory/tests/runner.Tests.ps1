@@ -51,8 +51,11 @@ foreach (`$r in 'security','code','ux','ui') { Set-Content (Join-Path `$dir "rev
 & `$f read-reviews `$id | Out-Null
 Set-Content (Join-Path `$env:FACTORY_HOME "jobs/`$id/decision.md") 'Decision: APPROVE'
 & `$f read-decision `$id | Out-Null
+if ('$mode' -eq 'gate-crash') { exit 1 }
 & `$f gate `$id | Out-Null
-'{"type":"result","total_cost_usd":0.5,"duration_ms":2000}'
+# FAKE_BAD_COST=<id>: a result line set-cost cannot parse, so finishing that job throws in the runner.
+if (`$env:FAKE_BAD_COST -eq `$id) { '{"type":"result","total_cost_usd":"n/a","duration_ms":2000}' }
+else { '{"type":"result","total_cost_usd":0.5,"duration_ms":2000}' }
 "@ | Set-Content $fake
         $env:FACTORY_CLAUDE_CMD = "& '$fake'"
     }
@@ -78,7 +81,57 @@ Describe 'runner.ps1 and hook-event.ps1' {
 
     AfterEach {
         Pop-Location
-        Remove-Item Env:FACTORY_HOME, Env:FACTORY_WORKTREE, Env:FACTORY_GATE_CMDS, Env:FACTORY_CLAUDE_CMD, Env:FACTORY_JOB, Env:FACTORY_IDEA -ErrorAction SilentlyContinue
+        Remove-Item Env:FACTORY_HOME, Env:FACTORY_WORKTREE, Env:FACTORY_GATE_CMDS, Env:FACTORY_CLAUDE_CMD, Env:FACTORY_JOB, Env:FACTORY_IDEA, Env:FAKE_BAD_COST -ErrorAction SilentlyContinue
+    }
+
+    Context 'runner log and resilience' {
+        It 'logs start, each job, claude exit and result, the stage after, and exit drained' {
+            $id = New-ApprovedJob 'A'
+            Set-FakeClaude
+            Run-Runner | Out-Null
+            $log = Get-Content (Join-Path $env:FACTORY_HOME 'runner.log')
+            $log[0] | Should -Match 'start pid=\d+'
+            ($log -match "take $id$") | Should -Not -BeNullOrEmpty
+            ($log | Where-Object { $_ -match "claude $id exit=0 result=yes$" }) | Should -Not -BeNullOrEmpty
+            ($log | Where-Object { $_ -match "stage $id ready$" }) | Should -Not -BeNullOrEmpty
+            $log[-1] | Should -Match 'exit drained$'
+        }
+
+        It 'an error finishing one job is logged with its stack, and the queue moves on' {
+            $a = New-ApprovedJob 'A'
+            $b = New-ApprovedJob 'B'
+            Set-FakeClaude
+            $env:FAKE_BAD_COST = $a
+            Run-Runner | Out-Null
+            (Job $b).stage | Should -Be 'ready'
+            $log = Get-Content (Join-Path $env:FACTORY_HOME 'runner.log') -Raw
+            $log | Should -Match "error $($a): "
+            $log | Should -Match 'at .*runner\.ps1'
+            $log | Should -Match 'exit drained'
+            Test-Path (Join-Path $env:FACTORY_HOME 'runner.lock') | Should -BeFalse
+        }
+    }
+
+    Context 'serve.ps1 watchdog' {
+        It 'starts the runner for an approved job when no live runner holds the lock' {
+            $id = New-ApprovedJob 'A'          # approved outside the dashboard: nobody starts a runner
+            Set-FakeClaude
+            Set-Content (Join-Path $env:FACTORY_HOME 'runner.lock') 999999   # a runner that died
+            $port = Get-Random -Minimum 20000 -Maximum 40000
+            $serve = Start-Process pwsh -PassThru -WindowStyle Hidden -ArgumentList @(
+                '-NoProfile', '-File', (Join-Path $script:Scripts 'serve.ps1'),
+                '-Port', $port, '-StateDir', $env:FACTORY_HOME, '-WatchdogSeconds', 1)
+            try {
+                $deadline = (Get-Date).AddSeconds(60)
+                while ((Get-Date) -lt $deadline -and (Job $id).stage -ne 'ready') { Start-Sleep -Milliseconds 500 }
+                (Job $id).stage | Should -Be 'ready'
+                ((Get-Content (Join-Path $env:FACTORY_HOME 'runner.log')) -match 'watchdog: started runner') | Should -Not -BeNullOrEmpty
+            } finally {
+                Stop-Process -Id $serve.Id -Force -ErrorAction SilentlyContinue
+                $deadline = (Get-Date).AddSeconds(30)
+                while ((Get-Date) -lt $deadline -and (Test-Path (Join-Path $env:FACTORY_HOME 'runner.lock'))) { Start-Sleep -Milliseconds 250 }
+            }
+        }
     }
 
     Context 'runner' {
@@ -220,6 +273,26 @@ Describe 'runner.ps1 and hook-event.ps1' {
             (Job $id).flag.detail | Should -Match 'exit 1'
         }
 
+        It 'runs the gate itself when claude dies after the approver approved' {
+            $id = New-ApprovedJob 'A'
+            Set-FakeClaude 'gate-crash'
+            Run-Runner | Out-Null
+            $j = Job $id
+            $j.stage | Should -Be 'ready'
+            $j.flag | Should -BeNullOrEmpty
+            $j.gate.build | Should -Be 0
+            $j.gate.sha | Should -Be (git rev-parse "factory/$id")
+        }
+
+        It 'flags gate-failed, not escalated, when that gate is red' {
+            $id = New-ApprovedJob 'A'
+            Set-FakeClaude 'gate-crash'
+            $env:FACTORY_GATE_CMDS = '[{"name":"build","cmd":"exit 1"}]'
+            Run-Runner | Out-Null
+            (Job $id).stage | Should -Be 'ready'
+            (Job $id).flag.reason | Should -Be 'gate-failed'
+        }
+
         It 'escalates a job left in Building, so the queue moves on' {
             $a = New-ApprovedJob 'A'
             $b = New-ApprovedJob 'B'
@@ -227,38 +300,6 @@ Describe 'runner.ps1 and hook-event.ps1' {
             Run-Runner | Out-Null
             (Job $a).flag.reason | Should -Be 'escalated'
             (Job $b).flag.reason | Should -Be 'escalated'
-        }
-    }
-
-    Context 'spec-run' {
-        BeforeAll { $script:SpecRun = Join-Path $script:Scripts 'spec-run.ps1' }
-
-        It 'runs the spec command with FACTORY_IDEA set and streams run.jsonl' {
-            $idea = F new-idea 'find books' -Target $script:Repo
-            $fake = Join-Path $TestDrive 'fake-spec.ps1'
-            @"
-`$f = '$script:Factory'
-`$s = Join-Path `$env:FACTORY_HOME "ideas/`$env:FACTORY_IDEA/spec-1.md"
-Set-Content `$s '# Spec: Book search filter'
-& `$f add-spec `$env:FACTORY_IDEA `$s | Out-Null
-& `$f idea-done `$env:FACTORY_IDEA | Out-Null
-'{"total_cost_usd":0.2,"duration_ms":900}'
-"@ | Set-Content $fake
-            $env:FACTORY_CLAUDE_CMD = "& '$fake'"
-            & pwsh -NoProfile -File $script:SpecRun $idea | Out-Null
-            $LASTEXITCODE | Should -Be 0
-            ((Board).ideas | Where-Object id -eq $idea).status | Should -Be 'done'
-            (Job 'J-001').title | Should -Be 'Book search filter'
-            Get-Content (Join-Path $env:FACTORY_HOME "ideas/$idea/run.jsonl") | Should -Contain '{"total_cost_usd":0.2,"duration_ms":900}'
-        }
-
-        It 'marks the idea failed when the spec run leaves it drafting' {
-            $idea = F new-idea 'vague' -Target $script:Repo
-            $env:FACTORY_CLAUDE_CMD = 'exit 1'
-            & pwsh -NoProfile -File $script:SpecRun $idea | Out-Null
-            $i = (Board).ideas | Where-Object id -eq $idea
-            $i.status | Should -Be 'failed'
-            $i.reason | Should -Match 'exit 1'
         }
     }
 

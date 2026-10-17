@@ -5,11 +5,12 @@
   Serves factory/dashboard/index.html, its vendor/ files, read-only files under the state dir
   (/state/...) and agent transcripts named by agent-start events. Every
   write is one factory.ps1 call; this script holds no transition logic. After an approve or rework
-  it starts runner.ps1, and after a new idea it starts spec-run.ps1, both detached.
+  it starts runner.ps1 detached. Ideas are created in the /factory:idea session, not here.
 #>
 param(
     [int] $Port = 4317,
-    [string] $StateDir
+    [string] $StateDir,
+    [int] $WatchdogSeconds = 10
 )
 
 $ErrorActionPreference = 'Stop'
@@ -44,6 +45,25 @@ function Start-Detached([string] $script, [string[]] $argv = @()) {
     $a = @('-NoProfile', '-File', (Join-Path $Scripts $script)) + $argv
     if ($IsWindows) { Start-Process pwsh -ArgumentList $a -WindowStyle Hidden | Out-Null }
     else { Start-Process pwsh -ArgumentList $a | Out-Null }
+}
+
+# Starts the runner when Approved is not empty and no live runner holds the lock: one that died, or
+# an approval made outside the dashboard. A lock younger than 5 s may not hold its PID yet.
+$NextWatch = [DateTime]::MinValue
+function Invoke-Watchdog {
+    if ([DateTime]::UtcNow -lt $script:NextWatch) { return }
+    $script:NextWatch = [DateTime]::UtcNow.AddSeconds($WatchdogSeconds)
+    try {
+        if (-not ((Read-Board).jobs | Where-Object stage -eq 'approved')) { return }
+        $lock = Join-Path $StateDir 'runner.lock'
+        if (Test-Path $lock) {
+            if ((Get-Item $lock).LastWriteTimeUtc -gt [DateTime]::UtcNow.AddSeconds(-5)) { return }
+            $holder = (Get-Content $lock -ErrorAction SilentlyContinue | Select-Object -First 1) -as [int]
+            if ($holder -and (Get-Process -Id $holder -ErrorAction SilentlyContinue)) { return }
+        }
+        Start-Detached 'runner.ps1'
+        Add-Content -LiteralPath (Join-Path $StateDir 'runner.log') "$([DateTime]::UtcNow.ToString('o')) watchdog: started runner" -Encoding utf8
+    } catch { Write-Warning "watchdog: $_" }
 }
 
 function Read-Board {
@@ -103,16 +123,6 @@ function Handle($ctx) {
         return Send-File $ctx $full
     }
 
-    if ($method -eq 'GET' -and $path -eq '/api/target') {
-        $p = $ctx.Request.QueryString['path']
-        $abs = [bool]($p -and [IO.Path]::IsPathFullyQualified($p))
-        $exists = $abs -and (Test-Path $p -PathType Container)
-        $isRepo = $exists -and (Test-Path (Join-Path $p '.git'))
-        $empty = $exists -and -not $isRepo -and @(Get-ChildItem $p -Force).Count -eq 0
-        $ok = $abs -and (-not (Test-Path $p) -or $isRepo -or $empty)
-        return Send $ctx 200 (@{ ok = $ok; absolute = $abs; exists = $exists; isRepo = $isRepo; empty = $empty } | ConvertTo-Json -Compress)
-    }
-
     if ($method -eq 'GET' -and $path -match '^/api/agents/([A-Za-z0-9_-]+)/transcript$') {
         $agentId = $Matches[1]
         $events = Join-Path $StateDir 'events.jsonl'
@@ -133,19 +143,6 @@ function Handle($ctx) {
             } | Sort-Object)
         }
         return Send $ctx 200 (ConvertTo-Json -Compress -InputObject $files)
-    }
-
-    if ($method -eq 'POST' -and $path -eq '/api/ideas') {
-        $req = Read-Body $ctx | ConvertFrom-Json
-        $text = $req.text
-        if (-not $text -or -not $text.Trim()) { return Send $ctx 400 '{"ok":false,"message":"an idea needs some text"}' }
-        $target = if ($req.PSObject.Properties['target'] -and $req.target) { $req.target.Trim() } else { '' }
-        $argv = @('new-idea', $text.Trim(), '-Target', $target)
-        if ($req.PSObject.Properties['scaffold'] -and $req.scaffold) { $argv += '-Scaffold', ($req.scaffold | ConvertTo-Json -Compress) }
-        $r = Invoke-Factory @argv
-        # "I-NNN" means drafting; "I-NNN J-NNN" means the idea waits for its bootstrap job.
-        if ($r.Ok -and $r.Message -match '^I-\d+$') { Start-Detached 'spec-run.ps1' @($r.Message) }
-        return Send-Result $ctx $r
     }
 
     if ($method -eq 'PUT' -and $path -match '^/api/jobs/([A-Z]+-\d+)/spec$') {
@@ -177,8 +174,11 @@ function Handle($ctx) {
             default { [pscustomobject]@{ Ok = $false; Message = "move to '$to' refused: not a human move" } }
         }
         if ($r.Ok -and $to -eq 'approved') { Start-Detached 'runner.ps1' }
-        if ($r.Ok -and $to -eq 'done' -and $r.Message -match 'released (I-\d+)') { Start-Detached 'spec-run.ps1' @($Matches[1]) }
         return Send-Result $ctx $r
+    }
+
+    if ($method -eq 'POST' -and $path -eq '/api/purge') {
+        return Send-Result $ctx (Invoke-Factory purge)
     }
 
     Send $ctx 404 '{"ok":false,"message":"not found"}'
@@ -191,7 +191,7 @@ Write-Host "factory dashboard on http://localhost:$Port/  (state: $StateDir)"
 try {
     while ($listener.IsListening) {
         $task = $listener.GetContextAsync()
-        while (-not $task.AsyncWaitHandle.WaitOne(250)) { }
+        while (-not $task.AsyncWaitHandle.WaitOne(250)) { Invoke-Watchdog }
         $ctx = $task.GetAwaiter().GetResult()
         try { Handle $ctx }
         catch {

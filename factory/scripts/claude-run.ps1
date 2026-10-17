@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Dot-sourced by runner.ps1 and spec-run.ps1: writes <stateDir>/headless-settings.json and runs one
+  Dot-sourced by runner.ps1: writes <stateDir>/headless-settings.json and runs one
   headless claude pass with the factory plugin, streaming every stdout line to a log as it arrives.
   See "Runner" in docs/FACTORY-CONTRACT.md. $env:FACTORY_CLAUDE_CMD replaces claude in tests.
 #>

@@ -113,7 +113,7 @@ function Bootstrap-Spec($sc, [string] $target) {
         $cmds += "dotnet new aspire-events -n $n -o . --eventStore $store --resource $r"
     }
     $gate = @("- build: ``dotnet build $n.slnx``", "- test: ``dotnet test $n.slnx``")
-    if ($sc.ui -eq 'react') { $gate += '- ui: `Set-Location src/ui/react; npm ci; npm run build`' }
+    if ($sc.ui -eq 'react') { $gate += '- ui: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build`' }
     $text = Get-Content (Join-Path (Split-Path $PSScriptRoot -Parent) 'templates/bootstrap.md') -Raw
     $values = @{
         name = $n; resource = $r; db = $sc.db; ui = $sc.ui; events = "$([bool]$sc.events)".ToLowerInvariant()
@@ -180,10 +180,19 @@ function Get-Idea([string] $id) {
     $i
 }
 
-function Next-Id([string] $prefix, $items) {
-    $max = 0
+# board.seq[prefix] is the highest id ever allocated, so ids that purge removed are never reused.
+function Update-Seq([string] $prefix, $items) {
+    if (-not $Board.Contains('seq') -or $Board.seq -isnot [Collections.IDictionary]) { $Board.seq = [ordered]@{} }
+    $max = [int]($Board.seq[$prefix] ?? 0)
     foreach ($x in $items) { if ($x.id -match "^$prefix-(\d+)$") { $max = [Math]::Max($max, [int]$Matches[1]) } }
-    '{0}-{1:D3}' -f $prefix, ($max + 1)
+    $Board.seq[$prefix] = $max
+    $max
+}
+
+function Next-Id([string] $prefix, $items) {
+    $n = (Update-Seq $prefix $items) + 1
+    $Board.seq[$prefix] = $n
+    '{0}-{1:D3}' -f $prefix, $n
 }
 
 # Creates a backlog job from spec lines (heading '# Spec: <title>'); returns its id.
@@ -253,6 +262,20 @@ function Invoke-Git([string] $Where) {
 }
 
 function Branch-Exists([string] $root, [string] $branch) { (Invoke-Git $root rev-parse --verify --quiet "refs/heads/$branch").Code -eq 0 }
+
+# Deletes factory/<id> in the job's repo, detaching its worktree first if it is on that branch.
+function Remove-JobBranch($j) {
+    $branch = "factory/$($j.id)"
+    $root = JobRoot $j
+    if (-not (Test-Path (Join-Path $root '.git')) -or -not (Branch-Exists $root $branch)) { return }
+    $wt = WorktreePath $j
+    if ((Test-Path $wt) -and (Invoke-Git $wt branch --show-current).Out -eq $branch) {
+        $r = Invoke-Git $wt checkout -q --detach
+        if ($r.Code -ne 0) { Fail "cannot detach worktree: $($r.Out)" }
+    }
+    $r = Invoke-Git $root branch -D $branch
+    if ($r.Code -ne 0) { Fail "cannot delete $($branch): $($r.Out)" }
+}
 
 # Creates a missing (or empty) target as a git repo with an empty initial commit on main.
 function Ensure-Repo([string] $root) {
@@ -434,18 +457,27 @@ try {
         'discard' {
             $j = Get-Job $Arg1
             Require-Stage $j 'backlog', 'ready' 'discard'
-            $branch = "factory/$($j.id)"
-            $root = JobRoot $j
-            if ((Test-Path (Join-Path $root '.git')) -and (Branch-Exists $root $branch)) {
-                $wt = WorktreePath $j
-                if ((Test-Path $wt) -and (Invoke-Git $wt branch --show-current).Out -eq $branch) {
-                    $r = Invoke-Git $wt checkout -q --detach
-                    if ($r.Code -ne 0) { Fail "cannot detach worktree: $($r.Out)" }
-                }
-                $r = Invoke-Git $root branch -D $branch
-                if ($r.Code -ne 0) { Fail "cannot delete $($branch): $($r.Out)" }
-            }
+            Remove-JobBranch $j
             Move-Job $j 'discarded' 'human'
+        }
+
+        'purge' {
+            $jobs = @($Board.jobs | Where-Object { $_.stage -in 'done', 'discarded' })
+            foreach ($j in $jobs) { Remove-JobBranch $j }
+            $left = @($Board.jobs | Where-Object { $_.stage -notin 'done', 'discarded' })
+            $kept = @($left | ForEach-Object id)
+            $ideas = @($Board.ideas | Where-Object { $_.status -in 'done', 'failed' -and -not (@($_.jobs) | Where-Object { $_ -in $kept }) })
+            $gone = @($ideas | ForEach-Object id) + @($jobs | ForEach-Object id)
+            if (-not $gone) { return }
+            Update-Seq 'J' $Board.jobs | Out-Null
+            Update-Seq 'I' $Board.ideas | Out-Null
+            $Board.jobs = $left
+            $Board.ideas = @($Board.ideas | Where-Object { $_.id -notin $gone })
+            Save-Board $Board
+            foreach ($j in $jobs) { Remove-Item -Recurse -Force (JobDir $j.id) -ErrorAction SilentlyContinue }
+            foreach ($i in $ideas) { Remove-Item -Recurse -Force (Join-Path $Home_ "ideas/$($i.id)") -ErrorAction SilentlyContinue }
+            Add-Event ([ordered]@{ kind = 'note'; detail = "purged $($gone -join ', ')" })
+            $gone
         }
 
         'merge' {
@@ -469,12 +501,24 @@ try {
             $root = JobRoot $j
             $current = (Invoke-Git $root branch --show-current).Out
             if ($current -ne 'main') { Move-Job $j 'ready' 'human' 'merge-blocked' "release checkout is on '$current', not main"; Fail 'merge blocked: not on main' }
-            $dirty = (Invoke-Git $root status --porcelain).Out
-            if ($dirty) { Move-Job $j 'ready' 'human' 'merge-blocked' 'release checkout is dirty'; Fail 'merge blocked: dirty tree' }
+            # By content, not status: an EOL-only rewrite (autocrlf + a generator) is not a change.
+            # safecrlf=false: Invoke-Git folds stderr in, and the CRLF warning is not a path.
+            $dirty = (Invoke-Git $root -c core.quotepath=false -c core.safecrlf=false diff --name-only HEAD).Out
+            if ($dirty) { Move-Job $j 'ready' 'human' 'merge-blocked' "release checkout is dirty: $(($dirty -split "`n") -join ', ')"; Fail 'merge blocked: dirty tree' }
+            # Clean by content, so anything status still calls modified is stat or EOL only. git merge
+            # would refuse to overwrite it; restoring it from HEAD changes no content. checkout alone
+            # skips a file it judges unchanged, so the stale copy is removed first.
+            foreach ($line in (Invoke-Git $root -c core.quotepath=false status --porcelain).Out -split "`n") {
+                if ($line -notmatch '^\s*M\s+(.+)$') { continue }   # Invoke-Git trims the first line's leading space
+                Remove-Item -LiteralPath (Join-Path $root $Matches[1]) -Force
+                Invoke-Git $root checkout -- $Matches[1] | Out-Null
+            }
             $r = Invoke-Git $root merge --no-ff "factory/$($j.id)" -m "Merge factory/$($j.id): $($j.title)"
             if ($r.Code -ne 0) {
+                $conflicts = (Invoke-Git $root -c core.quotepath=false diff --name-only --diff-filter=U).Out
                 Invoke-Git $root merge --abort | Out-Null
-                Move-Job $j 'ready' 'human' 'merge-blocked' 'merge conflict'
+                $why = if ($conflicts) { "merge conflict: $(($conflicts -split "`n") -join ', ')" } else { ($r.Out -split "`n" | Where-Object { $_ -notmatch '^(Aborting|Please )' }) -join ' ' -replace '\s+', ' ' }
+                Move-Job $j 'ready' 'human' 'merge-blocked' $why
                 Fail "merge blocked: $($r.Out)"
             }
             $sha = (Invoke-Git $root rev-parse HEAD).Out
@@ -487,7 +531,7 @@ try {
             $j.merged = [ordered]@{ sha = $sha; repo = $root; added = $added; modified = $modified }
             Move-Job $j 'done' 'human'
             Add-Event ([ordered]@{ job = $j.id; kind = 'merge'; detail = $sha })
-            # A merged bootstrap releases its idea to the spec-writer (serve.ps1 starts spec-run).
+            # A merged bootstrap releases its idea for a /factory:idea session.
             $i = if ($j.Contains('kind') -and $j.kind -eq 'bootstrap' -and $j.idea) { $Board.ideas | Where-Object { $_.id -eq $j.idea } | Select-Object -First 1 }
             if ($i -and $i.status -eq 'waiting') {
                 $i.status = 'drafting'

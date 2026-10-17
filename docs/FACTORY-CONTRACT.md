@@ -8,9 +8,9 @@ change, but only by editing this file first.
 ## Principle
 
 Agents propose and execute; `factory.ps1` attests and constrains; a human owns intent and the
-release. A human touches the factory at exactly two points: **approving a spec** (Backlog →
-Approved) and **accepting the work** (Ready for review → Done). Everything between those two is
-automated.
+release. A human touches the factory at exactly two points: **approving a spec**, in the
+`/factory:idea` session (or by dragging a Backlog card to Approved), and **accepting the work**
+(Ready for review → Done). Everything between those two is automated.
 
 No agent, skill or endpoint writes to `.factory-runs/board.json`. Every state change is a
 `factory.ps1` call, and the script refuses the ones this contract does not allow.
@@ -18,19 +18,24 @@ No agent, skill or endpoint writes to `.factory-runs/board.json`. Every state ch
 ## The flow
 
 ```
- Ideas ──spec-writer──→ Backlog ──human drag──→ Approved ──runner──→ Building ──→ Ready for review ──human drag──→ Done
- (I-NNN)   1..N cards   (edit spec)              (FIFO queue)        build         (flag if the       (merge)
-                           │                          ↑              review ×4      factory gave up)
-                           └──discard                 │              approve            │
-                                                      │              gate               ├──discard
-                                                      └────────── rework <note> ────────┘
+ /factory:idea session ──── human "yes" per spec ────┐
+ grill → brief → spec-writer                         │
+        │ "not yet"                                  ↓
+        └────→ Backlog ──human drag──→ Approved ──runner──→ Building ──→ Ready for review ──human drag──→ Done
+               (edit spec)             (FIFO queue)        build         (flag if the       (merge)
+                  │                         ↑              review ×4      factory gave up)
+                  └──discard                │              approve            │
+                                            │              gate               ├──discard
+                                            └────────── rework <note> ────────┘
 ```
+
+Done and discarded cards stay until a human clears them ([Purge](#purge), the Done column's **Clear**).
 
 ## Board columns and stages
 
 | Column | Stages | Who moves cards out |
 | --- | --- | --- |
-| Ideas | `idea` records with status `drafting` or `failed` (not jobs) | spec-writer |
+| Ideas | `idea` records with status `waiting`, `drafting` or `failed` (not jobs) | the `/factory:idea` session |
 | Backlog | `backlog` | human (drag to Approved, or discard) |
 | Approved | `approved` | runner |
 | Building | `build`, `review`, `approve`, `gate` | orchestrator / script |
@@ -48,12 +53,13 @@ types it next to the idea; nothing defaults it. The factory itself (this repo's 
 `.claude/`, `.factory-runs/` and dashboard) never moves; only the code it builds goes to the target.
 
 - An existing git repo: jobs branch from its `main` and merge back into it. The idea goes straight
-  to the spec-writer.
+  to the spec-writer in the same session.
 - A **new** target (a path that does not exist yet, or an empty folder) needs **scaffold options**,
   chosen by the human in the idea form. `new-idea` then creates a **bootstrap job** instead of
   starting the spec-writer: its spec, generated from `factory/templates/bootstrap.md`, scaffolds
   the project from the `template-projects` templates. The idea waits (`waiting`) until that job is
-  merged; the merge releases it to the spec-writer, which then specs features against real code.
+  merged; the merge releases it (`drafting`), and the human resumes it with `/factory:idea I-NNN`,
+  so the spec-writer specs features against real code.
   The first `checkout` creates the target with `git init -b main` and an empty initial commit;
   the control plane does this, never an agent.
 - Anything else (a non-empty folder that is not a git repo, a relative path, scaffold options for an
@@ -96,11 +102,33 @@ Gate lines are ``- <name>: `<command>` ``, where `<name>` is lower-case letters,
 commands run with `pwsh -Command` in the worktree. The human approves them along with the spec, and
 no agent can edit `jobs/<id>/spec.md`.
 
+A dependency install in a gate is guarded, so the gate does not reinstall on every run. For npm,
+that means `npm ci` runs only when `node_modules/.package-lock.json` (which npm writes at the end
+of an install) is missing or older than `package-lock.json`:
+
+```
+- ui: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build`
+```
+
 ## Ideas
 
-An idea is the text a human types into the dashboard. It is not a job. The spec-writer turns it
-into 1..N specs (N ≤ 5). Each spec is small and buildable on its own, and each one becomes a job
-in `backlog`.
+An idea is worked out in an interactive Claude Code session, `/factory:idea [<target> | I-NNN]`
+(`factory/scripts/idea.ps1` starts one with the plugin loaded). It is not a job. The session:
+
+1. Takes the target, and for a new target the scaffold options.
+2. Grills the human (the plugin's `grill` skill) until nothing in the idea is assumed, and has them
+   confirm the resulting **brief**, which follows `factory/templates/brief.md`.
+3. Runs `new-idea` and writes the brief to `ideas/I-NNN/brief.md`. For a new target it shows the
+   bootstrap spec, approves it on the human's yes, and stops: the idea waits for the bootstrap merge.
+4. Runs the spec-writer, which turns the brief into 1..N specs (N ≤ 5), each small and buildable on
+   its own. It shows each spec; the human approves it, asks for changes (made to `spec-<k>.md`
+   before it reaches the board), defers it, or rejects it.
+5. For each approved spec: `add-spec`, then `approve` (it lands in Approved and the session starts
+   the runner). A deferred spec gets `add-spec` only and waits in Backlog. A rejected spec never
+   reaches the board. Then `idea-done`, or `idea-done -Failed` if every spec was rejected.
+
+`drafting` means "open for a session". `/factory:idea I-NNN` resumes a `drafting` idea from its
+`brief.md`, after a bootstrap merge or an interrupted session.
 
 ```
 board.ideas[] = { "id": "I-001", "text": "...", "target": "D:\\code\\Scratchpad\\todo-app",
@@ -113,13 +141,14 @@ board.ideas[] = { "id": "I-001", "text": "...", "target": "D:\\code\\Scratchpad\
   last line `Target: <path>`). For an existing repo it sets status `drafting`. For a new target it
   sets status `waiting`, creates the bootstrap job in `backlog` (`kind: "bootstrap"`, listed in the
   idea's `jobs`) and prints `I-NNN J-NNN`.
-- The spec-writer writes `ideas/I-NNN/spec-1.md .. spec-N.md`, following `factory/templates/spec.md`.
+- The spec-writer reads `idea.md` and `brief.md` (the brief wins where they differ) and writes
+  `ideas/I-NNN/spec-1.md .. spec-N.md`, following `factory/templates/spec.md`.
   It copies the idea's target into each spec's `## Target` verbatim and never chooses one.
 - `factory.ps1 add-spec <ideaId> <file>` allocates `J-NNN`, copies the file to `jobs/J-NNN/spec.md`,
   takes the title from the file's `# Spec:` heading, and creates the job in `backlog`. `add-spec`,
   `edit-spec` and `approve` set `job.target` from the spec's `Repo:` line.
 - `factory.ps1 idea-done <ideaId> [-Failed -Reason <text>]` closes the idea. Ideas in `done`
-  are no longer shown; ideas in `failed` stay in Ideas with the reason.
+  are no longer shown; ideas in `failed` stay in Ideas with the reason until a `purge`.
 
 ## Job transitions
 
@@ -136,8 +165,8 @@ board.ideas[] = { "id": "I-001", "text": "...", "target": "D:\\code\\Scratchpad\
 | review | approve | all 4 verdicts are `PASS` | |
 | approve | gate | `decision.md` first line is `Decision: APPROVE` | |
 | approve | ready | `Decision: ESCALATE` | `escalated` |
-| gate | ready | every gate command exited 0 (no flag), or any one did not | `gate-failed` |
-| build / review / approve / gate | ready | the orchestrator gives up, or the runner's `claude` process exits non-zero | `escalated` |
+| gate | ready | every gate command exited 0 (no flag), or any one did not. Run by the orchestrator, or by the runner when claude ended with the job in `gate` | `gate-failed` |
+| build / review / approve | ready | the orchestrator gives up, or the runner's `claude` process ends with the job still here | `escalated` |
 | ready | done | human `merge`; see [Gate and merge](#gate-and-merge). A bootstrap job's merge moves its idea `waiting` → `drafting` and prints `released <ideaId>` | |
 | ready | ready | human `merge` refused: dirty checkout or merge conflict / red gate | `merge-blocked` / `gate-failed` |
 | ready | approved | human `rework <id> <note>`; writes `jobs/<id>/rework-<n>.md`, round += 1, sets `approvedAt` | |
@@ -152,6 +181,15 @@ flagged `max-rounds`.
 Approval of a spec, the approver's `APPROVE`, a green gate and a completed merge are four separate
 facts. The board records each one on its own. Only a human drag to Done merges.
 
+### Purge
+
+`factory.ps1 purge` clears finished work off the board. It removes every job in `done` or
+`discarded`, and every idea in `done` or `failed` none of whose jobs is left. For each it deletes
+`jobs/<id>/` or `ideas/<id>/`, and for a job also the branch `factory/<id>` in its target (detaching
+`<target>.wt` first if it is on that branch). It appends one `note` event (`purged J-001, ...`) and
+prints the removed ids, one per line. Ideas in `waiting` or `drafting` and jobs in any other stage
+are untouched. `events.jsonl` keeps its history, and `board.seq` stops a purged id being reused.
+
 ## Files
 
 ```
@@ -159,11 +197,11 @@ facts. The board records each one on its own. Only a human drag to Done merges.
   board.json
   events.jsonl
   runner.lock                  held while runner.ps1 is draining the queue
-  headless-settings.json       written by runner.ps1 / spec-run.ps1 for each claude -p run (see Runner)
+  headless-settings.json       written by runner.ps1 for each claude -p run (see Runner)
   ideas/<id>/
-    idea.md                    the idea text, verbatim, then `Target: <path>`
+    idea.md                    the idea's one-line title, then `Target: <path>`
+    brief.md                   the grilled brief, in the human's words (factory/templates/brief.md)
     spec-<k>.md                spec-writer output, one per proposed job
-    run.jsonl                  the claude -p stream-json output of the spec run, written live
   jobs/<id>/
     spec.md                    copied from the idea, then edited by the human in Backlog
     rework-<n>.md              the human's rework note for round n
@@ -176,8 +214,9 @@ facts. The board records each one on its own. Only a human drag to Done merges.
 
 <target>.wt\                   one worktree per target, reused by every job on it (legacy jobs: ..\claude-factory.wt)
 
-factory/plugin/                the agents, the /factory skill and the Subagent hooks, as a Claude Code
-                               plugin loaded with --plugin-dir, so they work in any target's worktree
+factory/plugin/                the agents, the /factory, /factory:idea and grill skills and the Subagent
+                               hooks, as a Claude Code plugin loaded with --plugin-dir, so they work in
+                               any target's worktree
 ```
 
 Each review's first line must be exactly `Verdict: PASS` or `Verdict: CHANGES`. The decision's
@@ -189,6 +228,7 @@ those lines and nothing else; if one is missing or malformed, the script treats 
 ```json
 {
   "version": 2,
+  "seq": { "I": 1, "J": 1 },
   "ideas": [
     { "id": "I-001", "text": "Let me find books quickly", "status": "done", "jobs": ["J-001"], "createdAt": "2026-10-12T13:55:00Z" }
   ],
@@ -229,7 +269,8 @@ those lines and nothing else; if one is missing or malformed, the script treats 
 - `target` is absent on legacy jobs, which use this repo.
 - `kind` is `feature` (from a spec-writer spec) or `bootstrap` (generated by `new-idea`); absent means `feature`.
 - `costUsd` and `durationMs` are summed over every runner pass on the job.
-- Ids are `I-NNN` and `J-NNN`, allocated by the script. The simulator uses the same ids in its own
+- Ids are `I-NNN` and `J-NNN`, allocated by the script, one above the larger of `seq` and the highest
+  id on the board. `seq` records the highest id ever allocated, so a `purge` never frees an id. The simulator uses the same ids in its own
   state dir (`.factory-runs-sim/`), with a throwaway sandbox repo at `.factory-runs-sim/repo`.
 
 ## `events.jsonl`
@@ -260,9 +301,10 @@ stderr and leaves the board unchanged.
 
 | Command | Used by |
 | --- | --- |
-| `new-idea <text> -Target <path> [-Scaffold <json>]` · `add-spec <ideaId> <file>` · `idea-done <ideaId> [-Failed -Reason]` | serve.ps1, `/factory spec` |
+| `new-idea <text> -Target <path> [-Scaffold <json>]` · `add-spec <ideaId> <file>` · `idea-done <ideaId> [-Failed -Reason]` | `/factory:idea` |
 | `edit-spec <id> -File <path>` (backlog only) | serve.ps1 |
-| `approve <id>` · `rework <id> <note>` · `discard <id>` · `merge <id>` | serve.ps1 (human drags) |
+| `approve <id>` | `/factory:idea` (on the human's yes), serve.ps1 (human drag) |
+| `rework <id> <note>` · `discard <id>` · `merge <id>` · `purge` | serve.ps1 (human drags and **Clear**) |
 | `next` (prints the next runnable approved id, or nothing) · `checkout <id>` (creates the target repo if needed, then creates or reuses `<target>.wt` on `factory/<id>`; prints the worktree path) · `set-cost <id> <usd> <ms>` | runner.ps1 |
 | `set-stage <id> <to> [-By] [-Reason] [-Detail]` · `set-review <id> <role> <state>` · `read-reviews <id>` · `read-decision <id>` · `gate <id>` | `/factory run` |
 | `event <json \| -Job -Idea -Kind -Agent>` | hook-event.ps1 |
@@ -280,7 +322,7 @@ every target) and `$env:FACTORY_REPO` (this repo's main checkout).
 
 | Agent | Model | Reads | Writes |
 | --- | --- | --- | --- |
-| spec-writer | opus | idea.md, the target repo if it exists | ideas/<id>/spec-1.md .. spec-N.md (N ≤ 5) |
+| spec-writer | opus | idea.md, brief.md, the target repo | ideas/<id>/spec-1.md .. spec-N.md (N ≤ 5) |
 | builder | opus | spec.md, previous round's reviews, rework note | source on the job branch, round-n/build.md |
 | security-reviewer | opus | spec.md, the diff, build.md | round-n/review-security.md |
 | code-reviewer | sonnet | same | round-n/review-code.md |
@@ -306,8 +348,14 @@ and `npm run build` in `src/ui/react`.
 1. If no all-zero gate is recorded for the current head sha of `factory/<id>`, it runs `gate`
    first. A red gate leaves the job in `ready` with flag `gate-failed`. A human can overrule a
    reviewer flag by dragging to Done, but cannot skip the gate.
-2. It requires the main checkout to be on `main` and clean (`git status --porcelain` empty).
-3. It runs `git merge --no-ff factory/<id>`. On a conflict it aborts the merge.
+2. It requires the main checkout to be on `main` and clean **by content**: `git diff --quiet HEAD`
+   (staged or unstaged changes to tracked files). A file that differs only in line endings or stat
+   data is not dirty. Untracked files are left to `git merge`, which refuses to overwrite one. On
+   refusal the flag detail names the dirty paths. A file `git status` still lists as modified after
+   that check differs only in line endings or stat data. It is restored from `HEAD`
+   (`git checkout -- <path>`) so that git's own overwrite check does not refuse the merge. The content is unchanged.
+3. It runs `git merge --no-ff factory/<id>`. On a conflict it aborts the merge, and the detail is
+   `merge conflict: <paths>`. Any other refusal by git puts git's message in the detail.
 
 A failure at step 2 or 3 leaves the job in `ready` with flag `merge-blocked`. Success moves it to
 `done`, records `merged`, and appends a `merge` event.
@@ -323,16 +371,19 @@ and a refused move snaps the card back and shows the message.
 | Request | Calls | Then |
 | --- | --- | --- |
 | `GET /api/jobs/<id>/files` | (read-only) | the job's artifact paths, relative to `jobs/<id>/` |
-| `GET /api/target?path=<p>` | (read-only) | `{ "ok", "absolute", "exists", "isRepo", "empty" }` for the target hint |
 | `GET /api/agents/<agentId>/transcript` | (read-only) | the `transcript` file named by that agent's `agent-start` event; no other path is served |
-| `POST /api/ideas` `{ "text", "target", "scaffold"? }` | `new-idea -Target [-Scaffold]` | starts `spec-run.ps1 I-NNN` detached when the idea is `drafting` (not for a bootstrap) |
 | `PUT /api/jobs/<id>/spec` (text/markdown) | `edit-spec` | |
 | `POST /api/jobs/<id>/move` `{ "to": "approved" }` from backlog | `approve` | starts the runner |
 | `POST /api/jobs/<id>/move` `{ "to": "approved", "note" }` from ready | `rework` | starts the runner |
-| `POST /api/jobs/<id>/move` `{ "to": "done" }` | `merge` | starts `spec-run.ps1 I-NNN` when the merge printed `released I-NNN` |
+| `POST /api/jobs/<id>/move` `{ "to": "done" }` | `merge` | |
 | `POST /api/jobs/<id>/move` `{ "to": "discarded" }` | `discard` | |
+| `POST /api/purge` | `purge` | |
 
-"Starts the runner" means: spawn `runner.ps1` detached, unless `runner.lock` is held. The claude
+There is no idea endpoint: ideas are created in the `/factory:idea` session. An idea card shows the
+command that resumes it, and its modal shows `brief.md`.
+
+"Starts the runner" means: spawn `runner.ps1` detached, unless `runner.lock` is held. The
+[watchdog](#runner) also starts it when Approved is not empty and no live runner holds the lock. The claude
 command is taken from `$env:FACTORY_CLAUDE_CMD` when it is set, so tests spend no tokens.
 
 The job modal's **Output** tab tails `run-<n>.jsonl` (the orchestrator) and each agent's
@@ -366,12 +417,24 @@ longer running. Otherwise it loops:
    - claude's output is read as UTF-8 whatever the console's codepage.
    - stderr goes to the same log, so a reader skips lines that are not JSON.
 4. It appends each stdout line to `jobs/<id>/run-<n>.jsonl` as it arrives, and calls `set-cost`
-   with `total_cost_usd` and `duration_ms` from the final `"type":"result"` line. If the job is still in Building afterwards, whether claude exited non-zero or
-   not, it moves the job to `ready` with flag `escalated`. That way the queue never stalls.
+   with `total_cost_usd` and `duration_ms` from the final `"type":"result"` line. If the job is
+   in `gate` afterwards, the approver has approved and only the gate is left, so the runner runs
+   `factory.ps1 gate <id>` itself. A claude that dies at that point (out of credit, say) costs
+   nothing. If the job is still in Building after that, whether claude exited non-zero or not, it
+   moves the job to `ready` with flag `escalated`. That way the queue never stalls.
+5. An error while handling one job does not end the runner. It logs the error, moves the job to
+   `ready` with flag `escalated` if it is still in Building (detail `runner error: <message>`), and
+   goes back to step 1.
+6. It appends to `<stateDir>/runner.log`, one timestamped line each: `start pid=<pid>`,
+   `take <id>`, `claude <id> exit=<code> result=<yes|no>`, `stage <id> <stage>`,
+   `error <id>: <message>` followed by the stack, and how it ended: `exit drained`, `exit fatal: <message>`,
+   or `exit stopped` (interrupted, e.g. its console closed, before the loop finished).
 
-The spec run for an idea doesn't use the runner or the lock. It reads the repo and writes only
-under `ideas/`, so it can run while a job builds. `spec-run.ps1 <ideaId>` sets `FACTORY_IDEA`, runs
-`claude -p "/factory:factory spec <ideaId> <stateDir> <factory.ps1>"` in this repo, with the same flags
-as the runner plus `--add-dir <target>` when the target exists (or `FACTORY_CLAUDE_CMD`), and streams
-to `ideas/<id>/run.jsonl`. If the idea is still `drafting` afterwards,
-it marks the idea `failed`.
+**Watchdog.** `serve.ps1` checks the board every 10 seconds (`-WatchdogSeconds`). If a job is in
+`approved` and `runner.lock` is missing or names a PID that is no longer running, it starts
+`runner.ps1` detached and logs `watchdog: started runner`. A runner that died, or one that was
+never started (an approval made outside the dashboard), costs one interval, not a stalled queue.
+
+The `/factory:idea` session doesn't use the runner or the lock. It writes only under `ideas/` and
+through `factory.ps1`, so it can run while a job builds. After it approves a spec it starts
+`runner.ps1` detached, as serve.ps1 does.

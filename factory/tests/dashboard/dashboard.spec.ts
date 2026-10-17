@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { simDir, factoryEnv } from './playwright.config';
 
@@ -84,12 +84,18 @@ test.describe.serial('factory dashboard', () => {
     await expect(out).toContainText('$0.42');                          // result line
   });
 
-  test('an idea card opens its spec-writer output', async ({ page }) => {
+  test('an idea card opens its brief', async ({ page }) => {
     await page.goto('/');
     await column(page, 'ideas').locator('[data-idea="I-003"]').click();
     await expect(modal(page)).toBeVisible();
     await expect(modal(page)).toContainText('Make it faster');
-    await expect(modal(page).locator('[data-output]')).toContainText('too vague');
+    await expect(modal(page).locator('[data-brief]')).toContainText('which list, and what counts as fast');
+  });
+
+  test('there is no idea form: ideas come from the /factory:idea session', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#idea-form')).toHaveCount(0);
+    await expect(page.locator('#idea-text')).toHaveCount(0);
   });
 
   test('the pipeline strip has a node for every agent and the gate', async ({ page }) => {
@@ -99,64 +105,18 @@ test.describe.serial('factory dashboard', () => {
     }
   });
 
-  test('an idea needs a target; the hint tells a new repo from an existing one', async ({ page }) => {
-    await page.goto('/');
-    await page.locator('#idea-text').fill('Show a count of books in the header');
-    const target = page.locator('#idea-target');
-    await target.fill('');
-    await expect(page.locator('#idea-submit')).toBeDisabled();
-    await target.fill('relative\\path');
-    await expect(page.locator('#target-hint')).toContainText(/absolute/i);
-    await expect(page.locator('#idea-submit')).toBeDisabled();
-    await target.fill(path.join(simDir, 'brand-new-app'));
-    await expect(page.locator('#target-hint')).toContainText(/new repo/i);
-    await target.fill(sandbox);
-    await expect(page.locator('#target-hint')).toContainText(/existing repo/i);
-    await page.locator('#idea-submit').click();
-    await expect(column(page, 'ideas')).toContainText('Show a count of books in the header');
-    const idea = board().ideas.find((i: { text: string }) => i.text === 'Show a count of books in the header');
-    expect(idea.target).toBe(sandbox);
-  });
-
-  test('a new target shows scaffold options with defaults; an existing repo hides them', async ({ page }) => {
-    await page.goto('/');
-    const target = page.locator('#idea-target');
-    await target.fill(sandbox);
-    await expect(page.locator('#target-hint')).toContainText(/existing repo/i);
-    await expect(page.locator('#scaffold')).toBeHidden();
-    await target.fill(path.join(simDir, 'apps', 'my-shop'));
-    await expect(page.locator('#target-hint')).toContainText(/new repo/i);
-    await expect(page.locator('#scaffold')).toBeVisible();
-    await expect(page.locator('#sc-name')).toHaveValue('myshop');
-    await expect(page.locator('#sc-resource')).toHaveValue('Widget');
-    await expect(page.locator('#sc-db')).toHaveValue('sqlite');
-    await expect(page.locator('#sc-ui')).toHaveValue('react');
-  });
-
-  test('an idea for a new target waits, and its bootstrap job lands in Backlog', async ({ page }) => {
-    await page.goto('/');
-    await page.locator('#idea-text').fill('A shop with products');
-    await page.locator('#idea-target').fill(path.join(simDir, 'apps', 'shop'));
-    await expect(page.locator('#scaffold')).toBeVisible();
-    await page.locator('#sc-resource').fill('Product');
-    await page.locator('#idea-submit').click();
-    await expect.poll(() => board().ideas.find((i: { text: string }) => i.text === 'A shop with products')?.status).toBe('waiting');
-    const idea = board().ideas.find((i: { text: string }) => i.text === 'A shop with products');
-    expect(idea.scaffold).toMatchObject({ name: 'shop', resource: 'Product', db: 'sqlite', ui: 'react', events: false });
-    const boot = idea.jobs[0];
-    expect(job(boot)).toMatchObject({ stage: 'backlog', kind: 'bootstrap' });
-    await expect(column(page, 'backlog').locator(`[data-card="${boot}"] [data-kind="bootstrap"]`)).toBeVisible();
-    await expect(column(page, 'ideas').locator(`[data-idea="${idea.id}"]`)).toContainText(`waiting for bootstrap ${boot}`);
-  });
-
-  test('merging a ready bootstrap job releases its idea to the spec-writer', async ({ page }) => {
+  test('merging a ready bootstrap job releases its idea for a /factory:idea session', async ({ page }) => {
     const idea = board().ideas.find((i: { text: string }) => i.text === 'A todo app, bootstrapped');
     const boot = idea.jobs[0];
     expect(idea.status).toBe('waiting');
     await page.goto('/');
     await card(page, boot).dragTo(column(page, 'done'));
     await expect(column(page, 'done').locator(`[data-card="${boot}"]`)).toBeVisible();
-    await expect.poll(() => board().ideas.find((i: { id: string }) => i.id === idea.id).status).not.toBe('waiting');
+    await expect.poll(() => board().ideas.find((i: { id: string }) => i.id === idea.id).status).toBe('drafting');
+    await expect(column(page, 'ideas').locator(`[data-idea="${idea.id}"]`)).toContainText(`/factory:idea ${idea.id}`);
+    // Nothing headless picks it up: it stays drafting until a human opens the session.
+    await page.waitForTimeout(3000);
+    expect(board().ideas.find((i: { id: string }) => i.id === idea.id).status).toBe('drafting');
   });
 
   test('a backlog card opens a large modal with Edit and a live Preview, and Save writes to disk', async ({ page }) => {
@@ -192,9 +152,12 @@ test.describe.serial('factory dashboard', () => {
     expect(job('J-005').history.some((h) => h.from === 'backlog' && h.to === 'approved' && h.by === 'human')).toBe(true);
   });
 
-  test('dragging a ready card to Done merges it', async ({ page }) => {
+  // Dragging to Done is covered by the bootstrap test above.
+  test('Merge (Done) in the modal merges, closes the modal, and the card lands in Done', async ({ page }) => {
     await page.goto('/');
-    await card(page, 'J-003').dragTo(column(page, 'done'));
+    await card(page, 'J-003').click();
+    await page.locator('#merge-btn').click();
+    await expect(modal(page)).toBeHidden();
     await expect(column(page, 'done').locator('[data-card="J-003"]')).toBeVisible();
     expect(job('J-003').stage).toBe('done');
   });
@@ -209,5 +172,16 @@ test.describe.serial('factory dashboard', () => {
     const last = job('J-002').history.filter((h) => h.from === 'ready').at(-1);
     expect(last).toMatchObject({ to: 'approved', by: 'human' });
     expect(readFileSync(path.join(simDir, `jobs/J-002/rework-${before + 1}.md`), 'utf8')).toContain('Input component');
+  });
+
+  test('Clear in Done purges finished cards, their folders and finished ideas', async ({ page }) => {
+    await page.goto('/');
+    await expect(column(page, 'done').locator('[data-card="J-001"]')).toBeVisible();
+    await column(page, 'done').locator('#purge-btn').click();
+    await expect(column(page, 'done').locator('[data-card]')).toHaveCount(0);
+    await expect(column(page, 'ideas').locator('[data-idea="I-003"]')).toHaveCount(0);
+    expect(board().jobs.filter((j: Job) => j.stage === 'done' || j.stage === 'discarded')).toEqual([]);
+    expect(existsSync(path.join(simDir, 'jobs/J-001'))).toBe(false);
+    expect(job('J-005')).toBeTruthy();
   });
 });

@@ -374,7 +374,57 @@ Describe 'merge' {
         $LASTEXITCODE | Should -Not -Be 0
         (Job $id).stage | Should -Be 'ready'
         (Job $id).flag.reason | Should -Be 'merge-blocked'
+        (Job $id).flag.detail | Should -Match 'README\.md'
         git rev-parse main | Should -Be $head
+    }
+
+    It 'a file that differs only in line endings does not block the merge' {
+        # autocrlf checks a file out as CRLF; a generator (the router plugin) rewrites it as LF.
+        git config core.autocrlf true | Out-Null
+        [IO.File]::WriteAllText((Join-Path $script:Repo 'gen.ts'), "a`nb`n")
+        git add gen.ts 2>&1 | Out-Null; git commit -q -m gen 2>&1 | Out-Null
+        Remove-Item gen.ts; git checkout -- gen.ts 2>&1 | Out-Null
+        $id = New-ApprovedJob
+        Commit-OnBranch $id
+        Move-ToGate $id
+        F gate $id | Out-Null
+        Start-Sleep -Milliseconds 1100
+        [IO.File]::WriteAllText((Join-Path $script:Repo 'gen.ts'), "a`nb`n")
+        git status --porcelain | Should -Not -BeNullOrEmpty   # the old check's view
+        F merge $id | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        (Job $id).stage | Should -Be 'done'
+    }
+
+    It 'a line-ending-only rewrite of a file the branch also changes does not block the merge' {
+        # J-010: the release checkout's routeTree.gen.ts is stat-dirty, and the branch adds a route to it.
+        git config core.autocrlf true | Out-Null
+        [IO.File]::WriteAllText((Join-Path $script:Repo 'gen.ts'), "a`nb`n")
+        git add gen.ts 2>&1 | Out-Null; git commit -q -m gen 2>&1 | Out-Null
+        Remove-Item gen.ts; git checkout -- gen.ts 2>&1 | Out-Null
+        $id = New-ApprovedJob
+        Commit-OnBranch $id 'gen.ts'
+        Move-ToGate $id
+        F gate $id | Out-Null
+        Start-Sleep -Milliseconds 1100
+        [IO.File]::WriteAllText((Join-Path $script:Repo 'gen.ts'), "a`nb`n")
+        F merge $id | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        (Job $id).stage | Should -Be 'done'
+        (Get-Content (Join-Path $script:Repo 'gen.ts') -Raw) | Should -Match "work for $id"
+    }
+
+    It 'a merge git refuses for another reason carries git''s message, not "merge conflict"' {
+        $id = New-ApprovedJob
+        Commit-OnBranch $id                                          # adds feature.txt
+        Move-ToGate $id
+        F gate $id | Out-Null
+        Set-Content (Join-Path $script:Repo 'feature.txt') 'mine'    # untracked, in the way
+        F merge $id | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        (Job $id).flag.reason | Should -Be 'merge-blocked'
+        (Job $id).flag.detail | Should -Match 'untracked working tree files would be overwritten'
+        Get-Content (Join-Path $script:Repo 'feature.txt') | Should -Be 'mine'
     }
 
     It 'without a green gate for the head sha, merge runs the gate first (red → gate-failed)' {
@@ -439,6 +489,76 @@ Describe 'human moves from ready' {
         F set-stage $id build -By runner | Out-Null
         F discard $id | Out-Null
         $LASTEXITCODE | Should -Not -Be 0
+    }
+}
+
+Describe 'purge' {
+    It 'removes done and discarded jobs with their folders and branches, and keeps the rest' {
+        $done = New-ApprovedJob 'D'
+        Commit-OnBranch $done
+        Move-ToGate $done
+        F gate $done | Out-Null
+        F merge $done | Out-Null
+        (Job $done).stage | Should -Be 'done'
+        $gone = New-BacklogJob 'X'
+        F discard $gone | Out-Null
+        $kept = New-BacklogJob 'K'
+
+        $out = F purge
+        $LASTEXITCODE | Should -Be 0
+        $out | Should -Contain $done
+        $out | Should -Contain $gone
+        @((Board).jobs | ForEach-Object id) | Should -Be @($kept)
+        Test-Path (JobDir $done) | Should -BeFalse
+        Test-Path (JobDir $gone) | Should -BeFalse
+        Test-Path (JobDir $kept) | Should -BeTrue
+        git -C $script:Repo branch --list "factory/$done" | Should -BeNullOrEmpty
+        # The shared worktree sat on the purged branch; purge detached it.
+        git -C $env:FACTORY_WORKTREE branch --show-current | Should -BeNullOrEmpty
+        Events | Where-Object { $_.kind -eq 'note' -and $_.detail -match 'purged' } | Should -Not -BeNullOrEmpty
+    }
+
+    It 'removes an idea only when it is done or failed and all its jobs are terminal' {
+        $a = F new-idea 'all discarded' -Target $script:Repo
+        F discard (F add-spec $a (New-Spec 'A')) | Out-Null
+        F idea-done $a | Out-Null
+        $b = F new-idea 'one still in backlog' -Target $script:Repo
+        F add-spec $b (New-Spec 'B') | Out-Null
+        F idea-done $b | Out-Null
+        $c = F new-idea 'rejected' -Target $script:Repo
+        F idea-done $c -Failed -Reason 'rejected in session' | Out-Null
+        $d = F new-idea 'still drafting' -Target $script:Repo
+        $new = Join-Path $TestDrive "target-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+        $w, $boot = (F new-idea 'waiting' -Target $new -Scaffold '{"name":"todo","resource":"Todo","db":"sqlite","ui":"none","events":false}') -split ' '
+        F discard $boot | Out-Null
+
+        $out = F purge
+        $LASTEXITCODE | Should -Be 0
+        $out | Should -Contain $a
+        $out | Should -Contain $c
+        @((Board).ideas | ForEach-Object id) | Should -Be @($b, $d, $w)
+        Test-Path (Join-Path $env:FACTORY_HOME "ideas/$a") | Should -BeFalse
+        Test-Path (Join-Path $env:FACTORY_HOME "ideas/$b") | Should -BeTrue
+    }
+
+    It 'never reuses a purged id' {
+        $a = F new-idea 'a' -Target $script:Repo
+        F discard (F add-spec $a (New-Spec 'A')) | Out-Null
+        F idea-done $a | Out-Null
+        F purge | Out-Null
+        $i = F new-idea 'b' -Target $script:Repo
+        $i | Should -Be 'I-002'
+        F add-spec $i (New-Spec 'B') | Should -Be 'J-002'
+    }
+
+    It 'never reuses a purged id from a board written before seq existed' {
+        $a = F new-idea 'a' -Target $script:Repo
+        F discard (F add-spec $a (New-Spec 'A')) | Out-Null
+        F idea-done $a | Out-Null
+        $path = Join-Path $env:FACTORY_HOME 'board.json'
+        $b = Board; $b.Remove('seq'); Set-Content $path ($b | ConvertTo-Json -Depth 20)
+        F purge | Out-Null
+        F new-idea 'b' -Target $script:Repo | Should -Be 'I-002'
     }
 }
 
@@ -550,10 +670,28 @@ Describe 'targets' {
         $spec | Should -Not -Match 'aspire-events'
         $spec | Should -Match ([regex]::Escape('- build: `dotnet build todo.slnx`'))
         $spec | Should -Match ([regex]::Escape('- test: `dotnet test todo.slnx`'))
-        $spec | Should -Match ([regex]::Escape('- ui: `Set-Location src/ui/react; npm ci; npm run build`'))
+        $spec | Should -Match ([regex]::Escape('- ui: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build`'))
         $spec | Should -Not -Match '\{\{'
         F approve 'J-001' | Out-Null
         $LASTEXITCODE | Should -Be 0
+    }
+
+    It "the bootstrap spec's ui gate runs npm ci only when node_modules is missing or older than package-lock.json" {
+        F new-idea 'x' -Target $script:New -Scaffold '{"name":"todo","resource":"Todo","db":"sqlite","ui":"react","events":false}' | Out-Null
+        $cmd = (Get-Content (Join-Path (JobDir 'J-001') 'spec.md') | Where-Object { $_ -like '- ui: *' }) -replace '^- ui: `(.*)`$', '$1'
+        $root = Join-Path $TestDrive 'ui-guard'
+        $ui = New-Item -ItemType Directory -Force (Join-Path $root 'src/ui/react')
+        Set-Content (Join-Path $ui 'package-lock.json') '{}'
+        $calls = Join-Path $TestDrive 'npm-calls.txt'
+        # A fake npm: records its arguments, and `ci` writes the hidden lockfile as npm does.
+        $fake = "function npm { Add-Content '$calls' (`$args -join ' '); if (`$args[0] -eq 'ci') { New-Item -ItemType Directory -Force node_modules | Out-Null; Set-Content node_modules/.package-lock.json '{}' } }"
+        function Run-Ui { Push-Location $root; try { & pwsh -NoProfile -Command "$fake; $cmd" | Out-Null } finally { Pop-Location } }
+
+        Run-Ui
+        Run-Ui
+        (Get-Item (Join-Path $ui 'package-lock.json')).LastWriteTime = (Get-Date).AddMinutes(1)
+        Run-Ui
+        Get-Content $calls | Should -Be @('ci', 'run build', 'run build', 'ci', 'run build')
     }
 
     It 'the bootstrap spec maps blazor, postgres and events to their template flags' {

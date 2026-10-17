@@ -45,47 +45,72 @@ function Stage([string] $id) {
 
 if (-not (Take-Lock)) { exit 0 }
 
+# The runner runs in a hidden window; this log is the only place its failures can be seen.
+$runLog = Join-Path $env:FACTORY_HOME 'runner.log'
+function Log([string] $msg) { Add-Content -LiteralPath $runLog "$((Get-Date).ToUniversalTime().ToString('o')) $msg" -Encoding utf8 }
+
+# 'stopped' unless the loop ends on its own: a closed console runs finally but not catch.
+$how = 'stopped'
+Log "start pid=$PID"
 try {
     while ($true) {
         $id = F next
-        if (-not $id) { break }
+        if (-not $id) { $how = 'drained'; break }
 
         F set-stage $id build -By runner | Out-Null
-        if ($LASTEXITCODE -ne 0) { break }
+        if ($LASTEXITCODE -ne 0) { $how = "fatal: set-stage $id build refused"; break }
+        Log "take $id"
 
-        $wt = F checkout $id 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            F set-stage $id ready -By runner -Reason escalated -Detail "worktree: $wt" | Out-Null
-            continue
-        }
-
-        $jobDir = Join-Path $env:FACTORY_HOME "jobs/$id"
-        $n = @(Get-ChildItem $jobDir -Filter 'run-*.jsonl' -ErrorAction SilentlyContinue).Count + 1
-        $env:FACTORY_JOB = $id
-
-        Push-Location $wt
+        # One job's failure must not stall the queue: log it, escalate the job, take the next.
         try {
-            $state = $env:FACTORY_HOME.Replace('\', '/')
-            $run = Invoke-ClaudeStream "/factory:factory run $id $state $($Factory.Replace('\', '/'))" (Join-Path $jobDir "run-$n.jsonl")
-            $code = $run.Code
-            $result = $run.Result
+            $wt = F checkout $id 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                F set-stage $id ready -By runner -Reason escalated -Detail "worktree: $wt" | Out-Null
+                continue
+            }
+
+            $jobDir = Join-Path $env:FACTORY_HOME "jobs/$id"
+            $n = @(Get-ChildItem $jobDir -Filter 'run-*.jsonl' -ErrorAction SilentlyContinue).Count + 1
+            $env:FACTORY_JOB = $id
+
+            Push-Location $wt
+            try {
+                $state = $env:FACTORY_HOME.Replace('\', '/')
+                $run = Invoke-ClaudeStream "/factory:factory run $id $state $($Factory.Replace('\', '/'))" (Join-Path $jobDir "run-$n.jsonl")
+                $code = $run.Code
+                $result = $run.Result
+            } finally {
+                Pop-Location
+                Remove-Item Env:FACTORY_JOB -ErrorAction SilentlyContinue
+            }
+            Log "claude $id exit=$code result=$(if ($result) { 'yes' } else { 'no' })"
+
+            if ($result -and $result.PSObject.Properties['total_cost_usd']) {
+                $ms = if ($result.PSObject.Properties['duration_ms']) { $result.duration_ms } else { 0 }
+                F set-cost $id ([string]::Format([Globalization.CultureInfo]::InvariantCulture, '{0}', $result.total_cost_usd)) $ms | Out-Null
+            }
+
+            # The approver approved and only the gate is left; run it rather than escalate.
+            if ((Stage $id) -eq 'gate') { F gate $id | Out-Null }
+
+            if ((Stage $id) -in $Building) {
+                $why = if ($code -ne 0) { "claude exited with exit $code" } else { 'claude finished but the job is still in Building' }
+                F set-stage $id ready -By runner -Reason escalated -Detail "$why; see run-$n.jsonl" | Out-Null
+            }
+        } catch {
+            Log "error $($id): $($_.Exception.Message)`n$($_.ScriptStackTrace)"
+            if ((Stage $id) -in $Building) {
+                F set-stage $id ready -By runner -Reason escalated -Detail "runner error: $($_.Exception.Message)" | Out-Null
+            }
         } finally {
-            Pop-Location
-            Remove-Item Env:FACTORY_JOB -ErrorAction SilentlyContinue
-        }
-
-        if ($result -and $result.PSObject.Properties['total_cost_usd']) {
-            $ms = if ($result.PSObject.Properties['duration_ms']) { $result.duration_ms } else { 0 }
-            F set-cost $id ([string]::Format([Globalization.CultureInfo]::InvariantCulture, '{0}', $result.total_cost_usd)) $ms | Out-Null
-        }
-
-        if ((Stage $id) -in $Building) {
-            $why = if ($code -ne 0) { "claude exited with exit $code" } else { 'claude finished but the job is still in Building' }
-            F set-stage $id ready -By runner -Reason escalated -Detail "$why; see run-$n.jsonl" | Out-Null
+            Log "stage $id $(Stage $id)"
         }
     }
-}
-finally {
+} catch {
+    $how = "fatal: $($_.Exception.Message)"
+    Log $_.ScriptStackTrace
+} finally {
+    Log "exit $how"
     Remove-Item $lock -Force -ErrorAction SilentlyContinue
 }
 exit 0
