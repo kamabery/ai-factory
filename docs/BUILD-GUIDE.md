@@ -249,6 +249,20 @@ form, `POST /api/ideas` and `GET /api/target` are gone. A merged bootstrap leave
 (the Done column's **Clear**), and `board.seq` keeps ids from being reused. The step 5 and 6
 instructions above that mention the idea box and `/factory spec` describe the earlier design.
 
+### Ideas come back to the dashboard, on the Claude API
+
+The CLI session works, but it means a second window and a terminal UI for clicking through
+questions. **New idea** now runs the same session in a dashboard panel against the Claude API, with
+the key in `.env` (see "Idea sessions" in the contract). The model only proposes things. Each board
+write is a button, and each button is one `factory.ps1` call (`check-target`, `new-idea`,
+`add-spec`, `approve`, `idea-done`). Each turn is a detached `idea-turn.ps1` that streams into
+`sessions/<S>/stream.jsonl`. The system prompt is assembled from the grill skill, the spec-writer and
+the templates, so the two doors can't drift apart. The key is read into a local variable and never
+set in the environment, so the runner's `claude` stays on the subscription. Tests use
+`factory/tests/fixtures/anthropic-stub.ps1`, which plays scripted SSE replies (Pester
+`idea-turn.Tests.ps1` and `serve.Tests.ps1`, and the Playwright session test). `idea.ps1` stays as the
+fallback.
+
 ## Step 7: Failure paths (the video's lessons, as tests)
 
 Run each one and confirm the end state on the dashboard and in `board.json`.

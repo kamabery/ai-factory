@@ -86,7 +86,10 @@ function Say([string] $text, [string] $parent = $null) { J @{ type = 'assistant'
 function Think([string] $parent = $null) { J @{ type = 'assistant'; parent_tool_use_id = $parent; message = @{ content = @(@{ type = 'thinking'; thinking = ''; signature = 'sim' }) } } }
 function Tool([string] $id, [string] $name, [hashtable] $in) { J @{ type = 'assistant'; message = @{ content = @(@{ type = 'tool_use'; id = $id; name = $name; input = $in }) } } }
 function Result([string] $id, [string] $text) { J @{ type = 'user'; message = @{ content = @(@{ type = 'tool_result'; tool_use_id = $id; content = $text }) } } }
-function Done([double] $usd, [int] $ms) { J @{ type = 'result'; subtype = 'success'; total_cost_usd = $usd; duration_ms = $ms; result = 'done' } }
+function Done([double] $usd, [int] $ms) {
+    $models = @{ 'claude-opus-5-5' = @{ costUSD = 0.38; outputTokens = 4200 }; 'claude-sonnet-5-5' = @{ costUSD = [Math]::Round($usd - 0.38, 2); outputTokens = 900 } }
+    J @{ type = 'result'; subtype = 'success'; total_cost_usd = $usd; duration_ms = $ms; result = 'done'; modelUsage = $models }
+}
 
 function Sim-Idea([string] $text, [object[]] $specs) {
     $idea = F-Must new-idea $text -Target $env:FACTORY_REPO
@@ -211,6 +214,14 @@ $boot = (F-Must new-idea 'A todo app, bootstrapped' -Target (Join-Path $StateDir
 F-Must approve $boot[1] | Out-Null
 Sim-Start $boot[1]; Sim-Build $boot[1]; Sim-Review $boot[1] @{}; Sim-Approve $boot[1]
 F gate $boot[1] | Out-Null
+
+# Evaluations of the merged J-001 and the max-rounds J-002, as a human session would write them.
+foreach ($e in @(@($a[0], 'good', 'Clean run: one round, every AC evidenced.'), @($a[1], 'mixed', 'The ui reviewer and the builder never converged.'))) {
+    $file = Join-Path $StateDir "eval-$($e[0]).md"
+    Set-Content $file "Rating: $($e[1])`n`n# Eval: $($e[0])`n`n## Verdict`n$($e[2])"
+    F-Must eval $e[0] -File $file | Out-Null
+    Remove-Item $file
+}
 
 Write-Host 'simulation complete'
 F-Must status

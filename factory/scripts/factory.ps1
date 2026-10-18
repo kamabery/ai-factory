@@ -30,7 +30,7 @@ Set-StrictMode -Version 3
 
 $Roles = 'security', 'code', 'ux', 'ui'
 $Building = 'build', 'review', 'approve', 'gate'
-$EventKinds = 'idea', 'stage', 'agent-start', 'agent-stop', 'gate', 'merge', 'cost', 'note'
+$EventKinds = 'idea', 'stage', 'agent-start', 'agent-stop', 'gate', 'merge', 'cost', 'note', 'eval', 'feedback'
 
 function Fail([string] $msg, [int] $code = 1) {
     [Console]::Error.WriteLine("factory: $msg")
@@ -402,6 +402,12 @@ try {
             if ($new) { "$id $(Add-Job $i (Bootstrap-Spec $sc $Target) 'the bootstrap template' 'bootstrap')" } else { $id }
         }
 
+        'check-target' {
+            $err = Test-Target $Arg1
+            if ($err) { Fail "check-target refused: $err" }
+            if (Test-NewTarget $Arg1) { 'new' } else { 'existing' }
+        }
+
         'add-spec' {
             $i = Get-Idea $Arg1
             if (-not $Arg2 -or -not (Test-Path $Arg2)) { Fail "spec file not found: $Arg2" }
@@ -658,6 +664,83 @@ try {
                 if ($j) { $e.round = $j.round }
             }
             Add-Event $e
+        }
+
+        'eval' {
+            $j = Get-Job $Arg1
+            Require-Stage $j 'ready', 'done', 'discarded' 'eval'
+            if (-not $File -or -not (Test-Path $File)) { Fail "eval file not found: $File" }
+            $line = Read-FirstLine $File
+            if ($line -cnotmatch '^Rating: (good|mixed|poor)$') { Fail "no 'Rating: good|mixed|poor' first line in $File" 2 }
+            $rating = $Matches[1]
+            $gate = if (-not $j.gate) { $null }
+                    elseif (@($j.gate.Keys | Where-Object { $_ -notin 'sha', 'at' -and $j.gate[$_] -ne 0 })) { 'red' } else { 'green' }
+            $dir = Join-Path $Home_ 'evals'
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            Copy-Item $File (Join-Path $dir "$($j.id).md") -Force
+            $snap = [ordered]@{
+                job = $j.id; idea = $j.idea; title = $j.title; kind = $j.kind ?? 'feature'; target = $j.target
+                rating = $rating; stage = $j.stage; round = $j.round; flag = $j.flag ? $j.flag.reason : $null
+                reviews = $j.reviews; decision = $j.decision; gate = $gate; merged = $j.merged ? $j.merged.sha : $null
+                costUsd = $j.costUsd; durationMs = $j.durationMs; evaluatedAt = Now
+                models = [ordered]@{}; agents = @(); gateMs = $null
+            }
+            foreach ($run in Get-ChildItem (JobDir $j.id) -Filter 'run-*.jsonl' -File -ErrorAction SilentlyContinue) {
+                foreach ($l in Get-Content $run.FullName | Where-Object { $_ -match '"type"\s*:\s*"result"' }) {
+                    try { $r = $l | ConvertFrom-Json -AsHashtable } catch { continue }
+                    if (-not $r['modelUsage']) { continue }
+                    foreach ($m in @($r['modelUsage'].Keys)) {
+                        $u = $r['modelUsage'][$m]
+                        $acc = $snap.models[$m] ?? ($snap.models[$m] = [ordered]@{ costUsd = 0.0; outputTokens = 0 })
+                        $acc.costUsd = [Math]::Round($acc.costUsd + [double]($u['costUSD'] ?? 0), 4)
+                        $acc.outputTokens += [long]($u['outputTokens'] ?? 0)
+                    }
+                }
+            }
+            $ms = { param($a, $b) [long]([DateTimeOffset]::Parse($b) - [DateTimeOffset]::Parse($a)).TotalMilliseconds }
+            $open = @{}; $agents = [Collections.Generic.List[object]]::new(); $gateAt = $null
+            foreach ($l in Get-Content $EventsPath -ErrorAction SilentlyContinue) {
+                try { $e = $l | ConvertFrom-Json -AsHashtable -DateKind String } catch { continue }
+                if ($e['job'] -ne $j.id) { continue }
+                $agent = $e['agent']; $round = $e['round']
+                $key = "$agent|$round"
+                switch ($e.kind) {
+                    'agent-start' { $open[$key] = $e.ts }
+                    'agent-stop' {
+                        if (-not $open.ContainsKey($key)) { break }
+                        $a = $agents | Where-Object { $_.agent -eq $agent -and $_.round -eq $round } | Select-Object -First 1
+                        if (-not $a) { $a = [ordered]@{ agent = $agent; round = $round; ms = 0L }; $agents.Add($a) }
+                        $a.ms += & $ms $open[$key] $e.ts
+                        $open.Remove($key)
+                    }
+                    'stage' { if ($e['to'] -eq 'gate') { $gateAt = $e.ts } }
+                    'gate' { if ($gateAt) { $snap.gateMs = [long]($snap.gateMs ?? 0) + (& $ms $gateAt $e.ts); $gateAt = $null } }
+                }
+            }
+            $snap.agents = @($agents)
+            $prev = Join-Path $dir "$($j.id).json"
+            if (Test-Path $prev) { $h = (Get-Content $prev -Raw | ConvertFrom-Json -AsHashtable -DateKind String)['human']; if ($h) { $snap.human = $h } }
+            $tmp = Join-Path $dir "$($j.id).json.$PID.tmp"
+            [IO.File]::WriteAllText($tmp, ($snap | ConvertTo-Json -Depth 10))
+            [IO.File]::Move($tmp, (Join-Path $dir "$($j.id).json"), $true)
+            Add-Event ([ordered]@{ job = $j.id; kind = 'eval'; detail = $rating })
+        }
+
+        'feedback' {
+            if ($Arg1 -notmatch '^[A-Z]+-\d+$') { Fail "feedback refused: '$Arg1' is not a job id" }
+            $dir = Join-Path $Home_ 'evals'
+            $path = Join-Path $dir "$Arg1.json"
+            if (-not (Test-Path $path)) { Fail "feedback refused: $Arg1 has no evaluation" }
+            if (-not $File -or -not (Test-Path $File)) { Fail "feedback file not found: $File" }
+            if ((Read-FirstLine $File) -cnotmatch '^Rating: (good|mixed|poor)$') { Fail "no 'Rating: good|mixed|poor' first line in $File" 2 }
+            $rating = $Matches[1]
+            $snap = Get-Content $path -Raw | ConvertFrom-Json -AsHashtable -DateKind String
+            $snap.human = [ordered]@{ rating = $rating; at = Now }
+            Copy-Item $File (Join-Path $dir "$Arg1.feedback.md") -Force
+            $tmp = "$path.$PID.tmp"
+            [IO.File]::WriteAllText($tmp, ($snap | ConvertTo-Json -Depth 10))
+            [IO.File]::Move($tmp, $path, $true)
+            Add-Event ([ordered]@{ job = $Arg1; kind = 'feedback'; detail = $rating })
         }
 
         'status' {

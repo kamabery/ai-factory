@@ -3,13 +3,16 @@
   The factory dashboard server: http://localhost:4317. See "Dashboard API" in docs/FACTORY-CONTRACT.md.
 .DESCRIPTION
   Serves factory/dashboard/index.html, its vendor/ files, read-only files under the state dir
-  (/state/...) and agent transcripts named by agent-start events. Every
-  write is one factory.ps1 call; this script holds no transition logic. After an approve or rework
-  it starts runner.ps1 detached. Ideas are created in the /factory:idea session, not here.
+  (/state/...) and agent transcripts named by agent-start events. Every board write is one
+  factory.ps1 call; this script holds no transition logic. After an approve or rework it starts
+  runner.ps1 detached. Idea sessions (/api/sessions) store their conversation under sessions/<S>/,
+  and each assistant turn is a detached idea-turn.ps1. This script only checks that the .env has
+  a key; it never reads the key into the environment.
 #>
 param(
     [int] $Port = 4317,
     [string] $StateDir,
+    [string] $EnvFile,
     [int] $WatchdogSeconds = 10
 )
 
@@ -18,6 +21,7 @@ $Scripts = $PSScriptRoot
 $Factory = Join-Path $Scripts 'factory.ps1'
 $Index = Join-Path (Split-Path $Scripts -Parent) 'dashboard/index.html'
 $Vendor = Join-Path (Split-Path $Scripts -Parent) 'dashboard/vendor'
+if (-not $EnvFile) { $EnvFile = Join-Path (Split-Path (Split-Path $Scripts -Parent) -Parent) '.env' }
 
 if (-not $StateDir) {
     $StateDir = if ($env:FACTORY_HOME) { $env:FACTORY_HOME } else {
@@ -27,6 +31,7 @@ if (-not $StateDir) {
 $StateDir = [IO.Path]::GetFullPath($StateDir)
 New-Item -ItemType Directory -Force $StateDir | Out-Null
 $env:FACTORY_HOME = $StateDir
+$Sessions = Join-Path $StateDir 'sessions'
 
 $Types = @{
     '.html' = 'text/html'; '.json' = 'application/json'; '.jsonl' = 'text/plain'; '.md' = 'text/plain'
@@ -103,6 +108,184 @@ function Read-Body($ctx) {
     try { $reader.ReadToEnd() } finally { $reader.Dispose() }
 }
 
+# --- idea sessions (see "Idea sessions" in the contract) ------------------------------------------
+
+# The value of one .env line, or $null. Only the key's presence and the model are ever read here.
+function Get-EnvValue([string] $name) {
+    if (-not (Test-Path $EnvFile)) { return $null }
+    $line = Get-Content $EnvFile | Where-Object { $_ -match "^\s*$name\s*=\s*\S" } | Select-Object -Last 1
+    if ($line) { ($line -replace "^\s*$name\s*=\s*", '').Trim().Trim('"', "'") }
+}
+function Get-IdeaModel { (Get-EnvValue 'FACTORY_IDEA_MODEL') ?? 'claude-opus-5-5' }
+
+function Read-Json([string] $path) { Get-Content $path -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable -DateKind String }
+# Atomic, with the rename retried while a turn process or a reader holds the target (as idea-turn.ps1).
+function Write-Json([string] $path, $o) {
+    $tmp = "$path.$PID.tmp"
+    [IO.File]::WriteAllText($tmp, ($o | ConvertTo-Json -Depth 100), [Text.UTF8Encoding]::new($false))
+    for ($i = 0; ; $i++) {
+        try { [IO.File]::Move($tmp, $path, $true); return }
+        catch [UnauthorizedAccessException], [IO.IOException] { if ($i -ge 40) { throw }; Start-Sleep -Milliseconds 50 }
+    }
+}
+function SessionDir([string] $id) { Join-Path $Sessions $id }
+function Read-Session([string] $id) { Read-Json (Join-Path (SessionDir $id) 'session.json') }
+function Save-Session($s) { Write-Json (Join-Path (SessionDir $s.id) 'session.json') $s }
+function Read-Chat([string] $id) {
+    $l = [Collections.Generic.List[object]]::new()
+    foreach ($m in @((Read-Json (Join-Path (SessionDir $id) 'chat.json')).messages)) { $l.Add($m) }
+    , $l
+}
+function Save-Chat([string] $id, $messages) { Write-Json (Join-Path (SessionDir $id) 'chat.json') ([ordered]@{ messages = $messages }) }
+
+# A turn is running while a live process holds turn.lock, or just after serve started one (the
+# process may not hold the lock yet).
+function Test-Busy($s) {
+    $lock = Join-Path (SessionDir $s.id) 'turn.lock'
+    if (Test-Path $lock) {
+        $holder = (Get-Content $lock -ErrorAction SilentlyContinue | Select-Object -First 1) -as [int]
+        if ($holder -and (Get-Process -Id $holder -ErrorAction SilentlyContinue)) { return $true }
+    }
+    $s.status -eq 'running' -and (Get-Item (Join-Path (SessionDir $s.id) 'session.json')).LastWriteTimeUtc -gt [DateTime]::UtcNow.AddSeconds(-15)
+}
+
+function Start-Turn($s) {
+    $s.status = 'running'; $s.error = $null
+    Save-Session $s
+    Start-Detached 'idea-turn.ps1' @('-Session', $s.id, '-StateDir', $StateDir, '-EnvFile', $EnvFile)
+}
+
+# Adds user content: a new message, or more blocks in the last one when it is already the user's.
+function Add-User($messages, [object[]] $blocks) {
+    $last = if ($messages.Count) { $messages[$messages.Count - 1] } else { $null }
+    if ($last -and $last.role -eq 'user') { $last.content = @($last.content) + $blocks }
+    else { $messages.Add([ordered]@{ role = 'user'; content = $blocks }) }
+}
+
+# Answers the pending UI tool (with any server results from the same message) and clears it.
+function Add-Answer($s, $messages, [string] $text) {
+    $blocks = @($s.pendingResults) + [ordered]@{ type = 'tool_result'; tool_use_id = $s.pending.id; content = $(if ($text) { $text } else { '(no answer)' }) }
+    Add-User $messages $blocks
+    $s.pending = $null; $s.pendingResults = @()
+}
+
+function Refuse([string] $msg) { [pscustomobject]@{ Ok = $false; Message = $msg } }
+
+function Handle-Session($ctx, [string] $method, [string] $id, [string] $action, [string] $k) {
+    if (-not (Test-Path (Join-Path (SessionDir $id) 'session.json'))) { return Send $ctx 404 '{"ok":false,"message":"no such session"}' }
+    $s = Read-Session $id
+    if ($s.status -eq 'closed') { return Send-Result $ctx (Refuse "$id is closed") }
+    if (Test-Busy $s) { return Send-Result $ctx (Refuse "$id is busy: wait for the current turn") }
+    $req = if ($method -eq 'POST') { $b = Read-Body $ctx; if ($b) { $b | ConvertFrom-Json -AsHashtable } else { @{} } } else { $null }
+    $messages = Read-Chat $id
+
+    switch ($action) {
+        'reply' {
+            $text = "$($req.text ?? '')".Trim()
+            if ($req.scaffold) { $s.scaffold = $req.scaffold }
+            if ($s.pending) { Add-Answer $s $messages $text }
+            elseif ($text) { Add-User $messages @([ordered]@{ type = 'text'; text = $text }) }
+            elseif (-not $messages.Count -or $messages[$messages.Count - 1].role -ne 'user') { return Send-Result $ctx (Refuse 'nothing to answer') }
+            Save-Chat $id $messages
+            Start-Turn $s
+            return Send-Result $ctx ([pscustomobject]@{ Ok = $true; Message = 'turn started' })
+        }
+        'brief' {
+            if ($s.pending.name -ne 'submit_brief') { return Send-Result $ctx (Refuse 'there is no brief to confirm') }
+            if ($s.newTarget -and -not $s.scaffold) { return Send-Result $ctx (Refuse 'confirm the scaffold options first') }
+            $md = "$($s.pending.input.markdown)"
+            $title = if ($md -match '(?m)^#\s*Brief:\s*(.+?)\s*$') { $Matches[1] } else { $s.text }
+            $r = if ($s.newTarget) { Invoke-Factory new-idea $title -Target $s.target -Scaffold ($s.scaffold | ConvertTo-Json -Compress) }
+                 else { Invoke-Factory new-idea $title -Target $s.target }
+            if (-not $r.Ok) { return Send-Result $ctx $r }
+            $ids = $r.Message -split '\s+'
+            $s.idea = $ids[0]
+            if ($ids.Count -gt 1) { $s.bootstrap = $ids[1] }
+            Set-Content (Join-Path $StateDir "ideas/$($s.idea)/brief.md") $md -Encoding utf8
+            if ($s.bootstrap) {
+                Add-Answer $s $messages "The human confirmed the brief; it is saved as idea $($s.idea). The target is being scaffolded by bootstrap job $($s.bootstrap). You will be told when it has merged; until then there is nothing to do."
+                Save-Chat $id $messages
+                Save-Session $s
+            } else {
+                Add-Answer $s $messages "The human confirmed the brief; it is saved as idea $($s.idea). Now be the spec-writer: read the target, then call submit_specs."
+                Save-Chat $id $messages
+                Start-Turn $s
+            }
+            return Send-Result $ctx $r
+        }
+        'write-specs' {
+            $idea = if ($s.idea) { (Read-Board).ideas | Where-Object id -eq $s.idea }
+            if (-not $idea) { return Send-Result $ctx (Refuse 'the brief is not confirmed yet') }
+            if ($idea.status -ne 'drafting') { return Send-Result $ctx (Refuse "$($s.idea) is $($idea.status): merge the bootstrap job $($s.bootstrap) first") }
+            Add-User $messages @([ordered]@{ type = 'text'; text = "The bootstrap job $($s.bootstrap) has merged, so $($s.target) now exists. Read it, then call submit_specs." })
+            Save-Chat $id $messages
+            Start-Turn $s
+            return Send-Result $ctx ([pscustomobject]@{ Ok = $true; Message = 'turn started' })
+        }
+        'specs' {
+            $entry = @($s.specs) | Where-Object { $_.k -eq [int]$k } | Select-Object -First 1
+            if (-not $entry) { return Send-Result $ctx (Refuse "there is no spec $k") }
+            if ($entry.decision) { return Send-Result $ctx (Refuse "spec $k is already decided ($($entry.decision))") }
+            $file = Join-Path $StateDir "ideas/$($s.idea)/spec-$k.md"
+            if ($method -eq 'PUT') {
+                $md = Read-Body $ctx
+                if ($md -notmatch '(?m)^#\s*Spec:\s*(.+?)\s*$') { return Send-Result $ctx (Refuse "the spec needs a '# Spec: <title>' line") }
+                $entry.title = $Matches[1]
+                Set-Content $file $md -NoNewline -Encoding utf8
+                Save-Session $s
+                return Send-Result $ctx ([pscustomobject]@{ Ok = $true; Message = 'spec saved' })
+            }
+            $r = switch ($req.decision) {
+                'rejected' { [pscustomobject]@{ Ok = $true; Message = '' } }
+                { $_ -in 'approved', 'backlog' } { Invoke-Factory add-spec $s.idea $file }
+                default { Refuse "decision '$($req.decision)' must be approved, backlog or rejected" }
+            }
+            if (-not $r.Ok) { return Send-Result $ctx $r }
+            $entry.decision = $req.decision
+            if ($req.decision -ne 'rejected') { $entry.job = $r.Message }
+            if ($req.decision -eq 'approved') {
+                $a = Invoke-Factory approve $entry.job
+                if ($a.Ok) { Start-Detached 'runner.ps1' }
+                else { $entry.decision = 'backlog'; $r = Refuse "$($entry.job) is in Backlog: $($a.Message)" }
+            }
+            Save-Session $s
+            return Send-Result $ctx $r
+        }
+        'close' {
+            $r = [pscustomobject]@{ Ok = $true; Message = 'closed' }
+            if ($s.idea) {
+                $r = if ($req.failed) { Invoke-Factory idea-done $s.idea -Failed -Reason ($req.reason ?? 'every spec rejected in session') } else { Invoke-Factory idea-done $s.idea }
+                if (-not $r.Ok) { return Send-Result $ctx $r }
+            }
+            $s.status = 'closed'
+            Save-Session $s
+            return Send-Result $ctx $r
+        }
+    }
+    Send $ctx 404 '{"ok":false,"message":"not found"}'
+}
+
+function New-Session($ctx) {
+    $req = Read-Body $ctx | ConvertFrom-Json -AsHashtable
+    if (-not (Get-EnvValue 'ANTHROPIC_API_KEY')) { return Send-Result $ctx (Refuse "no ANTHROPIC_API_KEY in $EnvFile") }
+    if (-not "$($req.text)".Trim()) { return Send-Result $ctx (Refuse 'describe the idea first') }
+    $r = Invoke-Factory check-target "$($req.target)"
+    if (-not $r.Ok) { return Send-Result $ctx $r }
+    $new = $r.Message -eq 'new'
+    $n = 0
+    if (Test-Path $Sessions) { foreach ($d in Get-ChildItem $Sessions -Directory) { if ($d.Name -match '^S-(\d+)$') { $n = [Math]::Max($n, [int]$Matches[1]) } } }
+    $id = 'S-{0:D3}' -f ($n + 1)
+    New-Item -ItemType Directory -Force (SessionDir $id) | Out-Null
+    $about = if ($new) { 'This is a new target: it does not exist yet, and a bootstrap job will scaffold it from template-projects. Call propose_scaffold.' }
+             else { 'This is an existing git repo; read it with read_file, list_dir and grep.' }
+    $s = [ordered]@{ id = $id; target = $req.target; text = $req.text.Trim(); newTarget = $new; status = 'idle'; error = $null
+                     model = (Get-IdeaModel); costUsd = 0; scaffold = $null; idea = $null; bootstrap = $null
+                     pending = $null; pendingResults = @(); specs = @(); createdAt = [DateTime]::UtcNow.ToString('o') }
+    Save-Chat $id @([ordered]@{ role = 'user'; content = @([ordered]@{ type = 'text'; text = "Target: $($req.target)`n$about`n`nIdea: $($s.text)" }) })
+    Start-Turn $s
+    Send-Result $ctx ([pscustomobject]@{ Ok = $true; Message = $id })
+}
+
 function Handle($ctx) {
     $method = $ctx.Request.HttpMethod
     $path = [Uri]::UnescapeDataString($ctx.Request.Url.AbsolutePath)
@@ -176,6 +359,46 @@ function Handle($ctx) {
         if ($r.Ok -and $to -eq 'approved') { Start-Detached 'runner.ps1' }
         return Send-Result $ctx $r
     }
+
+    if ($method -eq 'GET' -and $path -eq '/api/ideate/config') {
+        return Send $ctx 200 (@{ enabled = [bool](Get-EnvValue 'ANTHROPIC_API_KEY'); model = (Get-IdeaModel) } | ConvertTo-Json -Compress)
+    }
+
+    if ($method -eq 'GET' -and $path -eq '/api/sessions') {
+        $list = @(if (Test-Path $Sessions) {
+            Get-ChildItem $Sessions -Directory | Sort-Object Name | ForEach-Object {
+                $f = Join-Path $_.FullName 'session.json'
+                if (Test-Path $f) { $x = Read-Json $f; if ($x.status -ne 'closed') {
+                    [ordered]@{ id = $x.id; target = $x.target; text = $x.text; status = $x.status; idea = $x.idea; bootstrap = $x.bootstrap; costUsd = $x.costUsd; newTarget = $x.newTarget } } }
+            }
+        })
+        return Send $ctx 200 (ConvertTo-Json -Compress -Depth 5 -InputObject $list)
+    }
+
+    if ($method -eq 'GET' -and $path -eq '/api/evals') {
+        $dir = Join-Path $StateDir 'evals'
+        $list = @(if (Test-Path $dir) {
+            Get-ChildItem $dir -Filter '*.json' -File | Where-Object Name -match '^[A-Z]+-(\d+)\.json$' |
+                Sort-Object { [int]($_.Name -replace '\D', '') } -Descending | ForEach-Object { Read-Json $_.FullName }
+        })
+        return Send $ctx 200 (ConvertTo-Json -Compress -Depth 10 -InputObject $list)
+    }
+
+    if ($method -eq 'PUT' -and $path -match '^/api/evals/([A-Z]+-\d+)/feedback$') {
+        $tmp = Join-Path $StateDir "feedback-$PID.md"
+        try {
+            Set-Content $tmp (Read-Body $ctx) -NoNewline
+            $r = Invoke-Factory feedback $Matches[1] -File $tmp
+        } finally { Remove-Item $tmp -ErrorAction SilentlyContinue }
+        if ($r.Ok) { $r.Message = 'feedback saved' }
+        return Send-Result $ctx $r
+    }
+
+    if ($method -eq 'POST' -and $path -eq '/api/sessions') { return New-Session $ctx }
+
+    if ($path -match '^/api/sessions/(S-\d+)/(reply|brief|write-specs|close)$' -and $method -eq 'POST') { return Handle-Session $ctx $method $Matches[1] $Matches[2] $null }
+    if ($path -match '^/api/sessions/(S-\d+)/specs/(\d+)$' -and $method -in 'POST', 'PUT') { return Handle-Session $ctx $method $Matches[1] 'specs' $Matches[2] }
+
 
     if ($method -eq 'POST' -and $path -eq '/api/purge') {
         return Send-Result $ctx (Invoke-Factory purge)

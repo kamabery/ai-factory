@@ -1,13 +1,14 @@
 import { test, expect, type Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { simDir, factoryEnv } from './playwright.config';
+import { simDir, factoryEnv, stubPort } from './playwright.config';
 
 const repo = path.resolve(import.meta.dirname, '../../..');
 
 type Job = {
-  id: string; stage: string; round: number; target?: string;
+  id: string; stage: string; round: number; target?: string; approvedAt?: string;
   merged?: { sha: string; repo: string; added: string[]; modified: string[] };
   history: { from: string; to: string; by: string }[];
 };
@@ -92,10 +93,10 @@ test.describe.serial('factory dashboard', () => {
     await expect(modal(page).locator('[data-brief]')).toContainText('which list, and what counts as fast');
   });
 
-  test('there is no idea form: ideas come from the /factory:idea session', async ({ page }) => {
+  test('New idea is offered when the .env has a key, and the CLI hint stays', async ({ page }) => {
     await page.goto('/');
-    await expect(page.locator('#idea-form')).toHaveCount(0);
-    await expect(page.locator('#idea-text')).toHaveCount(0);
+    await expect(column(page, 'ideas').locator('#new-idea-btn')).toBeVisible();
+    await expect(page.locator('#idea-hint')).toContainText('idea.ps1');
   });
 
   test('the pipeline strip has a node for every agent and the gate', async ({ page }) => {
@@ -174,6 +175,56 @@ test.describe.serial('factory dashboard', () => {
     expect(readFileSync(path.join(simDir, `jobs/J-002/rework-${before + 1}.md`), 'utf8')).toContain('Input component');
   });
 
+  test('a dashboard idea session grills, confirms the brief, and puts the specs on the board as decided', async ({ page }) => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'ideate-'));
+    const specMd = (t: string) => `# Spec: ${t}\n\n## Target\n- Repo: ${sandbox}\n\n## Gate\n- build: \`exit 0\`\n\n## Acceptance criteria\n- [ ] AC1: ${t}`;
+    const replies = [
+      { content: [{ type: 'text', text: 'Hello! First, who is this for?' }, { type: 'tool_use', id: 'q1', name: 'ask_questions', input: { questions: [
+        { question: 'Who uses it?', header: 'Users', multiSelect: false, options: [{ label: 'Just me', description: 'one person' }, { label: 'A team', description: 'several' }] }] } }], stop_reason: 'tool_use' },
+      { content: [{ type: 'tool_use', id: 'b1', name: 'submit_brief', input: { markdown: `# Brief: Tag books\n\n## Target\n- Repo: ${sandbox}\n\n## Done means\n- a tag shows on a book — PRINTS: the tag test` } }], stop_reason: 'tool_use' },
+      { content: [{ type: 'tool_use', id: 'r1', name: 'read_file', input: { path: 'README.md' } }], stop_reason: 'tool_use' },
+      { content: [{ type: 'tool_use', id: 's1', name: 'submit_specs', input: { specs: [{ k: 1, markdown: specMd('Tag a book') }, { k: 2, markdown: specMd('Filter by tag') }] } }], stop_reason: 'tool_use' },
+      { content: [{ type: 'text', text: 'Two specs are ready for you.' }], stop_reason: 'end_turn' },
+    ];
+    replies.forEach((r, i) => writeFileSync(path.join(dir, `${String(i + 1).padStart(3, '0')}.json`), JSON.stringify(r)));
+    await fetch(`http://localhost:${stubPort}/__reset`, { method: 'POST', body: JSON.stringify({ dir }) });
+
+    await page.goto('/');
+    await column(page, 'ideas').locator('#new-idea-btn').click();
+    await modal(page).locator('#s-target').fill(sandbox);
+    await modal(page).locator('#s-text').fill('Let me tag books');
+    await modal(page).locator('#s-start').click();
+
+    await expect(modal(page).locator('[data-log]')).toContainText('who is this for?');
+    const q = modal(page).locator('[data-question="0"]');
+    await expect(q).toContainText('Who uses it?');
+    await expect(column(page, 'ideas').locator('[data-session]')).toHaveCount(1);
+    await q.locator('[data-option="Just me"]').click();
+    await modal(page).locator('#s-send-answers').click();
+
+    await expect(modal(page).locator('[data-brief]')).toContainText('Tag books');
+    const sent = JSON.parse(readFileSync(path.join(dir, 'requests/002.json'), 'utf8'));
+    expect(sent.messages.at(-1).content.at(-1)).toMatchObject({ type: 'tool_result', tool_use_id: 'q1' });
+    expect(sent.messages.at(-1).content.at(-1).content).toContain('Just me');
+    await modal(page).locator('#s-confirm-brief').click();
+
+    await expect(modal(page).locator('[data-spec="1"]')).toContainText('Tag a book');
+    await expect(modal(page).locator('[data-spec="2"]')).toContainText('Filter by tag');
+    await expect(modal(page).locator('[data-log]')).toContainText('read_file');
+    await expect(modal(page).locator('[data-cost]')).toContainText('$');
+    await modal(page).locator('[data-spec="1"] [data-decide="approved"]').click();
+    await expect(modal(page).locator('[data-spec="1"]')).toContainText('approved');
+    await modal(page).locator('[data-spec="2"] [data-decide="backlog"]').click();
+
+    await expect(modal(page)).toBeHidden();
+    const idea = board().ideas.find((i: { text: string }) => i.text === 'Tag books');
+    expect(idea.status).toBe('done');
+    expect(idea.jobs).toHaveLength(2);
+    expect(job(idea.jobs[0]).approvedAt).toBeTruthy();
+    expect(job(idea.jobs[1]).stage).toBe('backlog');
+    await expect(column(page, 'ideas').locator('[data-session]')).toHaveCount(0);
+  });
+
   test('Clear in Done purges finished cards, their folders and finished ideas', async ({ page }) => {
     await page.goto('/');
     await expect(column(page, 'done').locator('[data-card="J-001"]')).toBeVisible();
@@ -183,5 +234,64 @@ test.describe.serial('factory dashboard', () => {
     expect(board().jobs.filter((j: Job) => j.stage === 'done' || j.stage === 'discarded')).toEqual([]);
     expect(existsSync(path.join(simDir, 'jobs/J-001'))).toBe(false);
     expect(job('J-005')).toBeTruthy();
+  });
+
+  test('the Evaluations tab lists each evaluation, newest first, and opens its markdown; purged jobs keep theirs', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('[data-view="evals"]').click();
+    await expect(page.locator('#board')).toBeHidden();
+    const rows = page.locator('[data-eval]');
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(0)).toHaveAttribute('data-eval', 'J-002');
+    const j1 = page.locator('[data-eval="J-001"]');
+    await expect(j1.locator('[data-rating]')).toHaveText('good');
+    await expect(j1).toContainText('Book search filter');
+    await expect(j1).toContainText('$0.42');
+    await expect(page.locator('[data-eval="J-002"] [data-rating]')).toHaveText('mixed');
+    await expect(page.locator('[data-eval="J-002"]')).toContainText('max-rounds');
+
+    await j1.click();
+    await expect(page.locator('[data-eval-body] h1')).toContainText('Eval: J-001');
+
+    // Gate, cost and time come first, as a grid, above the markdown.
+    const facts = page.locator('[data-eval-facts]');
+    await expect(page.locator('[data-eval-body] > :first-child')).toHaveAttribute('data-eval-facts', '');
+    await expect(facts.locator('h2')).toHaveText('Gate, cost and time');
+    await expect(facts.locator('[data-fact="gate"]')).toContainText('green');
+    await expect(facts.locator('[data-fact="cost"]')).toContainText('$0.42');
+    await expect(facts.locator('[data-fact="time"]')).toContainText('1m 35s');
+    await expect(facts.locator('[data-fact="rounds"]')).toContainText('1');
+    await expect(facts.locator('[data-model="claude-opus-5-5"]')).toContainText('$0.38');
+    await expect(facts.locator('[data-agent="builder"]')).toBeVisible();
+    await expect(facts.locator('[data-agent="security-reviewer"]')).toBeVisible();
+
+    await page.locator('[data-view="board"]').click();
+    await expect(page.locator('#board')).toBeVisible();
+    await expect(page.locator('#evals')).toBeHidden();
+  });
+
+  test('the human leaves feedback on an evaluation; it survives the poll and a reload', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('[data-view="evals"]').click();
+    const j2 = page.locator('[data-eval="J-002"]');
+    await expect(j2.locator('[data-human-rating]')).toHaveCount(0);
+    await j2.click();
+
+    const form = page.locator('[data-feedback]');
+    await expect(form.locator('h2')).toHaveText('Human feedback');
+    await form.locator('[data-human="poor"]').click();
+    await form.locator('textarea').fill('The ui never settled; I would have split this spec.');
+    await page.waitForTimeout(3500); // a poll must not wipe the draft
+    await expect(form.locator('textarea')).toHaveValue(/split this spec/);
+    await form.locator('[data-save-feedback]').click();
+    await expect(page.locator('#toast')).toContainText('feedback saved');
+    await expect(j2.locator('[data-human-rating]')).toHaveText('you: poor');
+    expect(readFileSync(path.join(simDir, 'evals/J-002.feedback.md'), 'utf8')).toMatch(/^Rating: poor\r?\n\r?\nThe ui never settled/);
+
+    await page.reload();
+    await page.locator('[data-view="evals"]').click();
+    await page.locator('[data-eval="J-002"]').click();
+    await expect(page.locator('[data-feedback] [data-human="poor"]')).toHaveClass(/on/);
+    await expect(page.locator('[data-feedback] textarea')).toHaveValue('The ui never settled; I would have split this spec.');
   });
 });

@@ -31,6 +31,37 @@
   body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
   header { display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; background: var(--panel); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
   header h1 { font-size: 16px; margin: 6px 8px 0 0; white-space: nowrap; }
+  #views { display: flex; gap: 2px; margin-top: 2px; }
+  #views button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 4px 10px; color: var(--muted); }
+  #views button.on { color: var(--text); border-bottom-color: var(--accent); }
+  #evals { display: grid; grid-template-columns: minmax(320px, 2fr) 3fr; gap: 12px; padding: 16px; align-items: start; }
+  #pipeline[hidden], #board[hidden], #evals[hidden] { display: none; }
+  .eval-list { display: flex; flex-direction: column; gap: 8px; }
+  .eval-row.card .meta span { white-space: nowrap; }
+  .chip.rating-good { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
+  .chip.rating-mixed { color: var(--run); background: var(--run-soft); border-color: transparent; }
+  .chip.rating-poor { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
+  .eval-body { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 16px; min-height: 200px; }
+  .eval-empty { color: var(--muted); padding: 12px 0; }
+  .feedback { margin: 16px 0 12px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .feedback h2 { margin: 0 0 10px; font-size: 16px; }
+  .feedback .ratings { display: flex; gap: 6px; margin-bottom: 8px; }
+  .feedback .ratings button.on { color: var(--text); border-color: var(--accent); }
+  .feedback textarea { font-family: inherit; }
+  .facts { margin: 12px 0 16px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+  .facts h2 { margin: 0 0 10px; font-size: 16px; }
+  .fact-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+  .fact { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; min-width: 0; }
+  .fact .k { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .fact .v { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .fact .v.green { color: var(--ok); } .fact .v.red { color: var(--warn); }
+  .fact .s { font-size: 11.5px; color: var(--muted); }
+  .breakdown { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
+  .breakdown h3 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .bd-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; font-size: 12.5px; padding: 3px 0; }
+  .bd-row .name { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bd-row .num { font-variant-numeric: tabular-nums; text-align: right; }
+  .bd-row .bar { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: var(--accent); opacity: .7; }
   #idea-hint { flex: 1; margin-top: 7px; color: var(--muted); font-size: 12.5px; }
   #purge-btn { font-size: 11px; text-transform: none; letter-spacing: 0; padding: 1px 8px; margin-left: 8px; }
   .chip.kind { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
@@ -119,12 +150,38 @@
   .term .sep { color: var(--term-muted); margin: 8px 0 4px; border-top: 1px dashed #333a44; padding-top: 6px; }
   .term .done { color: #69db7c; }
 
+  #new-idea-btn { font-size: 11px; text-transform: none; letter-spacing: 0; padding: 1px 8px; margin-left: 8px; }
+  .session-card { border-left: 3px solid var(--accent); }
+  .sess { display: flex; flex-direction: column; gap: 10px; height: 100%; min-height: 0; }
+  .s-log { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 4px; }
+  .s-act { border-top: 1px solid var(--border); padding-top: 10px; max-height: 60%; overflow: auto; }
+  .msg { border-radius: 8px; padding: 8px 12px; max-width: 85%; }
+  .msg.you { align-self: flex-end; background: var(--accent-soft); white-space: pre-wrap; }
+  .msg.claude { align-self: flex-start; background: var(--panel-2); }
+  .msg.claude.live::after { content: ' ▍'; color: var(--accent); animation: pulse 1s infinite; }
+  .msg p:first-child { margin-top: 0; } .msg p:last-child { margin-bottom: 0; }
+  .tool-ln { align-self: flex-start; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .q { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+  .q .qh { display: flex; gap: 8px; align-items: baseline; margin-bottom: 6px; }
+  .q .opts { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+  .q .opt { text-align: left; max-width: 280px; }
+  .q .opt small { display: block; color: var(--muted); font-size: 11.5px; }
+  .q .opt.on { border-color: var(--accent); background: var(--accent-soft); }
+  .q input[type="text"], .s-form input, .s-form select { width: 100%; }
+  .s-form { display: grid; grid-template-columns: 140px 1fr; gap: 8px 12px; align-items: center; max-width: 640px; }
+  .s-form select { font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+  .s-brief { border: 1px solid var(--border); border-radius: 8px; padding: 4px 14px; margin-bottom: 8px; }
+  .spec-card { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; }
+  .spec-card.decided { opacity: .75; }
+  .spec-card summary { cursor: pointer; font-weight: 600; }
+  .spec-card .spec-edit { min-height: 260px; }
+  .working { color: var(--run); }
   #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 6px; max-width: min(90vw, 640px); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 20; }
   #toast.show { opacity: 1; }
   #toast.error { background: var(--warn); color: #fff; }
   @media (max-width: 700px) {
     #board { grid-template-columns: repeat(6, 78vw); }
-    .split, .art { grid-template-columns: 1fr; height: auto; }
+    .split, .art, #evals, .breakdown { grid-template-columns: 1fr; height: auto; }
     #modal { height: 95vh; }
   }
 </style>
@@ -132,12 +189,14 @@
 <body>
 <header>
   <h1>Factory</h1>
+  <nav id="views" aria-label="Views"><button type="button" data-view="board" class="on">Board</button><button type="button" data-view="evals">Evaluations</button></nav>
   <span id="idea-hint">New idea: <code>pwsh factory/scripts/idea.ps1 &lt;target&gt;</code> opens a Claude session that grills you, writes the specs and puts the ones you approve on the board.</span>
   <button id="theme" type="button" title="Toggle theme">◐</button>
 </header>
 
 <nav id="pipeline" aria-label="Pipeline"></nav>
 <main id="board"></main>
+<main id="evals" hidden><div class="eval-list"></div><div class="eval-body md" data-eval-body></div></main>
 <div id="backdrop"><section id="modal" role="dialog" aria-modal="true" aria-label="Details">
   <div id="m-head"></div><nav id="m-tabs"></nav><div id="m-body"></div>
 </section></div>
@@ -159,7 +218,9 @@ const BUILDING = ['build', 'review', 'approve', 'gate'];
 
 const state = {
   board: { jobs: [], ideas: [] }, events: [], boardText: '', eventsText: '',
-  open: null,            // { kind: 'job' | 'idea', id }
+  config: { enabled: false }, sessions: [], sessionsText: '',
+  sess: null,            // the open idea session: { id, s, chat, streamText, texts, actKey }
+  open: null,            // { kind: 'job' | 'idea' | 'session' | 'new-session', id }
   tab: 'spec', files: [], specText: null, specDirty: false, viewerFile: null, viewerText: null, outputKey: '',
 };
 const $ = (s, el = document) => el.querySelector(s);
@@ -192,13 +253,17 @@ async function getText(url) {
 }
 async function poll() {
   try {
-    const [b, e] = await Promise.all([getText('/state/board.json'), getText('/state/events.jsonl')]);
-    if (b === state.boardText && e === state.eventsText) { if (state.open && state.tab === 'output') refreshOutput(); return; }
-    state.boardText = b; state.eventsText = e;
+    const [b, e, ss] = await Promise.all([getText('/state/board.json'), getText('/state/events.jsonl'), state.config.enabled ? getText('/api/sessions') : '']);
+    if (state.open?.kind === 'session') refreshSession();
+    if (b === state.boardText && e === state.eventsText && ss === state.sessionsText) { if (state.open && state.tab === 'output') refreshOutput(); return; }
+    state.boardText = b; state.eventsText = e; state.sessionsText = ss;
+    try { state.sessions = ss ? JSON.parse(ss) : []; } catch { state.sessions = []; }
     state.board = b ? JSON.parse(b) : { jobs: [], ideas: [] };
     state.board.jobs ??= []; state.board.ideas ??= [];
     state.events = e.split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
     render();
+    if (state.open?.kind === 'session') { renderHead(); return; }
+    if (state.open?.kind === 'new-session') return;
     if (state.open) { renderHead(); refreshFiles(); if (state.tab === 'timeline') renderBody(); if (state.tab === 'output') refreshOutput(); }
   } catch (err) { console.warn('poll failed', err); }
 }
@@ -268,13 +333,24 @@ function ideaCard(i) {
     ${i.target ? `<div class="repo" title="${esc(i.target)}">→ ${esc(leaf(i.target))}</div>` : ''}
     ${i.reason ? `<div class="meta">${esc(i.reason)}</div>` : ''}</div>`;
 }
+function sessionCard(x) {
+  const what = x.status === 'running' ? '<span class="chip running">Claude is working</span>'
+    : x.status === 'error' ? '<span class="flag">error</span>' : '<span class="chip">your turn</span>';
+  return `<div class="card idea-card session-card" data-session="${esc(x.id)}">
+    <div class="top"><span>${esc(x.id)}${x.idea ? ` · ${esc(x.idea)}` : ''}</span><span>${x.costUsd ? `$${Number(x.costUsd).toFixed(2)}` : ''}</span></div>
+    <div class="title">${esc(x.text)}</div>
+    ${x.target ? `<div class="repo" title="${esc(x.target)}">→ ${esc(leaf(x.target))}</div>` : ''}
+    <div class="meta">${what}${x.bootstrap ? `<span class="chip kind">bootstrap ${esc(x.bootstrap)}</span>` : ''}</div></div>`;
+}
 function renderBoard() {
   const before = new Map([...document.querySelectorAll('[data-card]')].map((el) => [el.dataset.card, el.getBoundingClientRect()]));
   $('#board').innerHTML = COLUMNS.map((c) => {
+    const inSession = new Set(state.sessions.map((x) => x.idea).filter(Boolean));
     const items = c.key === 'ideas'
-      ? state.board.ideas.filter((i) => i.status !== 'done').map(ideaCard)
+      ? [...state.sessions.map(sessionCard), ...state.board.ideas.filter((i) => i.status !== 'done' && !inSession.has(i.id)).map(ideaCard)]
       : state.board.jobs.filter((j) => c.stages.includes(j.stage)).map(jobCard);
-    const clear = c.key === 'done' ? '<button id="purge-btn" type="button" title="Remove done and discarded cards, their folders and branches">Clear</button>' : '';
+    const clear = c.key === 'done' ? '<button id="purge-btn" type="button" title="Remove done and discarded cards, their folders and branches">Clear</button>'
+      : c.key === 'ideas' && state.config.enabled ? '<button id="new-idea-btn" class="primary" type="button" title="Grill an idea with Claude, here">New idea</button>' : '';
     return `<section class="column" data-column="${c.key}"><h2>${c.label}<span>${items.length}${clear}</span></h2><div class="cards">${items.join('')}</div></section>`;
   }).join('');
   // FLIP: animate each card from where it was to where it is now.
@@ -333,6 +409,9 @@ document.addEventListener('click', (e) => {
   if (e.target.id === 'backdrop') { closeModal(); return; }
   const c = e.target.closest?.('[data-card]');
   if (c) { openModal('job', c.dataset.card); return; }
+  if (e.target.closest?.('#new-idea-btn')) { openModal('new-session', null); return; }
+  const sc = e.target.closest?.('[data-session]');
+  if (sc) { openModal('session', sc.dataset.session); return; }
   const i = e.target.closest?.('[data-idea]');
   if (i) openModal('idea', i.dataset.idea);
 });
@@ -340,6 +419,13 @@ const openJob = () => state.open?.kind === 'job' ? state.board.jobs.find((x) => 
 const openIdea = () => state.open?.kind === 'idea' ? state.board.ideas.find((x) => x.id === state.open.id) : null;
 
 async function openModal(kind, id) {
+  if (kind === 'session' || kind === 'new-session') {
+    state.open = { kind, id }; state.tab = 'session';
+    if (state.sess?.id !== id) state.sess = id ? { id, s: null, chat: [], streamText: '', texts: [], actKey: '' } : null;
+    $('#backdrop').classList.add('open');
+    renderHead(); renderTabs(); renderBody();
+    return;
+  }
   if (state.open?.id !== id) Object.assign(state, { specText: null, specDirty: false, viewerFile: null, viewerText: null, files: [], outputKey: '' });
   state.open = { kind, id };
   const j = openJob();
@@ -375,6 +461,8 @@ async function refreshFiles() {
 function renderHead() {
   const h = $('#m-head');
   const close = `<button class="close" onclick="closeModal()" aria-label="Close">✕</button>`;
+  if (state.open?.kind === 'new-session') { h.innerHTML = `${close}<h3>New idea</h3><div class="sub-meta">Claude grills you on it, writes a brief and specs, and you decide what reaches the board. Model <code>${esc(state.config.model)}</code></div>`; return; }
+  if (state.open?.kind === 'session') { renderSessionHead(h, close); return; }
   const idea = openIdea();
   if (idea) {
     h.innerHTML = `${close}<h3>${esc(idea.text)}</h3>
@@ -429,7 +517,7 @@ function renderHead() {
 }
 
 function renderTabs() {
-  const tabs = state.open?.kind === 'idea' ? ['brief', 'output'] : ['spec', 'artifacts', 'output', 'timeline'];
+  const tabs = state.open?.kind === 'idea' ? ['brief', 'output'] : ['session', 'new-session'].includes(state.open?.kind) ? [] : ['spec', 'artifacts', 'output', 'timeline'];
   $('#m-tabs').innerHTML = tabs.map((t) => `<button type="button" data-tab="${t}" class="${t === state.tab ? 'on' : ''}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('');
   for (const b of $('#m-tabs').querySelectorAll('[data-tab]')) b.onclick = () => {
     if (state.tab === 'spec' && $('#spec-editor')) state.specText = $('#spec-editor').value;
@@ -440,6 +528,11 @@ function renderTabs() {
 function renderBody() {
   const body = $('#m-body');
   const j = openJob();
+  if (state.open?.kind === 'new-session') { renderNewSession(body); return; }
+  if (state.open?.kind === 'session') {
+    body.innerHTML = '<div class="sess"><div class="s-log" data-log></div><div class="s-act" data-act></div></div>';
+    state.sess.texts = []; state.sess.actKey = ''; refreshSession(); return;
+  }
   if (state.tab === 'output') { body.innerHTML = '<div class="term" data-output></div>'; refreshOutput(); return; }
   if (state.tab === 'brief') { body.innerHTML = `<div class="md" data-brief>${md(state.specText ?? '')}</div>`; return; }
   if (!j) { body.innerHTML = ''; return; }
@@ -547,7 +640,356 @@ async function refreshOutput() {
   } finally { outputBusy = false; }
 }
 
+// --- idea sessions: the grill, the brief and the specs, with Claude through the API ----------------
+// The panel only shows and asks. Every board change is a button that calls one session endpoint.
+const UI_TOOLS = ['ask_questions', 'propose_scaffold', 'submit_brief'];
+const money = (v) => `$${Number(v ?? 0).toFixed(Number(v ?? 0) < 1 ? 3 : 2)}`;
+
+async function sessApi(action, body, method = 'POST', type = 'application/json') {
+  const r = await api(method, `/api/sessions/${state.sess.id}/${action}`, body, type);
+  if (!r.ok) toast(r.message || 'refused', true);
+  state.sess.texts = []; state.sessionsText = null;
+  await refreshSession();
+  return r;
+}
+
+function renderNewSession(body) {
+  const targets = [...new Set([...state.board.ideas.map((i) => i.target), ...state.board.jobs.map((j) => j.target)].filter(Boolean))];
+  body.innerHTML = `<div class="s-form">
+    <label for="s-target">Target repo</label>
+    <div><input id="s-target" list="s-targets" autocomplete="off" placeholder="D:\\code\\Scratchpad\\todo-app"><datalist id="s-targets">${targets.map((t) => `<option value="${esc(t)}">`).join('')}</datalist></div>
+    <label for="s-text">The idea</label>
+    <textarea id="s-text" rows="5" placeholder="What do you want built? A sentence is enough: Claude asks the rest."></textarea>
+    <span></span><div class="actions"><button class="primary" id="s-start">Start</button>
+      <span style="color:var(--muted);font-size:12px">An absolute path: an existing git repo, or a new folder that a bootstrap job will scaffold.</span></div></div>`;
+  $('#s-target').focus();
+  $('#s-start').onclick = async (e) => {
+    const b = e.currentTarget; b.disabled = true;
+    const r = await api('POST', '/api/sessions', { target: $('#s-target').value.trim(), text: $('#s-text').value.trim() });
+    if (!r.ok) { toast(r.message || 'refused', true); b.disabled = false; return; }
+    state.sessionsText = null; poll();
+    openModal('session', r.message);
+  };
+}
+
+function renderSessionHead(h, close) {
+  const s = state.sess?.s;
+  const canClose = s && s.status !== 'running' && s.status !== 'closed';
+  h.innerHTML = `${close}<h3>${esc(s?.text ?? state.sess?.id)}</h3>
+    <div class="sub-meta">${esc(state.sess?.id)}${s?.idea ? ` · ${esc(s.idea)}` : ''} · ${esc(s?.status ?? '…')}${s?.target ? ` · target <code>${esc(s.target)}</code>${s.newTarget ? ' (new)' : ''}` : ''}${s?.model ? ` · <code>${esc(s.model)}</code>` : ''} · <span data-cost>${money(s?.costUsd)}</span>
+    ${canClose ? ' · <button type="button" id="s-close" class="danger" style="padding:1px 8px;font-size:12px">Close session</button>' : ''}</div>`;
+  $('#s-close', h)?.addEventListener('click', async () => {
+    const r = await sessApi('close', { failed: true, reason: 'closed in session before every spec was decided' });
+    if (r.ok) { toast(`${state.sess.id} closed`); closeModal(); state.sessionsText = null; poll(); }
+  });
+}
+
+let sessBusy = false;
+async function refreshSession() {
+  const sx = state.sess;
+  if (!sx || sessBusy || state.open?.kind !== 'session') return;
+  sessBusy = true;
+  try {
+    const base = `/state/sessions/${sx.id}/`;
+    const texts = await Promise.all(['session.json', 'chat.json', 'stream.jsonl'].map((f) => getText(base + f)));
+    if (state.sess !== sx || state.open?.kind !== 'session') return;
+    if (!texts.every((t, k) => t === sx.texts[k])) {
+      try { sx.s = JSON.parse(texts[0]); } catch { return; }
+      try { sx.chat = JSON.parse(texts[1]).messages ?? []; } catch { sx.chat = []; }
+      sx.stream = texts[2].split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+      sx.texts = texts;
+      renderHead();
+      renderSessionLog();
+    }
+    if (!sx.s) return;
+    // The actions change with the session, and with the board (the bootstrap job and the idea).
+    const s = sx.s;
+    const boot = s.bootstrap ? state.board.jobs.find((j) => j.id === s.bootstrap)?.stage : null;
+    const idea = s.idea ? state.board.ideas.find((i) => i.id === s.idea)?.status : null;
+    const key = JSON.stringify([s.status, s.error, s.pending?.id, s.idea, (s.specs ?? []).map((x) => [x.k, x.title, x.decision]), boot, idea]);
+    if (key !== sx.actKey) { sx.actKey = key; renderSessionActions(); }
+  } finally { sessBusy = false; }
+}
+
+function toolLine(b) {
+  const i = b.input ?? {};
+  const text = b.name === 'ask_questions' ? `? ${(i.questions ?? []).map((q) => q.question).join(' · ')}`
+    : b.name === 'submit_brief' ? '▸ proposed the brief'
+    : b.name === 'propose_scaffold' ? `▸ proposed the scaffold: ${[i.name, i.resource, i.db, i.ui, i.events ? 'events' : 'no events'].join(' / ')}`
+    : b.name === 'submit_specs' ? `▸ wrote ${(i.specs ?? []).length} spec(s)`
+    : b.name === 'revise_spec' ? `▸ revised spec ${i.k}`
+    : `▸ ${b.name}(${i.path ?? i.pattern ?? ''})`;
+  return `<div class="tool-ln">${esc(text)}</div>`;
+}
+
+function renderSessionLog() {
+  const sx = state.sess, el = $('[data-log]');
+  if (!el || !sx?.s) return;
+  const names = {};
+  for (const m of sx.chat) if (m.role === 'assistant') for (const b of m.content ?? []) if (b.type === 'tool_use') names[b.id] = b.name;
+  const out = [];
+  sx.chat.forEach((m, mi) => {
+    const blocks = typeof m.content === 'string' ? [{ type: 'text', text: m.content }] : m.content ?? [];
+    for (const b of blocks) {
+      if (m.role === 'user') {
+        if (b.type === 'text') out.push(`<div class="msg you">${esc(mi === 0 ? sx.s.text : b.text)}</div>`);
+        else if (b.type === 'tool_result' && names[b.tool_use_id] === 'submit_brief' && /^The human confirmed/.test(b.content)) out.push(`<div class="tool-ln">✓ brief confirmed${sx.s.idea ? ` as ${esc(sx.s.idea)}` : ''}</div>`);
+        else if (b.type === 'tool_result' && UI_TOOLS.includes(names[b.tool_use_id])) out.push(`<div class="msg you">${esc(b.content)}</div>`);
+        else if (b.type === 'tool_result' && b.is_error) out.push(`<div class="tool-ln">  ↳ ${esc(resultText(b.content))}</div>`);
+      } else if (b.type === 'text' && b.text) out.push(`<div class="msg claude md">${md(b.text)}</div>`);
+      else if (b.type === 'tool_use') out.push(toolLine(b));
+    }
+  });
+  if (sx.s.status === 'running') {
+    // This turn so far, from stream.jsonl; chat.json gets it when the turn ends.
+    let text = '';
+    const flush = (live) => { if (text || live) out.push(`<div class="msg claude md${live ? ' live' : ''}">${md(text)}</div>`); text = ''; };
+    for (const e of sx.stream ?? []) {
+      if (e.type === 'text') text += e.text;
+      else if (e.type === 'tool') { flush(false); out.push(`<div class="tool-ln">${esc(`▸ ${e.name}(${e.summary ?? ''})`)}</div>`); }
+    }
+    flush(true);
+  }
+  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+  el.innerHTML = out.join('');
+  if (atBottom) el.scrollTop = el.scrollHeight;
+}
+
+function questionsForm(qs) {
+  return `<div data-questions>${(qs ?? []).map((q, qi) => `<div class="q" data-question="${qi}" data-multi="${q.multiSelect ? 1 : 0}">
+      <div class="qh"><span class="chip">${esc(q.header)}</span><b>${esc(q.question)}</b>${q.multiSelect ? '<small>pick any</small>' : ''}</div>
+      <div class="opts">${(q.options ?? []).map((o) => `<button type="button" class="opt" data-option="${esc(o.label)}">${esc(o.label)}<small>${esc(o.description ?? '')}</small></button>`).join('')}</div>
+      <input type="text" data-other placeholder="Other: your own answer, or &quot;I don't know&quot;"></div>`).join('')}
+    <div class="actions"><button class="primary" id="s-send-answers">Send answers</button></div></div>`;
+}
+
+function scaffoldForm(i) {
+  const opt = (vals, v) => vals.map((x) => `<option${x === v ? ' selected' : ''}>${x}</option>`).join('');
+  return `<p>A new target is scaffolded from template-projects. Check the options Claude proposed:</p>
+    <div class="s-form" data-scaffold>
+      <label for="sc-name">Name</label><input id="sc-name" value="${esc(i.name)}">
+      <label for="sc-resource">Resource</label><input id="sc-resource" value="${esc(i.resource)}">
+      <label for="sc-db">Data store</label><select id="sc-db">${opt(['sqlite', 'sqlserver', 'postgres'], i.db)}</select>
+      <label for="sc-ui">Front end</label><select id="sc-ui">${opt(['react', 'blazor', 'blazor-maui', 'none'], i.ui)}</select>
+      <label for="sc-events">Events</label><div><input type="checkbox" id="sc-events"${i.events ? ' checked' : ''}></div>
+      <span></span><div class="actions"><button class="primary" id="s-confirm-scaffold">Confirm scaffold</button></div></div>`;
+}
+
+function briefForm(markdown) {
+  return `<p>Read the brief. Confirm it, or say what is wrong and Claude revises it.</p>
+    <div class="s-brief md" data-brief>${md(markdown)}</div>
+    <textarea id="s-correction" rows="3" placeholder="What is wrong or missing?"></textarea>
+    <div class="actions"><button class="primary" id="s-confirm-brief">Confirm brief</button><button id="s-correct">Send correction</button></div>`;
+}
+
+function bootstrapForm(s) {
+  const job = state.board.jobs.find((j) => j.id === s.bootstrap);
+  const idea = state.board.ideas.find((i) => i.id === s.idea);
+  return `<p>The brief is saved as <b>${esc(s.idea)}</b>. The new target is scaffolded first, by bootstrap job <b>${esc(s.bootstrap)}</b> (${esc(job?.stage ?? 'not on the board')}).
+      Approve it here or leave it in Backlog. Once it is merged, Claude writes the specs.</p>
+    <details${job?.stage === 'backlog' ? ' open' : ''}><summary>Bootstrap spec</summary><div class="md" data-boot-spec>…</div></details>
+    <div class="actions">${job?.stage === 'backlog' ? '<button class="primary" id="s-approve-boot">Approve bootstrap</button>' : ''}
+      <button id="s-write-specs"${idea?.status === 'drafting' ? '' : ' disabled title="after the bootstrap job is merged"'}>Write specs</button></div>`;
+}
+
+function specsForm(s) {
+  return `<p>Decide each spec. <b>Approve</b> builds it now, <b>Not yet</b> puts it in Backlog, <b>Reject</b> drops it. To change one, edit it, or ask Claude below.</p>
+    ${s.specs.map((sp) => `<div class="spec-card${sp.decision ? ' decided' : ''}" data-spec="${sp.k}">
+      <details${sp.decision ? '' : ' open'}><summary>Spec ${sp.k}: ${esc(sp.title)}${sp.decision ? ` <span class="chip">${esc(sp.decision)}${sp.job ? ` ${esc(sp.job)}` : ''}</span>` : ''}</summary>
+        <div class="md" data-spec-md>…</div></details>
+      ${sp.decision ? '' : `<div class="actions"><button class="primary" data-decide="approved">Approve</button><button data-decide="backlog">Not yet</button><button class="danger" data-decide="rejected">Reject</button><button data-edit>Edit</button></div>`}
+    </div>`).join('')}`;
+}
+
+async function decide(sp, decision) {
+  const r = await sessApi(`specs/${sp.k}`, { decision });
+  if (r.ok) toast(decision === 'rejected' ? `Spec ${sp.k} rejected` : `${r.message} → ${decision === 'approved' ? 'Approved' : 'Backlog'}`);
+  const s = state.sess.s;
+  if (!(s.specs ?? []).every((x) => x.decision)) return;
+  const kept = s.specs.filter((x) => x.decision !== 'rejected');
+  const c = await sessApi('close', { failed: !kept.length });
+  if (!c.ok) return;
+  toast(kept.length ? `${s.idea} done: ${kept.map((x) => `${x.job} ${x.decision === 'approved' ? 'approved' : 'in Backlog'}`).join(', ')}` : `${s.idea} closed: every spec rejected`);
+  state.sessionsText = null; state.boardText = '';
+  closeModal(); poll();
+}
+
+function renderSessionActions() {
+  const sx = state.sess, el = $('[data-act]');
+  if (!el || !sx?.s) return;
+  const s = sx.s, p = s.pending;
+  if (s.status === 'closed') { el.innerHTML = '<p>This session is closed.</p>'; return; }
+  if (s.status === 'running') { el.innerHTML = '<div class="working">Claude is working…</div>'; return; }
+  let html = s.status === 'error' ? `<div class="flagbox">${esc(s.error)}</div><div class="actions"><button id="s-retry">Retry</button></div>` : '';
+  if (p?.name === 'ask_questions') html += questionsForm(p.input?.questions);
+  else if (p?.name === 'propose_scaffold') html += scaffoldForm(p.input ?? {});
+  else if (p?.name === 'submit_brief') html += briefForm(p.input?.markdown);
+  else if ((s.specs ?? []).length) html += specsForm(s);
+  else if (s.bootstrap) html += bootstrapForm(s);
+  if (!p) html += `<div class="actions" style="align-items:flex-end"><textarea id="s-msg" rows="2" style="flex:1;font-family:inherit" placeholder="${(s.specs ?? []).length ? 'Ask Claude to change a spec (say which)' : 'Message Claude'}"></textarea><button id="s-send">Send</button></div>`;
+  el.innerHTML = html;
+
+  $('#s-retry', el)?.addEventListener('click', () => sessApi('reply', { text: '' }));
+  $('#s-send', el)?.addEventListener('click', () => { const t = $('#s-msg').value.trim(); if (t) sessApi('reply', { text: t }); });
+  for (const b of el.querySelectorAll('.opt')) b.onclick = () => {
+    const q = b.closest('[data-question]');
+    if (q.dataset.multi !== '1') q.querySelectorAll('.opt').forEach((o) => { if (o !== b) o.classList.remove('on'); });
+    b.classList.toggle('on');
+  };
+  $('#s-send-answers', el)?.addEventListener('click', () => {
+    const text = [...el.querySelectorAll('[data-question]')].map((q, qi) => {
+      const picks = [...q.querySelectorAll('.opt.on')].map((o) => o.dataset.option);
+      const other = q.querySelector('[data-other]').value.trim();
+      if (other) picks.push(other);
+      return `${p.input.questions[qi].question}\n→ ${picks.join('; ') || '(no answer)'}`;
+    }).join('\n\n');
+    sessApi('reply', { text });
+  });
+  $('#s-confirm-scaffold', el)?.addEventListener('click', () => {
+    const scaffold = { name: $('#sc-name').value.trim(), resource: $('#sc-resource').value.trim(), db: $('#sc-db').value, ui: $('#sc-ui').value, events: $('#sc-events').checked };
+    sessApi('reply', { text: `Scaffold confirmed: name ${scaffold.name}, resource ${scaffold.resource}, data store ${scaffold.db}, front end ${scaffold.ui}, ${scaffold.events ? 'with' : 'no'} events.`, scaffold });
+  });
+  $('#s-confirm-brief', el)?.addEventListener('click', async (e) => {
+    e.currentTarget.disabled = true;
+    const r = await sessApi('brief');
+    if (r.ok) toast(`Brief saved as ${r.message.split(' ')[0]}`);
+  });
+  $('#s-correct', el)?.addEventListener('click', () => { const t = $('#s-correction').value.trim(); if (t) sessApi('reply', { text: t }); else toast('Say what to correct', true); });
+  $('#s-approve-boot', el)?.addEventListener('click', () => move(s.bootstrap, 'approved'));
+  $('#s-write-specs', el)?.addEventListener('click', () => sessApi('write-specs'));
+  if (s.bootstrap && $('[data-boot-spec]', el)) getText(`/state/jobs/${s.bootstrap}/spec.md`).then((t) => { const d = $('[data-boot-spec]', el); if (d) d.innerHTML = md(t); });
+
+  for (const sp of s.specs ?? []) {
+    const card = el.querySelector(`[data-spec="${sp.k}"]`);
+    if (!card) continue;
+    const url = `/state/ideas/${s.idea}/spec-${sp.k}.md`;
+    getText(url).then((t) => { const d = $('[data-spec-md]', card); if (d && !$('textarea', card)) d.innerHTML = md(t); });
+    for (const b of card.querySelectorAll('[data-decide]')) b.onclick = () => { card.querySelectorAll('button').forEach((x) => { x.disabled = true; }); decide(sp, b.dataset.decide); };
+    $('[data-edit]', card)?.addEventListener('click', async () => {
+      const d = $('[data-spec-md]', card);
+      d.closest('details').open = true;
+      d.innerHTML = `<textarea class="spec-edit" spellcheck="false">${esc(await getText(url))}</textarea><div class="actions"><button class="primary" data-save>Save spec</button></div>`;
+      $('[data-save]', d).onclick = async () => {
+        const r = await sessApi(`specs/${sp.k}`, $('textarea', d).value, 'PUT', 'text/markdown');
+        if (r.ok) { toast(`Spec ${sp.k} saved`); sx.actKey = ''; refreshSession(); }
+      };
+    });
+  }
+}
+// While a turn runs, follow its stream more closely than the board poll does.
+setInterval(() => { if (state.open?.kind === 'session' && state.sess?.s?.status === 'running') refreshSession(); }, 400);
+
 function render() { renderPipeline(); renderBoard(); }
+
+// --- evaluations ---------------------------------------------------------------------------
+// fb is the open evaluation's human feedback: the saved file parsed, then the human's unsaved draft.
+const evalView = { list: [], text: '', open: null, body: '', fb: { rating: '', note: '' } };
+function duration(ms) {
+  if (!ms) return '';
+  const s = Math.round(ms / 1000);
+  return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+}
+function evalRow(x) {
+  const facts = [
+    x.stage, `r${x.round}`, x.flag ? `<span class="flag">${esc(x.flag)}</span>` : '',
+    x.gate ? `gate ${esc(x.gate)}` : '', x.merged ? `merged ${esc(String(x.merged).slice(0, 7))}` : '',
+    x.costUsd != null ? `$${Number(x.costUsd).toFixed(2)}` : '', duration(x.durationMs),
+  ].filter(Boolean).map((f) => f.startsWith('<') ? f : `<span>${esc(f)}</span>`).join(' · ');
+  return `<div class="card eval-row${evalView.open === x.job ? ' selected' : ''}" data-eval="${esc(x.job)}">
+    <div class="top"><span>${esc(x.job)}${x.idea ? ` · ${esc(x.idea)}` : ''}</span><span>${esc(String(x.evaluatedAt ?? '').slice(0, 10))}</span></div>
+    <div class="title">${esc(x.title)}</div>
+    ${x.target ? `<div class="repo" title="${esc(x.target)}">→ ${esc(leaf(x.target))}</div>` : ''}
+    <div class="meta"><span class="chip rating-${esc(x.rating)}" data-rating>${esc(x.rating)}</span>${x.human ? `<span class="chip rating-${esc(x.human.rating)}" data-human-rating>you: ${esc(x.human.rating)}</span>` : ''}${facts}</div></div>`;
+}
+// Gate, cost and time: the snapshot's facts as a grid, above the evaluation's markdown.
+function evalFacts(x) {
+  const usd = (n) => n != null ? `$${Number(n).toFixed(2)}` : '—';
+  const fact = (key, label, value, sub = '', cls = '') =>
+    `<div class="fact" data-fact="${key}"><div class="k">${label}</div><div class="v ${cls}">${esc(value)}</div>${sub ? `<div class="s">${esc(sub)}</div>` : ''}</div>`;
+  const agents = x.agents ?? [];
+  const totalAgentMs = agents.reduce((s, a) => s + (a.ms ?? 0), 0);
+  const maxAgentMs = Math.max(1, ...agents.map((a) => a.ms ?? 0));
+  const models = Object.entries(x.models ?? {});
+  const maxModelUsd = Math.max(0.0001, ...models.map(([, m]) => m.costUsd ?? 0));
+  const bar = (v, max) => `<span class="bar" style="width:${Math.max(2, Math.round(100 * v / max))}%"></span>`;
+  return `<section class="facts" data-eval-facts>
+    <h2>Gate, cost and time</h2>
+    <div class="fact-grid">
+      ${fact('gate', 'Gate', x.gate ?? 'not run', x.decision ? `approver ${x.decision}` : '', x.gate ?? '')}
+      ${fact('cost', 'Cost', usd(x.costUsd), models.length ? `${models.length} model${models.length > 1 ? 's' : ''}` : '')}
+      ${fact('time', 'Time', duration(x.durationMs) || '—', 'runner wall time')}
+      ${fact('rounds', 'Rounds', String(x.round ?? '—'), x.flag ? `flag ${x.flag}` : 'no flag')}
+      ${fact('agent-time', 'Agent time', duration(totalAgentMs) || '—', `summed over ${agents.length} agent runs; reviewers overlap`)}
+      ${fact('gate-time', 'Gate time', duration(x.gateMs) || '—')}
+      ${fact('outcome', 'Outcome', x.stage ?? '—', x.merged ? `merged ${String(x.merged).slice(0, 7)}` : '')}
+    </div>
+    ${models.length || agents.length ? `<div class="breakdown">
+      <div><h3>Cost by model</h3>${models.map(([m, u]) => `<div class="bd-row" data-model="${esc(m)}"><span class="name">${esc(m)}</span><span class="num">${usd(u.costUsd)} · ${Number(u.outputTokens ?? 0).toLocaleString()} out</span>${bar(u.costUsd ?? 0, maxModelUsd)}</div>`).join('') || '<div class="s">no run logs</div>'}</div>
+      <div><h3>Time by agent</h3>${agents.map((a) => `<div class="bd-row" data-agent="${esc(a.agent)}"><span class="name">${esc(a.agent)} r${esc(a.round)}</span><span class="num">${duration(a.ms) || '0s'}</span>${bar(a.ms ?? 0, maxAgentMs)}</div>`).join('') || '<div class="s">no agent events</div>'}</div>
+    </div>` : ''}
+  </section>`;
+}
+function feedbackForm() {
+  const { rating, note } = evalView.fb;
+  return `<section class="feedback" data-feedback>
+    <h2>Human feedback</h2>
+    <div class="ratings">${['good', 'mixed', 'poor'].map((r) => `<button type="button" data-human="${r}" class="${rating === r ? 'on' : ''}">${r}</button>`).join('')}</div>
+    <textarea rows="4" placeholder="Your hands-on check: does it work, and was it worth the run?">${esc(note)}</textarea>
+    <div class="actions"><button class="primary" data-save-feedback>Save feedback</button></div>
+  </section>`;
+}
+async function loadFeedback(id) {
+  const t = await getText(`/state/evals/${encodeURIComponent(id)}.feedback.md`);
+  const m = t.match(/^Rating: (good|mixed|poor)(?:\r?\n){0,2}([\s\S]*)$/);
+  evalView.fb = m ? { rating: m[1], note: m[2].trimEnd() } : { rating: '', note: '' };
+}
+async function saveFeedback() {
+  const { rating, note } = evalView.fb;
+  if (!rating) { toast('Pick a rating first', true); return; }
+  const res = await api('PUT', `/api/evals/${encodeURIComponent(evalView.open)}/feedback`, `Rating: ${rating}\n\n${note}\n`, 'text/markdown');
+  toast(res.message, !res.ok);
+  if (res.ok) refreshEvals();
+}
+function renderEvals() {
+  const list = $('#evals .eval-list');
+  list.innerHTML = evalView.list.length ? evalView.list.map(evalRow).join('')
+    : '<div class="eval-empty">No evaluations yet. A finished job is evaluated with <code>factory.ps1 eval &lt;id&gt; -File &lt;md&gt;</code>.</div>';
+  for (const el of list.querySelectorAll('[data-eval]')) el.onclick = () => openEval(el.dataset.eval);
+  const x = evalView.list.find((e) => e.job === evalView.open);
+  const body = $('[data-eval-body]');
+  const prev = $('[data-feedback] textarea', body);
+  const focus = prev && document.activeElement === prev ? [prev.selectionStart, prev.selectionEnd] : null;
+  body.innerHTML = evalView.open ? (x ? evalFacts(x) : '') + md(evalView.body) + (x ? feedbackForm() : '') : '<p class="eval-empty">Pick an evaluation.</p>';
+  const note = $('[data-feedback] textarea', body);
+  if (!note) return;
+  if (focus) { note.focus(); note.setSelectionRange(...focus); }
+  note.oninput = () => { evalView.fb.note = note.value; };
+  for (const b of body.querySelectorAll('[data-human]')) b.onclick = () => { evalView.fb.rating = b.dataset.human; renderEvals(); };
+  $('[data-save-feedback]', body).onclick = saveFeedback;
+}
+async function refreshEvals() {
+  const t = await getText('/api/evals');
+  if (t === evalView.text) return;
+  evalView.text = t;
+  try { evalView.list = t ? JSON.parse(t) : []; } catch { evalView.list = []; }
+  if (evalView.open) evalView.body = await getText(`/state/evals/${encodeURIComponent(evalView.open)}.md`);
+  renderEvals();
+}
+async function openEval(id) {
+  evalView.open = id;
+  evalView.body = await getText(`/state/evals/${encodeURIComponent(id)}.md`);
+  await loadFeedback(id);
+  renderEvals();
+}
+function showView(v) {
+  state.view = v;
+  for (const b of document.querySelectorAll('#views [data-view]')) b.classList.toggle('on', b.dataset.view === v);
+  $('#pipeline').hidden = $('#board').hidden = v !== 'board';
+  $('#evals').hidden = v !== 'evals';
+  if (v === 'evals') refreshEvals();
+}
+for (const b of document.querySelectorAll('#views [data-view]')) b.onclick = () => showView(b.dataset.view);
+setInterval(() => { if (state.view === 'evals') refreshEvals(); }, 3000);
 
 document.addEventListener('click', async (e) => {
   if (!e.target.closest?.('#purge-btn')) return;
@@ -559,7 +1001,7 @@ document.addEventListener('click', async (e) => {
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && state.open) closeModal(); });
 
 render();
-poll();
+getText('/api/ideate/config').then((t) => { try { state.config = JSON.parse(t); } catch {} state.sessionsText = null; poll(); });
 setInterval(poll, 1500);
 setInterval(() => { if (!dragging) renderBoard(); }, 15000);
 </script>

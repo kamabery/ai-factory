@@ -8,8 +8,8 @@ change, but only by editing this file first.
 ## Principle
 
 Agents propose and execute; `factory.ps1` attests and constrains; a human owns intent and the
-release. A human touches the factory at exactly two points: **approving a spec**, in the
-`/factory:idea` session (or by dragging a Backlog card to Approved), and **accepting the work**
+release. A human touches the factory at exactly two points: **approving a spec**, in an idea
+session (or by dragging a Backlog card to Approved), and **accepting the work**
 (Ready for review → Done). Everything between those two is automated.
 
 No agent, skill or endpoint writes to `.factory-runs/board.json`. Every state change is a
@@ -18,8 +18,9 @@ No agent, skill or endpoint writes to `.factory-runs/board.json`. Every state ch
 ## The flow
 
 ```
- /factory:idea session ──── human "yes" per spec ────┐
+ idea session ───────────── human "yes" per spec ────┐
  grill → brief → spec-writer                         │
+ (dashboard, or /factory:idea)                       │
         │ "not yet"                                  ↓
         └────→ Backlog ──human drag──→ Approved ──runner──→ Building ──→ Ready for review ──human drag──→ Done
                (edit spec)             (FIFO queue)        build         (flag if the       (merge)
@@ -35,7 +36,7 @@ Done and discarded cards stay until a human clears them ([Purge](#purge), the Do
 
 | Column | Stages | Who moves cards out |
 | --- | --- | --- |
-| Ideas | `idea` records with status `waiting`, `drafting` or `failed` (not jobs) | the `/factory:idea` session |
+| Ideas | `idea` records with status `waiting`, `drafting` or `failed`, and open dashboard [idea sessions](#idea-sessions-dashboard) (not jobs) | the idea session |
 | Backlog | `backlog` | human (drag to Approved, or discard) |
 | Approved | `approved` | runner |
 | Building | `build`, `review`, `approve`, `gate` | orchestrator / script |
@@ -112,8 +113,11 @@ of an install) is missing or older than `package-lock.json`:
 
 ## Ideas
 
-An idea is worked out in an interactive Claude Code session, `/factory:idea [<target> | I-NNN]`
-(`factory/scripts/idea.ps1` starts one with the plugin loaded). It is not a job. The session:
+An idea is worked out in an idea session. There are two doors, and they follow the same steps:
+the dashboard's **New idea** panel, which talks to the Claude API (see
+[Idea sessions](#idea-sessions-dashboard)), and the CLI fallback, an interactive Claude Code session
+`/factory:idea [<target> | I-NNN]` (`factory/scripts/idea.ps1` starts one with the plugin loaded).
+An idea is not a job. The session:
 
 1. Takes the target, and for a new target the scaffold options.
 2. Grills the human (the plugin's `grill` skill) until nothing in the idea is assumed, and has them
@@ -150,6 +154,70 @@ board.ideas[] = { "id": "I-001", "text": "...", "target": "D:\\code\\Scratchpad\
 - `factory.ps1 idea-done <ideaId> [-Failed -Reason <text>]` closes the idea. Ideas in `done`
   are no longer shown; ideas in `failed` stay in Ideas with the reason until a `purge`.
 
+## Idea sessions (dashboard)
+
+The dashboard's idea session runs the steps of [Ideas](#ideas) against the Claude API, not the
+`claude` CLI. Build, review, approve and gate still run on the CLI through the runner. A session is
+a conversation stored under `sessions/<S-NNN>/`. It is not on the board, and **the model never
+changes board state**: every board write in a session is a human click that `serve.ps1` turns into
+one `factory.ps1` call.
+
+**The key.** The API key is `ANTHROPIC_API_KEY` in `.env` at the repo root (gitignored;
+`.env.example` names the keys). `FACTORY_IDEA_MODEL` there overrides the model (default
+`claude-opus-5-5`), and `ANTHROPIC_BASE_URL` the endpoint (tests point it at a stub). The key is
+read from the file into a local variable by `idea-turn.ps1` and never set in the process
+environment, so a `claude` started by the runner keeps using the subscription. `serve.ps1` only
+checks that the key is present. With no key, the dashboard shows the `idea.ps1` hint instead of
+**New idea**.
+
+**Turns.** Each assistant turn is a detached `factory/scripts/idea-turn.ps1 -Session <S> -StateDir
+<dir> -EnvFile <path>` process. It holds `sessions/<S>/turn.lock` (exclusive create) for the whole
+turn. While the lock is held, every session write endpoint answers 409. The turn streams the
+Messages API (`stream: true`) and appends what arrives to `stream.jsonl`, which is truncated when a
+turn starts. It loops over the model's tools until the model stops or calls a UI tool. Then it
+appends the finished messages to `chat.json`, adds the turn's cost to `session.json`, and releases
+the lock. The system prompt is assembled at turn time from `factory/plugin/prompts/idea-api.md`,
+the `grill` skill, the spec-writer agent and `factory/templates/brief.md` and `spec.md`.
+
+**Tools.**
+
+| Tool | Kind | Effect |
+| --- | --- | --- |
+| `read_file`, `list_dir`, `grep` | server, read-only | fenced to the session's target (when it exists) and `factory/templates`; any other path is refused |
+| `submit_specs { specs: [{ k, markdown }] }` (1..5) · `revise_spec { k, markdown }` | server | write `ideas/<I>/spec-<k>.md`; refused until the brief is confirmed (the session has an idea) |
+| `ask_questions { questions }` (AskUserQuestion's shape) · `propose_scaffold { name, resource, db, ui, events }` · `submit_brief { markdown }` | UI | end the turn; `session.json.pending` holds the call until the human answers |
+
+```
+sessions/<S>/session.json = { "id": "S-001", "target": "D:\...", "text": "...", "newTarget": false,
+  "status": "running|idle|error|closed", "error": null, "model": "claude-opus-5-5", "costUsd": 0.12,
+  "scaffold": null, "idea": "I-004", "bootstrap": null,
+  "pending": { "id": "toolu_...", "name": "ask_questions", "input": { } } | null,
+  "pendingResults": [ ],
+  "specs": [ { "k": 1, "title": "...", "decision": null | "approved" | "backlog" | "rejected", "job": "J-007" } ],
+  "createdAt": "..." }
+stream.jsonl lines: { "type": "text", "text" } · { "type": "tool", "name", "summary" } · { "type": "end" } · { "type": "error", "message" }
+```
+
+`pendingResults` holds the results of server tools that ran in the same assistant message as a UI
+tool. They are sent with the human's answer in one user message.
+
+**Session flow.** The human picks a target and describes the idea. `check-target` classifies the
+target, and the panel creates the session.
+
+1. The model grills (`ask_questions`) and, for a new target, calls `propose_scaffold`. The human
+   confirms or edits the form.
+2. The model calls `submit_brief`. The panel shows it with **Confirm** and **Correct**. Correct
+   sends the human's words back as the tool result.
+3. Confirm runs `new-idea` (with `-Scaffold` for a new target) and writes `ideas/<I>/brief.md`.
+   - **Existing target:** the turn continues to the specs.
+   - **New target:** the panel shows the bootstrap job's spec with Approve (the usual move
+     endpoint) or leave it in Backlog. After the bootstrap merge, the idea is `drafting` and
+     **Write specs** continues the session.
+4. The model calls `submit_specs`. Each spec card offers **Approve** (`add-spec` + `approve`, then
+   the runner starts), **Change** (ask the model, which calls `revise_spec`, or edit the markdown
+   directly), **Not yet** (`add-spec`), or **Reject**. Once every spec is decided, the panel closes
+   the session: `idea-done`, or `idea-done -Failed -Reason "every spec rejected in session"`.
+
 ## Job transitions
 
 `by` is `human`, `runner`, `orchestrator` or `gate`.
@@ -173,6 +241,45 @@ board.ideas[] = { "id": "I-001", "text": "...", "target": "D:\\code\\Scratchpad\
 | ready | discarded | human; deletes branch `factory/<id>` | |
 
 `done` and `discarded` are terminal. `flag` is cleared on every move out of `ready`.
+
+### Evaluations
+
+An evaluation judges how well the factory handled one job: the spec's fit to the brief, the build
+against the acceptance criteria, whether the reviewers caught what mattered, and the cost and time.
+It is written by a human session (Claude Code reviewing the run with the human), never by a
+`/factory` agent, and it changes no stage. Its markdown follows `factory/templates/eval.md`, and
+its first line must be exactly `Rating: good`, `Rating: mixed` or `Rating: poor`.
+
+`factory.ps1 eval <id> -File <path>` takes a job in `ready`, `done` or `discarded`. It copies the
+file to `evals/<id>.md` and writes `evals/<id>.json`, a snapshot of the board facts at that moment:
+
+```json
+{ "job": "J-011", "idea": "I-006", "title": "...", "kind": "feature", "target": "D:\\...",
+  "rating": "mixed", "stage": "ready", "round": 2, "flag": "max-rounds" | null,
+  "reviews": { "security": "PASS", "code": "CHANGES", "ux": "PASS", "ui": "PASS" },
+  "decision": "APPROVE" | null, "gate": "green" | "red" | null, "merged": "<sha>" | null,
+  "costUsd": 4.48, "durationMs": 914000, "evaluatedAt": "...",
+  "models": { "claude-opus-5-5": { "costUsd": 4.1, "outputTokens": 90000 } },
+  "agents": [ { "agent": "builder", "round": 1, "ms": 600000 } ],
+  "gateMs": 43000 }
+```
+
+`models` sums `modelUsage` over the `"type":"result"` lines of every `run-<n>.jsonl`. `agents` pairs
+each `agent-start` with the next `agent-stop` of the same agent and round in `events.jsonl`, in
+order of first start. `gateMs` sums each gate run, from the `stage` event into `gate` to its `gate`
+event. The dashboard shows these facts as a **Gate, cost and time** grid above the markdown.
+
+Running `eval` again for the same job replaces both files, e.g. after the merge. It appends an
+`eval` event whose `detail` is the rating. `purge` never touches `evals/`, so an evaluation outlives
+its job's card.
+
+**Human feedback** is the human's own verdict after a hands-on check of the built product, kept
+apart from the session's evaluation. `factory.ps1 feedback <id> -File <path>` takes any job that has
+an `evals/<id>.json`, even one purged from the board. The file's first line must be a `Rating:` line,
+as for `eval`; the rest is free text. It copies the file to `evals/<id>.feedback.md`, sets
+`"human": { "rating": "poor", "at": "..." }` in `evals/<id>.json` (absent until then), and appends a
+`feedback` event whose `detail` is the rating. Running it again replaces both. A re-`eval` keeps
+`human`.
 
 The round cap applies to automated loops only. A reworked job gets one build and one review pass
 at its new round. If the reviewers still return `CHANGES`, it comes back to Ready for review
@@ -198,6 +305,8 @@ are untouched. `events.jsonl` keeps its history, and `board.seq` stops a purged 
   events.jsonl
   runner.lock                  held while runner.ps1 is draining the queue
   headless-settings.json       written by runner.ps1 for each claude -p run (see Runner)
+  sessions/<S-NNN>/            a dashboard idea session (see Idea sessions)
+    session.json  chat.json  stream.jsonl  turn.lock
   ideas/<id>/
     idea.md                    the idea's one-line title, then `Target: <path>`
     brief.md                   the grilled brief, in the human's words (factory/templates/brief.md)
@@ -211,6 +320,9 @@ are untouched. `events.jsonl` keeps its history, and `board.seq` stops a purged 
     decision.md
     gate.log
     run-<n>.jsonl              the claude -p stream-json output of each runner pass, written live
+  evals/                       kept by purge (see Evaluations)
+    <id>.md  <id>.json         the evaluation, and the board facts snapshotted when it was written
+    <id>.feedback.md           the human's feedback on it, if any
 
 <target>.wt\                   one worktree per target, reused by every job on it (legacy jobs: ..\claude-factory.wt)
 
@@ -287,7 +399,7 @@ now" pulses from this file.
 {"ts":"2026-10-12T14:08:00Z","job":"J-001","kind":"cost","costUsd":1.84,"durationMs":412000}
 ```
 
-`kind` is one of `idea | stage | agent-start | agent-stop | gate | merge | cost | note`. Spec-writer
+`kind` is one of `idea | stage | agent-start | agent-stop | gate | merge | cost | note | eval | feedback`. Spec-writer
 agent events carry `"idea"` instead of `"job"`. `agent` is the plain agent name (the hook strips the
 plugin's `factory:` prefix). `agent-start` carries `agentId` and `transcript`, the subagent's live
 Claude Code transcript, which is derived from the hook's `transcript_path` and `agent_id`.
@@ -301,13 +413,16 @@ stderr and leaves the board unchanged.
 
 | Command | Used by |
 | --- | --- |
-| `new-idea <text> -Target <path> [-Scaffold <json>]` · `add-spec <ideaId> <file>` · `idea-done <ideaId> [-Failed -Reason]` | `/factory:idea` |
+| `new-idea <text> -Target <path> [-Scaffold <json>]` · `add-spec <ideaId> <file>` · `idea-done <ideaId> [-Failed -Reason]` | `/factory:idea`, serve.ps1 (idea sessions) |
+| `check-target <path>` (prints `new` or `existing`, or refuses as `new-idea` would) | serve.ps1 (idea sessions) |
 | `edit-spec <id> -File <path>` (backlog only) | serve.ps1 |
 | `approve <id>` | `/factory:idea` (on the human's yes), serve.ps1 (human drag) |
 | `rework <id> <note>` · `discard <id>` · `merge <id>` · `purge` | serve.ps1 (human drags and **Clear**) |
 | `next` (prints the next runnable approved id, or nothing) · `checkout <id>` (creates the target repo if needed, then creates or reuses `<target>.wt` on `factory/<id>`; prints the worktree path) · `set-cost <id> <usd> <ms>` | runner.ps1 |
 | `set-stage <id> <to> [-By] [-Reason] [-Detail]` · `set-review <id> <role> <state>` · `read-reviews <id>` · `read-decision <id>` · `gate <id>` | `/factory run` |
 | `event <json \| -Job -Idea -Kind -Agent>` | hook-event.ps1 |
+| `eval <id> -File <path>` | a human session evaluating a finished job (see [Evaluations](#evaluations)) |
+| `feedback <id> -File <path>` | serve.ps1 (the human's feedback on an evaluation) |
 | `status [-Json]` | anyone |
 
 `read-reviews` and `read-decision` exit 2 when a verdict line is missing or malformed; the job
@@ -378,13 +493,30 @@ and a refused move snaps the card back and shows the message.
 | `POST /api/jobs/<id>/move` `{ "to": "done" }` | `merge` | |
 | `POST /api/jobs/<id>/move` `{ "to": "discarded" }` | `discard` | |
 | `POST /api/purge` | `purge` | |
+| `GET /api/evals` | (read-only) | every `evals/<id>.json`, newest job first; the markdown is at `/state/evals/<id>.md` |
+| `PUT /api/evals/<id>/feedback` (text/markdown) | `feedback` | the feedback is at `/state/evals/<id>.feedback.md` |
+| `GET /api/ideate/config` | (read-only) | `{ enabled, model }`; `enabled` means `.env` has a key; the key is never returned |
+| `GET /api/sessions` | (read-only) | every session that is not `closed`: `{ id, target, text, status, idea, bootstrap, costUsd, newTarget }` |
+| `POST /api/sessions` `{ target, text }` | `check-target` | allocates `S-NNN`, writes `session.json` and the first message, starts a turn |
+| `POST /api/sessions/<S>/reply` `{ text, scaffold? }` | (session write) | answers `pending` (or adds user text), stores `scaffold`, starts a turn; empty text with no pending retries a failed turn |
+| `POST /api/sessions/<S>/brief` | `new-idea`, then writes `brief.md` | existing target: answers `submit_brief` and starts the spec turn; new target: records the bootstrap job |
+| `POST /api/sessions/<S>/write-specs` | (session write) | after the bootstrap merge (the idea is `drafting`): starts the spec turn |
+| `POST /api/sessions/<S>/specs/<k>` `{ decision }` | `add-spec` (+ `approve`) | `approved` starts the runner; `rejected` calls nothing |
+| `PUT /api/sessions/<S>/specs/<k>` (text/markdown) | (session write) | the human's direct edit of `spec-<k>.md` |
+| `POST /api/sessions/<S>/close` `{ failed, reason? }` | `idea-done [-Failed -Reason]` (only once there is an idea) | the session becomes `closed`; the default reason is "every spec rejected in session" |
 
-There is no idea endpoint: ideas are created in the `/factory:idea` session. An idea card shows the
-command that resumes it, and its modal shows `brief.md`.
+Session reads use `/state/sessions/<S>/...`. An idea card opens its brief. A card for an open
+session, or for an idea that a session created, reopens the session panel. An idea card from the
+CLI session shows the command that resumes it.
 
 "Starts the runner" means: spawn `runner.ps1` detached, unless `runner.lock` is held. The
 [watchdog](#runner) also starts it when Approved is not empty and no live runner holds the lock. The claude
 command is taken from `$env:FACTORY_CLAUDE_CMD` when it is set, so tests spend no tokens.
+
+The header's **Board** and **Evaluations** tabs switch the page. Evaluations lists every
+evaluation with its rating, the human's rating if given, and snapshot facts, and opens one to its
+markdown. Below the markdown, **Human feedback** is a rating and a note that **Save feedback** sends
+as `Rating: <r>`, a blank line, then the note.
 
 The job modal's **Output** tab tails `run-<n>.jsonl` (the orchestrator) and each agent's
 `transcript`. It shows narration, tool calls and results. Claude Code writes thinking blocks with

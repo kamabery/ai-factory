@@ -607,6 +607,137 @@ Describe 'bookkeeping' {
     }
 }
 
+Describe 'evaluations' {
+    BeforeEach {
+        function Eval-File([string]$rating = 'Rating: mixed') {
+            $p = Join-Path $TestDrive "eval-$([guid]::NewGuid().ToString('N')).md"
+            Set-Content $p "$rating`n`n# Eval: the run"
+            $p
+        }
+    }
+
+    It 'refuses a job that is not finished, or a file with no Rating line, and writes nothing' {
+        $id = New-ApprovedJob
+        F eval $id -File (Eval-File) | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        Move-ToReview $id
+        F set-stage $id ready -Reason escalated | Out-Null
+        foreach ($bad in 'Rating: great', 'rating: good', '# Eval: no rating') {
+            F eval $id -File (Eval-File $bad) | Out-Null
+            $LASTEXITCODE | Should -Be 2
+        }
+        Test-Path (Join-Path $env:FACTORY_HOME 'evals') | Should -BeFalse
+        @(Events | Where-Object kind -eq 'eval').Count | Should -Be 0
+    }
+
+    It 'stores the markdown and a snapshot of the board facts, appends an eval event, and replaces both on re-eval' {
+        $id = New-ApprovedJob 'Evaluated'
+        Commit-OnBranch $id
+        Move-ToGate $id
+        F set-cost $id 1.25 60000 | Out-Null
+        F gate $id | Out-Null
+        F eval $id -File (Eval-File 'Rating: mixed') | Out-Null
+        $LASTEXITCODE | Should -Be 0
+
+        $dir = Join-Path $env:FACTORY_HOME 'evals'
+        Get-Content (Join-Path $dir "$id.md") -TotalCount 1 | Should -Be 'Rating: mixed'
+        $e = Get-Content (Join-Path $dir "$id.json") -Raw | ConvertFrom-Json -AsHashtable -DateKind String
+        $e.job | Should -Be $id
+        $e.title | Should -Be 'Evaluated'
+        $e.rating | Should -Be 'mixed'
+        $e.stage | Should -Be 'ready'
+        $e.round | Should -Be 1
+        $e.flag | Should -BeNullOrEmpty
+        $e.reviews.code | Should -Be 'PASS'
+        $e.decision | Should -Be 'APPROVE'
+        $e.gate | Should -Be 'green'
+        $e.merged | Should -BeNullOrEmpty
+        $e.costUsd | Should -Be 1.25
+        $e.durationMs | Should -Be 60000
+        $e.target | Should -Be $script:Repo
+        $e.evaluatedAt | Should -Not -BeNullOrEmpty
+        (Events | Where-Object kind -eq 'eval' | Select-Object -Last 1).detail | Should -Be 'mixed'
+
+        F merge $id | Out-Null
+        F eval $id -File (Eval-File 'Rating: good') | Out-Null
+        $e = Get-Content (Join-Path $dir "$id.json") -Raw | ConvertFrom-Json -AsHashtable -DateKind String
+        $e.rating | Should -Be 'good'
+        $e.stage | Should -Be 'done'
+        $e.merged | Should -Be (Job $id).merged.sha
+        Get-Content (Join-Path $dir "$id.md") -TotalCount 1 | Should -Be 'Rating: good'
+    }
+
+    It 'snapshots cost by model from the run logs, time per agent from the events, and the gate time' {
+        $id = New-ApprovedJob 'Timed'
+        Move-ToReview $id
+        F set-stage $id ready -Reason escalated | Out-Null
+        $at = { param($s) "2026-01-01T00:$s.000Z" }
+        foreach ($e in @(
+            @{ kind = 'agent-start'; agent = 'builder'; ts = (& $at '00:00') }, @{ kind = 'agent-stop'; agent = 'builder'; ts = (& $at '10:00') },
+            @{ kind = 'agent-start'; agent = 'code-reviewer'; ts = (& $at '10:00') }, @{ kind = 'agent-stop'; agent = 'code-reviewer'; ts = (& $at '11:30') },
+            @{ kind = 'stage'; from = 'approve'; to = 'gate'; ts = (& $at '12:00') }, @{ kind = 'gate'; detail = 'build=0'; ts = (& $at '12:40') })) {
+            $e.job = $id; $e.round = 1
+            F event ($e | ConvertTo-Json -Compress) | Out-Null
+        }
+        $usage = { param($usd, $out) @{ 'claude-opus-5-5' = @{ costUSD = $usd; outputTokens = $out }; 'claude-sonnet-5-5' = @{ costUSD = 0.25; outputTokens = 10 } } }
+        Set-Content (Join-Path (JobDir $id) 'run-1.jsonl') @('not json', (@{ type = 'result'; total_cost_usd = 2.25; modelUsage = (& $usage 2.0 100) } | ConvertTo-Json -Compress -Depth 5))
+        Set-Content (Join-Path (JobDir $id) 'run-2.jsonl') (@{ type = 'result'; total_cost_usd = 1.25; modelUsage = (& $usage 1.0 50) } | ConvertTo-Json -Compress -Depth 5)
+
+        F eval $id -File (Eval-File) | Out-Null
+        $e = Get-Content (Join-Path $env:FACTORY_HOME "evals/$id.json") -Raw | ConvertFrom-Json -AsHashtable -DateKind String
+        $e.models['claude-opus-5-5'].costUsd | Should -Be 3.0
+        $e.models['claude-opus-5-5'].outputTokens | Should -Be 150
+        $e.models['claude-sonnet-5-5'].costUsd | Should -Be 0.5
+        @($e.agents | ForEach-Object agent) | Should -Be @('builder', 'code-reviewer')
+        $e.agents[0].ms | Should -Be 600000
+        $e.agents[1].ms | Should -Be 90000
+        $e.agents[0].round | Should -Be 1
+        $e.gateMs | Should -Be 40000
+    }
+
+    It 'records human feedback on an evaluation, refuses one without an evaluation or a Rating line, and keeps it through a re-eval' {
+        $id = New-BacklogJob 'Felt'
+        F discard $id | Out-Null
+        F feedback $id -File (Eval-File 'Rating: good') | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        F eval $id -File (Eval-File 'Rating: mixed') | Out-Null
+        F feedback $id -File (Eval-File '# no rating') | Out-Null
+        $LASTEXITCODE | Should -Be 2
+        Test-Path (Join-Path $env:FACTORY_HOME "evals/$id.feedback.md") | Should -BeFalse
+
+        F feedback $id -File (Eval-File 'Rating: poor') | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        $dir = Join-Path $env:FACTORY_HOME 'evals'
+        Get-Content (Join-Path $dir "$id.feedback.md") -TotalCount 1 | Should -Be 'Rating: poor'
+        $e = Get-Content (Join-Path $dir "$id.json") -Raw | ConvertFrom-Json -AsHashtable -DateKind String
+        $e.rating | Should -Be 'mixed'
+        $e.human.rating | Should -Be 'poor'
+        $e.human.at | Should -Not -BeNullOrEmpty
+        (Events | Select-Object -Last 1).kind | Should -Be 'feedback'
+        (Events | Select-Object -Last 1).detail | Should -Be 'poor'
+
+        F eval $id -File (Eval-File 'Rating: good') | Out-Null
+        $e = Get-Content (Join-Path $dir "$id.json") -Raw | ConvertFrom-Json -AsHashtable -DateKind String
+        $e.rating | Should -Be 'good'
+        $e.human.rating | Should -Be 'poor'
+
+        F purge | Out-Null
+        F feedback $id -File (Eval-File 'Rating: mixed') | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        (Get-Content (Join-Path $dir "$id.json") -Raw | ConvertFrom-Json).human.rating | Should -Be 'mixed'
+    }
+
+    It 'purge removes the job but keeps its evaluation' {
+        $id = New-BacklogJob 'Gone'
+        F discard $id | Out-Null
+        F eval $id -File (Eval-File 'Rating: poor') | Out-Null
+        F purge | Out-Null
+        Job $id | Should -BeNullOrEmpty
+        Test-Path (Join-Path $env:FACTORY_HOME "evals/$id.md") | Should -BeTrue
+        Test-Path (Join-Path $env:FACTORY_HOME "evals/$id.json") | Should -BeTrue
+    }
+}
+
 Describe 'targets' {
     BeforeEach {
         # These tests use each target's own <target>.wt, not the shared override.
@@ -622,6 +753,19 @@ Describe 'targets' {
         New-Item -ItemType Directory $script:New | Out-Null
         Set-Content (Join-Path $script:New 'loose.txt') 'not a repo'
         F new-idea 'non-repo' -Target $script:New | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        Test-Path (Join-Path $env:FACTORY_HOME 'board.json') | Should -BeFalse
+    }
+
+    It 'check-target prints new or existing, refuses what new-idea refuses, and writes no board' {
+        F check-target $script:Repo | Should -Be 'existing'
+        F check-target $script:New | Should -Be 'new'
+        New-Item -ItemType Directory $script:New | Out-Null
+        F check-target $script:New | Should -Be 'new'
+        Set-Content (Join-Path $script:New 'loose.txt') 'not a repo'
+        F check-target $script:New | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        F check-target 'Scratchpad\todo' | Out-Null
         $LASTEXITCODE | Should -Not -Be 0
         Test-Path (Join-Path $env:FACTORY_HOME 'board.json') | Should -BeFalse
     }

@@ -27,17 +27,27 @@ pwsh factory/scripts/serve.ps1        # http://localhost:4317
 That's the only process you start. The dashboard starts the agent runs itself. Keep the main
 checkout on a clean `main`: jobs build in `..\claude-factory.wt`, never in your checkout.
 
-### 2. Work out an idea in a Claude session
+### 2. Work out an idea with Claude
+
+Put your API key in `.env` at the repo root (copy `.env.example`; it is gitignored). Then press
+**New idea** in the Ideas column, give the target repo and a sentence, and the whole session runs in
+the panel against the Claude API (`claude-opus-5-5` unless `FACTORY_IDEA_MODEL` says otherwise).
+Samples are in [factory/backlog.md](factory/backlog.md).
+
+Claude grills you in rounds of clickable questions until nothing in the idea is assumed, and reads
+the brief back for your yes. It then splits the brief into 1–5 small specs, and each spec card asks
+you to approve it, change it (edit it, or ask Claude), choose "not yet", or reject it. Approved
+specs land in **Approved** and the runner starts. "Not yet" goes to **Backlog**, and rejected specs
+never reach the board. The panel shows the session's API cost as it goes. Closing the browser loses
+nothing: the session's card reopens it.
+
+Only the idea session uses the API key. Build, review, approve and gate run on the `claude` CLI and
+your subscription, as before, and the key is never put in the environment. With no key, or if you
+prefer a terminal, the CLI session still works:
 
 ```powershell
 pwsh factory/scripts/idea.ps1 D:\code\Scratchpad\todo-app   # or an I-NNN to resume one
 ```
-
-This opens Claude Code on `/factory:idea` (samples in [factory/backlog.md](factory/backlog.md)).
-It grills you until nothing in the idea is assumed and reads the brief back for your yes. The
-spec-writer then splits it into 1–5 small specs, which the session shows you one at a time:
-approve, change, "not yet" or reject. Approved specs land in **Approved** and the session starts
-the runner; "not yet" goes to **Backlog**; rejected specs never reach the board.
 
 ### 3. Backlog (optional)
 
@@ -103,7 +113,7 @@ Factory state lives in `.factory-runs/` (gitignored). Never edit it by hand; see
 factory/plugin/            agents, /factory run | status, /factory:idea, grill, hooks
 factory/backlog.md         sample ideas for /factory:idea
 factory/templates/         spec / build / review / decision formats
-factory/scripts/           factory.ps1 (control plane), runner.ps1, idea.ps1, serve.ps1, simulate.ps1, hook-event.ps1
+factory/scripts/           factory.ps1 (control plane), runner.ps1, idea.ps1, idea-turn.ps1, serve.ps1, simulate.ps1, hook-event.ps1
 factory/dashboard/         index.html, the live view
 factory/tests/             Pester + Playwright
 .factory-runs/             runtime state (gitignored)
