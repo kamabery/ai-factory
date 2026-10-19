@@ -122,6 +122,7 @@ function Get-Tools {
         Tool 'ask_questions' 'Ask the human 1-4 questions in one round, each with 2-4 options. Ends your turn; the answers come back as the result.' @{
             questions = @{ type = 'array'; items = $question } } @('questions')
         Tool 'propose_scaffold' 'New target only: propose its scaffold options; the human confirms or edits them in a form. Ends your turn.' @{
+            repo = @{ type = 'string'; description = 'required when there is no target yet: the new GitHub repo name, lower-case (the owner is given)' }
             name = @{ type = 'string'; description = 'lower-case letters and digits, starting with a letter' }
             resource = @{ type = 'string'; description = 'PascalCase: the main thing the app manages' }
             db = @{ type = 'string'; enum = @('sqlite', 'sqlserver', 'postgres') }
@@ -135,7 +136,7 @@ function Get-Tools {
 
 function Roots {
     $r = @()
-    if ($S.target -and (Test-Path $S.target -PathType Container)) { $r += [IO.Path]::GetFullPath($S.target) }
+    if ($S.Contains('checkout') -and $S.checkout -and (Test-Path $S.checkout -PathType Container)) { $r += [IO.Path]::GetFullPath($S.checkout) }
     $r + [IO.Path]::GetFullPath($Templates)
 }
 
@@ -224,7 +225,10 @@ function Test-UiInput($tu) {
             foreach ($x in $q) { if (-not $x.question -or @($x.options).Count -lt 2) { return 'every question needs text and at least 2 options' } }
         }
         'submit_brief' { if (-not $in.markdown) { return 'markdown is required' } }
-        'propose_scaffold' { foreach ($k in 'name', 'resource', 'db', 'ui') { if (-not $in.$k) { return "$k is required" } } }
+        'propose_scaffold' {
+            foreach ($k in 'name', 'resource', 'db', 'ui') { if (-not $in.$k) { return "$k is required" } }
+            if (-not $S.target -and "$($in.repo)" -notmatch '^[a-z0-9][a-z0-9._-]*$') { return 'repo is required: there is no target yet, so name a new lower-case GitHub repo' }
+        }
     }
     $null
 }

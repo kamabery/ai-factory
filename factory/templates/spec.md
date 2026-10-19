@@ -5,10 +5,10 @@
 
 ## Target
 <!-- Copied verbatim from the idea. A path that does not exist yet becomes a new git repo. -->
-- Repo: <absolute path>
+- Repo: <owner/name>
 
 ## Gate
-<!-- The commands the gate runs in the target's worktree, in order. Each must exit 0. -->
+<!-- The commands the gate runs in the job's clone of the target, in order. Each must exit 0. -->
 - build: `<command>`
 - test: `<command>`
 

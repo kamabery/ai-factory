@@ -3,11 +3,12 @@
   Drives fake jobs through the factory using only factory.ps1 calls, so the dashboard can be
   watched and tested without spending a token.
 .DESCRIPTION
-  State goes to .factory-runs-sim/ and the git work happens in a throwaway sandbox repo at
-  .factory-runs-sim/repo; the gate commands are injected (green). It never touches this repo's git,
-  dotnet or npm. Watch it with:
-    pwsh factory/scripts/serve.ps1 -StateDir .factory-runs-sim   (with the same env; see below)
-    pwsh factory/scripts/simulate.ps1 -Reset -Speed 0.5
+  State goes to .factory-runs-sim/. The targets are GitHub repos served by the GitHub stub
+  (factory/tests/fixtures/github-stub.ps1) named in $env:FACTORY_ENV_FILE; without one, this script
+  starts the stub for its own run, over bare repos in .factory-runs-sim/github. Work dirs go to
+  .factory-runs-sim/work. The gate commands are injected (green). It never touches GitHub, this
+  repo's git, dotnet or npm. The dashboard tests (factory/tests/dashboard) run it with a stub that
+  outlives it, so the dashboard can merge.
 #>
 param(
     [double] $Speed = 1.0,
@@ -22,8 +23,8 @@ if (-not $StateDir) { $StateDir = Join-Path $repoRoot '.factory-runs-sim' }
 $StateDir = [IO.Path]::GetFullPath($StateDir)
 
 $env:FACTORY_HOME = $StateDir
-$env:FACTORY_REPO = Join-Path $StateDir 'repo'
-Remove-Item Env:FACTORY_WORKTREE -ErrorAction SilentlyContinue   # each target uses its own <target>.wt
+if (-not $env:FACTORY_WORK) { $env:FACTORY_WORK = Join-Path $StateDir 'work' }
+$Sandbox = 'sim/sandbox'
 if (-not $env:FACTORY_GATE_CMDS) {
     $env:FACTORY_GATE_CMDS = '[{"name":"build","cmd":"exit 0"},{"name":"test","cmd":"exit 0"},{"name":"ui","cmd":"exit 0"}]'
 }
@@ -43,15 +44,31 @@ function Ev([string] $job, [string] $kind, [string] $agent) { F-Must event -Job 
 if ($Reset -and (Test-Path $StateDir)) { Remove-Item -Recurse -Force $StateDir }
 New-Item -ItemType Directory -Force $StateDir | Out-Null
 
-if (-not (Test-Path (Join-Path $env:FACTORY_REPO '.git'))) {
-    New-Item -ItemType Directory -Force $env:FACTORY_REPO | Out-Null
-    git -C $env:FACTORY_REPO init -q -b main 2>&1 | Out-Null
-    git -C $env:FACTORY_REPO config user.email 'sim@factory' | Out-Null
-    git -C $env:FACTORY_REPO config user.name 'factory simulator' | Out-Null
-    Set-Content (Join-Path $env:FACTORY_REPO 'README.md') 'simulator sandbox'
-    git -C $env:FACTORY_REPO add -A 2>&1 | Out-Null
-    git -C $env:FACTORY_REPO commit -q -m init 2>&1 | Out-Null
+$stub = $null
+if (-not $env:FACTORY_ENV_FILE) {
+    $l = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0); $l.Start(); $port = $l.LocalEndpoint.Port; $l.Stop()
+    $base = Join-Path $StateDir 'github'
+    $stub = Start-Process pwsh -ArgumentList '-NoProfile', '-File', (Join-Path $repoRoot 'factory/tests/fixtures/github-stub.ps1'), '-Port', $port, '-GitBase', $base -PassThru -WindowStyle Hidden
+    $env:FACTORY_ENV_FILE = Join-Path $StateDir 'github.env'
+    Set-Content $env:FACTORY_ENV_FILE @('GITHUB_TOKEN=sim', 'GITHUB_OWNER=sim', "GITHUB_API_URL=http://localhost:$port", "FACTORY_GIT_BASE=file:///$($base -replace '\\', '/')")
+    $deadline = (Get-Date).AddSeconds(20)
+    while ($true) { try { Invoke-WebRequest "http://localhost:$port/" -TimeoutSec 1 | Out-Null; break } catch { if ((Get-Date) -gt $deadline) { throw 'github stub did not start' }; Start-Sleep -Milliseconds 200 } }
 }
+$gh = @{}
+foreach ($line in Get-Content $env:FACTORY_ENV_FILE) { if ($line -match '^\s*([A-Z_]+)\s*=\s*(.*?)\s*$') { $gh[$Matches[1]] = $Matches[2] } }
+
+# The existing target, as a human would have it on GitHub: one commit on main.
+if ((Invoke-WebRequest "$($gh.GITHUB_API_URL)/repos/$Sandbox" -SkipHttpErrorCheck -Headers @{ Authorization = "Bearer $($gh.GITHUB_TOKEN)" }).StatusCode -ne 200) {
+    Invoke-RestMethod -Method Post "$($gh.GITHUB_API_URL)/orgs/sim/repos" -Headers @{ Authorization = "Bearer $($gh.GITHUB_TOKEN)" } -ContentType 'application/json' -Body '{"name":"sandbox","private":true}' | Out-Null
+}
+$seed = Join-Path $StateDir 'seed'
+Remove-Item -Recurse -Force $seed -ErrorAction SilentlyContinue
+git init -q -b main $seed 2>&1 | Out-Null
+Set-Content (Join-Path $seed 'README.md') 'simulator sandbox'
+git -C $seed add -A 2>&1 | Out-Null
+git -C $seed -c user.email=sim@factory -c user.name=simulator commit -q -m init 2>&1 | Out-Null
+git -C $seed push -q --force "$($gh.FACTORY_GIT_BASE)/$Sandbox.git" main 2>&1 | Out-Null
+Remove-Item -Recurse -Force $seed
 
 function Spec-Text([string] $title, [string] $intent) {
     @"
@@ -61,7 +78,7 @@ function Spec-Text([string] $title, [string] $intent) {
 $intent
 
 ## Target
-- Repo: $($env:FACTORY_REPO)
+- Repo: $Sandbox
 
 ## Gate
 - build: ``exit 0``
@@ -92,7 +109,7 @@ function Done([double] $usd, [int] $ms) {
 }
 
 function Sim-Idea([string] $text, [object[]] $specs) {
-    $idea = F-Must new-idea $text -Target $env:FACTORY_REPO
+    $idea = F-Must new-idea $text -Target $Sandbox
     # The brief the /factory:idea session would have grilled out of the human.
     $unsure = if ($specs.Count) { 'Nothing.' } else { '- which list, and what counts as fast?' }
     Set-Content (Join-Path $StateDir "ideas/$idea/brief.md") "# Brief: $text`n`n## What it is for`n$text`n`n## Not sure`n$unsure"
@@ -195,25 +212,27 @@ Tick 1
 F-Must rework $a[1] 'use the colour tokens from docs/DESIGN.md' | Out-Null
 Sim-Start $a[1]; Sim-Build $a[1]; Sim-Review $a[1] @{ ui = 'CHANGES' }
 
-# J-003: green, but the release checkout is dirty at merge → merge-blocked. Then "the human" cleans up.
+# J-003: green, but its work dir has an uncommitted edit at merge → merge-blocked. Then "the human" cleans up.
 F-Must approve $a[2] | Out-Null
 Sim-Start $a[2]; Sim-Build $a[2]; Sim-Review $a[2] @{}; Sim-Approve $a[2]
 F gate $a[2] | Out-Null
-# Dirty by content: an edit to a tracked file. An untracked file is left to git and does not block.
-Add-Content (Join-Path $env:FACTORY_REPO 'README.md') 'uncommitted'
+F publish $a[2] | Out-Null
+$wt = F-Must checkout $a[2]
+Add-Content (Join-Path $wt 'README.md') 'uncommitted'
 F merge $a[2] | Out-Null
-git -C $env:FACTORY_REPO checkout -- README.md 2>&1 | Out-Null
+git -C $wt checkout -- README.md 2>&1 | Out-Null
 
 # J-004: discarded from the backlog. J-005 stays in the backlog for a human.
 Tick 1
 F-Must discard $b[0] | Out-Null
 
 # I-005 / J-006: a new target. The bootstrap job reaches Ready for review; its idea waits for the merge.
-$boot = (F-Must new-idea 'A todo app, bootstrapped' -Target (Join-Path $StateDir 'apps/todo') `
+$boot = (F-Must new-idea 'A todo app, bootstrapped' -Target 'sim/todo' `
     -Scaffold '{"name":"todo","resource":"Todo","db":"sqlite","ui":"react","events":false}') -split ' '
 F-Must approve $boot[1] | Out-Null
 Sim-Start $boot[1]; Sim-Build $boot[1]; Sim-Review $boot[1] @{}; Sim-Approve $boot[1]
 F gate $boot[1] | Out-Null
+F publish $boot[1] | Out-Null
 
 # Evaluations of the merged J-001 and the max-rounds J-002, as a human session would write them.
 foreach ($e in @(@($a[0], 'good', 'Clean run: one round, every AC evidenced.'), @($a[1], 'mixed', 'The ui reviewer and the builder never converged.'))) {
@@ -225,3 +244,4 @@ foreach ($e in @(@($a[0], 'good', 'Clean run: one round, every AC evidenced.'), 
 
 Write-Host 'simulation complete'
 F-Must status
+if ($stub) { Stop-Process -Id $stub.Id -Force }

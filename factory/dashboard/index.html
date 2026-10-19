@@ -67,7 +67,9 @@
   .chip.kind { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
   input, textarea { font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
   textarea { width: 100%; font-family: var(--mono); font-size: 12.5px; }
-  button { font: inherit; cursor: pointer; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); border-radius: 6px; padding: 6px 12px; }
+  a.button { text-decoration: none; display: inline-block; }
+  .chip.pr { color: var(--accent); background: var(--accent-soft); border-color: transparent; text-decoration: none; }
+  button, a.button { font: inherit; cursor: pointer; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); border-radius: 6px; padding: 6px 12px; }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   button.danger { color: var(--warn); }
   button:disabled { opacity: .5; cursor: default; }
@@ -190,7 +192,7 @@
 <header>
   <h1>Factory</h1>
   <nav id="views" aria-label="Views"><button type="button" data-view="board" class="on">Board</button><button type="button" data-view="evals">Evaluations</button></nav>
-  <span id="idea-hint">New idea: <code>pwsh factory/scripts/idea.ps1 &lt;target&gt;</code> opens a Claude session that grills you, writes the specs and puts the ones you approve on the board.</span>
+  <span id="idea-hint">New idea: <code>pwsh factory/scripts/idea.ps1 &lt;owner/name&gt;</code> opens a Claude session that grills you, writes the specs and puts the ones you approve on the board.</span>
   <button id="theme" type="button" title="Toggle theme">◐</button>
 </header>
 
@@ -321,10 +323,11 @@ function jobCard(j) {
   const cost = j.costUsd != null ? `<span data-cost>$${Number(j.costUsd).toFixed(2)}</span>` : '';
   const repo = j.target ? `<div class="repo" title="${esc(j.target)}">→ ${esc(leaf(j.target))}</div>` : '';
   const kind = j.kind === 'bootstrap' ? '<span class="chip kind" data-kind="bootstrap">bootstrap</span>' : '';
+  const pr = j.pr?.url && j.stage === 'ready' ? `<a class="chip pr" data-pr href="${esc(j.pr.url)}" target="_blank" rel="noopener" draggable="false">PR #${esc(j.pr.number)}</a>` : '';
   return `<div class="card${state.open?.id === j.id ? ' selected' : ''}" data-card="${esc(j.id)}" data-stage="${esc(j.stage)}" draggable="${draggable}">
     <div class="top"><span>${esc(j.id)}</span><span>r${j.round} · ${elapsed(j)}</span></div>
     <div class="title">${esc(j.title)}</div>${repo}
-    <div class="meta">${kind}${sub}${flag}${reviews}${cost}</div></div>`;
+    <div class="meta">${kind}${pr}${sub}${flag}${reviews}${cost}</div></div>`;
 }
 function ideaCard(i) {
   return `<div class="card idea-card ${esc(i.status)}" data-idea="${esc(i.id)}">
@@ -407,6 +410,7 @@ async function move(id, to, note) {
 document.addEventListener('click', (e) => {
   if (e.target.closest('#modal')) return;
   if (e.target.id === 'backdrop') { closeModal(); return; }
+  if (e.target.closest?.('a[data-pr]')) return;   // the card's PR link opens GitHub, not the modal
   const c = e.target.closest?.('[data-card]');
   if (c) { openModal('job', c.dataset.card); return; }
   if (e.target.closest?.('#new-idea-btn')) { openModal('new-session', null); return; }
@@ -478,18 +482,18 @@ function renderHead() {
   const flag = j.flag ? `<div class="flagbox"><b>${esc(j.flag.reason)}</b> — ${esc(j.flag.detail)}</div>` : '';
   let actions = '';
   if (j.stage === 'backlog') actions = `<button class="primary" id="approve-btn">Approve</button><button class="danger" id="discard-btn">Discard</button>`;
-  if (j.stage === 'ready') actions = `<button class="primary" id="merge-btn">Merge (Done)</button><button class="danger" id="discard-btn">Discard</button>`;
+  if (j.stage === 'ready') actions = `${j.pr?.url ? `<a class="button" id="pr-btn" href="${esc(j.pr.url)}" target="_blank" rel="noopener">Open PR #${esc(j.pr.number)}</a>` : ''}<button class="primary" id="merge-btn">Merge (Done)</button><button class="danger" id="discard-btn">Discard</button>`;
   const gate = j.gate ? Object.entries(j.gate).filter(([k]) => k !== 'at' && k !== 'sha').map(([k, v]) => `${k}=${v}`).join(' ') + (j.gate.sha ? ` · ${j.gate.sha.slice(0, 7)}` : '') : '';
   const rework = j.stage === 'ready' ? `<div class="rework"><textarea id="rework-note" rows="2" placeholder="Rework: what should change? The note goes to the builder.">${esc(reworkDraft)}</textarea>
     <div class="actions"><button id="rework-btn">Rework</button></div></div>` : '';
   const m = j.merged;
-  const merged = m ? `<div class="merged" data-merged>Merged into <code>${esc(m.repo)}</code> @ <code>${esc(m.sha.slice(0, 7))}</code>
+  const merged = m ? `<div class="merged" data-merged>Merged into <code>${esc(m.repo)}</code> @ <code>${esc(m.sha.slice(0, 7))}</code>${m.pr ? ` by <a href="${esc(m.pr)}" target="_blank" rel="noopener">pull request</a>` : ''}
       <button id="copy-paths" type="button">Copy paths</button>
       <ul>${(m.added ?? []).map((p) => `<li><span class="kind">A</span> ${esc(p)}</li>`).join('')}${(m.modified ?? []).map((p) => `<li><span class="kind">M</span> ${esc(p)}</li>`).join('')}</ul></div>` : '';
 
   h.innerHTML = `${close}<h3>${esc(j.title)}</h3>
     <div class="sub-meta">${esc(j.id)} · ${esc(j.stage)} · round ${j.round}${j.idea ? ` · from ${esc(j.idea)}` : ''}${j.costUsd != null ? ` · $${Number(j.costUsd).toFixed(2)}` : ''}${j.durationMs ? ` · ${Math.round(j.durationMs / 1000)}s` : ''}
-      ${j.target ? `<br>target <code>${esc(j.target)}</code>` : ''}${gate ? ` · gate <span data-gate>${esc(gate)}</span>` : ''}</div>
+      ${j.target ? `<br>target <code>${esc(j.target)}</code>` : ''}${j.pr?.url ? ` · <a data-pr href="${esc(j.pr.url)}" target="_blank" rel="noopener">PR #${esc(j.pr.number)}</a>` : ''}${gate ?` · gate <span data-gate>${esc(gate)}</span>` : ''}</div>
     ${flag}${merged}
     ${actions ? `<div class="actions">${actions}</div>` : ''}
     ${rework}`;
@@ -655,17 +659,29 @@ async function sessApi(action, body, method = 'POST', type = 'application/json')
 
 function renderNewSession(body) {
   const targets = [...new Set([...state.board.ideas.map((i) => i.target), ...state.board.jobs.map((j) => j.target)].filter(Boolean))];
+  const options = (repos) => `<option value="+new">+ Add new (Claude grills you and names the repo)</option>
+    ${[...new Set([...repos, ...targets])].map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}
+    <option value="+other">Other owner/name…</option>`;
   body.innerHTML = `<div class="s-form">
     <label for="s-target">Target repo</label>
-    <div><input id="s-target" list="s-targets" autocomplete="off" placeholder="D:\\code\\Scratchpad\\todo-app"><datalist id="s-targets">${targets.map((t) => `<option value="${esc(t)}">`).join('')}</datalist></div>
+    <div><select id="s-target">${options([])}</select> <span id="s-repos-note" style="color:var(--muted);font-size:12px">loading your repos…</span>
+      <input id="s-other" autocomplete="off" hidden placeholder="${esc(state.config.owner || 'owner')}/todo-app"></div>
     <label for="s-text">The idea</label>
     <textarea id="s-text" rows="5" placeholder="What do you want built? A sentence is enough: Claude asks the rest."></textarea>
     <span></span><div class="actions"><button class="primary" id="s-start">Start</button>
-      <span style="color:var(--muted);font-size:12px">An absolute path: an existing git repo, or a new folder that a bootstrap job will scaffold.</span></div></div>`;
-  $('#s-target').focus();
+      <span style="color:var(--muted);font-size:12px">An existing repo, or a new one that a bootstrap job creates and scaffolds.</span></div></div>`;
+  api('GET', '/api/repos').then((r) => {
+    if (!Array.isArray(r)) { $('#s-repos-note').textContent = r.message || 'could not list your repos'; return; }
+    const sel = $('#s-target'), v = sel.value;
+    sel.innerHTML = options(r); sel.value = v;
+    $('#s-repos-note').textContent = '';
+  });
+  $('#s-target').onchange = () => { $('#s-other').hidden = $('#s-target').value !== '+other'; };
+  $('#s-text').focus();
   $('#s-start').onclick = async (e) => {
     const b = e.currentTarget; b.disabled = true;
-    const r = await api('POST', '/api/sessions', { target: $('#s-target').value.trim(), text: $('#s-text').value.trim() });
+    const v = $('#s-target').value, text = $('#s-text').value.trim();
+    const r = await api('POST', '/api/sessions', v === '+new' ? { new: true, text } : { target: v === '+other' ? $('#s-other').value.trim() : v, text });
     if (!r.ok) { toast(r.message || 'refused', true); b.disabled = false; return; }
     state.sessionsText = null; poll();
     openModal('session', r.message);
@@ -676,7 +692,7 @@ function renderSessionHead(h, close) {
   const s = state.sess?.s;
   const canClose = s && s.status !== 'running' && s.status !== 'closed';
   h.innerHTML = `${close}<h3>${esc(s?.text ?? state.sess?.id)}</h3>
-    <div class="sub-meta">${esc(state.sess?.id)}${s?.idea ? ` · ${esc(s.idea)}` : ''} · ${esc(s?.status ?? '…')}${s?.target ? ` · target <code>${esc(s.target)}</code>${s.newTarget ? ' (new)' : ''}` : ''}${s?.model ? ` · <code>${esc(s.model)}</code>` : ''} · <span data-cost>${money(s?.costUsd)}</span>
+    <div class="sub-meta">${esc(state.sess?.id)}${s?.idea ? ` · ${esc(s.idea)}` : ''} · ${esc(s?.status ?? '…')}${s?.target ? ` · target <code>${esc(s.target)}</code>${s.newTarget ? ' (new)' : ''}` : s ? ' · target pending' : ''}${s?.model ? ` · <code>${esc(s.model)}</code>` : ''} · <span data-cost>${money(s?.costUsd)}</span>
     ${canClose ? ' · <button type="button" id="s-close" class="danger" style="padding:1px 8px;font-size:12px">Close session</button>' : ''}</div>`;
   $('#s-close', h)?.addEventListener('click', async () => {
     const r = await sessApi('close', { failed: true, reason: 'closed in session before every spec was decided' });
@@ -767,6 +783,7 @@ function scaffoldForm(i) {
   const opt = (vals, v) => vals.map((x) => `<option${x === v ? ' selected' : ''}>${x}</option>`).join('');
   return `<p>A new target is scaffolded from template-projects. Check the options Claude proposed:</p>
     <div class="s-form" data-scaffold>
+      ${i.repo !== undefined && !state.sess?.s?.target ? `<label for="sc-repo">Repo</label><div>${esc(state.config.owner)}/<input id="sc-repo" value="${esc(i.repo)}"></div>` : ''}
       <label for="sc-name">Name</label><input id="sc-name" value="${esc(i.name)}">
       <label for="sc-resource">Resource</label><input id="sc-resource" value="${esc(i.resource)}">
       <label for="sc-db">Data store</label><select id="sc-db">${opt(['sqlite', 'sqlserver', 'postgres'], i.db)}</select>
@@ -847,7 +864,8 @@ function renderSessionActions() {
   });
   $('#s-confirm-scaffold', el)?.addEventListener('click', () => {
     const scaffold = { name: $('#sc-name').value.trim(), resource: $('#sc-resource').value.trim(), db: $('#sc-db').value, ui: $('#sc-ui').value, events: $('#sc-events').checked };
-    sessApi('reply', { text: `Scaffold confirmed: name ${scaffold.name}, resource ${scaffold.resource}, data store ${scaffold.db}, front end ${scaffold.ui}, ${scaffold.events ? 'with' : 'no'} events.`, scaffold });
+    if ($('#sc-repo')) scaffold.repo = $('#sc-repo').value.trim();
+    sessApi('reply', { text: `Scaffold confirmed: ${scaffold.repo ? `repo ${scaffold.repo}, ` : ''}name ${scaffold.name}, resource ${scaffold.resource}, data store ${scaffold.db}, front end ${scaffold.ui}, ${scaffold.events ? 'with' : 'no'} events.`, scaffold });
   });
   $('#s-confirm-brief', el)?.addEventListener('click', async (e) => {
     e.currentTarget.disabled = true;

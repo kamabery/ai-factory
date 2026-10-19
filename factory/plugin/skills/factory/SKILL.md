@@ -38,8 +38,8 @@ Run `F status` and print its output verbatim.
 
 ## `/factory run <id> <stateDir> <factory.ps1>`
 
-Preconditions, set up by runner.ps1: the job is in `build`, the current directory is the target's
-worktree with branch `factory/<id>` checked out, and `FACTORY_JOB=<id>`. Check them with
+Preconditions, set up by runner.ps1: the job is in `build`, the current directory is the job's
+temp clone of its target with branch `factory/<id>` checked out, and `FACTORY_JOB=<id>`. Check them with
 `F status -Json` and `git branch --show-current`; if any is wrong, give up.
 
 Read the job's `round` from `F status -Json`. Then loop:
@@ -61,7 +61,7 @@ Read the job's `round` from `F status -Json`. Then loop:
 5. **Approve.** Run the **approver** agent with every file under `<job>/`, the template
    `<templates>/decision.md`, and the output path `<job>/decision.md`. Then `F read-decision <id>`:
    `gate` means continue; `ready` (ESCALATE) means stop. Exit code 2: re-run the approver once, then give up.
-6. **Gate.** `F gate <id>`. It runs the spec's Gate commands in this worktree and moves the job
+6. **Gate.** `F gate <id>`. It runs the spec's Gate commands in this work dir and moves the job
    to `ready`, with or without a `gate-failed` flag. Stop.
 
 Finish by printing `F status` for the job and one line on where it landed.

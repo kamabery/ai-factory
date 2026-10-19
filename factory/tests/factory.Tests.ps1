@@ -2,6 +2,8 @@
 
 BeforeAll {
     $script:Factory = Join-Path $PSScriptRoot '..\scripts\factory.ps1' | Resolve-Path | Select-Object -ExpandProperty Path
+    . (Join-Path $PSScriptRoot 'fixtures\github.ps1')
+    Start-GitHubStub
 
     function F {
         # Runs factory.ps1 in-process; stderr is discarded, $LASTEXITCODE carries the verdict.
@@ -75,10 +77,16 @@ BeforeAll {
     }
 
     function Commit-OnBranch([string]$id, [string]$file = 'feature.txt') {
-        F checkout $id | Out-Null
-        Set-Content (Join-Path $env:FACTORY_WORKTREE $file) "work for $id"
-        git -C $env:FACTORY_WORKTREE add -A 2>&1 | Out-Null
-        git -C $env:FACTORY_WORKTREE commit -q -m "work for $id" 2>&1 | Out-Null
+        $wt = F checkout $id
+        Set-Content (Join-Path $wt $file) "work for $id"
+        git -C $wt add -A 2>&1 | Out-Null
+        git -C $wt -c user.email=f@t -c user.name=f commit -q -m "work for $id" 2>&1 | Out-Null
+    }
+
+    # The human merging the job's PR on GitHub, outside the factory.
+    function Merge-OnGitHub([string]$id) {
+        Invoke-RestMethod -Method Put "http://localhost:$script:GhPort/repos/$script:Repo/pulls/$((Job $id).pr.number)/merge" `
+            -Headers @{ Authorization = "Bearer $script:Token" } -ContentType 'application/json' -Body '{}' | Out-Null
     }
 
     function Gate-Cmds([int]$build = 0, [int]$test = 0, [int]$ui = 0) {
@@ -90,28 +98,24 @@ BeforeAll {
     }
 }
 
+AfterAll {
+    Stop-GitHubStub
+}
+
 Describe 'factory.ps1' {
 
 BeforeEach {
-    $script:Repo = Join-Path $TestDrive "repo-$([guid]::NewGuid().ToString('N').Substring(0,8))"
-    New-Item -ItemType Directory $script:Repo | Out-Null
-    git -C $script:Repo init -q -b main 2>&1 | Out-Null
-    git -C $script:Repo config user.email 'factory@test' | Out-Null
-    git -C $script:Repo config user.name 'factory test' | Out-Null
-    git -C $script:Repo config core.autocrlf false | Out-Null
-    Set-Content (Join-Path $script:Repo 'README.md') 'fixture'
-    git -C $script:Repo add -A 2>&1 | Out-Null
-    git -C $script:Repo commit -q -m init 2>&1 | Out-Null
+    $script:Repo = "test/repo-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+    New-Remote $script:Repo
 
     $env:FACTORY_HOME = Join-Path $TestDrive "state-$([guid]::NewGuid().ToString('N').Substring(0,8))"
-    $env:FACTORY_WORKTREE = "$script:Repo.wt"
+    $env:FACTORY_WORK = Join-Path $TestDrive "work-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+    $env:FACTORY_ENV_FILE = $script:EnvFile
     $env:FACTORY_GATE_CMDS = Gate-Cmds
-    Push-Location $script:Repo
 }
 
 AfterEach {
-    Pop-Location
-    Remove-Item Env:FACTORY_HOME, Env:FACTORY_WORKTREE, Env:FACTORY_GATE_CMDS -ErrorAction SilentlyContinue
+    Remove-Item Env:FACTORY_HOME, Env:FACTORY_WORK, Env:FACTORY_ENV_FILE, Env:FACTORY_GATE_CMDS -ErrorAction SilentlyContinue
 }
 
 Describe 'ideas and specs' {
@@ -156,6 +160,22 @@ Describe 'ideas and specs' {
         F edit-spec $id -File $new | Out-Null
         $LASTEXITCODE | Should -Not -Be 0
         Get-Content (Join-Path (JobDir $id) 'spec.md') -Raw | Should -Not -Match 'too late'
+    }
+}
+
+Describe 'board writes' {
+    It 'waits out a reader holding board.json (the dashboard poll) instead of failing the save' {
+        $id = New-BacklogJob
+        $path = Join-Path $env:FACTORY_HOME 'board.json'
+        # As serve.ps1's ReadAllBytes opens it: read, shared for read only, so a replace is denied.
+        $fs = [IO.File]::Open($path, 'Open', 'Read', 'Read')
+        try {
+            $p = Start-Process pwsh -ArgumentList '-NoProfile', '-File', $script:Factory, 'approve', $id -PassThru -WindowStyle Hidden
+            Start-Sleep -Milliseconds 800
+        } finally { $fs.Dispose() }
+        $p.WaitForExit()
+        $p.ExitCode | Should -Be 0
+        (Job $id).stage | Should -Be 'approved'
     }
 }
 
@@ -317,7 +337,7 @@ Describe 'gate' {
         $j.stage | Should -Be 'ready'
         $j.flag | Should -BeNullOrEmpty
         $j.gate.test | Should -Be 0
-        $j.gate.sha | Should -Be (git rev-parse "factory/$id")
+        $j.gate.sha | Should -Be (git -C (Work $id) rev-parse "factory/$id")
     }
 
     It 'red gate lands in ready flagged gate-failed, with exit codes and gate.log' {
@@ -349,82 +369,87 @@ Describe 'gate' {
     }
 }
 
-Describe 'merge' {
-    It 'clean tree and green gate: --no-ff merge commit on main, job done' {
+Describe 'publish and merge' {
+    It 'publish pushes the branch and opens one PR into main, and is idempotent' {
+        $id = New-ApprovedJob 'Ship it'
+        Commit-OnBranch $id
+        Move-ToGate $id
+        F gate $id | Out-Null
+        $url = F publish $id
+        $LASTEXITCODE | Should -Be 0
+        $url | Should -Match '/pull/1$'
+        $j = Job $id
+        $j.pr.number | Should -Be 1
+        $j.pr.url | Should -Be $url
+        RGit rev-parse "factory/$id" | Should -Be (git -C (Work $id) rev-parse HEAD)
+        F publish $id | Should -Be $url
+        @(GhRequests | Where-Object { $_.method -eq 'POST' -and $_.path -match '/pulls$' }).Count | Should -Be 1
+        $pr = (GhRequests | Where-Object { $_.method -eq 'POST' -and $_.path -match '/pulls$' }).body
+        $pr.base | Should -Be 'main'
+        $pr.head | Should -Be "factory/$id"
+        $pr.title | Should -Be "$($id): Ship it"
+    }
+
+    It 'publish is refused outside ready' {
+        $id = New-ApprovedJob
+        F publish $id | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+    }
+
+    It 'green gate: merges the PR --no-ff into main, deletes the branch and the work dir, job done' {
         $id = New-ApprovedJob
         Commit-OnBranch $id
         Move-ToGate $id
         F gate $id | Out-Null
         F merge $id | Out-Null
         $LASTEXITCODE | Should -Be 0
-        (Job $id).stage | Should -Be 'done'
-        git rev-list --parents -n 1 main | ForEach-Object { ($_ -split ' ').Count } | Should -Be 3
-        Test-Path (Join-Path $script:Repo 'feature.txt') | Should -BeTrue
+        $j = Job $id
+        $j.stage | Should -Be 'done'
+        RGit rev-list --parents -n 1 main | ForEach-Object { ($_ -split ' ').Count } | Should -Be 3
+        RGit show main:feature.txt | Should -Be "work for $id"
+        $j.merged.sha | Should -Be (RGit rev-parse main)
+        $j.merged.repo | Should -Be $script:Repo
+        $j.merged.pr | Should -Be $j.pr.url
+        $j.merged.added | Should -Be @('feature.txt')
+        RGit branch --list "factory/$id" | Should -BeNullOrEmpty
+        Test-Path (Work $id) | Should -BeFalse
         (Events | Where-Object kind -eq 'merge').job | Should -Be $id
+        $m = GhRequests | Where-Object { $_.method -eq 'PUT' -and $_.path -match '/merge$' }
+        $m.body.merge_method | Should -Be 'merge'
+        $m.body.sha | Should -Be $j.gate.sha
     }
 
-    It 'dirty tree: stays ready flagged merge-blocked, nothing merged' {
+    It 'uncommitted changes in the work dir: stays ready flagged merge-blocked, nothing merged' {
         $id = New-ApprovedJob
         Commit-OnBranch $id
         Move-ToGate $id
         F gate $id | Out-Null
-        $head = git rev-parse main
-        Add-Content (Join-Path $script:Repo 'README.md') 'dirty'
+        $head = RGit rev-parse main
+        Add-Content (Join-Path (Work $id) 'README.md') 'dirty'
         F merge $id | Out-Null
         $LASTEXITCODE | Should -Not -Be 0
         (Job $id).stage | Should -Be 'ready'
         (Job $id).flag.reason | Should -Be 'merge-blocked'
         (Job $id).flag.detail | Should -Match 'README\.md'
-        git rev-parse main | Should -Be $head
+        RGit rev-parse main | Should -Be $head
+        Test-Path (Work $id) | Should -BeTrue
     }
 
-    It 'a file that differs only in line endings does not block the merge' {
-        # autocrlf checks a file out as CRLF; a generator (the router plugin) rewrites it as LF.
-        git config core.autocrlf true | Out-Null
-        [IO.File]::WriteAllText((Join-Path $script:Repo 'gen.ts'), "a`nb`n")
-        git add gen.ts 2>&1 | Out-Null; git commit -q -m gen 2>&1 | Out-Null
-        Remove-Item gen.ts; git checkout -- gen.ts 2>&1 | Out-Null
+    It 'a PR GitHub will not merge (conflict) stays ready flagged merge-blocked with its message' {
         $id = New-ApprovedJob
         Commit-OnBranch $id
         Move-ToGate $id
         F gate $id | Out-Null
-        Start-Sleep -Milliseconds 1100
-        [IO.File]::WriteAllText((Join-Path $script:Repo 'gen.ts'), "a`nb`n")
-        git status --porcelain | Should -Not -BeNullOrEmpty   # the old check's view
-        F merge $id | Out-Null
-        $LASTEXITCODE | Should -Be 0
-        (Job $id).stage | Should -Be 'done'
-    }
-
-    It 'a line-ending-only rewrite of a file the branch also changes does not block the merge' {
-        # J-010: the release checkout's routeTree.gen.ts is stat-dirty, and the branch adds a route to it.
-        git config core.autocrlf true | Out-Null
-        [IO.File]::WriteAllText((Join-Path $script:Repo 'gen.ts'), "a`nb`n")
-        git add gen.ts 2>&1 | Out-Null; git commit -q -m gen 2>&1 | Out-Null
-        Remove-Item gen.ts; git checkout -- gen.ts 2>&1 | Out-Null
-        $id = New-ApprovedJob
-        Commit-OnBranch $id 'gen.ts'
-        Move-ToGate $id
-        F gate $id | Out-Null
-        Start-Sleep -Milliseconds 1100
-        [IO.File]::WriteAllText((Join-Path $script:Repo 'gen.ts'), "a`nb`n")
-        F merge $id | Out-Null
-        $LASTEXITCODE | Should -Be 0
-        (Job $id).stage | Should -Be 'done'
-        (Get-Content (Join-Path $script:Repo 'gen.ts') -Raw) | Should -Match "work for $id"
-    }
-
-    It 'a merge git refuses for another reason carries git''s message, not "merge conflict"' {
-        $id = New-ApprovedJob
-        Commit-OnBranch $id                                          # adds feature.txt
-        Move-ToGate $id
-        F gate $id | Out-Null
-        Set-Content (Join-Path $script:Repo 'feature.txt') 'mine'    # untracked, in the way
+        Push-ToMain 'feature.txt' 'theirs'
+        $head = RGit rev-parse main
         F merge $id | Out-Null
         $LASTEXITCODE | Should -Not -Be 0
+        (Job $id).stage | Should -Be 'ready'
         (Job $id).flag.reason | Should -Be 'merge-blocked'
-        (Job $id).flag.detail | Should -Match 'untracked working tree files would be overwritten'
-        Get-Content (Join-Path $script:Repo 'feature.txt') | Should -Be 'mine'
+        (Job $id).flag.detail | Should -Match 'not mergeable'
+        (Job $id).merged | Should -BeNullOrEmpty
+        RGit rev-parse main | Should -Be $head
+        Test-Path (Work $id) | Should -BeTrue
     }
 
     It 'without a green gate for the head sha, merge runs the gate first (red → gate-failed)' {
@@ -436,13 +461,13 @@ Describe 'merge' {
         Write-Build $id; F set-stage $id review | Out-Null
         Write-Reviews $id (All 'Verdict: CHANGES'); F read-reviews $id | Out-Null
         (Job $id).flag.reason | Should -Be 'max-rounds'
-        $head = git rev-parse main
+        $head = RGit rev-parse main
 
         F merge $id | Out-Null
         $LASTEXITCODE | Should -Not -Be 0
         (Job $id).stage | Should -Be 'ready'
         (Job $id).flag.reason | Should -Be 'gate-failed'
-        git rev-parse main | Should -Be $head
+        RGit rev-parse main | Should -Be $head
     }
 
     It 'without a gate, merge runs it first (green → merged)' {
@@ -454,6 +479,86 @@ Describe 'merge' {
         $LASTEXITCODE | Should -Be 0
         (Job $id).stage | Should -Be 'done'
         (Job $id).gate.sha | Should -Not -BeNullOrEmpty
+    }
+
+    It 'a PR the human merged on GitHub: merge records that merge and moves the job to done, merging nothing again' {
+        $id = New-ApprovedJob
+        Commit-OnBranch $id
+        Move-ToGate $id
+        F gate $id | Out-Null
+        F publish $id | Out-Null
+        Merge-OnGitHub $id
+        $sha = RGit rev-parse main
+        F merge $id | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        $j = Job $id
+        $j.stage | Should -Be 'done'
+        $j.flag | Should -BeNullOrEmpty
+        $j.merged.sha | Should -Be $sha
+        $j.merged.pr | Should -Be $j.pr.url
+        $j.merged.added | Should -Be @('feature.txt')
+        RGit rev-parse main | Should -Be $sha
+        @(GhRequests | Where-Object { $_.method -eq 'PUT' -and $_.path -match '/merge$' }).Count | Should -Be 1   # only the human's
+        Test-Path (Work $id) | Should -BeFalse
+        (Events | Where-Object kind -eq 'merge').detail | Should -Be $sha
+    }
+
+    It 'sync-prs moves each ready job whose PR was merged on GitHub to done, and leaves the others' {
+        $a = New-ApprovedJob 'A'
+        Commit-OnBranch $a 'a.txt'; Move-ToGate $a; F gate $a | Out-Null; F publish $a | Out-Null
+        $b = New-ApprovedJob 'B'
+        Commit-OnBranch $b 'b.txt'; Move-ToGate $b; F gate $b | Out-Null; F publish $b | Out-Null
+        Merge-OnGitHub $a
+        F sync-prs | Should -Be $a
+        $LASTEXITCODE | Should -Be 0
+        (Job $a).stage | Should -Be 'done'
+        (Job $b).stage | Should -Be 'ready'
+        F sync-prs | Should -BeNullOrEmpty
+    }
+
+    It 'a PR merged on GitHub at a head the gate never passed still lands in done, with a note saying so' {
+        $id = New-ApprovedJob
+        Commit-OnBranch $id
+        Move-ToGate $id
+        F gate $id | Out-Null
+        F publish $id | Out-Null
+        # A commit pushed to the PR branch on GitHub after the gate.
+        $c = Join-Path $TestDrive "pr-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+        git clone -q -b "factory/$id" (Bare) $c 2>&1 | Out-Null
+        Set-Content (Join-Path $c 'late.txt') 'late'
+        git -C $c add -A 2>&1 | Out-Null
+        git -C $c -c user.email=o@t -c user.name=o commit -q -m late 2>&1 | Out-Null
+        git -C $c push -q origin "factory/$id" 2>&1 | Out-Null
+        Merge-OnGitHub $id
+        F merge $id | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        (Job $id).stage | Should -Be 'done'
+        (Events | Where-Object { $_.kind -eq 'note' -and $_.job -eq $id } | Select-Object -Last 1).detail | Should -Match 'merged on GitHub at \w{7}, not the gated'
+    }
+
+    It 'merge refuses a branch that adds nothing to main, and records no merge' {
+        $id = New-ApprovedJob 'Empty'
+        F checkout $id | Out-Null
+        Move-ToGate $id
+        F gate $id | Out-Null
+        F merge $id | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        $j = Job $id
+        $j.stage | Should -Be 'ready'
+        $j.flag.reason | Should -Be 'merge-blocked'
+        $j.flag.detail | Should -Match 'nothing to merge'
+        $j.merged | Should -BeNullOrEmpty
+    }
+
+    It 'the token goes to the API as a bearer token and never lands on disk' {
+        $id = New-ApprovedJob
+        Commit-OnBranch $id
+        Move-ToGate $id
+        F gate $id | Out-Null
+        F publish $id | Out-Null
+        GhRequests | ForEach-Object { $_.auth | Should -Be "Bearer $script:Token" }
+        Get-Content (Join-Path (Work $id) '.git/config') -Raw | Should -Not -Match $script:Token
+        foreach ($f in Get-ChildItem $env:FACTORY_HOME -Recurse -File) { Get-Content $f.FullName -Raw | Should -Not -Match $script:Token }
     }
 }
 
@@ -470,7 +575,22 @@ Describe 'human moves from ready' {
         Get-Content (Join-Path (JobDir $id) 'rework-2.md') -Raw | Should -Match 'Input component'
     }
 
-    It 'discard works from backlog and from ready, and deletes the branch' {
+    It 'rework keeps the pushed branch: a missing work dir is cloned again from it' {
+        $id = New-ApprovedJob
+        Commit-OnBranch $id
+        F set-stage $id build -By runner | Out-Null
+        F set-stage $id ready -Reason escalated -Detail 'x' | Out-Null
+        F publish $id | Out-Null
+        $head = git -C (Work $id) rev-parse HEAD
+        F rework $id 'more' | Out-Null
+        Remove-Item -Recurse -Force (Work $id)
+        $wt = F checkout $id
+        $LASTEXITCODE | Should -Be 0
+        git -C $wt branch --show-current | Should -Be "factory/$id"
+        git -C $wt rev-parse HEAD | Should -Be $head
+    }
+
+    It 'discard works from backlog and from ready, and closes the PR, deletes the branch and the work dir' {
         $a = New-BacklogJob 'A'
         F discard $a | Out-Null
         (Job $a).stage | Should -Be 'discarded'
@@ -479,9 +599,13 @@ Describe 'human moves from ready' {
         Commit-OnBranch $b
         F set-stage $b build -By runner | Out-Null
         F set-stage $b ready -Reason escalated -Detail 'x' | Out-Null
+        F publish $b | Out-Null
         F discard $b | Out-Null
+        $LASTEXITCODE | Should -Be 0
         (Job $b).stage | Should -Be 'discarded'
-        git branch --list "factory/$b" | Should -BeNullOrEmpty
+        RGit branch --list "factory/$b" | Should -BeNullOrEmpty
+        Test-Path (Work $b) | Should -BeFalse
+        (GhRequests | Where-Object { $_.method -eq 'PATCH' }).body.state | Should -Be 'closed'
     }
 
     It 'discard is refused from building stages' {
@@ -512,9 +636,6 @@ Describe 'purge' {
         Test-Path (JobDir $done) | Should -BeFalse
         Test-Path (JobDir $gone) | Should -BeFalse
         Test-Path (JobDir $kept) | Should -BeTrue
-        git -C $script:Repo branch --list "factory/$done" | Should -BeNullOrEmpty
-        # The shared worktree sat on the purged branch; purge detached it.
-        git -C $env:FACTORY_WORKTREE branch --show-current | Should -BeNullOrEmpty
         Events | Where-Object { $_.kind -eq 'note' -and $_.detail -match 'purged' } | Should -Not -BeNullOrEmpty
     }
 
@@ -528,7 +649,7 @@ Describe 'purge' {
         $c = F new-idea 'rejected' -Target $script:Repo
         F idea-done $c -Failed -Reason 'rejected in session' | Out-Null
         $d = F new-idea 'still drafting' -Target $script:Repo
-        $new = Join-Path $TestDrive "target-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+        $new = "test/target-$([guid]::NewGuid().ToString('N').Substring(0,8))"
         $w, $boot = (F new-idea 'waiting' -Target $new -Scaffold '{"name":"todo","resource":"Todo","db":"sqlite","ui":"none","events":false}') -split ' '
         F discard $boot | Out-Null
 
@@ -539,6 +660,21 @@ Describe 'purge' {
         @((Board).ideas | ForEach-Object id) | Should -Be @($b, $d, $w)
         Test-Path (Join-Path $env:FACTORY_HOME "ideas/$a") | Should -BeFalse
         Test-Path (Join-Path $env:FACTORY_HOME "ideas/$b") | Should -BeTrue
+    }
+
+    It 'removes a work dir that merge or discard could not delete' {
+        $id = New-ApprovedJob
+        Commit-OnBranch $id
+        F set-stage $id build -By runner | Out-Null
+        F set-stage $id ready -Reason escalated -Detail 'x' | Out-Null
+        $wt = Work $id
+        $lock = [IO.File]::Open((Join-Path $wt 'feature.txt'), 'Open', 'Read', 'None')
+        try { F discard $id | Out-Null } finally { $lock.Dispose() }
+        $LASTEXITCODE | Should -Be 0
+        (Job $id).stage | Should -Be 'discarded'
+        Events | Where-Object { $_.kind -eq 'note' -and $_.detail -match 'work dir' } | Should -Not -BeNullOrEmpty
+        F purge | Out-Null
+        Test-Path $wt | Should -BeFalse
     }
 
     It 'never reuses a purged id' {
@@ -591,14 +727,21 @@ Describe 'bookkeeping' {
         $e.round | Should -Be 1
     }
 
-    It 'checkout creates the worktree on factory/<id> from main and reuses it' {
+    It 'checkout clones the target into <work>/jobs/<id> on factory/<id> from main, one dir per job, and reuses it' {
         $a = New-ApprovedJob 'A'
-        F checkout $a | Out-Null
-        git -C $env:FACTORY_WORKTREE branch --show-current | Should -Be "factory/$a"
+        $wa = F checkout $a
+        $LASTEXITCODE | Should -Be 0
+        $wa | Should -Be (Work $a)
+        git -C $wa branch --show-current | Should -Be "factory/$a"
+        git -C $wa rev-parse HEAD | Should -Be (RGit rev-parse main)
+        Set-Content (Join-Path $wa 'wip.txt') 'kept'
+        F checkout $a | Should -Be $wa
+        Test-Path (Join-Path $wa 'wip.txt') | Should -BeTrue
         $b = New-ApprovedJob 'B'
-        F checkout $b | Out-Null
-        git -C $env:FACTORY_WORKTREE branch --show-current | Should -Be "factory/$b"
-        git -C $script:Repo branch --show-current | Should -Be 'main'
+        $wb = F checkout $b
+        $wb | Should -Be (Work $b)
+        git -C $wb branch --show-current | Should -Be "factory/$b"
+        RGit branch --list 'factory/*' | Should -BeNullOrEmpty    # nothing is pushed by checkout
     }
 
     It 'status -Json prints the board' {
@@ -740,34 +883,62 @@ Describe 'evaluations' {
 
 Describe 'targets' {
     BeforeEach {
-        # These tests use each target's own <target>.wt, not the shared override.
-        Remove-Item Env:FACTORY_WORKTREE -ErrorAction SilentlyContinue
-        $script:New = Join-Path $TestDrive "target-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+        $script:New = "test/target-$([guid]::NewGuid().ToString('N').Substring(0,8))"
     }
 
-    It 'new-idea refuses a missing, relative or non-repo non-empty target and leaves the board empty' {
-        F new-idea 'no target' | Out-Null
-        $LASTEXITCODE | Should -Not -Be 0
-        F new-idea 'relative' -Target 'Scratchpad\todo' | Out-Null
-        $LASTEXITCODE | Should -Not -Be 0
-        New-Item -ItemType Directory $script:New | Out-Null
-        Set-Content (Join-Path $script:New 'loose.txt') 'not a repo'
-        F new-idea 'non-repo' -Target $script:New | Out-Null
+    It 'new-idea refuses a missing target, a local path or anything not owner/name, and leaves the board empty' -ForEach @(
+        @{ t = $null }, @{ t = 'D:\code\Scratchpad\todo' }, @{ t = 'Scratchpad\todo' }, @{ t = 'todo' }, @{ t = 'a/b/c' }, @{ t = 'https://github.com/a/b' }
+    ) {
+        if ($t) { F new-idea 'x' -Target $t | Out-Null } else { F new-idea 'x' | Out-Null }
         $LASTEXITCODE | Should -Not -Be 0
         Test-Path (Join-Path $env:FACTORY_HOME 'board.json') | Should -BeFalse
     }
 
-    It 'check-target prints new or existing, refuses what new-idea refuses, and writes no board' {
+    It 'check-target asks GitHub: existing, missing or empty (no main) is new; refuses a non-target; writes no board' {
         F check-target $script:Repo | Should -Be 'existing'
         F check-target $script:New | Should -Be 'new'
-        New-Item -ItemType Directory $script:New | Out-Null
+        git init -q --bare -b main (Bare $script:New) 2>&1 | Out-Null
         F check-target $script:New | Should -Be 'new'
-        Set-Content (Join-Path $script:New 'loose.txt') 'not a repo'
-        F check-target $script:New | Out-Null
-        $LASTEXITCODE | Should -Not -Be 0
-        F check-target 'Scratchpad\todo' | Out-Null
+        F check-target 'D:\code\todo' | Out-Null
         $LASTEXITCODE | Should -Not -Be 0
         Test-Path (Join-Path $env:FACTORY_HOME 'board.json') | Should -BeFalse
+        (GhRequests $script:New | Select-Object -Last 1).auth | Should -Be "Bearer $script:Token"
+    }
+
+    It 'check-target and new-idea refuse when GitHub refuses the token' {
+        $bad = Join-Path $TestDrive 'bad.env'
+        Set-Content $bad @('GITHUB_TOKEN=', "GITHUB_API_URL=http://localhost:$script:GhPort", "FACTORY_GIT_BASE=$script:GitUrl")
+        $env:FACTORY_ENV_FILE = $bad
+        F check-target $script:Repo | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        F list-repos | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+    }
+
+    It 'list-repos prints the token user''s repos as a JSON array, newest push first; writes no board' {
+        $older = "test/older-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+        New-Remote $older
+        (Get-Item (Bare $older)).LastWriteTime = (Get-Date).AddDays(-30)
+        New-Remote $script:New
+        $out = F list-repos
+        $LASTEXITCODE | Should -Be 0
+        $repos = @($out | ConvertFrom-Json)
+        $repos | Should -Contain $script:New
+        $repos | Should -Contain $older
+        [array]::IndexOf($repos, $script:New) | Should -BeLessThan ([array]::IndexOf($repos, $older))
+        Test-Path (Join-Path $env:FACTORY_HOME 'board.json') | Should -BeFalse
+    }
+
+    It 'clone-target replaces a folder with a shallow clone of main' {
+        $dir = Join-Path $TestDrive "clone-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+        New-Item -ItemType Directory $dir | Out-Null
+        Set-Content (Join-Path $dir 'stale.txt') 'old'
+        F clone-target $script:Repo $dir | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        Test-Path (Join-Path $dir 'stale.txt') | Should -BeFalse
+        Get-Content (Join-Path $dir 'README.md') | Should -Be 'fixture'
+        git -C $dir rev-parse --is-shallow-repository | Should -Be 'true'
+        Get-Content (Join-Path $dir '.git/config') -Raw | Should -Not -Match $script:Token
     }
 
     It 'new-idea on an existing repo stores the target and goes straight to drafting' {
@@ -810,14 +981,19 @@ Describe 'targets' {
         $spec | Should -Match '# Spec: J-001 — Bootstrap todo from template-projects'
         $spec | Should -Match ([regex]::Escape("- Repo: $script:New"))
         $spec | Should -Match ([regex]::Escape('dotnet new aspire-base -n todo -o . --dbProvider sqlite --resource Todo'))
-        $spec | Should -Match ([regex]::Escape('dotnet new aspire-ui-react -n todo -o . --resource Todo'))
-        $spec | Should -Not -Match 'aspire-events'
+        $spec | Should -Match ([regex]::Escape('`aspire-addon add ui-react`'))
+        $spec | Should -Not -Match 'dotnet new aspire-ui|aspire-events|add events'
+        $spec | Should -Match ([regex]::Escape('/aspire-starter:boot-strap-app'))
+        $spec | Should -Match 'Skip Phase 5'
+        $spec | Should -Not -Match 'scaffold-aspire-app'
         $spec | Should -Match ([regex]::Escape('- build: `dotnet build todo.slnx`'))
         $spec | Should -Match ([regex]::Escape('- test: `dotnet test todo.slnx`'))
+        $spec | Should -Match ([regex]::Escape('- apphost: `dotnet build .aspire/apphost.cs`'))
         $spec | Should -Match ([regex]::Escape('- ui: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build`'))
         $spec | Should -Not -Match '\{\{'
         F approve 'J-001' | Out-Null
         $LASTEXITCODE | Should -Be 0
+        Test-Path (Bare $script:New) | Should -BeFalse    # nothing is created on GitHub before checkout
     }
 
     It "the bootstrap spec's ui gate runs npm ci only when node_modules is missing or older than package-lock.json" {
@@ -838,12 +1014,13 @@ Describe 'targets' {
         Get-Content $calls | Should -Be @('ci', 'run build', 'run build', 'ci', 'run build')
     }
 
-    It 'the bootstrap spec maps blazor, postgres and events to their template flags' {
+    It 'the bootstrap spec maps blazor, postgres and events to their aspire-addon commands' {
         F new-idea 'x' -Target $script:New -Scaffold '{"name":"shop","resource":"Product","db":"postgres","ui":"blazor-maui","events":true}' | Out-Null
         $spec = Get-Content (Join-Path (JobDir 'J-001') 'spec.md') -Raw
-        $spec | Should -Match ([regex]::Escape('dotnet new aspire-ui-blazor -n shop -o . --web true --maui true --resource Product'))
-        $spec | Should -Match ([regex]::Escape('dotnet new aspire-events -n shop -o . --eventStore marten --resource Product'))
-        $spec | Should -Not -Match 'aspire-ui-react'
+        $spec | Should -Match ([regex]::Escape('dotnet new aspire-base -n shop -o . --dbProvider postgres --resource Product'))
+        $spec | Should -Match ([regex]::Escape('`aspire-addon add ui-blazor --web true --maui true`'))
+        $spec | Should -Match ([regex]::Escape('`aspire-addon add events`'))
+        $spec | Should -Not -Match 'dotnet new aspire-(ui|events)|ui-react'
         $spec | Should -Not -Match '- ui:'
     }
 
@@ -862,9 +1039,29 @@ Describe 'targets' {
         (Board).ideas[0].status | Should -Be 'drafting'
     }
 
-    It 'approve refuses a spec with no Target, a relative Repo, or no Gate' -ForEach @(
+    It 'a bootstrap PR merged on GitHub releases its idea too, through sync-prs' {
+        F new-idea 'a todo app' -Target $script:New -Scaffold '{"name":"todo","resource":"Todo","db":"sqlite","ui":"none","events":false}' | Out-Null
+        F approve 'J-001' | Out-Null
+        $wt = F checkout 'J-001'
+        Set-Content (Join-Path $wt 'todo.slnx') '<Solution />'
+        git -C $wt add -A 2>&1 | Out-Null
+        git -C $wt -c user.email=f@t -c user.name=f commit -q -m 'scaffold' 2>&1 | Out-Null
+        Move-ToGate 'J-001'
+        F gate 'J-001' | Out-Null
+        F publish 'J-001' | Out-Null
+        Invoke-RestMethod -Method Put "http://localhost:$script:GhPort/repos/$script:New/pulls/$((Job 'J-001').pr.number)/merge" `
+            -Headers @{ Authorization = "Bearer $script:Token" } -ContentType 'application/json' -Body '{}' | Out-Null
+        $out = F sync-prs
+        $LASTEXITCODE | Should -Be 0
+        $out | Should -Contain 'J-001'
+        $out | Should -Contain 'released I-001'
+        (Job 'J-001').stage | Should -Be 'done'
+        (Board).ideas[0].status | Should -Be 'drafting'
+    }
+
+    It 'approve refuses a spec with no Target, a local path Repo, or no Gate' -ForEach @(
         @{ case = 'no target'; repo = $null; gate = @('build: `exit 0`') }
-        @{ case = 'relative'; repo = 'Scratchpad\todo'; gate = @('build: `exit 0`') }
+        @{ case = 'local path'; repo = 'D:\code\Scratchpad\todo'; gate = @('build: `exit 0`') }
         @{ case = 'no gate'; repo = 'NEW'; gate = @() }
     ) {
         $r = if ($repo -eq 'NEW') { $script:New } else { $repo }
@@ -885,43 +1082,54 @@ Describe 'targets' {
         (Job $id).target | Should -Be $script:New
     }
 
-    It 'checkout creates a missing target repo on main with one commit, and <target>.wt on factory/<id>' {
+    It "checkout creates a missing repo on GitHub, private, with main's one empty commit, and clones it" {
         $id = New-ApprovedJob 'New app' $script:New
         $wt = F checkout $id
         $LASTEXITCODE | Should -Be 0
-        $wt | Should -Be "$script:New.wt"
-        git -C $script:New branch --show-current | Should -Be 'main'
-        @(git -C $script:New log --oneline main).Count | Should -Be 1
-        git -C "$script:New.wt" branch --show-current | Should -Be "factory/$id"
-        git -C $script:Repo branch --list "factory/$id" | Should -BeNullOrEmpty
+        $wt | Should -Be (Work $id)
+        $create = GhRequests $script:New | Where-Object { $_.method -eq 'POST' -and $_.path -eq '/user/repos' }
+        $create.body.name | Should -Be ($script:New -split '/')[1]
+        $create.body.private | Should -BeTrue
+        @(git -C (Bare $script:New) log --oneline main).Count | Should -Be 1
+        git -C $wt branch --show-current | Should -Be "factory/$id"
     }
 
-    It 'checkout fails when the target became a non-empty folder that is not a repo' {
-        $id = New-ApprovedJob 'Late' $script:New
-        New-Item -ItemType Directory $script:New | Out-Null
-        Set-Content (Join-Path $script:New 'loose.txt') 'x'
+    It 'checkout creates a repo for another owner in that organization' {
+        $org = "acme/app-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+        $id = New-ApprovedJob 'Org app' $org
         F checkout $id | Out-Null
-        $LASTEXITCODE | Should -Not -Be 0
+        $LASTEXITCODE | Should -Be 0
+        (GhRequests $org | Where-Object { $_.method -eq 'POST' -and $_.path -eq '/orgs/acme/repos' }).body.private | Should -BeTrue
     }
 
-    It "the gate runs the spec's Gate commands in the target worktree" {
+    It 'checkout pushes an empty initial commit to an existing repo with no main' {
+        git init -q --bare -b main (Bare $script:New) 2>&1 | Out-Null
+        $id = New-ApprovedJob 'Empty repo' $script:New
+        F checkout $id | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        @(git -C (Bare $script:New) log --oneline main).Count | Should -Be 1
+        GhRequests $script:New | Where-Object { $_.method -eq 'POST' -and $_.path -match '/repos$' } | Should -BeNullOrEmpty
+    }
+
+    It "the gate runs the spec's Gate commands in the job's work dir" {
         Remove-Item Env:FACTORY_GATE_CMDS
-        $id = New-ApprovedJob 'Gated' $script:New @('smoke: `Set-Content gate-ran.txt ok`', 'test: `exit 3`')
+        $id = New-ApprovedJob 'Gated' $script:Repo @('smoke: `Set-Content gate-ran.txt ok`', 'test: `exit 3`')
         F checkout $id | Out-Null
         Move-ToGate $id
         F gate $id | Out-Null
         $g = (Job $id).gate
         $g.smoke | Should -Be 0
         $g.test | Should -Be 3
-        Test-Path (Join-Path "$script:New.wt" 'gate-ran.txt') | Should -BeTrue
+        Test-Path (Join-Path (Work $id) 'gate-ran.txt') | Should -BeTrue
         (Job $id).flag.reason | Should -Be 'gate-failed'
     }
 
-    It "merge lands --no-ff on the target's main and records the absolute added and modified paths" {
-        $id = New-ApprovedJob 'Ship' $script:New
+    It 'merge records the repo-relative added and modified paths' {
+        $id = New-ApprovedJob 'Ship'
         $wt = F checkout $id
         New-Item -ItemType Directory (Join-Path $wt 'src') | Out-Null
         Set-Content (Join-Path $wt 'src/app.txt') 'app'
+        Set-Content (Join-Path $wt 'README.md') 'changed'
         git -C $wt add -A 2>&1 | Out-Null
         git -C $wt -c user.email=f@t -c user.name=f commit -q -m 'ship' 2>&1 | Out-Null
         Move-ToGate $id
@@ -929,41 +1137,8 @@ Describe 'targets' {
         F merge $id | Out-Null
         $LASTEXITCODE | Should -Be 0
         $j = Job $id
-        $j.stage | Should -Be 'done'
-        $j.merged.repo | Should -Be $script:New
-        $j.merged.added | Should -Be @(Join-Path $script:New 'src\app.txt')
-        $j.merged.sha | Should -Be (git -C $script:New rev-parse main)
-        @(git -C $script:New log --merges --oneline main).Count | Should -Be 1
-        git -C $script:Repo log --merges --oneline main | Should -BeNullOrEmpty
-    }
-
-    It 'merge refuses a branch that adds nothing to the target main, and records no merge' {
-        $id = New-ApprovedJob 'Empty' $script:New
-        F checkout $id | Out-Null
-        Move-ToGate $id
-        F gate $id | Out-Null
-        F merge $id | Out-Null
-        $LASTEXITCODE | Should -Not -Be 0
-        $j = Job $id
-        $j.stage | Should -Be 'ready'
-        $j.flag.reason | Should -Be 'merge-blocked'
-        $j.flag.detail | Should -Match 'nothing to merge'
-        $j.merged | Should -BeNullOrEmpty
-    }
-
-    It 'a legacy ready job with no target still merges into this repo' {
-        $env:FACTORY_WORKTREE = "$script:Repo.wt"
-        $id = New-ApprovedJob 'Legacy'
-        Commit-OnBranch $id
-        Move-ToGate $id
-        F gate $id | Out-Null
-        # Simulate a job created before targets existed.
-        $b = Board
-        ($b.jobs | Where-Object id -eq $id).Remove('target')
-        [IO.File]::WriteAllText((Join-Path $env:FACTORY_HOME 'board.json'), ($b | ConvertTo-Json -Depth 20))
-        F merge $id | Out-Null
-        $LASTEXITCODE | Should -Be 0
-        (Job $id).merged.added | Should -Be @(Join-Path $script:Repo 'feature.txt')
+        $j.merged.added | Should -Be @('src/app.txt')
+        $j.merged.modified | Should -Be @('README.md')
     }
 }
 

@@ -56,31 +56,28 @@ New-Item -ItemType Directory -Force $Home_ | Out-Null
 $BoardPath = Join-Path $Home_ 'board.json'
 $EventsPath = Join-Path $Home_ 'events.jsonl'
 
-# The repo a job builds in and merges to: its target, or this repo for legacy jobs with none.
-function JobRoot($j) {
-    if ($j -and $j.Contains('target') -and $j.target) { return $j.target }
-    MainRoot
+. (Join-Path $PSScriptRoot 'github.ps1')
+
+# A job's local clone of its target, where it builds and is gated; deleted at done or discarded.
+function WorkRoot {
+    if ($env:FACTORY_WORK) { return $env:FACTORY_WORK }
+    Join-Path ([IO.Path]::GetTempPath()) 'claude-factory'
 }
 
-function WorktreePath($j) {
-    if ($env:FACTORY_WORKTREE) { return $env:FACTORY_WORKTREE }
-    (JobRoot $j).TrimEnd('\', '/') + '.wt'
+function WorkDir($j) { Join-Path (WorkRoot) "jobs/$($j.id)" }
+
+# Returns $null for a target written owner/name, or why it is refused.
+function Test-Target([string] $t) {
+    if (-not $t) { return 'a target repo (owner/name) is required' }
+    if ($t -notmatch '^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$') { return "target '$t' is not a GitHub repo written owner/name" }
+    $null
 }
 
-# Returns $null for a usable target ('repo' or 'new'), or why it is refused.
-function Test-Target([string] $path) {
-    if (-not $path) { return 'a target repo path is required' }
-    if (-not [IO.Path]::IsPathFullyQualified($path)) { return "target '$path' is not an absolute path" }
-    if (-not (Test-Path $path)) { return $null }
-    if (-not (Test-Path $path -PathType Container)) { return "target '$path' is a file" }
-    if (Test-Path (Join-Path $path '.git')) { return $null }
-    if (@(Get-ChildItem $path -Force).Count -eq 0) { return $null }
-    "target '$path' is a non-empty folder that is not a git repo"
-}
-
-# A new target gets scaffolded by a bootstrap job: it does not exist yet, or is an empty folder.
-function Test-NewTarget([string] $path) {
-    -not (Test-Path $path) -or (-not (Test-Path (Join-Path $path '.git')) -and @(Get-ChildItem $path -Force).Count -eq 0)
+# A new target gets scaffolded by a bootstrap job: the repo is missing, or has no main. Fails on a GitHub error.
+function Test-NewTarget([string] $t, [string] $what) {
+    $state = Get-TargetState $t
+    if ($state -like 'error: *') { Fail "$what refused: $($state.Substring(7))" }
+    $state -ne 'existing'
 }
 
 # Returns $null for valid scaffold options (see "Targets" in the contract), or why they are refused.
@@ -103,16 +100,14 @@ function TemplatesRoot {
 function Bootstrap-Spec($sc, [string] $target) {
     $n = $sc.name; $r = $sc.resource
     $cmds = @("dotnet new aspire-base -n $n -o . --dbProvider $($sc.db) --resource $r")
+    # aspire-addon reads name, resource and data store (so the event store) from .aspirestarter.json.
     switch ($sc.ui) {
-        'react' { $cmds += "dotnet new aspire-ui-react -n $n -o . --resource $r" }
-        'blazor' { $cmds += "dotnet new aspire-ui-blazor -n $n -o . --web true --maui false --resource $r" }
-        'blazor-maui' { $cmds += "dotnet new aspire-ui-blazor -n $n -o . --web true --maui true --resource $r" }
+        'react' { $cmds += 'aspire-addon add ui-react' }
+        'blazor' { $cmds += 'aspire-addon add ui-blazor --web true --maui false' }
+        'blazor-maui' { $cmds += 'aspire-addon add ui-blazor --web true --maui true' }
     }
-    if ($sc.events) {
-        $store = @{ sqlite = 'fisher'; sqlserver = 'polecat'; postgres = 'marten' }[$sc.db]
-        $cmds += "dotnet new aspire-events -n $n -o . --eventStore $store --resource $r"
-    }
-    $gate = @("- build: ``dotnet build $n.slnx``", "- test: ``dotnet test $n.slnx``")
+    if ($sc.events) { $cmds += 'aspire-addon add events' }
+    $gate = @("- build: ``dotnet build $n.slnx``", "- test: ``dotnet test $n.slnx``", '- apphost: `dotnet build .aspire/apphost.cs`')
     if ($sc.ui -eq 'react') { $gate += '- ui: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build`' }
     $text = Get-Content (Join-Path (Split-Path $PSScriptRoot -Parent) 'templates/bootstrap.md') -Raw
     $values = @{
@@ -154,10 +149,19 @@ function Load-Board {
     $b
 }
 
+# Replaces $path with $tmp. A reader that opened $path without delete sharing (serve.ps1 serving
+# /state/board.json to the dashboard poll) makes the replace fail for a moment, so it is retried.
+function Replace-File([string] $tmp, [string] $path) {
+    for ($i = 0; ; $i++) {
+        try { [IO.File]::Move($tmp, $path, $true); return }
+        catch [UnauthorizedAccessException], [IO.IOException] { if ($i -ge 40) { throw }; Start-Sleep -Milliseconds 50 }
+    }
+}
+
 function Save-Board($b) {
     $tmp = "$BoardPath.$PID.tmp"
     [IO.File]::WriteAllText($tmp, ($b | ConvertTo-Json -Depth 20))
-    [IO.File]::Move($tmp, $BoardPath, $true)
+    Replace-File $tmp $BoardPath
 }
 
 function Add-Event([hashtable] $e) {
@@ -211,7 +215,7 @@ function Add-Job($i, [string[]] $lines, [string] $source, [string] $kind) {
     $j = [ordered]@{
         id = $id; idea = $i.id; kind = $kind; title = $title; stage = 'backlog'; round = 1; branch = "factory/$id"
         target = (Read-SpecMeta $spec).repo
-        reviews = $null; decision = $null; gate = $null; flag = $null; merged = $null; approvedAt = $null
+        pr = $null; reviews = $null; decision = $null; gate = $null; flag = $null; merged = $null; approvedAt = $null
         costUsd = $null; durationMs = $null; createdAt = $ts; updatedAt = $ts; history = @()
     }
     Reset-Reviews $j
@@ -261,74 +265,104 @@ function Invoke-Git([string] $Where) {
     [pscustomobject]@{ Code = $LASTEXITCODE; Out = ($out | Out-String).Trim() }
 }
 
-function Branch-Exists([string] $root, [string] $branch) { (Invoke-Git $root rev-parse --verify --quiet "refs/heads/$branch").Code -eq 0 }
-
-# Deletes factory/<id> in the job's repo, detaching its worktree first if it is on that branch.
-function Remove-JobBranch($j) {
-    $branch = "factory/$($j.id)"
-    $root = JobRoot $j
-    if (-not (Test-Path (Join-Path $root '.git')) -or -not (Branch-Exists $root $branch)) { return }
-    $wt = WorktreePath $j
-    if ((Test-Path $wt) -and (Invoke-Git $wt branch --show-current).Out -eq $branch) {
-        $r = Invoke-Git $wt checkout -q --detach
-        if ($r.Code -ne 0) { Fail "cannot detach worktree: $($r.Out)" }
-    }
-    $r = Invoke-Git $root branch -D $branch
-    if ($r.Code -ne 0) { Fail "cannot delete $($branch): $($r.Out)" }
+# Deletes the job's work dir. A locked file (a build server, an editor) is a note event, never a
+# failure; purge tries again.
+function Remove-WorkDir($j) {
+    $wt = WorkDir $j
+    if (-not (Test-Path $wt)) { return }
+    try { Remove-Item -LiteralPath $wt -Recurse -Force -ErrorAction Stop }
+    catch { Add-Event ([ordered]@{ job = $j.id; kind = 'note'; detail = "work dir not removed: $($_.Exception.Message)" }) }
 }
 
-# Creates a missing (or empty) target as a git repo with an empty initial commit on main.
-function Ensure-Repo([string] $root) {
-    $err = Test-Target $root
+# Closes the job's open PR, deletes factory/<id> on GitHub if it was pushed, and deletes the work dir.
+function Remove-JobWork($j) {
+    if ($j.Contains('target') -and -not (Test-Target $j.target)) {
+        $pr = Get-OpenPr $j.target "factory/$($j.id)"
+        if ($pr) { Invoke-GitHub PATCH "/repos/$($j.target)/pulls/$($pr.number)" @{ state = 'closed' } | Out-Null }
+        Invoke-GitHub DELETE "/repos/$($j.target)/git/refs/heads/factory/$($j.id)" | Out-Null
+    }
+    Remove-WorkDir $j
+}
+
+# Creates the target on GitHub if it is missing, and pushes main with an empty initial commit if it has none.
+function Ensure-GitHubRepo([string] $t) {
+    $err = Test-Target $t
     if ($err) { return $err }
-    if (Test-Path (Join-Path $root '.git')) { return $null }
-    New-Item -ItemType Directory -Force $root | Out-Null
-    $r = Invoke-Git $root init -q -b main
-    if ($r.Code -ne 0) { return "git init failed: $($r.Out)" }
-    $r = Invoke-Git $root -c user.name=factory -c user.email=factory@localhost commit -q --allow-empty -m 'Initial commit (factory)'
-    if ($r.Code -ne 0) { return "initial commit failed: $($r.Out)" }
+    $state = Get-TargetState $t
+    if ($state -like 'error: *') { return $state.Substring(7) }
+    if ($state -eq 'existing') { return $null }
+    if ($state -eq 'missing') { $err = New-GitHubRepo $t; if ($err) { return $err } }
+    $seed = Join-Path (WorkRoot) "seed-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
+    try {
+        New-Item -ItemType Directory -Force $seed | Out-Null
+        $r = Invoke-Git $seed init -q -b main
+        if ($r.Code -eq 0) { $r = Invoke-Git $seed -c user.name=factory -c user.email=factory@localhost commit -q --allow-empty -m 'Initial commit (factory)' }
+        if ($r.Code -eq 0) { $r = Invoke-GitAuth $seed push -q (CloneUrl $t) main }
+        if ($r.Code -ne 0) { return "initial commit for $t failed: $($r.Out)" }
+    } finally { Remove-Item -LiteralPath $seed -Recurse -Force -ErrorAction SilentlyContinue }
     $null
 }
 
-function Ensure-Worktree([string] $id) {
+# Clones the job's target into its work dir (once) and checks out factory/<id>: the pushed branch
+# after a rework, otherwise a new one from origin/main.
+function Ensure-Clone([string] $id) {
     $j = Get-Job $id
-    $root = JobRoot $j
-    $err = Ensure-Repo $root
+    $err = Test-Target $j.target
     if ($err) { return $err }
-    $wt = WorktreePath $j
+    $wt = WorkDir $j
     $branch = "factory/$id"
-    if (-not (Test-Path $wt)) {
-        $r = Invoke-Git $root worktree add --detach $wt main
-        if ($r.Code -ne 0) { return "worktree add failed: $($r.Out)" }
+    if (-not (Test-Path (Join-Path $wt '.git'))) {
+        $err = Ensure-GitHubRepo $j.target
+        if ($err) { return $err }
+        Remove-Item -LiteralPath $wt -Recurse -Force -ErrorAction SilentlyContinue
+        New-Item -ItemType Directory -Force (Split-Path $wt -Parent) | Out-Null
+        $r = Invoke-GitAuth (Split-Path $wt -Parent) clone -q (CloneUrl $j.target) $wt
+        if ($r.Code -ne 0) { return "clone of $($j.target) failed: $($r.Out)" }
     }
     $current = (Invoke-Git $wt branch --show-current).Out
     if ($current -eq $branch) { return $null }
-    if ((Invoke-Git $wt status --porcelain).Out) { return "worktree $wt has uncommitted changes on '$current'" }
-    $r = if (Branch-Exists $root $branch) { Invoke-Git $wt checkout -q $branch } else { Invoke-Git $wt checkout -q -b $branch main }
+    if ((Invoke-Git $wt status --porcelain).Out) { return "work dir $wt has uncommitted changes on '$current'" }
+    $r = if ((Invoke-Git $wt rev-parse --verify --quiet "refs/remotes/origin/$branch").Code -eq 0) { Invoke-Git $wt checkout -q -B $branch "origin/$branch" }
+         elseif ((Invoke-Git $wt rev-parse --verify --quiet 'refs/remotes/origin/main').Code -eq 0) { Invoke-Git $wt checkout -q -b $branch origin/main }
+         else { return "$($j.target) has no main branch" }
     if ($r.Code -ne 0) { return "checkout $branch failed: $($r.Out)" }
     $null
 }
 
-function Gate-Commands($j) {
-    if ($env:FACTORY_GATE_CMDS) { return @($env:FACTORY_GATE_CMDS | ConvertFrom-Json) }
-    $gate = (Read-SpecMeta (Join-Path (JobDir $j.id) 'spec.md')).gate
-    if ($gate) { return $gate }
-    if ($j.Contains('target') -and $j.target) { return @() }
-    @(
-        [pscustomobject]@{ name = 'build'; cmd = 'dotnet build shelf.slnx' }
-        [pscustomobject]@{ name = 'test'; cmd = 'dotnet test tests/shelf.api.tests' }
-        [pscustomobject]@{ name = 'ui'; cmd = 'Set-Location src/ui/react; if (-not (Test-Path node_modules)) { npm ci }; npm run build' }
-    )
+# Pushes factory/<id> and opens its PR into main if it has none; returns the PR url, or an error string
+# prefixed 'error: '.
+function Publish-Job($j) {
+    $wt = WorkDir $j
+    $branch = "factory/$($j.id)"
+    if (-not (Test-Path (Join-Path $wt '.git'))) { return "error: $($j.id) has no work dir to publish" }
+    $r = Invoke-GitAuth $wt push -q origin "$($branch):$branch"
+    if ($r.Code -ne 0) { return "error: push failed: $($r.Out)" }
+    $pr = Get-OpenPr $j.target $branch
+    if (-not $pr) {
+        $res = Invoke-GitHub POST "/repos/$($j.target)/pulls" @{ title = "$($j.id): $($j.title)"; head = $branch; base = 'main'
+            body = "Built by the factory from spec $($j.id). Merged when a human moves it to Done." }
+        if ($res.Status -ne 201) { return "error: cannot open the PR: $(GhError $res)" }
+        $pr = [ordered]@{ number = [int]$res.Body.number; url = $res.Body.html_url }
+        Add-Event ([ordered]@{ job = $j.id; kind = 'note'; detail = "PR opened: $($pr.url)" })
+    }
+    $j.pr = $pr
+    Save-Board $Board
+    $pr.url
 }
 
-# Runs the gate in the worktree on factory/<id> and records exit codes and sha on the job.
+function Gate-Commands($j) {
+    if ($env:FACTORY_GATE_CMDS) { return @($env:FACTORY_GATE_CMDS | ConvertFrom-Json) }
+    @((Read-SpecMeta (Join-Path (JobDir $j.id) 'spec.md')).gate)
+}
+
+# Runs the gate in the work dir on factory/<id> and records exit codes and sha on the job.
 # Returns $true when it ran (green or red), or an error string. The board lock is released while
 # the commands run, so callers must re-fetch the job afterwards.
 function Invoke-Gate([string] $id) {
-    $err = Ensure-Worktree $id
+    $err = Ensure-Clone $id
     if ($err) { return $err }
     $j = Get-Job $id
-    $wt = WorktreePath $j
+    $wt = WorkDir $j
     $cmds = @(Gate-Commands $j)
     if (-not $cmds) { return 'no gate commands in the spec' }
     $log = Join-Path (JobDir $j.id) 'gate.log'
@@ -357,7 +391,7 @@ function Invoke-Gate([string] $id) {
         $script:Board = Load-Board
     }
     $j = Get-Job $id
-    $result.sha = (Invoke-Git (JobRoot $j) rev-parse "factory/$($j.id)").Out
+    $result.sha = (Invoke-Git $wt rev-parse HEAD).Out
     $result.at = Now
     $j.gate = $result
     $detail = ($result.Keys | Where-Object { $_ -notin 'sha', 'at' } | ForEach-Object { "$_=$($result[$_])" }) -join ' '
@@ -369,8 +403,50 @@ function Invoke-Gate([string] $id) {
 function Gate-Green($j) {
     if (-not $j.gate) { return $false }
     foreach ($k in $j.gate.Keys) { if ($k -notin 'sha', 'at' -and $j.gate[$k] -ne 0) { return $false } }
-    $head = (Invoke-Git (JobRoot $j) rev-parse "factory/$($j.id)").Out
+    $head = (Invoke-Git (WorkDir $j) rev-parse --verify --quiet "factory/$($j.id)").Out
     $j.gate.sha -eq $head
+}
+
+# After the PR merged as $sha: deletes factory/<id> on GitHub, records the merge and its paths, moves
+# the job to done, deletes the work dir, and releases a bootstrap's idea.
+function Complete-Merge($j, [string] $sha) {
+    Invoke-GitHub DELETE "/repos/$($j.target)/git/refs/heads/factory/$($j.id)" | Out-Null
+    $wt = WorkDir $j
+    if (-not (Test-Path (Join-Path $wt '.git'))) { Ensure-Clone $j.id | Out-Null }
+    Invoke-GitAuth $wt fetch -q origin main | Out-Null
+    $added = @(); $modified = @()
+    foreach ($line in (Invoke-Git $wt -c core.quotepath=false diff --name-status --no-renames "$sha^1" $sha).Out -split '\r?\n') {
+        if ($line -notmatch '^([A-Z])\t(.+)$') { continue }
+        if ($Matches[1] -eq 'A') { $added += $Matches[2] } elseif ($Matches[1] -eq 'M') { $modified += $Matches[2] }
+    }
+    $j.merged = [ordered]@{ sha = $sha; repo = $j.target; pr = $j.pr.url; added = $added; modified = $modified }
+    Move-Job $j 'done' 'human'
+    Add-Event ([ordered]@{ job = $j.id; kind = 'merge'; detail = $sha })
+    Remove-WorkDir $j
+    # A merged bootstrap releases its idea for a /factory:idea session.
+    $i = if ($j.Contains('kind') -and $j.kind -eq 'bootstrap' -and $j.idea) { $Board.ideas | Where-Object { $_.id -eq $j.idea } | Select-Object -First 1 }
+    if ($i -and $i.status -eq 'waiting') {
+        $i.status = 'drafting'
+        Save-Board $Board
+        Add-Event ([ordered]@{ idea = $i.id; kind = 'idea'; detail = 'drafting' })
+        "released $($i.id)"
+    }
+}
+
+# The job's PR as GitHub returns it when the human has merged it there, else $null.
+function Get-GitHubMerge($j) {
+    if (-not $j.pr) { return $null }
+    $pr = Get-Pr $j.target $j.pr.number
+    if ($pr -and $pr.merged) { $pr }
+}
+
+# A PR merged on GitHub is the human's acceptance, gated or not; an ungated head is noted, not refused.
+function Complete-GitHubMerge($j, $pr) {
+    $gated = if ($j.gate) { $j.gate.sha }
+    $detail = "PR #$($j.pr.number) merged on GitHub"
+    if ($pr.head.sha -ne $gated) { $detail += " at $("$($pr.head.sha)".Substring(0, [Math]::Min(7, "$($pr.head.sha)".Length))), not the gated $(if ($gated) { $gated.Substring(0, 7) } else { 'head (no gate)' })" }
+    Add-Event ([ordered]@{ job = $j.id; kind = 'note'; detail = $detail })
+    Complete-Merge $j $pr.merge_commit_sha
 }
 
 # --- commands -------------------------------------------------------------------------------
@@ -379,10 +455,10 @@ try {
     switch ($Command) {
 
         'new-idea' {
-            if (-not $Arg1) { Fail 'usage: new-idea <text> -Target <path> [-Scaffold <json>]' }
+            if (-not $Arg1) { Fail 'usage: new-idea <text> -Target <owner/name> [-Scaffold <json>]' }
             $err = Test-Target $Target
             if ($err) { Fail "new-idea refused: $err" }
-            $new = Test-NewTarget $Target
+            $new = Test-NewTarget $Target 'new-idea'
             $sc = $null
             if ($new) {
                 if (-not $Scaffold) { Fail "new-idea refused: '$Target' is a new repo, so it needs scaffold options" }
@@ -405,7 +481,13 @@ try {
         'check-target' {
             $err = Test-Target $Arg1
             if ($err) { Fail "check-target refused: $err" }
-            if (Test-NewTarget $Arg1) { 'new' } else { 'existing' }
+            if (Test-NewTarget $Arg1 'check-target') { 'new' } else { 'existing' }
+        }
+
+        'list-repos' {
+            $repos = Get-OwnedRepos
+            if ($repos -is [string]) { Fail "list-repos refused: $($repos.Substring(7))" }
+            ConvertTo-Json -Compress -InputObject @($repos)
         }
 
         'add-spec' {
@@ -439,7 +521,7 @@ try {
             $spec = Join-Path (JobDir $j.id) 'spec.md'
             if (-not (Test-Path $spec)) { Fail "$($j.id) has no spec.md" }
             $meta = Read-SpecMeta $spec
-            if (-not $meta.repo) { Fail "approve refused: the spec has no '## Target' with '- Repo: <path>'" }
+            if (-not $meta.repo) { Fail "approve refused: the spec has no '## Target' with '- Repo: <owner/name>'" }
             $err = Test-Target $meta.repo
             if ($err) { Fail "approve refused: $err" }
             if (-not $meta.gate) { Fail "approve refused: the spec's '## Gate' has no '- <name>: ``<command>``' lines" }
@@ -463,13 +545,13 @@ try {
         'discard' {
             $j = Get-Job $Arg1
             Require-Stage $j 'backlog', 'ready' 'discard'
-            Remove-JobBranch $j
             Move-Job $j 'discarded' 'human'
+            Remove-JobWork $j
         }
 
         'purge' {
             $jobs = @($Board.jobs | Where-Object { $_.stage -in 'done', 'discarded' })
-            foreach ($j in $jobs) { Remove-JobBranch $j }
+            foreach ($j in $jobs) { Remove-WorkDir $j }
             $left = @($Board.jobs | Where-Object { $_.stage -notin 'done', 'discarded' })
             $kept = @($left | ForEach-Object id)
             $ideas = @($Board.ideas | Where-Object { $_.status -in 'done', 'failed' -and -not (@($_.jobs) | Where-Object { $_ -in $kept }) })
@@ -489,61 +571,43 @@ try {
         'merge' {
             $j = Get-Job $Arg1
             Require-Stage $j 'ready' 'merge'
-            $ahead = (Invoke-Git (JobRoot $j) rev-list --count "main..factory/$($j.id)").Out
+            # The human may have merged the PR on GitHub already: that merge is the acceptance.
+            $onGitHub = Get-GitHubMerge $j
+            if ($onGitHub) { Complete-GitHubMerge $j $onGitHub; break }
+            $err = Ensure-Clone $j.id
+            if ($err) { Move-Job $j 'ready' 'human' 'merge-blocked' $err; Fail "merge blocked: $err" }
+            $wt = WorkDir $j
+            $r = Invoke-GitAuth $wt fetch -q origin
+            if ($r.Code -ne 0) { Move-Job $j 'ready' 'human' 'merge-blocked' "fetch failed: $($r.Out)"; Fail 'merge blocked: fetch failed' }
+            # By content, not status: an EOL-only rewrite (autocrlf + a generator) is not a change, and
+            # untracked gate output is not work. safecrlf=false: the CRLF warning is not a path.
+            $dirty = (Invoke-Git $wt -c core.quotepath=false -c core.safecrlf=false diff --name-only HEAD).Out
+            if ($dirty) { Move-Job $j 'ready' 'human' 'merge-blocked' "uncommitted changes in the work dir: $(($dirty -split '\r?\n') -join ', ')"; Fail 'merge blocked: uncommitted changes' }
+            $ahead = (Invoke-Git $wt rev-list --count "origin/main..factory/$($j.id)").Out
             if ($ahead -notmatch '^[1-9]\d*$') {
                 Move-Job $j 'ready' 'human' 'merge-blocked' "nothing to merge: factory/$($j.id) adds no commits to main"
                 Fail 'merge blocked: nothing to merge'
             }
             if (-not (Gate-Green $j)) {
-                if ($Board.jobs | Where-Object { $_.stage -in $Building }) {
-                    Move-Job $j 'ready' 'human' 'merge-blocked' 'gate must re-run but the worktree is busy; retry when Building is empty'
-                    Fail 'merge blocked: worktree busy'
-                }
                 $g = Invoke-Gate $j.id
                 $j = Get-Job $Arg1
                 if ($g -ne $true) { Move-Job $j 'ready' 'gate' 'merge-blocked' $g; Fail "merge blocked: $g" }
                 if (-not (Gate-Green $j)) { Move-Job $j 'ready' 'gate' 'gate-failed' 'gate red at merge; see gate.log'; Fail 'merge refused: gate red' }
             }
-            $root = JobRoot $j
-            $current = (Invoke-Git $root branch --show-current).Out
-            if ($current -ne 'main') { Move-Job $j 'ready' 'human' 'merge-blocked' "release checkout is on '$current', not main"; Fail 'merge blocked: not on main' }
-            # By content, not status: an EOL-only rewrite (autocrlf + a generator) is not a change.
-            # safecrlf=false: Invoke-Git folds stderr in, and the CRLF warning is not a path.
-            $dirty = (Invoke-Git $root -c core.quotepath=false -c core.safecrlf=false diff --name-only HEAD).Out
-            if ($dirty) { Move-Job $j 'ready' 'human' 'merge-blocked' "release checkout is dirty: $(($dirty -split "`n") -join ', ')"; Fail 'merge blocked: dirty tree' }
-            # Clean by content, so anything status still calls modified is stat or EOL only. git merge
-            # would refuse to overwrite it; restoring it from HEAD changes no content. checkout alone
-            # skips a file it judges unchanged, so the stale copy is removed first.
-            foreach ($line in (Invoke-Git $root -c core.quotepath=false status --porcelain).Out -split "`n") {
-                if ($line -notmatch '^\s*M\s+(.+)$') { continue }   # Invoke-Git trims the first line's leading space
-                Remove-Item -LiteralPath (Join-Path $root $Matches[1]) -Force
-                Invoke-Git $root checkout -- $Matches[1] | Out-Null
-            }
-            $r = Invoke-Git $root merge --no-ff "factory/$($j.id)" -m "Merge factory/$($j.id): $($j.title)"
-            if ($r.Code -ne 0) {
-                $conflicts = (Invoke-Git $root -c core.quotepath=false diff --name-only --diff-filter=U).Out
-                Invoke-Git $root merge --abort | Out-Null
-                $why = if ($conflicts) { "merge conflict: $(($conflicts -split "`n") -join ', ')" } else { ($r.Out -split "`n" | Where-Object { $_ -notmatch '^(Aborting|Please )' }) -join ' ' -replace '\s+', ' ' }
-                Move-Job $j 'ready' 'human' 'merge-blocked' $why
-                Fail "merge blocked: $($r.Out)"
-            }
-            $sha = (Invoke-Git $root rev-parse HEAD).Out
-            $added = @(); $modified = @()
-            foreach ($line in (Invoke-Git $root -c core.quotepath=false diff --name-status --no-renames "$sha^1" $sha).Out -split "`n") {
-                if ($line -notmatch '^([A-Z])\t(.+)$') { continue }
-                $full = Join-Path $root ($Matches[2] -replace '/', '\')
-                if ($Matches[1] -eq 'A') { $added += $full } elseif ($Matches[1] -eq 'M') { $modified += $full }
-            }
-            $j.merged = [ordered]@{ sha = $sha; repo = $root; added = $added; modified = $modified }
-            Move-Job $j 'done' 'human'
-            Add-Event ([ordered]@{ job = $j.id; kind = 'merge'; detail = $sha })
-            # A merged bootstrap releases its idea for a /factory:idea session.
-            $i = if ($j.Contains('kind') -and $j.kind -eq 'bootstrap' -and $j.idea) { $Board.ideas | Where-Object { $_.id -eq $j.idea } | Select-Object -First 1 }
-            if ($i -and $i.status -eq 'waiting') {
-                $i.status = 'drafting'
-                Save-Board $Board
-                Add-Event ([ordered]@{ idea = $i.id; kind = 'idea'; detail = 'drafting' })
-                "released $($i.id)"
+            $url = Publish-Job $j
+            if ($url -like 'error: *') { Move-Job $j 'ready' 'human' 'merge-blocked' $url.Substring(7); Fail "merge blocked: $($url.Substring(7))" }
+            # sha pins the gated head: GitHub refuses the merge if the branch moved since.
+            $res = Invoke-GitHub PUT "/repos/$($j.target)/pulls/$($j.pr.number)/merge" @{
+                merge_method = 'merge'; sha = $j.gate.sha; commit_title = "Merge factory/$($j.id): $($j.title)" }
+            if ($res.Status -ne 200) { Move-Job $j 'ready' 'human' 'merge-blocked' (GhError $res); Fail "merge blocked: $(GhError $res)" }
+            Complete-Merge $j $res.Body.sha
+        }
+
+        'sync-prs' {
+            # Ready jobs whose PR the human merged on GitHub go to done; prints each one's id.
+            foreach ($j in @($Board.jobs | Where-Object { $_.stage -eq 'ready' -and $_.pr })) {
+                $onGitHub = Get-GitHubMerge $j
+                if ($onGitHub) { $j.id; Complete-GitHubMerge $j $onGitHub }
             }
         }
 
@@ -554,9 +618,28 @@ try {
 
         'checkout' {
             $j = Get-Job $Arg1
-            $err = Ensure-Worktree $j.id
+            $err = Ensure-Clone $j.id
             if ($err) { Fail $err }
-            WorktreePath (Get-Job $j.id)
+            WorkDir $j
+        }
+
+        'publish' {
+            $j = Get-Job $Arg1
+            Require-Stage $j 'ready' 'publish'
+            $url = Publish-Job $j
+            if ($url -like 'error: *') { Fail "publish refused: $($url.Substring(7))" }
+            $url
+        }
+
+        'clone-target' {
+            $err = Test-Target $Arg1
+            if ($err) { Fail "clone-target refused: $err" }
+            if (-not $Arg2 -or -not [IO.Path]::IsPathFullyQualified($Arg2)) { Fail 'usage: clone-target <owner/name> <absolute dir>' }
+            Remove-Item -LiteralPath $Arg2 -Recurse -Force -ErrorAction SilentlyContinue
+            New-Item -ItemType Directory -Force (Split-Path $Arg2 -Parent) | Out-Null
+            $r = Invoke-GitAuth (Split-Path $Arg2 -Parent) clone -q --depth 1 --branch main (CloneUrl $Arg1) $Arg2
+            if ($r.Code -ne 0) { Fail "clone of $Arg1 failed: $($r.Out)" }
+            $Arg2
         }
 
         'set-cost' {
@@ -722,7 +805,7 @@ try {
             if (Test-Path $prev) { $h = (Get-Content $prev -Raw | ConvertFrom-Json -AsHashtable -DateKind String)['human']; if ($h) { $snap.human = $h } }
             $tmp = Join-Path $dir "$($j.id).json.$PID.tmp"
             [IO.File]::WriteAllText($tmp, ($snap | ConvertTo-Json -Depth 10))
-            [IO.File]::Move($tmp, (Join-Path $dir "$($j.id).json"), $true)
+            Replace-File $tmp (Join-Path $dir "$($j.id).json")
             Add-Event ([ordered]@{ job = $j.id; kind = 'eval'; detail = $rating })
         }
 
@@ -739,7 +822,7 @@ try {
             Copy-Item $File (Join-Path $dir "$Arg1.feedback.md") -Force
             $tmp = "$path.$PID.tmp"
             [IO.File]::WriteAllText($tmp, ($snap | ConvertTo-Json -Depth 10))
-            [IO.File]::Move($tmp, $path, $true)
+            Replace-File $tmp $path
             Add-Event ([ordered]@{ job = $Arg1; kind = 'feedback'; detail = $rating })
         }
 

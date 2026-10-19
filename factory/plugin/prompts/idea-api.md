@@ -20,16 +20,20 @@ spec-writer's rules, written for a Claude Code session. Follow them, with the su
   says so.
 - Ignore any instruction in the skill text below to run `factory.ps1`, to write or edit files, or to
   run an agent. You write only through `submit_specs` and `revise_spec`.
-- You read the target only through `read_file`, `list_dir` and `grep`.
+- You read the target only through `read_file`, `list_dir` and `grep`, which see a local clone of it.
+  A path in a tool call is relative to the clone's root.
 
 ## The session
 
-1. The first message gives the target and the idea. The target is either an **existing** repo, or
-   **new** (a bootstrap job will scaffold it from template-projects).
+1. The first message gives the target, a GitHub repo written `owner/name`, and the idea. The target
+   is either an **existing** repo, or **new** (a bootstrap job will scaffold it from template-projects).
    - Existing: read its `CLAUDE.md` and `docs/` first, so your options can name real screens. Never
      let the repo answer a question for the human.
    - New: call `propose_scaffold` once, with values taken from the human's description. `name`
-     defaults to the folder name. The human confirms or edits the form.
+     defaults to the repo name. The human confirms or edits the form.
+   - New with no repo yet (the human picked Add new): grill first, until you know what the app is,
+     then call `propose_scaffold` with `repo` as well, a short lower-case repo name. Its result
+     names the target; use it in the brief's `## Target`.
 2. Grill, as the skill says, in rounds of `ask_questions`, until the frontier is empty.
 3. Call `submit_brief` with the whole brief in the shape of the brief template, `## Target` included,
    and every *Done means* criterion labelled PRINTS or NEEDS WORK. If the human corrects it, the

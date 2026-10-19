@@ -49,23 +49,37 @@ Approved, Ready for review and Done accept drops.
 
 ## Targets
 
-Every idea names a **target**: the absolute path of the git repo the work lands in. The human
-types it next to the idea; nothing defaults it. The factory itself (this repo's `factory/`,
-`.claude/`, `.factory-runs/` and dashboard) never moves; only the code it builds goes to the target.
+Every idea names a **target**: a GitHub repository, written `owner/name`
+(`^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$`). The human types it next to the idea; nothing defaults it. The
+factory itself (this repo's `factory/`, `.claude/`, `.factory-runs/` and dashboard) never moves; only
+the code it builds goes to the target. Local paths are not targets.
 
-- An existing git repo: jobs branch from its `main` and merge back into it. The idea goes straight
-  to the spec-writer in the same session.
-- A **new** target (a path that does not exist yet, or an empty folder) needs **scaffold options**,
+**GitHub access.** `factory.ps1` reads `GITHUB_TOKEN` and `GITHUB_OWNER` from `.env` at the repo root
+(`$env:FACTORY_ENV_FILE` overrides the file). The token is a fine-grained PAT with Contents,
+Pull requests and Administration (to create repos) read/write, on **All repositories**: a PAT limited
+to selected repos can create a repo but not push to it (see [GITHUB-PAT.md](GITHUB-PAT.md)). It is read into a local variable and
+never set in the process environment, written to a remote URL or `.git/config`, or logged: git gets
+it per command as `-c http.extraHeader=...`. `GITHUB_OWNER` is the owner the dashboard suggests.
+`GITHUB_API_URL` (default `https://api.github.com`) and `FACTORY_GIT_BASE` (the clone URL prefix,
+default `https://github.com`, giving `<base>/<owner>/<name>.git`) in the same file point tests and
+the simulator at a stub.
+
+- An existing repo with a `main` branch: jobs branch from its `main` and land in it by pull request.
+  The idea goes straight to the spec-writer in the same session.
+- A **new** target (the repo does not exist, or exists with no `main`) needs **scaffold options**,
   chosen by the human in the idea form. `new-idea` then creates a **bootstrap job** instead of
   starting the spec-writer: its spec, generated from `factory/templates/bootstrap.md`, scaffolds
-  the project from the `template-projects` templates. The idea waits (`waiting`) until that job is
+  the project from the `template-projects` templates: the builder runs `/aspire-starter:boot-strap-app`
+  with every answer supplied (no interview, no pack install, no graphify phase), so the add-ons go
+  through the `aspire-addon` CLI and the gate adds `dotnet build .aspire/apphost.cs`. The idea waits (`waiting`) until that job is
   merged; the merge releases it (`drafting`), and the human resumes it with `/factory:idea I-NNN`,
   so the spec-writer specs features against real code.
-  The first `checkout` creates the target with `git init -b main` and an empty initial commit;
-  the control plane does this, never an agent.
-- Anything else (a non-empty folder that is not a git repo, a relative path, scaffold options for an
-  existing repo, a new target without them) is refused by `new-idea`, and the same target checks
-  by `approve`.
+  The first `checkout` creates the repo on GitHub (**private**; under the token's user when the
+  owner is that user, else in the named organization) if it is missing, and pushes `main` with an
+  empty initial commit if it has none. The control plane does this, never an agent.
+- Anything else (not `owner/name`, scaffold options for an existing repo, a new target without them,
+  a GitHub error such as a bad token) is refused by `new-idea`. `approve` refuses a Repo that is not
+  `owner/name`.
 
 Scaffold options (`-Scaffold <json>` on `new-idea`, `idea.scaffold` on the board):
 
@@ -82,17 +96,22 @@ Scaffold options (`-Scaffold <json>` on `new-idea`, `idea.scaffold` on the board
 | `events` | `true` / `false`; the event store follows `db` (fisher, polecat, marten) |
 
 The template workspace is `$env:FACTORY_TEMPLATES`, else `<parent of this repo>\template-projects`.
-Agents may read it and never edit it.
+Agents may read it and never edit it. It is also a plugin (`aspire-starter`, its own
+`.claude-plugin/plugin.json`), loaded into every headless pass; see [Runner](#runner).
 
-Each target has one sibling worktree, `<target>.wt`, reused by every job on that target. One job
-builds at a time across all targets. A job with no `target` (created before targets existed) uses
-this repo, as before.
+**Work directories.** Code changes and testing happen in a local temp clone per job,
+`<work>\jobs\<id>`, where `<work>` is `$env:FACTORY_WORK`, else `<system temp>\claude-factory`.
+`checkout` clones the target there and checks out `factory/<id>`. The clone is deleted when the job
+moves to `done` or `discarded`. It survives a rework, and if it is gone `checkout` clones again from
+the pushed branch. One job builds at a time across all targets. Idea sessions read a shallow clone of
+an existing target (`clone-target`) in `<work>\sessions\<S>` (dashboard) or
+`<work>\cli\<owner>-<name>` (`idea.ps1`), deleted when the session closes.
 
 The spec carries the target and the gate, and the human can edit both in Backlog:
 
 ```
 ## Target
-- Repo: D:\code\Scratchpad\todo-app
+- Repo: kamabery/todo-app
 
 ## Gate
 - build: `dotnet build`
@@ -100,7 +119,7 @@ The spec carries the target and the gate, and the human can edit both in Backlog
 ```
 
 Gate lines are ``- <name>: `<command>` ``, where `<name>` is lower-case letters, digits or `-`. The
-commands run with `pwsh -Command` in the worktree. The human approves them along with the spec, and
+commands run with `pwsh -Command` in the job's work directory. The human approves them along with the spec, and
 no agent can edit `jobs/<id>/spec.md`.
 
 A dependency install in a gate is guarded, so the gate does not reinstall on every run. For npm,
@@ -135,7 +154,7 @@ An idea is not a job. The session:
 `brief.md`, after a bootstrap merge or an interrupted session.
 
 ```
-board.ideas[] = { "id": "I-001", "text": "...", "target": "D:\\code\\Scratchpad\\todo-app",
+board.ideas[] = { "id": "I-001", "text": "...", "target": "kamabery/todo-app",
                   "scaffold": null, "status": "waiting|drafting|done|failed", "jobs": ["J-004", "J-005"],
                   "createdAt": "..." }
 ```
@@ -183,12 +202,13 @@ the `grill` skill, the spec-writer agent and `factory/templates/brief.md` and `s
 
 | Tool | Kind | Effect |
 | --- | --- | --- |
-| `read_file`, `list_dir`, `grep` | server, read-only | fenced to the session's target (when it exists) and `factory/templates`; any other path is refused |
+| `read_file`, `list_dir`, `grep` | server, read-only | fenced to the session's clone of the target (`checkout`, when the target exists) and `factory/templates`; any other path is refused |
 | `submit_specs { specs: [{ k, markdown }] }` (1..5) · `revise_spec { k, markdown }` | server | write `ideas/<I>/spec-<k>.md`; refused until the brief is confirmed (the session has an idea) |
-| `ask_questions { questions }` (AskUserQuestion's shape) · `propose_scaffold { name, resource, db, ui, events }` · `submit_brief { markdown }` | UI | end the turn; `session.json.pending` holds the call until the human answers |
+| `ask_questions { questions }` (AskUserQuestion's shape) · `propose_scaffold { repo?, name, resource, db, ui, events }` (`repo`, a repo name, is required while the session has no target) · `submit_brief { markdown }` | UI | end the turn; `session.json.pending` holds the call until the human answers |
 
 ```
-sessions/<S>/session.json = { "id": "S-001", "target": "D:\...", "text": "...", "newTarget": false,
+sessions/<S>/session.json = { "id": "S-001", "target": "owner/name" | null, "text": "...", "newTarget": false,
+  "checkout": "<work>\\sessions\\S-001" | null,
   "status": "running|idle|error|closed", "error": null, "model": "claude-opus-5-5", "costUsd": 0.12,
   "scaffold": null, "idea": "I-004", "bootstrap": null,
   "pending": { "id": "toolu_...", "name": "ask_questions", "input": { } } | null,
@@ -196,13 +216,28 @@ sessions/<S>/session.json = { "id": "S-001", "target": "D:\...", "text": "...", 
   "specs": [ { "k": 1, "title": "...", "decision": null | "approved" | "backlog" | "rejected", "job": "J-007" } ],
   "createdAt": "..." }
 stream.jsonl lines: { "type": "text", "text" } · { "type": "tool", "name", "summary" } · { "type": "end" } · { "type": "error", "message" }
+human.jsonl lines: { "ts", "kind": "idea", "text", "target", "newTarget" }
+                 · { "ts", "kind": "answer", "text", "asked": { "name", "input" } } · { "ts", "kind": "message", "text" }
 ```
+
+`human.jsonl` is the human's own words in the session, verbatim and in order, so an idea can be
+tried again as the factory improves. `serve.ps1` appends a line for the idea text, for every reply
+that answers a pending UI tool (an `answer`, with that tool call as `asked`: the questions, the
+scaffold proposal, or the brief being corrected) and for free text with nothing pending (a
+`message`). Retries, clicks, scaffold form values and direct spec edits are not words and are not
+recorded there. Nothing deletes a session directory, so `purge` keeps it.
 
 `pendingResults` holds the results of server tools that ran in the same assistant message as a UI
 tool. They are sent with the human's answer in one user message.
 
-**Session flow.** The human picks a target and describes the idea. `check-target` classifies the
-target, and the panel creates the session.
+**Session flow.** The human picks a target from their GitHub repos (`list-repos`) and describes the
+idea. `check-target` classifies the target, and the panel creates the session. Or the human picks
+**Add new**: the session starts with no target (`target: null`, `newTarget: true`), and the model
+grills first, then names the repo in `propose_scaffold`. Confirming that form runs `check-target`
+on `<GITHUB_OWNER>/<repo>`, which must be `new`, and sets `target`; `scaffold` is stored without
+`repo`. For an existing target, `serve.ps1` runs `clone-target`
+into `<work>\sessions\<S>` and records it as `checkout`; **Write specs** clones again (the bootstrap
+has merged), and closing the session deletes the clone.
 
 1. The model grills (`ask_questions`) and, for a new target, calls `propose_scaffold`. The human
    confirms or edits the form.
@@ -235,10 +270,10 @@ target, and the panel creates the session.
 | approve | ready | `Decision: ESCALATE` | `escalated` |
 | gate | ready | every gate command exited 0 (no flag), or any one did not. Run by the orchestrator, or by the runner when claude ended with the job in `gate` | `gate-failed` |
 | build / review / approve | ready | the orchestrator gives up, or the runner's `claude` process ends with the job still here | `escalated` |
-| ready | done | human `merge`; see [Gate and merge](#gate-and-merge). A bootstrap job's merge moves its idea `waiting` → `drafting` and prints `released <ideaId>` | |
-| ready | ready | human `merge` refused: dirty checkout or merge conflict / red gate | `merge-blocked` / `gate-failed` |
+| ready | done | human `merge`, or `sync-prs` after the human merged the PR on GitHub; see [Gate and merge](#gate-and-merge). Merges the PR (or records the GitHub merge) and deletes the work directory. A bootstrap job's merge moves its idea `waiting` → `drafting` and prints `released <ideaId>` | |
+| ready | ready | human `merge` refused: nothing to merge, uncommitted changes in the work directory, PR not mergeable / red gate | `merge-blocked` / `gate-failed` |
 | ready | approved | human `rework <id> <note>`; writes `jobs/<id>/rework-<n>.md`, round += 1, sets `approvedAt` | |
-| ready | discarded | human; deletes branch `factory/<id>` | |
+| ready | discarded | human; closes the PR, deletes branch `factory/<id>` on GitHub and the work directory | |
 
 `done` and `discarded` are terminal. `flag` is cleared on every move out of `ready`.
 
@@ -292,8 +327,8 @@ facts. The board records each one on its own. Only a human drag to Done merges.
 
 `factory.ps1 purge` clears finished work off the board. It removes every job in `done` or
 `discarded`, and every idea in `done` or `failed` none of whose jobs is left. For each it deletes
-`jobs/<id>/` or `ideas/<id>/`, and for a job also the branch `factory/<id>` in its target (detaching
-`<target>.wt` first if it is on that branch). It appends one `note` event (`purged J-001, ...`) and
+`jobs/<id>/` or `ideas/<id>/`, and for a job also a work directory still left at `<work>\jobs\<id>`
+(one that a locked file kept `merge` or `discard` from deleting). It appends one `note` event (`purged J-001, ...`) and
 prints the removed ids, one per line. Ideas in `waiting` or `drafting` and jobs in any other stage
 are untouched. `events.jsonl` keeps its history, and `board.seq` stops a purged id being reused.
 
@@ -306,7 +341,7 @@ are untouched. `events.jsonl` keeps its history, and `board.seq` stops a purged 
   runner.lock                  held while runner.ps1 is draining the queue
   headless-settings.json       written by runner.ps1 for each claude -p run (see Runner)
   sessions/<S-NNN>/            a dashboard idea session (see Idea sessions)
-    session.json  chat.json  stream.jsonl  turn.lock
+    session.json  chat.json  stream.jsonl  human.jsonl  turn.lock
   ideas/<id>/
     idea.md                    the idea's one-line title, then `Target: <path>`
     brief.md                   the grilled brief, in the human's words (factory/templates/brief.md)
@@ -324,11 +359,14 @@ are untouched. `events.jsonl` keeps its history, and `board.seq` stops a purged 
     <id>.md  <id>.json         the evaluation, and the board facts snapshotted when it was written
     <id>.feedback.md           the human's feedback on it, if any
 
-<target>.wt\                   one worktree per target, reused by every job on it (legacy jobs: ..\claude-factory.wt)
+<work>\                       $env:FACTORY_WORK, else <system temp>\claude-factory
+  jobs\<id>\                   the job's clone of its target, on factory/<id>; deleted at done / discarded
+  sessions\<S>\                a dashboard idea session's shallow clone of its target
+  cli\<owner>-<name>\          idea.ps1's shallow clone of its target
 
 factory/plugin/                the agents, the /factory, /factory:idea and grill skills and the Subagent
                                hooks, as a Claude Code plugin loaded with --plugin-dir, so they work in
-                               any target's worktree
+                               any job's work directory
 ```
 
 Each review's first line must be exactly `Verdict: PASS` or `Verdict: CHANGES`. The decision's
@@ -353,7 +391,8 @@ those lines and nothing else; if one is missing or malformed, the script treats 
       "round": 1,
       "branch": "factory/J-001",
       "kind": "feature",
-      "target": "D:\\code\\Scratchpad\\todo-app",
+      "target": "kamabery/todo-app",
+      "pr": { "number": 12, "url": "https://github.com/kamabery/todo-app/pull/12" },
       "reviews": { "security": "running", "code": "PASS", "ux": "pending", "ui": "CHANGES" },
       "decision": null,
       "gate": null,
@@ -376,14 +415,15 @@ those lines and nothing else; if one is missing or malformed, the script treats 
   (process exit codes).
 - `flag` is `null` or `{ "reason": "<code from the table>", "detail": "<one line>" }`. Only a
   `ready` job carries one.
-- `merged` is `null` until a merge, then `{ "sha": "<merge commit>", "repo": "<target>", "added": ["<absolute path>", ...], "modified": [...] }`,
-  from `git diff --name-status --no-renames <sha>^1 <sha>` in the target.
-- `target` is absent on legacy jobs, which use this repo.
+- `merged` is `null` until a merge, then `{ "sha": "<merge commit>", "repo": "<owner/name>", "pr": "<PR url>", "added": ["<repo-relative path>", ...], "modified": [...] }`,
+  from `git diff --name-status --no-renames <sha>^1 <sha>` in the work directory after fetching the merge.
+- `pr` is `null` (or absent) until `publish` opens the job's pull request.
 - `kind` is `feature` (from a spec-writer spec) or `bootstrap` (generated by `new-idea`); absent means `feature`.
 - `costUsd` and `durationMs` are summed over every runner pass on the job.
 - Ids are `I-NNN` and `J-NNN`, allocated by the script, one above the larger of `seq` and the highest
   id on the board. `seq` records the highest id ever allocated, so a `purge` never frees an id. The simulator uses the same ids in its own
-  state dir (`.factory-runs-sim/`), with a throwaway sandbox repo at `.factory-runs-sim/repo`.
+  state dir (`.factory-runs-sim/`), against the GitHub stub (`factory/tests/fixtures/github-stub.ps1`)
+  serving bare repos under `.factory-runs-sim/github`.
 
 ## `events.jsonl`
 
@@ -407,18 +447,21 @@ Claude Code transcript, which is derived from the hook's `transcript_path` and `
 ## `factory.ps1` commands
 
 State resolves from `$env:FACTORY_HOME`, else `<main checkout>/.factory-runs` (found through
-`git rev-parse --git-common-dir`, so it works from inside the worktree). Writes to `board.json` are
-atomic (a temp file, then a rename). A refused command exits non-zero with a one-line reason on
+`git rev-parse --git-common-dir` from this repo; the runner sets both for agents in a work directory). Writes to `board.json` are
+atomic (a temp file, then a rename; the rename is retried for up to 2 s while a reader such as
+`serve.ps1` holds the file). A refused command exits non-zero with a one-line reason on
 stderr and leaves the board unchanged.
 
 | Command | Used by |
 | --- | --- |
 | `new-idea <text> -Target <path> [-Scaffold <json>]` · `add-spec <ideaId> <file>` · `idea-done <ideaId> [-Failed -Reason]` | `/factory:idea`, serve.ps1 (idea sessions) |
-| `check-target <path>` (prints `new` or `existing`, or refuses as `new-idea` would) | serve.ps1 (idea sessions) |
+| `check-target <owner/name>` (prints `new` or `existing` from the GitHub API, or refuses as `new-idea` would) · `clone-target <owner/name> <dir>` (replaces `<dir>` with a `--depth 1` clone of `main`) | serve.ps1 (idea sessions), idea.ps1 |
+| `list-repos` (prints a JSON array of the token user's own repos, `owner/name`, newest push first, at most 100) | serve.ps1 (New idea) |
 | `edit-spec <id> -File <path>` (backlog only) | serve.ps1 |
 | `approve <id>` | `/factory:idea` (on the human's yes), serve.ps1 (human drag) |
 | `rework <id> <note>` · `discard <id>` · `merge <id>` · `purge` | serve.ps1 (human drags and **Clear**) |
-| `next` (prints the next runnable approved id, or nothing) · `checkout <id>` (creates the target repo if needed, then creates or reuses `<target>.wt` on `factory/<id>`; prints the worktree path) · `set-cost <id> <usd> <ms>` | runner.ps1 |
+| `sync-prs` (moves each `ready` job whose PR was merged on GitHub to `done`; prints their ids) | serve.ps1 (PR sync) |
+| `next` (prints the next runnable approved id, or nothing) · `checkout <id>` (creates the GitHub repo if needed, then clones or reuses `<work>\jobs\<id>` on `factory/<id>`; prints the work directory) · `publish <id>` (`ready` only: pushes `factory/<id>` and opens the job's PR if it has none; prints the PR url) · `set-cost <id> <usd> <ms>` | runner.ps1 |
 | `set-stage <id> <to> [-By] [-Reason] [-Detail]` · `set-review <id> <role> <state>` · `read-reviews <id>` · `read-decision <id>` · `gate <id>` | `/factory run` |
 | `event <json \| -Job -Idea -Kind -Agent>` | hook-event.ps1 |
 | `eval <id> -File <path>` | a human session evaluating a finished job (see [Evaluations](#evaluations)) |
@@ -430,8 +473,9 @@ does not move. `set-stage` only performs `approved → build`, `build → review
 `Building → ready -Reason escalated`; every other transition has its own command.
 
 Overrides, for tests: `$env:FACTORY_GATE_CMDS` (JSON `[{ "name", "cmd" }]`; wins over the spec's
-`## Gate`, so tests can use `exit 0` / `exit 1`), `$env:FACTORY_WORKTREE` (the worktree path, for
-every target) and `$env:FACTORY_REPO` (this repo's main checkout).
+`## Gate`, so tests can use `exit 0` / `exit 1`), `$env:FACTORY_WORK` (the work root),
+`$env:FACTORY_ENV_FILE` (the `.env` holding the GitHub settings) and `$env:FACTORY_REPO` (this
+repo's main checkout).
 
 ## Agents
 
@@ -445,35 +489,51 @@ every target) and `$env:FACTORY_REPO` (this repo's main checkout).
 | ui-reviewer | sonnet | same + the target's docs/DESIGN.md, if any | round-n/review-ui.md |
 | approver | opus | spec.md, every build.md and review in the job | decision.md |
 
-Every agent works in the target's worktree and follows the target's `CLAUDE.md`, if it has one.
+Every agent works in the job's work directory and follows the target's `CLAUDE.md`, if it has one.
 Reviewers inspect the diff (`git diff main...HEAD`) and re-run the spec's Gate commands themselves.
 They treat `build.md`'s claims as claims, not as evidence.
 
 ## Gate and merge
 
-`factory.ps1 gate <id>` runs the gate commands in the target's worktree on `factory/<id>`, in order.
-It writes the output to `gate.log` and records the exit codes and the branch head `sha`. The
-commands come from `$env:FACTORY_GATE_CMDS` if set, else from the spec's `## Gate`. Legacy jobs with
-no target use this repo's defaults: `dotnet build shelf.slnx`, `dotnet test tests/shelf.api.tests`,
-and `npm run build` in `src/ui/react`.
+`factory.ps1 gate <id>` runs the gate commands in the job's work directory on `factory/<id>`, in
+order (cloning it again first if it is gone). It writes the output to `gate.log` and records the exit
+codes and the branch head `sha`. The commands come from `$env:FACTORY_GATE_CMDS` if set, else from
+the spec's `## Gate`.
 
-`factory.ps1 merge <id>` runs in the target's main checkout:
+`factory.ps1 publish <id>` (job in `ready`) pushes `factory/<id>` from the work directory to the
+target and opens a pull request into `main` titled `<id>: <title>`, unless the job already has an
+open one; it records `pr` and appends a `note` event. The runner calls it whenever a pass leaves the
+job in `ready`, so the human can read the diff on GitHub. A rework pushes to the same branch, which
+updates the same PR.
 
-0. It refuses a branch with no commits beyond the target's `main` (`merge-blocked`, "nothing to merge").
+**Merged on GitHub.** The human may accept the job by merging its PR on GitHub instead of dragging to
+Done. That merge is the acceptance, so the factory records it rather than refusing it:
+`factory.ps1 merge <id>` first asks GitHub for the job's PR, and if it is merged, does step 4 below
+with the PR's `merge_commit_sha` and merges nothing. It appends a `note` event "PR #N merged on
+GitHub", adding "at <head>, not the gated <sha>" when the merged head is not the gated one. That is
+noted, not refused, because the code is already in `main`. `factory.ps1 sync-prs` does the same for
+every `ready` job with a PR that GitHub reports merged, and prints each one's id. The dashboard runs it
+(see [Watchdog](#runner)).
+
+`factory.ps1 merge <id>` otherwise runs in the job's work directory, after `git fetch origin`:
+
+0. It refuses a branch with no commits beyond `origin/main` (`merge-blocked`, "nothing to merge"),
+   and a work directory with uncommitted changes (`merge-blocked`, naming the paths), since they
+   would not be in the PR.
 1. If no all-zero gate is recorded for the current head sha of `factory/<id>`, it runs `gate`
    first. A red gate leaves the job in `ready` with flag `gate-failed`. A human can overrule a
    reviewer flag by dragging to Done, but cannot skip the gate.
-2. It requires the main checkout to be on `main` and clean **by content**: `git diff --quiet HEAD`
-   (staged or unstaged changes to tracked files). A file that differs only in line endings or stat
-   data is not dirty. Untracked files are left to `git merge`, which refuses to overwrite one. On
-   refusal the flag detail names the dirty paths. A file `git status` still lists as modified after
-   that check differs only in line endings or stat data. It is restored from `HEAD`
-   (`git checkout -- <path>`) so that git's own overwrite check does not refuse the merge. The content is unchanged.
-3. It runs `git merge --no-ff factory/<id>`. On a conflict it aborts the merge, and the detail is
-   `merge conflict: <paths>`. Any other refusal by git puts git's message in the detail.
+2. It runs `publish` (push, and the PR if there is none yet).
+3. It merges the PR through the API with `merge_method: merge` and `sha` set to the gated head, so
+   GitHub refuses it if the branch moved. A refusal (a conflict, branch protection, a moved head)
+   leaves the job in `ready` with flag `merge-blocked` and GitHub's message as the detail.
+4. On success it deletes the branch `factory/<id>` on GitHub, fetches the merge commit to fill
+   `merged`, moves the job to `done`, appends a `merge` event, and deletes the work directory. A
+   work directory it cannot delete (a locked file) is a `note` event, never a failed merge; `purge`
+   tries again.
 
-A failure at step 2 or 3 leaves the job in `ready` with flag `merge-blocked`. Success moves it to
-`done`, records `merged`, and appends a `merge` event.
+`factory.ps1 discard <id>` closes the job's open PR, deletes `factory/<id>` on GitHub if it was
+pushed, and deletes the work directory.
 
 ## Dashboard API
 
@@ -495,10 +555,11 @@ and a refused move snaps the card back and shows the message.
 | `POST /api/purge` | `purge` | |
 | `GET /api/evals` | (read-only) | every `evals/<id>.json`, newest job first; the markdown is at `/state/evals/<id>.md` |
 | `PUT /api/evals/<id>/feedback` (text/markdown) | `feedback` | the feedback is at `/state/evals/<id>.feedback.md` |
-| `GET /api/ideate/config` | (read-only) | `{ enabled, model }`; `enabled` means `.env` has a key; the key is never returned |
+| `GET /api/ideate/config` | (read-only) | `{ enabled, model, owner }`; `enabled` means `.env` has an Anthropic key; `owner` is `GITHUB_OWNER`; no key is ever returned |
 | `GET /api/sessions` | (read-only) | every session that is not `closed`: `{ id, target, text, status, idea, bootstrap, costUsd, newTarget }` |
-| `POST /api/sessions` `{ target, text }` | `check-target` | allocates `S-NNN`, writes `session.json` and the first message, starts a turn |
-| `POST /api/sessions/<S>/reply` `{ text, scaffold? }` | (session write) | answers `pending` (or adds user text), stores `scaffold`, starts a turn; empty text with no pending retries a failed turn |
+| `GET /api/repos` | `list-repos` | the JSON array, for the New idea picker |
+| `POST /api/sessions` `{ target, text }` or `{ new: true, text }` | `check-target` (not for `new`, which needs `GITHUB_OWNER`) | allocates `S-NNN`, writes `session.json` and the first message, starts a turn |
+| `POST /api/sessions/<S>/reply` `{ text, scaffold? }` | (session write); `check-target` when the session has no target | answers `pending` (or adds user text), stores `scaffold`, starts a turn; with no target, `scaffold.repo` sets it and must name a new repo; empty text with no pending retries a failed turn |
 | `POST /api/sessions/<S>/brief` | `new-idea`, then writes `brief.md` | existing target: answers `submit_brief` and starts the spec turn; new target: records the bootstrap job |
 | `POST /api/sessions/<S>/write-specs` | (session write) | after the bootstrap merge (the idea is `drafting`): starts the spec turn |
 | `POST /api/sessions/<S>/specs/<k>` `{ decision }` | `add-spec` (+ `approve`) | `approved` starts the runner; `rejected` calls nothing |
@@ -530,22 +591,23 @@ longer running. Otherwise it loops:
 
 1. `factory.ps1 next`. If nothing comes back, it deletes the lock and exits.
 2. It calls `factory.ps1 set-stage <id> build -By runner`, then `factory.ps1 checkout <id>`, which
-   creates the target repo if needed and creates or reuses `<target>.wt` on `factory/<id>` (an
-   existing branch when the job is reworked, otherwise a new one from `main`).
+   creates the GitHub repo if needed and clones or reuses `<work>\jobs\<id>` on `factory/<id>` (the
+   pushed branch when the job is reworked, otherwise a new one from `origin/main`).
 3. It sets `FACTORY_JOB=<id>`, `FACTORY_HOME=<this repo>\.factory-runs` and `FACTORY_REPO=<this repo>`,
-   writes `<stateDir>/headless-settings.json`, and runs this in the target's worktree:
-   `claude -p "/factory:factory run <id> <stateDir> <factory.ps1>" --plugin-dir <this repo>/factory/plugin --settings <stateDir>/headless-settings.json --add-dir <stateDir> --output-format stream-json --verbose --permission-mode acceptEdits`
+   writes `<stateDir>/headless-settings.json`, and runs this in the job's work directory:
+   `claude -p "/factory:factory run <id> <stateDir> <factory.ps1>" --plugin-dir <this repo>/factory/plugin --plugin-dir <template workspace> --settings <stateDir>/headless-settings.json --add-dir <stateDir> --output-format stream-json --verbose --permission-mode acceptEdits`
    (`claude-run.ps1` builds this command for both scripts).
    - `headless-settings.json` `permissions.allow` lets agents run the toolchain (`dotnet`, `npm`,
-     `npx`, `node`), git reads and commits, and read-only shell commands, in both the Bash and the
+     `npx`, `node`, `aspire`, `aspire-addon`), git reads and commits, and read-only shell commands, in both the Bash and the
      PowerShell tool; `deny` blocks `git push`, `merge`, `rebase`, `reset --hard`, switching to
      `main` and `git worktree`. `additionalDirectories` makes `factory/templates` and the template
      workspace readable. The allowlist also holds the absolute
      `factory.ps1` path. The skill calls `factory.ps1` by that absolute path with no
      `$VARIABLES`, because a headless permission check can't approve a variable it can't see.
    - `permissions.deny` is the fence: `Edit` on `/factory/**`, `/.claude/**` and
-     `/docs/FACTORY-CONTRACT.md` in the worktree, the same three by absolute path in this repo,
-     `<stateDir>/jobs/*/spec.md`, and the template workspace.
+     `/docs/FACTORY-CONTRACT.md` in the work directory, the same three by absolute path in this repo,
+     `<stateDir>/jobs/*/spec.md`, and the template workspace; and `Read` of this repo's `.env`.
+     Agents never push: only `factory.ps1` holds the token.
    - claude's output is read as UTF-8 whatever the console's codepage.
    - stderr goes to the same log, so a reader skips lines that are not JSON.
 4. It appends each stdout line to `jobs/<id>/run-<n>.jsonl` as it arrives, and calls `set-cost`
@@ -553,12 +615,16 @@ longer running. Otherwise it loops:
    in `gate` afterwards, the approver has approved and only the gate is left, so the runner runs
    `factory.ps1 gate <id>` itself. A claude that dies at that point (out of credit, say) costs
    nothing. If the job is still in Building after that, whether claude exited non-zero or not, it
-   moves the job to `ready` with flag `escalated`. That way the queue never stalls.
+   moves the job to `ready` with flag `escalated`. That way the queue never stalls. Once the job is
+   in `ready`, it calls `factory.ps1 publish <id>`; a failed publish is logged (`publish <id>:
+   <message>`) and leaves the job as it is, since `merge` publishes again. The runner runs
+   `checkout` and `publish` in a child `pwsh`, so it can read the refusal `factory.ps1` writes to stderr.
 5. An error while handling one job does not end the runner. It logs the error, moves the job to
    `ready` with flag `escalated` if it is still in Building (detail `runner error: <message>`), and
    goes back to step 1.
 6. It appends to `<stateDir>/runner.log`, one timestamped line each: `start pid=<pid>`,
-   `take <id>`, `claude <id> exit=<code> result=<yes|no>`, `stage <id> <stage>`,
+   `take <id>`, `checkout <id> failed: <message>` (the job is then escalated with detail
+   `work dir: <message>`), `claude <id> exit=<code> result=<yes|no>`, `stage <id> <stage>`,
    `error <id>: <message>` followed by the stack, and how it ended: `exit drained`, `exit fatal: <message>`,
    or `exit stopped` (interrupted, e.g. its console closed, before the loop finished).
 
@@ -566,6 +632,10 @@ longer running. Otherwise it loops:
 `approved` and `runner.lock` is missing or names a PID that is no longer running, it starts
 `runner.ps1` detached and logs `watchdog: started runner`. A runner that died, or one that was
 never started (an approval made outside the dashboard), costs one interval, not a stalled queue.
+
+**PR sync.** Every 30 seconds (`-PrSyncSeconds`), if a `ready` job has a PR, `serve.ps1` starts
+`factory.ps1 sync-prs` detached. A PR the human merged on GitHub then lands its job in Done within
+one interval, with no drag.
 
 The `/factory:idea` session doesn't use the runner or the lock. It writes only under `ideas/` and
 through `factory.ps1`, so it can run while a job builds. After it approves a spec it starts

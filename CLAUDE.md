@@ -27,12 +27,15 @@ and `...\build-your-own-ai-software-factory-with-claude-code.md`. How to build t
   In the source video, a modified `backlog.md` blocked an approved merge. Don't move state into
   tracked files.
 - **Approval is not merge.** The approver's `APPROVE` only moves a job to `gate`, and a green gate
-  only moves it to Ready for review. Only a human drag to Done runs `factory.ps1 merge`, which
-  still requires a green gate and a clean tree.
+  only moves it to Ready for review. Only a human accepts: a drag to Done runs `factory.ps1 merge`,
+  which still requires a green gate and a clean tree, or the human merges the PR on GitHub, which
+  `sync-prs` records as Done (an ungated head is noted, not refused).
 - **The dashboard's write endpoints are thin `factory.ps1` wrappers.** `serve.ps1` holds no
   transition logic of its own.
-- **Jobs build in one reusable worktree, `..\claude-factory.wt`**, one at a time. The main checkout
-  stays on a clean `main`.
+- **Targets are GitHub repos (`owner/name`), and every job builds in its own temp clone**,
+  `<work>\jobs\<id>` (`$env:FACTORY_WORK`, else `%TEMP%\claude-factory`), one job at a time. The
+  clone is deleted when the job reaches Done (its PR merged) or is discarded. Only `factory.ps1`
+  holds the GitHub token (`.env`) and pushes; agents never push.
 - **No agent weakens the thing that judges it.** Factory jobs never edit `factory/`, `.claude/`,
   `docs/FACTORY-CONTRACT.md` or test assertions in order to pass. Changes to the factory itself are
   made by a human session, not by `/factory`.
@@ -67,7 +70,7 @@ cd src/ui/react; npm install; npm run build
 aspire run                                   # no Docker needed (SQLite)
 
 pwsh factory/scripts/serve.ps1               # dashboard on http://localhost:4317 (after step 3)
-pwsh factory/scripts/idea.ps1 <target|I-NNN> # CLI fallback for the dashboard's New idea: grill -> brief -> specs -> you approve
+pwsh factory/scripts/idea.ps1 <owner/name|I-NNN> # CLI fallback for the dashboard's New idea: grill -> brief -> specs -> you approve
 pwsh factory/scripts/runner.ps1              # drains the Approved queue; serve.ps1 starts it for you (after step 2)
 Invoke-Pester factory/tests                  # control-plane, runner, idea-turn and serve tests (after steps 1-2)
 ```

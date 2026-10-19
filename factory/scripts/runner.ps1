@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-  Drains the Approved queue one job at a time in the factory worktree; see "Runner" in
+  Drains the Approved queue one job at a time, each in its own temp clone; see "Runner" in
   docs/FACTORY-CONTRACT.md. Started by serve.ps1 after an approve or rework; safe to start twice.
 .DESCRIPTION
-  Each pass runs in the job target's worktree through claude-run.ps1 (plugin, headless settings,
+  Each pass runs in the job's work dir through claude-run.ps1 (plugin, headless settings,
   stream-json to run-<n>.jsonl). $env:FACTORY_CLAUDE_CMD, when set, replaces claude (it runs
   through pwsh -Command with FACTORY_JOB set), so tests spend no tokens.
 #>
@@ -15,6 +15,17 @@ $Factory = Join-Path $PSScriptRoot 'factory.ps1'
 $Building = 'build', 'review', 'approve', 'gate'
 
 function F { & $Factory @args }
+# factory.ps1 in a child process, for a call whose refusal must be read: Fail writes to the console's
+# stderr, which an in-process call cannot capture. Returns { Code, Out (stdout), Err (stderr) }.
+function F-Child {
+    $lines = & pwsh -NoProfile -File $Factory @args 2>&1
+    $code = $LASTEXITCODE
+    [pscustomobject]@{
+        Code = $code
+        Out = (@($lines | Where-Object { $_ -isnot [Management.Automation.ErrorRecord] }) -join "`n").Trim()
+        Err = (@($lines | Where-Object { $_ -is [Management.Automation.ErrorRecord] } | ForEach-Object { "$_" }) -join ' ').Trim()
+    }
+}
 
 $mainRoot = if ($env:FACTORY_REPO) { $env:FACTORY_REPO } else {
     Split-Path ((git rev-parse --path-format=absolute --git-common-dir) -replace '/', '\') -Parent
@@ -63,11 +74,13 @@ try {
 
         # One job's failure must not stall the queue: log it, escalate the job, take the next.
         try {
-            $wt = F checkout $id 2>&1
-            if ($LASTEXITCODE -ne 0) {
-                F set-stage $id ready -By runner -Reason escalated -Detail "worktree: $wt" | Out-Null
+            $co = F-Child checkout $id
+            if ($co.Code -ne 0) {
+                Log "checkout $id failed: $($co.Err)"
+                F set-stage $id ready -By runner -Reason escalated -Detail "work dir: $($co.Err)" | Out-Null
                 continue
             }
+            $wt = $co.Out
 
             $jobDir = Join-Path $env:FACTORY_HOME "jobs/$id"
             $n = @(Get-ChildItem $jobDir -Filter 'run-*.jsonl' -ErrorAction SilentlyContinue).Count + 1
@@ -96,6 +109,12 @@ try {
             if ((Stage $id) -in $Building) {
                 $why = if ($code -ne 0) { "claude exited with exit $code" } else { 'claude finished but the job is still in Building' }
                 F set-stage $id ready -By runner -Reason escalated -Detail "$why; see run-$n.jsonl" | Out-Null
+            }
+
+            # Push the branch and open the PR, so the human reviews it on GitHub. merge publishes again.
+            if ((Stage $id) -eq 'ready') {
+                $pub = F-Child publish $id
+                if ($pub.Code -ne 0) { Log "publish $($id): $($pub.Err)" }
             }
         } catch {
             Log "error $($id): $($_.Exception.Message)`n$($_.ScriptStackTrace)"

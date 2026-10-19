@@ -9,7 +9,8 @@ const repo = path.resolve(import.meta.dirname, '../../..');
 
 type Job = {
   id: string; stage: string; round: number; target?: string; approvedAt?: string;
-  merged?: { sha: string; repo: string; added: string[]; modified: string[] };
+  pr?: { number: number; url: string };
+  merged?: { sha: string; repo: string; pr: string; added: string[]; modified: string[] };
   history: { from: string; to: string; by: string }[];
 };
 const board = () => JSON.parse(readFileSync(path.join(simDir, 'board.json'), 'utf8'));
@@ -19,7 +20,7 @@ const column = (page: Page, name: string) => page.locator(`[data-column="${name}
 const card = (page: Page, id: string) => page.locator(`[data-card="${id}"]`);
 const modal = (page: Page) => page.locator('#modal');
 const tab = (page: Page, name: string) => modal(page).locator(`[data-tab="${name}"]`);
-const sandbox = path.join(simDir, 'repo');
+const sandbox = 'sim/sandbox';   // the simulator's GitHub target, served by the GitHub stub
 
 test.describe.serial('factory dashboard', () => {
   test.beforeAll(() => {
@@ -37,9 +38,19 @@ test.describe.serial('factory dashboard', () => {
     await expect(j2).toBeVisible();
     await expect(j2.locator('[data-flag]')).toHaveText(/max-rounds/);
     await expect(j2.locator('[data-review="ui"]')).toHaveText(/CHANGES/);
-
     const j3 = column(page, 'ready').locator('[data-card="J-003"]');
     await expect(j3.locator('[data-flag]')).toHaveText(/merge-blocked/);
+    // A published job awaiting the human shows its PR on the card; following it does not open the
+    // modal, which offers the PR beside Merge.
+    await expect(j3.locator('a[data-pr]')).toHaveAttribute('href', job('J-003').pr!.url);
+    await expect(j3.locator('a[data-pr]')).toHaveText(`PR #${job('J-003').pr!.number}`);
+    await j3.locator('a[data-pr]').evaluate((a) => a.addEventListener('click', (e) => e.preventDefault()));
+    await j3.locator('a[data-pr]').click();
+    await expect(modal(page)).toBeHidden();
+    await expect(j2.locator('a[data-pr]')).toHaveCount(0);   // never published
+    await j3.click();
+    await expect(modal(page).locator('#pr-btn')).toHaveAttribute('href', job('J-003').pr!.url);
+    await expect(modal(page).locator('#pr-btn')).toHaveText(`Open PR #${job('J-003').pr!.number}`);
 
     await expect(column(page, 'backlog').locator('[data-card="J-005"]')).toBeVisible();
     await expect(card(page, 'J-004')).toHaveCount(0); // discarded
@@ -55,6 +66,7 @@ test.describe.serial('factory dashboard', () => {
     await expect(modal(page)).toBeVisible();
     await expect(modal(page).locator('[data-gate]')).toContainText('test=0');
     await expect(modal(page)).toContainText(sandbox);
+    await expect(modal(page).locator('[data-pr]')).toHaveAttribute('href', job('J-001').pr!.url);
 
     await tab(page, 'timeline').click();
     expect(await modal(page).locator('[data-timeline] li').count()).toBeGreaterThanOrEqual(10);
@@ -64,12 +76,14 @@ test.describe.serial('factory dashboard', () => {
     await expect(modal(page).locator('#viewer h1')).toContainText('Build: J-001');
   });
 
-  test('Done shows the full paths the merge added', async ({ page }) => {
+  test('Done shows the PR and the repo paths the merge added, and the work dir is gone', async ({ page }) => {
     await page.goto('/');
     await card(page, 'J-001').click();
     const merged = modal(page).locator('[data-merged]');
     await expect(merged).toContainText(job('J-001').merged!.sha.slice(0, 7));
-    await expect(merged).toContainText(path.join(sandbox, 'J-001.txt'));
+    await expect(merged).toContainText('J-001.txt');
+    await expect(merged.locator('a')).toHaveAttribute('href', job('J-001').merged!.pr);
+    expect(existsSync(path.join(simDir, 'work/jobs/J-001'))).toBe(false);
   });
 
   test('the Output tab streams the orchestrator and each agent, tagged', async ({ page }) => {
@@ -132,7 +146,7 @@ test.describe.serial('factory dashboard', () => {
     const preview = page.locator('#spec-preview');
     await expect(preview.locator('h2', { hasText: 'Acceptance criteria' })).toBeVisible();
     await expect(preview.locator('input[type="checkbox"]')).toHaveCount(1);
-    await expect(preview).toContainText(`Repo: ${sandbox}`); // Windows backslashes survive markdown
+    await expect(preview).toContainText(`Repo: ${sandbox}`);
     await page.locator('#spec-save').click();
     await expect(page.locator('#toast')).toContainText(/saved/i);
     expect(readFileSync(path.join(simDir, 'jobs/J-005/spec.md'), 'utf8')).toContain('Edited by a human.');
@@ -191,11 +205,15 @@ test.describe.serial('factory dashboard', () => {
 
     await page.goto('/');
     await column(page, 'ideas').locator('#new-idea-btn').click();
-    await modal(page).locator('#s-target').fill(sandbox);
+    // The picker lists the GitHub repos (list-repos), after Add new.
+    await expect(modal(page).locator(`#s-target option[value="${sandbox}"]`)).toHaveCount(1);
+    await expect(modal(page).locator('#s-target option').first()).toHaveAttribute('value', '+new');
+    await modal(page).locator('#s-target').selectOption(sandbox);
     await modal(page).locator('#s-text').fill('Let me tag books');
     await modal(page).locator('#s-start').click();
 
-    await expect(modal(page).locator('[data-log]')).toContainText('who is this for?');
+    // Creating the session checks and clones the GitHub target before the first turn starts.
+    await expect(modal(page).locator('[data-log]')).toContainText('who is this for?', { timeout: 20_000 });
     const q = modal(page).locator('[data-question="0"]');
     await expect(q).toContainText('Who uses it?');
     await expect(column(page, 'ideas').locator('[data-session]')).toHaveCount(1);
@@ -223,6 +241,42 @@ test.describe.serial('factory dashboard', () => {
     expect(job(idea.jobs[0]).approvedAt).toBeTruthy();
     expect(job(idea.jobs[1]).stage).toBe('backlog');
     await expect(column(page, 'ideas').locator('[data-session]')).toHaveCount(0);
+  });
+
+  test('Add new starts a session with no repo; the scaffold form names it and sets the target', async ({ page }) => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'ideate-'));
+    const replies = [
+      { content: [{ type: 'tool_use', id: 'q1', name: 'ask_questions', input: { questions: [
+        { question: 'Who uses it?', header: 'Users', multiSelect: false, options: [{ label: 'Just me', description: 'one person' }, { label: 'A team', description: 'several' }] }] } }], stop_reason: 'tool_use' },
+      { content: [{ type: 'tool_use', id: 'p1', name: 'propose_scaffold', input: { repo: 'recipes', name: 'recipes', resource: 'Recipe', db: 'sqlite', ui: 'react', events: false } }], stop_reason: 'tool_use' },
+      { content: [{ type: 'tool_use', id: 'b1', name: 'submit_brief', input: { markdown: '# Brief: Recipes\n\n## Target\n- Repo: sim/recipes-box' } }], stop_reason: 'tool_use' },
+    ];
+    replies.forEach((r, i) => writeFileSync(path.join(dir, `${String(i + 1).padStart(3, '0')}.json`), JSON.stringify(r)));
+    await fetch(`http://localhost:${stubPort}/__reset`, { method: 'POST', body: JSON.stringify({ dir }) });
+
+    await page.goto('/');
+    await column(page, 'ideas').locator('#new-idea-btn').click();
+    await expect(modal(page).locator(`#s-target option[value="${sandbox}"]`)).toHaveCount(1);
+    await modal(page).locator('#s-target').selectOption('+new');
+    await modal(page).locator('#s-text').fill('A recipe box');
+    await modal(page).locator('#s-start').click();
+
+    await expect(modal(page).locator('.sub-meta')).toContainText('target pending', { timeout: 20_000 });
+    await modal(page).locator('[data-question="0"] [data-option="Just me"]').click();
+    await modal(page).locator('#s-send-answers').click();
+
+    await expect(modal(page).locator('#sc-repo')).toHaveValue('recipes');
+    await expect(modal(page).locator('[data-scaffold]')).toContainText('sim/');
+    await modal(page).locator('#sc-repo').fill('recipes-box');
+    await modal(page).locator('#s-confirm-scaffold').click();
+
+    await expect(modal(page).locator('[data-brief]')).toContainText('Recipes');
+    await expect(modal(page).locator('.sub-meta')).toContainText('sim/recipes-box');
+    const sent = JSON.parse(readFileSync(path.join(dir, 'requests/003.json'), 'utf8'));
+    expect(sent.messages.at(-1).content.at(-1).content).toContain('sim/recipes-box');
+
+    await modal(page).locator('#s-close').click();
+    await expect(modal(page)).toBeHidden();
   });
 
   test('Clear in Done purges finished cards, their folders and finished ideas', async ({ page }) => {

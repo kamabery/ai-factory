@@ -19,16 +19,19 @@ function ConvertTo-RulePath([string] $path) {
     "/$p"
 }
 
-# Agents work in a throwaway worktree, so the whole toolchain (scaffolding included) is allowed, plus
-# read-only shell commands. Anything that would leave the branch (push, merge, switching to main) is
-# denied. Each rule is given for both the Bash and the PowerShell tool.
+# Agents work in the job's throwaway clone, so the whole toolchain (scaffolding included) is allowed,
+# plus read-only shell commands. Anything that would leave the branch (push, merge, switching to main)
+# is denied, and so is reading .env: only factory.ps1 holds the GitHub token. Each rule is given for both the Bash and the PowerShell tool.
 $AllowCommands = @(
-    'dotnet *', 'npm *', 'npx *', 'node *', 'aspire *',
+    'dotnet *', 'npm *', 'npx *', 'node *', 'aspire *', 'aspire-addon *',
     'git status*', 'git diff*', 'git log*', 'git show*', 'git add *', 'git commit *', 'git branch*', 'git rev-parse*', 'git ls-files*',
     'ls*', 'cat *', 'head *', 'tail *', 'wc *', 'grep *', 'echo *', 'pwd', 'cd *', 'which *', 'printenv*',
     'Get-ChildItem*', 'Get-Content *', 'Select-String *', 'Test-Path *', 'Resolve-Path *', 'Get-Location', 'Set-Location *', 'Write-Output *'
 )
 $DenyCommands = @('git push*', 'git merge*', 'git rebase*', 'git reset --hard*', 'git checkout main*', 'git switch main*', 'git branch -D*', 'git worktree*')
+
+# The factory's own plugin, and the template workspace as the aspire-starter plugin (boot-strap-app, enhance-app).
+function Get-PluginDirs { @((Join-Path $FactoryRoot 'factory/plugin'), $TemplatesRoot) }
 
 function Write-HeadlessSettings([string] $stateDir) {
     $factory = $FactoryPs1 -replace '\\', '/'
@@ -43,7 +46,8 @@ function Write-HeadlessSettings([string] $stateDir) {
                 "Edit($(ConvertTo-RulePath (Join-Path $FactoryRoot '.claude'))/**)",
                 "Edit($(ConvertTo-RulePath (Join-Path $FactoryRoot 'docs/FACTORY-CONTRACT.md')))",
                 "Edit($(ConvertTo-RulePath $stateDir)/jobs/*/spec.md)",
-                "Edit($(ConvertTo-RulePath $TemplatesRoot)/**)"
+                "Edit($(ConvertTo-RulePath $TemplatesRoot)/**)",
+                "Read($(ConvertTo-RulePath (Join-Path $FactoryRoot '.env')))"
             )
         }
     }
@@ -75,7 +79,8 @@ function Invoke-ClaudeStream([string] $prompt, [string] $log, [string[]] $addDir
             & pwsh -NoProfile -Command $env:FACTORY_CLAUDE_CMD 2>&1 | & $sink
         } else {
             $dirs = @($stateDir) + $addDirs | ForEach-Object { '--add-dir'; $_ }
-            & claude -p $prompt --plugin-dir (Join-Path $FactoryRoot 'factory/plugin') --settings $settings @dirs `
+            $plugins = Get-PluginDirs | ForEach-Object { '--plugin-dir'; $_ }
+            & claude -p $prompt @plugins --settings $settings @dirs `
                 --output-format stream-json --verbose --permission-mode acceptEdits 2>&1 | & $sink
         }
         $code = $LASTEXITCODE

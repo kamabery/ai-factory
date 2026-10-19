@@ -13,7 +13,8 @@ param(
     [int] $Port = 4317,
     [string] $StateDir,
     [string] $EnvFile,
-    [int] $WatchdogSeconds = 10
+    [int] $WatchdogSeconds = 10,
+    [int] $PrSyncSeconds = 30
 )
 
 $ErrorActionPreference = 'Stop'
@@ -22,6 +23,7 @@ $Factory = Join-Path $Scripts 'factory.ps1'
 $Index = Join-Path (Split-Path $Scripts -Parent) 'dashboard/index.html'
 $Vendor = Join-Path (Split-Path $Scripts -Parent) 'dashboard/vendor'
 if (-not $EnvFile) { $EnvFile = Join-Path (Split-Path (Split-Path $Scripts -Parent) -Parent) '.env' }
+$env:FACTORY_ENV_FILE = $EnvFile   # factory.ps1 reads the GitHub settings from the same file
 
 if (-not $StateDir) {
     $StateDir = if ($env:FACTORY_HOME) { $env:FACTORY_HOME } else {
@@ -69,6 +71,17 @@ function Invoke-Watchdog {
         Start-Detached 'runner.ps1'
         Add-Content -LiteralPath (Join-Path $StateDir 'runner.log') "$([DateTime]::UtcNow.ToString('o')) watchdog: started runner" -Encoding utf8
     } catch { Write-Warning "watchdog: $_" }
+}
+
+# A ready job's PR may be merged on GitHub by the human: factory.ps1 sync-prs then moves it to done.
+# Detached, so the GitHub calls never hold up a request.
+$NextPrSync = [DateTime]::MinValue
+function Invoke-PrSync {
+    if ([DateTime]::UtcNow -lt $script:NextPrSync) { return }
+    $script:NextPrSync = [DateTime]::UtcNow.AddSeconds($PrSyncSeconds)
+    try {
+        if ((Read-Board).jobs | Where-Object { $_.stage -eq 'ready' -and $_.pr }) { Start-Detached 'factory.ps1' @('sync-prs') }
+    } catch { Write-Warning "pr sync: $_" }
 }
 
 function Read-Board {
@@ -129,6 +142,11 @@ function Write-Json([string] $path, $o) {
     }
 }
 function SessionDir([string] $id) { Join-Path $Sessions $id }
+# The session's shallow clone of its target, for the model's read tools; see "Work directories".
+function SessionClone([string] $id) {
+    $work = if ($env:FACTORY_WORK) { $env:FACTORY_WORK } else { Join-Path ([IO.Path]::GetTempPath()) 'claude-factory' }
+    Join-Path $work "sessions/$id"
+}
 function Read-Session([string] $id) { Read-Json (Join-Path (SessionDir $id) 'session.json') }
 function Save-Session($s) { Write-Json (Join-Path (SessionDir $s.id) 'session.json') $s }
 function Read-Chat([string] $id) {
@@ -169,6 +187,13 @@ function Add-Answer($s, $messages, [string] $text) {
     $s.pending = $null; $s.pendingResults = @()
 }
 
+# The human's words, verbatim and in order, so an idea can be tried again; see "Idea sessions".
+function Add-Human([string] $id, [string] $kind, [string] $text, $extra = @{}) {
+    $line = [ordered]@{ ts = [DateTime]::UtcNow.ToString('o'); kind = $kind; text = $text }
+    foreach ($k in $extra.Keys) { $line[$k] = $extra[$k] }
+    [IO.File]::AppendAllText((Join-Path (SessionDir $id) 'human.jsonl'), ($line | ConvertTo-Json -Depth 100 -Compress) + "`n", [Text.UTF8Encoding]::new($false))
+}
+
 function Refuse([string] $msg) { [pscustomobject]@{ Ok = $false; Message = $msg } }
 
 function Handle-Session($ctx, [string] $method, [string] $id, [string] $action, [string] $k) {
@@ -182,9 +207,24 @@ function Handle-Session($ctx, [string] $method, [string] $id, [string] $action, 
     switch ($action) {
         'reply' {
             $text = "$($req.text ?? '')".Trim()
-            if ($req.scaffold) { $s.scaffold = $req.scaffold }
-            if ($s.pending) { Add-Answer $s $messages $text }
-            elseif ($text) { Add-User $messages @([ordered]@{ type = 'text'; text = $text }) }
+            if ($req.scaffold -and -not $s.target) {
+                # Add new: the confirmed scaffold names the repo, which must not exist yet.
+                $t = "$(Get-EnvValue 'GITHUB_OWNER')/$($req.scaffold.repo)"
+                $r = Invoke-Factory check-target $t
+                if (-not $r.Ok) { return Send-Result $ctx $r }
+                if ($r.Message -ne 'new') { return Send-Result $ctx (Refuse "$t already exists: pick it from the list instead") }
+                $s.target = $t
+                $text = "$text The target is $t.".Trim()
+            }
+            if ($req.scaffold) { $req.scaffold.Remove('repo'); $s.scaffold = $req.scaffold }
+            if ($s.pending) {
+                Add-Human $id 'answer' $text @{ asked = [ordered]@{ name = $s.pending.name; input = $s.pending.input } }
+                Add-Answer $s $messages $text
+            }
+            elseif ($text) {
+                Add-Human $id 'message' $text
+                Add-User $messages @([ordered]@{ type = 'text'; text = $text })
+            }
             elseif (-not $messages.Count -or $messages[$messages.Count - 1].role -ne 'user') { return Send-Result $ctx (Refuse 'nothing to answer') }
             Save-Chat $id $messages
             Start-Turn $s
@@ -217,6 +257,10 @@ function Handle-Session($ctx, [string] $method, [string] $id, [string] $action, 
             $idea = if ($s.idea) { (Read-Board).ideas | Where-Object id -eq $s.idea }
             if (-not $idea) { return Send-Result $ctx (Refuse 'the brief is not confirmed yet') }
             if ($idea.status -ne 'drafting') { return Send-Result $ctx (Refuse "$($s.idea) is $($idea.status): merge the bootstrap job $($s.bootstrap) first") }
+            $r = Invoke-Factory clone-target $s.target (SessionClone $id)
+            if (-not $r.Ok) { return Send-Result $ctx $r }
+            $s.checkout = SessionClone $id
+            Save-Session $s
             Add-User $messages @([ordered]@{ type = 'text'; text = "The bootstrap job $($s.bootstrap) has merged, so $($s.target) now exists. Read it, then call submit_specs." })
             Save-Chat $id $messages
             Start-Turn $s
@@ -259,6 +303,7 @@ function Handle-Session($ctx, [string] $method, [string] $id, [string] $action, 
             }
             $s.status = 'closed'
             Save-Session $s
+            Remove-Item -LiteralPath (SessionClone $id) -Recurse -Force -ErrorAction SilentlyContinue
             return Send-Result $ctx $r
         }
     }
@@ -269,19 +314,35 @@ function New-Session($ctx) {
     $req = Read-Body $ctx | ConvertFrom-Json -AsHashtable
     if (-not (Get-EnvValue 'ANTHROPIC_API_KEY')) { return Send-Result $ctx (Refuse "no ANTHROPIC_API_KEY in $EnvFile") }
     if (-not "$($req.text)".Trim()) { return Send-Result $ctx (Refuse 'describe the idea first') }
-    $r = Invoke-Factory check-target "$($req.target)"
-    if (-not $r.Ok) { return Send-Result $ctx $r }
-    $new = $r.Message -eq 'new'
+    $owner = Get-EnvValue 'GITHUB_OWNER'
+    if ($req.new) {
+        # Add new: no repo yet; the model names it in propose_scaffold.
+        if (-not $owner) { return Send-Result $ctx (Refuse "Add new needs GITHUB_OWNER in $EnvFile") }
+        $req.target = $null
+        $new = $true
+    } else {
+        $r = Invoke-Factory check-target "$($req.target)"
+        if (-not $r.Ok) { return Send-Result $ctx $r }
+        $new = $r.Message -eq 'new'
+    }
     $n = 0
     if (Test-Path $Sessions) { foreach ($d in Get-ChildItem $Sessions -Directory) { if ($d.Name -match '^S-(\d+)$') { $n = [Math]::Max($n, [int]$Matches[1]) } } }
     $id = 'S-{0:D3}' -f ($n + 1)
+    $checkout = $null
+    if (-not $new) {
+        $checkout = SessionClone $id
+        $r = Invoke-Factory clone-target "$($req.target)" $checkout
+        if (-not $r.Ok) { return Send-Result $ctx $r }
+    }
     New-Item -ItemType Directory -Force (SessionDir $id) | Out-Null
-    $about = if ($new) { 'This is a new target: it does not exist yet, and a bootstrap job will scaffold it from template-projects. Call propose_scaffold.' }
-             else { 'This is an existing git repo; read it with read_file, list_dir and grep.' }
-    $s = [ordered]@{ id = $id; target = $req.target; text = $req.text.Trim(); newTarget = $new; status = 'idle'; error = $null
+    $about = if (-not $req.target) { "This is a new target with no repo yet. Grill enough to know what it is, then call propose_scaffold, including repo: a short lower-case GitHub repo name. The owner is $owner. A bootstrap job will create the repo and scaffold it from template-projects." }
+             elseif ($new) { 'This is a new target: the GitHub repo does not exist yet (or is empty), and a bootstrap job will scaffold it from template-projects. Call propose_scaffold.' }
+             else { 'This is an existing git repo on GitHub, cloned for you; read it with read_file, list_dir and grep.' }
+    $s = [ordered]@{ id = $id; target = $req.target; text = $req.text.Trim(); newTarget = $new; checkout = $checkout; status = 'idle'; error = $null
                      model = (Get-IdeaModel); costUsd = 0; scaffold = $null; idea = $null; bootstrap = $null
                      pending = $null; pendingResults = @(); specs = @(); createdAt = [DateTime]::UtcNow.ToString('o') }
-    Save-Chat $id @([ordered]@{ role = 'user'; content = @([ordered]@{ type = 'text'; text = "Target: $($req.target)`n$about`n`nIdea: $($s.text)" }) })
+    Add-Human $id 'idea' $s.text @{ target = $s.target; newTarget = $new }
+    Save-Chat $id @([ordered]@{ role = 'user'; content = @([ordered]@{ type = 'text'; text = "Target: $($req.target ?? '(none yet)')`n$about`n`nIdea: $($s.text)" }) })
     Start-Turn $s
     Send-Result $ctx ([pscustomobject]@{ Ok = $true; Message = $id })
 }
@@ -361,7 +422,13 @@ function Handle($ctx) {
     }
 
     if ($method -eq 'GET' -and $path -eq '/api/ideate/config') {
-        return Send $ctx 200 (@{ enabled = [bool](Get-EnvValue 'ANTHROPIC_API_KEY'); model = (Get-IdeaModel) } | ConvertTo-Json -Compress)
+        return Send $ctx 200 (@{ enabled = [bool](Get-EnvValue 'ANTHROPIC_API_KEY'); model = (Get-IdeaModel); owner = (Get-EnvValue 'GITHUB_OWNER') } | ConvertTo-Json -Compress)
+    }
+
+    if ($method -eq 'GET' -and $path -eq '/api/repos') {
+        $r = Invoke-Factory list-repos
+        if (-not $r.Ok) { return Send-Result $ctx $r }
+        return Send $ctx 200 $r.Message
     }
 
     if ($method -eq 'GET' -and $path -eq '/api/sessions') {
@@ -414,7 +481,7 @@ Write-Host "factory dashboard on http://localhost:$Port/  (state: $StateDir)"
 try {
     while ($listener.IsListening) {
         $task = $listener.GetContextAsync()
-        while (-not $task.AsyncWaitHandle.WaitOne(250)) { Invoke-Watchdog }
+        while (-not $task.AsyncWaitHandle.WaitOne(250)) { Invoke-Watchdog; Invoke-PrSync }
         $ctx = $task.GetAwaiter().GetResult()
         try { Handle $ctx }
         catch {
