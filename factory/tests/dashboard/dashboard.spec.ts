@@ -160,6 +160,20 @@ test.describe.serial('factory dashboard', () => {
     expect(job('J-005').stage).toBe('backlog');
   });
 
+  test('a backlog card\'s provider chip switches it between subscription and openrouter without opening the modal', async ({ page }) => {
+    await page.goto('/');
+    const chip = card(page, 'J-005').locator('[data-provider]');
+    await expect(chip).toHaveText('subscription');
+    await chip.click();
+    await expect(chip).toHaveText('openrouter');
+    await expect(modal(page)).toBeHidden();
+    expect(board().jobs.find((j: { id: string }) => j.id === 'J-005').provider).toBe('openrouter');
+    await chip.click();
+    await expect(chip).toHaveText('subscription');
+    expect(board().jobs.find((j: { id: string }) => j.id === 'J-005').provider).toBe('subscription');
+    await expect(card(page, 'J-001').locator('[data-provider]')).toHaveCount(0);   // done, on the default
+  });
+
   test('dragging a backlog card to Approved approves it', async ({ page }) => {
     await page.goto('/');
     await card(page, 'J-005').dragTo(column(page, 'approved'));

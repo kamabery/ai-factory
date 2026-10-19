@@ -50,9 +50,8 @@ function Take-Lock {
     $true
 }
 
-function Stage([string] $id) {
-    ((F status -Json | ConvertFrom-Json).jobs | Where-Object id -eq $id).stage
-}
+function Get-StatusJob([string] $id) { (F status -Json | ConvertFrom-Json).jobs | Where-Object id -eq $id }
+function Stage([string] $id) { (Get-StatusJob $id).stage }
 
 if (-not (Take-Lock)) { exit 0 }
 
@@ -74,6 +73,15 @@ try {
 
         # One job's failure must not stall the queue: log it, escalate the job, take the next.
         try {
+            $j = Get-StatusJob $id
+            $provider = if ($j.PSObject.Properties['provider'] -and $j.provider) { $j.provider } else { 'subscription' }
+            $childEnv = Get-ProviderEnv $provider
+            if ($null -eq $childEnv) {
+                Log "provider $id failed: no OPENROUTER_API_KEY in .env"
+                F set-stage $id ready -By runner -Reason escalated -Detail 'provider: no OPENROUTER_API_KEY in .env' | Out-Null
+                continue
+            }
+
             $co = F-Child checkout $id
             if ($co.Code -ne 0) {
                 Log "checkout $id failed: $($co.Err)"
@@ -89,7 +97,7 @@ try {
             Push-Location $wt
             try {
                 $state = $env:FACTORY_HOME.Replace('\', '/')
-                $run = Invoke-ClaudeStream "/factory:factory run $id $state $($Factory.Replace('\', '/'))" (Join-Path $jobDir "run-$n.jsonl")
+                $run = Invoke-ClaudeStream "/factory:factory run $id $state $($Factory.Replace('\', '/'))" (Join-Path $jobDir "run-$n.jsonl") -childEnv $childEnv
                 $code = $run.Code
                 $result = $run.Result
             } finally {

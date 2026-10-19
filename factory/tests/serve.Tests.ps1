@@ -150,6 +150,31 @@ Describe 'serve.ps1 evaluations' {
     }
 }
 
+Describe 'serve.ps1 job provider' {
+    AfterEach { Stop-Serve; Remove-Item Env:FACTORY_ENV_FILE -ErrorAction SilentlyContinue }
+
+    It 'sets a backlog job''s provider through factory.ps1 set-provider, and refuses an unknown one' {
+        Start-Serve $script:EnvFile
+        $env:FACTORY_ENV_FILE = $script:EnvFile
+        $repo = New-Repo
+        $factory = Join-Path $script:Scripts 'factory.ps1'
+        $idea = & pwsh -NoProfile -File $factory new-idea 'pick a provider' -Target $repo
+        $spec = Join-Path $TestDrive 'provider-spec.md'
+        Set-Content $spec (Spec-Md 'Provider' $repo)
+        $id = & pwsh -NoProfile -File $factory add-spec $idea $spec
+
+        $r = Api POST "/api/jobs/$id/provider" @{ provider = 'openrouter' }
+        $r.Status | Should -Be 200
+        $r.Body.ok | Should -BeTrue
+        ((Board).jobs | Where-Object id -eq $id).provider | Should -Be 'openrouter'
+
+        $r = Api POST "/api/jobs/$id/provider" @{ provider = 'bedrock' }
+        $r.Status | Should -Be 409
+        $r.Body.message | Should -Match 'provider must be'
+        ((Board).jobs | Where-Object id -eq $id).provider | Should -Be 'openrouter'
+    }
+}
+
 Describe 'serve.ps1 idea session on an existing repo' {
     BeforeAll {
         Start-Serve $script:EnvFile

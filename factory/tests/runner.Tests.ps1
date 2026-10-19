@@ -358,6 +358,80 @@ Describe 'runner.ps1 and hook-event.ps1' {
         }
     }
 
+    Context 'providers' {
+        BeforeEach {
+            # A fake claude that records the provider environment it was started with, one line per job.
+            $fake = Join-Path $TestDrive 'fake-claude-env.ps1'
+            @'
+$names = 'ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL'
+$seen = [ordered]@{ job = $env:FACTORY_JOB }
+foreach ($n in $names) { $v = [Environment]::GetEnvironmentVariable($n); if ($null -ne $v) { $seen[$n] = $v } }
+Add-Content (Join-Path $env:FACTORY_HOME 'env.log') ($seen | ConvertTo-Json -Compress)
+'{"type":"result","total_cost_usd":0.1,"duration_ms":10}'
+'@ | Set-Content $fake
+            $env:FACTORY_CLAUDE_CMD = "& '$fake'"
+            $env:ANTHROPIC_API_KEY = 'sk-ant-from-the-runner'
+            $script:ProviderEnv = Join-Path $TestDrive "provider-$([guid]::NewGuid().ToString('N')).env"
+            $env:FACTORY_ENV_FILE = $script:ProviderEnv
+        }
+
+        AfterEach { Remove-Item Env:ANTHROPIC_API_KEY -ErrorAction SilentlyContinue }
+
+        BeforeAll {
+            function Seen([string]$id) {
+                Get-Content (Join-Path $env:FACTORY_HOME 'env.log') | ForEach-Object { $_ | ConvertFrom-Json -AsHashtable } | Where-Object job -eq $id
+            }
+        }
+
+        It 'gives an openrouter job OpenRouter''s endpoint, key and model overrides, and the next subscription job none of them' {
+            Set-Content $script:ProviderEnv ((Get-Content $script:EnvFile) + 'OPENROUTER_API_KEY="sk-or-test"' + 'ANTHROPIC_DEFAULT_SONNET_MODEL=anthropic/claude-sonnet-5-5')
+            $a = New-ApprovedJob 'A'
+            F set-provider $a openrouter | Out-Null
+            $b = New-ApprovedJob 'B'
+            Run-Runner | Out-Null
+
+            $or = Seen $a
+            $or.ANTHROPIC_BASE_URL | Should -Be 'https://openrouter.ai/api'
+            $or.ANTHROPIC_AUTH_TOKEN | Should -Be 'sk-or-test'
+            $or.ANTHROPIC_API_KEY | Should -Be ''
+            $or.ANTHROPIC_DEFAULT_SONNET_MODEL | Should -Be 'anthropic/claude-sonnet-5-5'
+            $or.Keys | Should -Not -Contain 'CLAUDE_CODE_SUBAGENT_MODEL'
+
+            $sub = Seen $b
+            $sub.Keys | Should -Not -Contain 'ANTHROPIC_BASE_URL'
+            $sub.Keys | Should -Not -Contain 'ANTHROPIC_AUTH_TOKEN'
+            $sub.Keys | Should -Not -Contain 'ANTHROPIC_DEFAULT_SONNET_MODEL'
+            $sub.ANTHROPIC_API_KEY | Should -Be 'sk-ant-from-the-runner'
+
+            (Events | Where-Object { $_.job -eq $a -and $_.kind -eq 'cost' }).provider | Should -Be 'openrouter'
+            (Events | Where-Object { $_.job -eq $b -and $_.kind -eq 'cost' }).provider | Should -Be 'subscription'
+        }
+
+        It 'escalates an openrouter job without running claude when .env has no OPENROUTER_API_KEY' {
+            Set-Content $script:ProviderEnv (Get-Content $script:EnvFile)
+            $id = New-ApprovedJob 'A'
+            F set-provider $id openrouter | Out-Null
+            Run-Runner | Out-Null
+            (Job $id).stage | Should -Be 'ready'
+            (Job $id).flag.reason | Should -Be 'escalated'
+            (Job $id).flag.detail | Should -Be 'provider: no OPENROUTER_API_KEY in .env'
+            Test-Path (Join-Path $env:FACTORY_HOME 'env.log') | Should -BeFalse
+        }
+
+        It 'does not let agents read the environment, which holds the key' {
+            Set-Content $script:ProviderEnv (Get-Content $script:EnvFile)
+            New-ApprovedJob 'A' | Out-Null
+            Run-Runner | Out-Null
+            $p = (Get-Content (Join-Path $env:FACTORY_HOME 'headless-settings.json') -Raw | ConvertFrom-Json).permissions
+            $p.allow | Should -Not -Contain 'Bash(printenv*)'
+            $p.allow | Should -Not -Contain 'PowerShell(printenv*)'
+            foreach ($rule in 'printenv*', 'env*', 'Get-ChildItem env:*', 'Get-Item env:*', 'Get-Content env:*') {
+                $p.deny | Should -Contain "Bash($rule)"
+                $p.deny | Should -Contain "PowerShell($rule)"
+            }
+        }
+    }
+
     Context 'state resolution' {
         It "gives claude FACTORY_HOME, so factory.ps1 in the work dir (its own repo) uses this factory's state" {
             $id = New-ApprovedJob 'A'

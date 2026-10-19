@@ -25,10 +25,26 @@ function ConvertTo-RulePath([string] $path) {
 $AllowCommands = @(
     'dotnet *', 'npm *', 'npx *', 'node *', 'aspire *', 'aspire-addon *',
     'git status*', 'git diff*', 'git log*', 'git show*', 'git add *', 'git commit *', 'git branch*', 'git rev-parse*', 'git ls-files*',
-    'ls*', 'cat *', 'head *', 'tail *', 'wc *', 'grep *', 'echo *', 'pwd', 'cd *', 'which *', 'printenv*',
+    'ls*', 'cat *', 'head *', 'tail *', 'wc *', 'grep *', 'echo *', 'pwd', 'cd *', 'which *',
     'Get-ChildItem*', 'Get-Content *', 'Select-String *', 'Test-Path *', 'Resolve-Path *', 'Get-Location', 'Set-Location *', 'Write-Output *'
 )
-$DenyCommands = @('git push*', 'git merge*', 'git rebase*', 'git reset --hard*', 'git checkout main*', 'git switch main*', 'git branch -D*', 'git worktree*')
+# The environment holds an openrouter job's key, so reading it is denied too.
+$DenyCommands = @('git push*', 'git merge*', 'git rebase*', 'git reset --hard*', 'git checkout main*', 'git switch main*', 'git branch -D*', 'git worktree*',
+    'printenv*', 'env*', 'Get-ChildItem env:*', 'Get-Item env:*', 'Get-Content env:*')
+
+. (Join-Path $PSScriptRoot 'env-file.ps1')
+
+# The child environment for a job's provider (see "Providers" in docs/FACTORY-CONTRACT.md): name ->
+# value. Empty for subscription; $null when openrouter has no key in .env.
+$ModelVars = 'ANTHROPIC_DEFAULT_FABLE_MODEL', 'ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_HAIKU_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL'
+function Get-ProviderEnv([string] $provider) {
+    if ($provider -ne 'openrouter') { return @{} }
+    $vars = Read-EnvFile $(if ($env:FACTORY_ENV_FILE) { $env:FACTORY_ENV_FILE } else { Join-Path $FactoryRoot '.env' })
+    if (-not $vars['OPENROUTER_API_KEY']) { return $null }
+    $e = [ordered]@{ ANTHROPIC_BASE_URL = 'https://openrouter.ai/api'; ANTHROPIC_AUTH_TOKEN = $vars['OPENROUTER_API_KEY']; ANTHROPIC_API_KEY = '' }
+    foreach ($n in $ModelVars) { if ($vars[$n]) { $e[$n] = $vars[$n] } }
+    $e
+}
 
 # The factory's own plugin, and the template workspace as the aspire-starter plugin (boot-strap-app, enhance-app).
 function Get-PluginDirs { @((Join-Path $FactoryRoot 'factory/plugin'), $TemplatesRoot) }
@@ -58,7 +74,8 @@ function Write-HeadlessSettings([string] $stateDir) {
 
 # Runs one pass in the current directory. Returns @{ Code; Result } where Result is the parsed
 # final "type":"result" line (or the last JSON line carrying total_cost_usd), or $null.
-function Invoke-ClaudeStream([string] $prompt, [string] $log, [string[]] $addDirs = @()) {
+# $childEnv (from Get-ProviderEnv) is set for claude only and restored afterwards.
+function Invoke-ClaudeStream([string] $prompt, [string] $log, [string[]] $addDirs = @(), [Collections.IDictionary] $childEnv = @{}) {
     $stateDir = $env:FACTORY_HOME
     $settings = Write-HeadlessSettings $stateDir
     New-Item -ItemType Directory -Force (Split-Path $log -Parent) | Out-Null
@@ -74,6 +91,11 @@ function Invoke-ClaudeStream([string] $prompt, [string] $log, [string[]] $addDir
     # claude writes UTF-8; a runner started by serve.ps1 has a fresh console on the OEM codepage.
     $enc = [Console]::OutputEncoding
     [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+    $saved = @{}
+    foreach ($n in $childEnv.Keys) {
+        $saved[$n] = [Environment]::GetEnvironmentVariable($n)
+        [Environment]::SetEnvironmentVariable($n, $childEnv[$n])
+    }
     try {
         if ($env:FACTORY_CLAUDE_CMD) {
             & pwsh -NoProfile -Command $env:FACTORY_CLAUDE_CMD 2>&1 | & $sink
@@ -84,6 +106,13 @@ function Invoke-ClaudeStream([string] $prompt, [string] $log, [string[]] $addDir
                 --output-format stream-json --verbose --permission-mode acceptEdits 2>&1 | & $sink
         }
         $code = $LASTEXITCODE
-    } finally { [Console]::OutputEncoding = $enc }
+    } finally {
+        [Console]::OutputEncoding = $enc
+        # PowerShell passes $null to SetEnvironmentVariable as '', which would leave the variable set.
+        foreach ($n in $saved.Keys) {
+            if ($null -eq $saved[$n]) { Remove-Item "Env:$n" -ErrorAction SilentlyContinue }
+            else { [Environment]::SetEnvironmentVariable($n, $saved[$n]) }
+        }
+    }
     @{ Code = $code; Result = $script:LastResult }
 }

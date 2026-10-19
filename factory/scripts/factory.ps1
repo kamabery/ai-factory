@@ -31,6 +31,7 @@ Set-StrictMode -Version 3
 $Roles = 'security', 'code', 'ux', 'ui'
 $Building = 'build', 'review', 'approve', 'gate'
 $EventKinds = 'idea', 'stage', 'agent-start', 'agent-stop', 'gate', 'merge', 'cost', 'note', 'eval', 'feedback'
+$Providers = 'subscription', 'openrouter'
 
 function Fail([string] $msg, [int] $code = 1) {
     [Console]::Error.WriteLine("factory: $msg")
@@ -206,6 +207,9 @@ function Add-Job($i, [string[]] $lines, [string] $source, [string] $kind) {
     $title = ($lines[$h] -replace '^#\s*Spec:\s*', '').Trim()
     if ($title -match '\s[—-]\s(.+)$') { $title = $Matches[1].Trim() }
     if (-not $title) { Fail "empty title in $source" }
+    $provider = (Read-EnvFile (EnvFilePath))['FACTORY_PROVIDER']
+    if (-not $provider) { $provider = 'subscription' }
+    if ($provider -notin $Providers) { Fail "FACTORY_PROVIDER '$provider' in .env must be $($Providers -join ' or ')" }
     $id = Next-Id 'J' $Board.jobs
     $lines[$h] = "# Spec: $id — $title"
     New-Item -ItemType Directory -Force (JobDir $id) | Out-Null
@@ -214,7 +218,7 @@ function Add-Job($i, [string[]] $lines, [string] $source, [string] $kind) {
     $ts = Now
     $j = [ordered]@{
         id = $id; idea = $i.id; kind = $kind; title = $title; stage = 'backlog'; round = 1; branch = "factory/$id"
-        target = (Read-SpecMeta $spec).repo
+        target = (Read-SpecMeta $spec).repo; provider = $provider
         pr = $null; reviews = $null; decision = $null; gate = $null; flag = $null; merged = $null; approvedAt = $null
         costUsd = $null; durationMs = $null; createdAt = $ts; updatedAt = $ts; history = @()
     }
@@ -515,6 +519,16 @@ try {
             Add-Event ([ordered]@{ job = $j.id; kind = 'note'; detail = 'spec edited' })
         }
 
+        'set-provider' {
+            $j = Get-Job $Arg1
+            Require-Stage $j 'backlog', 'approved' 'set-provider'
+            if ($Arg2 -notin $Providers) { Fail "set-provider refused: provider must be $($Providers -join ' or ')" }
+            $j.provider = $Arg2
+            $j.updatedAt = Now
+            Save-Board $Board
+            Add-Event ([ordered]@{ job = $j.id; kind = 'note'; detail = "provider $Arg2" })
+        }
+
         'approve' {
             $j = Get-Job $Arg1
             Require-Stage $j 'backlog' 'approve'
@@ -649,7 +663,7 @@ try {
             $j.costUsd = [Math]::Round([double]($j.costUsd ?? 0) + $usd, 4)
             $j.durationMs = [long]($j.durationMs ?? 0) + $ms
             Save-Board $Board
-            Add-Event ([ordered]@{ job = $j.id; kind = 'cost'; costUsd = $usd; durationMs = $ms })
+            Add-Event ([ordered]@{ job = $j.id; kind = 'cost'; costUsd = $usd; durationMs = $ms; provider = $j['provider'] ?? 'subscription' })
         }
 
         'set-stage' {

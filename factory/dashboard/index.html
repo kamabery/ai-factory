@@ -65,6 +65,8 @@
   #idea-hint { flex: 1; margin-top: 7px; color: var(--muted); font-size: 12.5px; }
   #purge-btn { font-size: 11px; text-transform: none; letter-spacing: 0; padding: 1px 8px; margin-left: 8px; }
   .chip.kind { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+  .chip.provider[data-toggle] { cursor: pointer; }
+  .chip.provider.openrouter { color: var(--run); background: var(--run-soft); border-color: transparent; }
   input, textarea { font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
   textarea { width: 100%; font-family: var(--mono); font-size: 12.5px; }
   a.button { text-decoration: none; display: inline-block; }
@@ -323,11 +325,16 @@ function jobCard(j) {
   const cost = j.costUsd != null ? `<span data-cost>$${Number(j.costUsd).toFixed(2)}</span>` : '';
   const repo = j.target ? `<div class="repo" title="${esc(j.target)}">→ ${esc(leaf(j.target))}</div>` : '';
   const kind = j.kind === 'bootstrap' ? '<span class="chip kind" data-kind="bootstrap">bootstrap</span>' : '';
+  // Toggleable before the job builds; afterwards shown only when it is not the default.
+  const p = j.provider ?? 'subscription';
+  const settable = j.stage === 'backlog' || j.stage === 'approved';
+  const provider = settable || p !== 'subscription'
+    ? `<span class="chip provider ${esc(p)}" data-provider="${esc(p)}"${settable ? ` data-toggle title="provider: click to switch"` : ` title="provider"`}>${esc(p)}</span>` : '';
   const pr = j.pr?.url && j.stage === 'ready' ? `<a class="chip pr" data-pr href="${esc(j.pr.url)}" target="_blank" rel="noopener" draggable="false">PR #${esc(j.pr.number)}</a>` : '';
   return `<div class="card${state.open?.id === j.id ? ' selected' : ''}" data-card="${esc(j.id)}" data-stage="${esc(j.stage)}" draggable="${draggable}">
     <div class="top"><span>${esc(j.id)}</span><span>r${j.round} · ${elapsed(j)}</span></div>
     <div class="title">${esc(j.title)}</div>${repo}
-    <div class="meta">${kind}${pr}${sub}${flag}${reviews}${cost}</div></div>`;
+    <div class="meta">${kind}${provider}${pr}${sub}${flag}${reviews}${cost}</div></div>`;
 }
 function ideaCard(i) {
   return `<div class="card idea-card ${esc(i.status)}" data-idea="${esc(i.id)}">
@@ -406,11 +413,20 @@ async function move(id, to, note) {
   return res.ok;
 }
 
+async function setProvider(id, provider) {
+  const res = await api('POST', `/api/jobs/${id}/provider`, { provider });
+  toast(res.ok ? `${id} → ${provider}` : res.message || 'refused', !res.ok);
+  state.boardText = '';
+  await poll();
+}
+
 // --- modal ---------------------------------------------------------------------------------
 document.addEventListener('click', (e) => {
   if (e.target.closest('#modal')) return;
   if (e.target.id === 'backdrop') { closeModal(); return; }
   if (e.target.closest?.('a[data-pr]')) return;   // the card's PR link opens GitHub, not the modal
+  const pc = e.target.closest?.('[data-provider][data-toggle]');
+  if (pc) { setProvider(pc.closest('[data-card]').dataset.card, pc.dataset.provider === 'openrouter' ? 'subscription' : 'openrouter'); return; }
   const c = e.target.closest?.('[data-card]');
   if (c) { openModal('job', c.dataset.card); return; }
   if (e.target.closest?.('#new-idea-btn')) { openModal('new-session', null); return; }

@@ -399,6 +399,12 @@ function Handle($ctx) {
         return Send-Result $ctx $r
     }
 
+    if ($method -eq 'POST' -and $path -match '^/api/jobs/([A-Z]+-\d+)/provider$') {
+        $id = $Matches[1]
+        $req = Read-Body $ctx | ConvertFrom-Json
+        return Send-Result $ctx (Invoke-Factory set-provider $id "$($req.provider)")
+    }
+
     if ($method -eq 'POST' -and $path -match '^/api/jobs/([A-Z]+-\d+)/move$') {
         $id = $Matches[1]
         $req = Read-Body $ctx | ConvertFrom-Json

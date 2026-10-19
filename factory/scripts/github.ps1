@@ -3,20 +3,16 @@
 # out only as a request header; it is never put in the environment, a remote URL or .git/config.
 # Helpers return $null or an error string (as Ensure-Repo did), so callers choose Fail or a flag.
 
+. (Join-Path $PSScriptRoot 'env-file.ps1')
+
 $script:Gh = $null
 $env:GIT_TERMINAL_PROMPT = '0'   # a refused token must fail, not wait on a prompt nobody sees
 
+function EnvFilePath { if ($env:FACTORY_ENV_FILE) { $env:FACTORY_ENV_FILE } else { Join-Path (MainRoot) '.env' } }
+
 function GitHubConfig {
     if ($script:Gh) { return $script:Gh }
-    $path = if ($env:FACTORY_ENV_FILE) { $env:FACTORY_ENV_FILE } else { Join-Path (MainRoot) '.env' }
-    $vars = @{}
-    if (Test-Path $path) {
-        foreach ($line in Get-Content $path -Encoding utf8) {
-            if ($line -match '^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$' -and $line -notmatch '^\s*#') {
-                $vars[$Matches[1]] = $Matches[2] -replace '^"(.*)"$', '$1' -replace "^'(.*)'$", '$1'
-            }
-        }
-    }
+    $vars = Read-EnvFile (EnvFilePath)
     $script:Gh = @{
         token = $vars['GITHUB_TOKEN']
         api = $(if ($vars['GITHUB_API_URL']) { $vars['GITHUB_API_URL'] } else { 'https://api.github.com' }).TrimEnd('/')
