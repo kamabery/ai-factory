@@ -164,6 +164,30 @@ Describe 'runner.ps1 and hook-event.ps1' {
             (Job $id).stage | Should -Be 'approved'
         }
 
+        It 'keeps logging when a reader opens run-<n>.jsonl mid-run, as the dashboard''s Output tab does' {
+            $id = New-ApprovedJob 'A'
+            # Opens the log the way File.ReadAllBytes does (FileShare.Read) and holds it while claude
+            # prints a line; the line must still reach the log and the job must not be escalated.
+            $fake = Join-Path $TestDrive 'fake-claude-reader.ps1'
+            @'
+'{"type":"system","subtype":"init"}'
+Start-Sleep -Milliseconds 300
+$log = Join-Path $env:FACTORY_HOME "jobs/$env:FACTORY_JOB/run-1.jsonl"
+$held = $null
+try { $held = [IO.File]::Open($log, 'Open', 'Read', 'Read') } catch { }
+'{"type":"assistant","note":"while read"}'
+Start-Sleep -Milliseconds 500
+if ($held) { $held.Dispose() }
+'{"type":"result","total_cost_usd":0.1,"duration_ms":10}'
+'@ | Set-Content $fake
+            $env:FACTORY_CLAUDE_CMD = "& '$fake'"
+            Run-Runner | Out-Null
+            Get-Content (Join-Path $env:FACTORY_HOME 'runner.log') | Should -Not -Match "error $id"
+            (Get-Content (Join-Path $env:FACTORY_HOME "jobs/$id/run-1.jsonl")) | Should -Contain '{"type":"assistant","note":"while read"}'
+            (Job $id).flag.detail | Should -Not -Match 'runner error'
+            (Job $id).costUsd | Should -Be 0.1
+        }
+
         It 'takes over a stale lock left by a dead process' {
             $id = New-ApprovedJob 'A'
             Set-FakeClaude

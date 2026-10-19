@@ -107,7 +107,10 @@ function Send-File($ctx, [string] $path) {
     if (-not (Test-Path $path -PathType Leaf)) { return Send $ctx 404 '{"ok":false,"message":"not found"}' }
     $ext = [IO.Path]::GetExtension($path).ToLowerInvariant()
     $type = if ($Types.ContainsKey($ext)) { $Types[$ext] } else { 'application/octet-stream' }
-    $bytes = [IO.File]::ReadAllBytes($path)
+    # Not File.ReadAllBytes: its FileShare.Read would block the runner appending to a live run log.
+    $fs = [IO.FileStream]::new($path, 'Open', 'Read', [IO.FileShare]'ReadWrite, Delete')
+    try { $bytes = [byte[]]::new($fs.Length); $n = 0; while ($n -lt $bytes.Length) { $k = $fs.Read($bytes, $n, $bytes.Length - $n); if ($k -le 0) { break }; $n += $k } }
+    finally { $fs.Dispose() }
     $ctx.Response.StatusCode = 200
     $ctx.Response.ContentType = "$type; charset=utf-8"
     $ctx.Response.Headers['Cache-Control'] = 'no-store'

@@ -639,7 +639,7 @@ longer running. Otherwise it loops:
    - For an `openrouter` job, `claude` runs with the OpenRouter environment of [Providers](#providers).
    - claude's output is read as UTF-8 whatever the console's codepage.
    - stderr goes to the same log, so a reader skips lines that are not JSON.
-4. It appends each stdout line to `jobs/<id>/run-<n>.jsonl` as it arrives, and calls `set-cost`
+4. It appends each stdout line to `jobs/<id>/run-<n>.jsonl` as it arrives, through one stream opened for the whole pass and shared for reading and writing (and `serve.ps1` reads state files shared the same way), so a reader can never fail the job. It calls `set-cost`
    with `total_cost_usd` and `duration_ms` from the final `"type":"result"` line. If the job is
    in `gate` afterwards, the approver has approved and only the gate is left, so the runner runs
    `factory.ps1 gate <id>` itself. A claude that dies at that point (out of credit, say) costs

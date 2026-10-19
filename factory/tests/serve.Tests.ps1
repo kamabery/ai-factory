@@ -150,6 +150,25 @@ Describe 'serve.ps1 evaluations' {
     }
 }
 
+Describe 'serve.ps1 state files' {
+    AfterEach { Stop-Serve }
+
+    It 'serves a run log the runner is still writing' {
+        Start-Serve $script:EnvFile
+        $dir = Join-Path $script:State 'jobs/J-001'
+        New-Item -ItemType Directory -Force $dir | Out-Null
+        $log = Join-Path $dir 'run-1.jsonl'
+        $w = [IO.FileStream]::new($log, 'Create', 'Write', 'ReadWrite')
+        try {
+            $b = [Text.Encoding]::UTF8.GetBytes("{`"type`":`"system`"}`n")
+            $w.Write($b, 0, $b.Length); $w.Flush()
+            $r = Invoke-WebRequest "http://localhost:$script:Port/state/jobs/J-001/run-1.jsonl" -SkipHttpErrorCheck
+            [int]$r.StatusCode | Should -Be 200
+            "$($r.Content)" | Should -Match '"type":"system"'
+        } finally { $w.Dispose() }
+    }
+}
+
 Describe 'serve.ps1 job provider' {
     AfterEach { Stop-Serve; Remove-Item Env:FACTORY_ENV_FILE -ErrorAction SilentlyContinue }
 

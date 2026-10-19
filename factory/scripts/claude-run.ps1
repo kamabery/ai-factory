@@ -79,12 +79,15 @@ function Invoke-ClaudeStream([string] $prompt, [string] $log, [string[]] $addDir
     $stateDir = $env:FACTORY_HOME
     $settings = Write-HeadlessSettings $stateDir
     New-Item -ItemType Directory -Force (Split-Path $log -Parent) | Out-Null
-    [IO.File]::WriteAllText($log, '')
+    # One stream for the whole pass, shared for reading and writing, so a reader (the dashboard's
+    # Output tab) can never make a write fail and take the job down with it.
+    $out = [IO.StreamWriter]::new([IO.FileStream]::new($log, 'Create', 'Write', [IO.FileShare]'ReadWrite, Delete'), [Text.UTF8Encoding]::new($false))
+    $out.AutoFlush = $true
     $script:LastResult = $null
     $sink = {
         process {
             $line = "$_"
-            [IO.File]::AppendAllText($log, $line + "`n")
+            $out.Write($line + "`n")
             if ($line -match '"total_cost_usd"') { try { $script:LastResult = $line | ConvertFrom-Json } catch { } }
         }
     }
@@ -107,6 +110,7 @@ function Invoke-ClaudeStream([string] $prompt, [string] $log, [string[]] $addDir
         }
         $code = $LASTEXITCODE
     } finally {
+        $out.Dispose()
         [Console]::OutputEncoding = $enc
         # PowerShell passes $null to SetEnvironmentVariable as '', which would leave the variable set.
         foreach ($n in $saved.Keys) {
