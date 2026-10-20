@@ -29,6 +29,14 @@ BeforeAll {
         $p
     }
 
+    function Eval-File([string]$rating = 'Rating: mixed') {
+        $p = Join-Path $TestDrive "eval-$([guid]::NewGuid().ToString('N')).md"
+        Set-Content $p "$rating`n`n# Eval: the run"
+        $p
+    }
+    # purge keeps a finished job until it is evaluated.
+    function Evaluate([string[]]$ids) { foreach ($i in $ids) { F eval $i -File (Eval-File) | Out-Null } }
+
     function New-BacklogJob([string]$title = 'Thing', [string]$repo = $script:Repo, [string[]]$gate = @('build: `exit 0`')) {
         $idea = F new-idea "idea for $title" -Target $script:Repo
         F add-spec $idea (New-Spec $title $repo $gate)
@@ -365,6 +373,21 @@ Describe 'decision' {
         F read-decision $id | Out-Null
         (Job $id).stage | Should -Be 'ready'
         (Job $id).flag.reason | Should -Be 'escalated'
+        (Job $id).flag.detail | Should -Be 'approver escalated; see decision.md'
+    }
+
+    It 'ESCALATE carries the escalation reason onto the flag' {
+        $id = New-ApprovedJob
+        Move-ToApprove $id
+        Set-Content (Join-Path (JobDir $id) 'decision.md') @(
+            'Decision: ESCALATE', '', '## Basis', 'AC1 evidenced.', '',
+            '## Escalation reason', 'AC8 has no evidence; is that acceptable?', '', 'Options:', '1. Verify first.', '',
+            '## Notes', 'not part of it')
+        F read-decision $id | Out-Null
+        $flag = (Job $id).flag
+        $flag.detail | Should -Be 'AC8 has no evidence; is that acceptable?'
+        $flag.why | Should -Match '(?s)^AC8 has no evidence.*1\. Verify first\.$'
+        $flag.why | Should -Not -Match 'not part of it'
     }
 
     It 'a malformed decision does not move the job' {
@@ -685,6 +708,7 @@ Describe 'purge' {
         $gone = New-BacklogJob 'X'
         F discard $gone | Out-Null
         $kept = New-BacklogJob 'K'
+        Evaluate $done, $gone
 
         $out = F purge
         $LASTEXITCODE | Should -Be 0
@@ -699,7 +723,9 @@ Describe 'purge' {
 
     It 'removes an idea only when it is done or failed and all its jobs are terminal' {
         $a = F new-idea 'all discarded' -Target $script:Repo
-        F discard (F add-spec $a (New-Spec 'A')) | Out-Null
+        $ja = F add-spec $a (New-Spec 'A')
+        F discard $ja | Out-Null
+        Evaluate $ja
         F idea-done $a | Out-Null
         $b = F new-idea 'one still in backlog' -Target $script:Repo
         F add-spec $b (New-Spec 'B') | Out-Null
@@ -710,6 +736,7 @@ Describe 'purge' {
         $new = "test/target-$([guid]::NewGuid().ToString('N').Substring(0,8))"
         $w, $boot = (F new-idea 'waiting' -Target $new -Scaffold '{"name":"todo","resource":"Todo","db":"sqlite","ui":"none","events":false}') -split ' '
         F discard $boot | Out-Null
+        Evaluate $boot
 
         $out = F purge
         $LASTEXITCODE | Should -Be 0
@@ -731,13 +758,36 @@ Describe 'purge' {
         $LASTEXITCODE | Should -Be 0
         (Job $id).stage | Should -Be 'discarded'
         Events | Where-Object { $_.kind -eq 'note' -and $_.detail -match 'work dir' } | Should -Not -BeNullOrEmpty
+        Evaluate $id
         F purge | Out-Null
         Test-Path $wt | Should -BeFalse
     }
 
+    It 'keeps a finished job with no evaluation, and its folder and idea, until it is evaluated' {
+        $i = F new-idea 'unjudged' -Target $script:Repo
+        $id = F add-spec $i (New-Spec 'U')
+        F discard $id | Out-Null
+        F idea-done $i | Out-Null
+
+        $out = F purge
+        $LASTEXITCODE | Should -Be 0
+        $out | Should -BeNullOrEmpty
+        (Job $id).stage | Should -Be 'discarded'
+        Test-Path (JobDir $id) | Should -BeTrue
+        @((Board).ideas | ForEach-Object id) | Should -Contain $i
+
+        Evaluate $id
+        $out = F purge
+        $out | Should -Contain $id
+        $out | Should -Contain $i
+        Job $id | Should -BeNullOrEmpty
+    }
+
     It 'never reuses a purged id' {
         $a = F new-idea 'a' -Target $script:Repo
-        F discard (F add-spec $a (New-Spec 'A')) | Out-Null
+        $ja = F add-spec $a (New-Spec 'A')
+        F discard $ja | Out-Null
+        Evaluate $ja
         F idea-done $a | Out-Null
         F purge | Out-Null
         $i = F new-idea 'b' -Target $script:Repo
@@ -747,7 +797,9 @@ Describe 'purge' {
 
     It 'never reuses a purged id from a board written before seq existed' {
         $a = F new-idea 'a' -Target $script:Repo
-        F discard (F add-spec $a (New-Spec 'A')) | Out-Null
+        $ja = F add-spec $a (New-Spec 'A')
+        F discard $ja | Out-Null
+        Evaluate $ja
         F idea-done $a | Out-Null
         $path = Join-Path $env:FACTORY_HOME 'board.json'
         $b = Board; $b.Remove('seq'); Set-Content $path ($b | ConvertTo-Json -Depth 20)
@@ -809,14 +861,6 @@ Describe 'bookkeeping' {
 }
 
 Describe 'evaluations' {
-    BeforeEach {
-        function Eval-File([string]$rating = 'Rating: mixed') {
-            $p = Join-Path $TestDrive "eval-$([guid]::NewGuid().ToString('N')).md"
-            Set-Content $p "$rating`n`n# Eval: the run"
-            $p
-        }
-    }
-
     It 'refuses a job that is not finished, or a file with no Rating line, and writes nothing' {
         $id = New-ApprovedJob
         F eval $id -File (Eval-File) | Out-Null

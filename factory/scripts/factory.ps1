@@ -232,12 +232,13 @@ function Add-Job($i, [string[]] $lines, [string] $source, [string] $kind) {
 
 function Reset-Reviews($j) { $j.reviews = [ordered]@{ security = 'pending'; code = 'pending'; ux = 'pending'; ui = 'pending' } }
 
-function Move-Job($j, [string] $to, [string] $by, [string] $reason = $null, [string] $detail = $null) {
+function Move-Job($j, [string] $to, [string] $by, [string] $reason = $null, [string] $detail = $null, [string] $why = $null) {
     $from = $j.stage
     $ts = Now
     $j.stage = $to
     $j.updatedAt = $ts
     $j.flag = if ($reason) { [ordered]@{ reason = $reason; detail = $detail } } else { $null }
+    if ($reason -and $why) { $j.flag.why = $why }
     $j.history = @($j.history) + [ordered]@{ ts = $ts; from = $from; to = $to; by = $by }
     Save-Board $Board
     $e = [ordered]@{ job = $j.id; kind = 'stage'; from = $from; to = $to; by = $by }
@@ -247,6 +248,16 @@ function Move-Job($j, [string] $to, [string] $by, [string] $reason = $null, [str
 
 function Require-Stage($j, [string[]] $stages, [string] $what) {
     if ($j.stage -notin $stages) { Fail "$what refused: $($j.id) is in '$($j.stage)', needs $($stages -join '|')" }
+}
+
+# The body of a markdown file's '## <heading>' section, trimmed; $null when absent, empty or N/A.
+function Read-Section([string] $path, [string] $heading) {
+    if (-not (Test-Path $path)) { return $null }
+    $text = (Get-Content $path -Raw) -replace "`r", ''
+    if ($text -notmatch "(?ms)^## $([regex]::Escape($heading))[ \t]*\n(.*?)(?=^## |\z)") { return $null }
+    $body = $Matches[1].Trim()
+    if (-not $body -or $body -eq 'N/A') { return $null }
+    $body
 }
 
 function Read-FirstLine([string] $path) {
@@ -564,9 +575,10 @@ try {
         }
 
         'purge' {
-            $jobs = @($Board.jobs | Where-Object { $_.stage -in 'done', 'discarded' })
+            # An unevaluated job stays: its run logs are what the evaluation is written from.
+            $jobs = @($Board.jobs | Where-Object { $_.stage -in 'done', 'discarded' -and (Test-Path (Join-Path $Home_ "evals/$($_.id).json")) })
             foreach ($j in $jobs) { Remove-WorkDir $j }
-            $left = @($Board.jobs | Where-Object { $_.stage -notin 'done', 'discarded' })
+            $left = @($Board.jobs | Where-Object { $_.id -notin @($jobs | ForEach-Object id) })
             $kept = @($left | ForEach-Object id)
             $ideas = @($Board.ideas | Where-Object { $_.status -in 'done', 'failed' -and -not (@($_.jobs) | Where-Object { $_ -in $kept }) })
             $gone = @($ideas | ForEach-Object id) + @($jobs | ForEach-Object id)
@@ -727,9 +739,15 @@ try {
         'read-decision' {
             $j = Get-Job $Arg1
             Require-Stage $j 'approve' 'read-decision'
-            $line = Read-FirstLine (Join-Path (JobDir $j.id) 'decision.md')
+            $path = Join-Path (JobDir $j.id) 'decision.md'
+            $line = Read-FirstLine $path
             if ($line -ceq 'Decision: APPROVE') { $j.decision = 'APPROVE'; Move-Job $j 'gate' 'orchestrator' }
-            elseif ($line -ceq 'Decision: ESCALATE') { $j.decision = 'ESCALATE'; Move-Job $j 'ready' 'orchestrator' 'escalated' 'approver escalated; see decision.md' }
+            elseif ($line -ceq 'Decision: ESCALATE') {
+                $j.decision = 'ESCALATE'
+                $why = Read-Section $path 'Escalation reason'
+                $detail = if ($why) { ($why -split "`n")[0].Trim() } else { 'approver escalated; see decision.md' }
+                Move-Job $j 'ready' 'orchestrator' 'escalated' $detail $why
+            }
             else { Fail 'no decision line in decision.md' 2 }
             $j.stage
         }

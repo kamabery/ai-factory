@@ -172,10 +172,10 @@ function Sim-Review([string] $id, [hashtable] $verdicts) {
     F read-reviews $id | Out-Null
 }
 
-function Sim-Approve([string] $id, [string] $decision = 'APPROVE') {
+function Sim-Approve([string] $id, [string] $decision = 'APPROVE', [string] $reason = 'N/A') {
     Ev $id agent-start approver
     Tick 2
-    Set-Content (Join-Path $StateDir "jobs/$id/decision.md") "Decision: $decision`n`n# Decision: $id`n`n## Basis`nEvery AC evidenced; every review PASS."
+    Set-Content (Join-Path $StateDir "jobs/$id/decision.md") "Decision: $decision`n`n# Decision: $id`n`n## Basis`nEvery AC evidenced; every review PASS.`n`n## Escalation reason`n$reason"
     Ev $id agent-stop approver
     F-Must read-decision $id | Out-Null
 }
@@ -233,6 +233,12 @@ F-Must approve $boot[1] | Out-Null
 Sim-Start $boot[1]; Sim-Build $boot[1]; Sim-Review $boot[1] @{}; Sim-Approve $boot[1]
 F gate $boot[1] | Out-Null
 F publish $boot[1] | Out-Null
+
+# J-007: every review PASS, but the approver escalates: a manual AC has no evidence.
+$d = Sim-Idea 'Sign in with Keycloak' @(, @('Keycloak sign-in', 'Users sign in through Keycloak.'))
+F-Must approve $d[0] | Out-Null
+Sim-Start $d[0]; Sim-Build $d[0]; Sim-Review $d[0] @{}
+Sim-Approve $d[0] 'ESCALATE' "AC8 (manual) has no evidence: is that acceptable before merge?`n`nOptions:`n1. **Verify first** under ``aspire run``.`n2. Accept as is."
 
 # Evaluations of the merged J-001 and the max-rounds J-002, as a human session would write them.
 foreach ($e in @(@($a[0], 'good', 'Clean run: one round, every AC evidenced.'), @($a[1], 'mixed', 'The ui reviewer and the builder never converged.'))) {

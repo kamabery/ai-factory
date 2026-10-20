@@ -238,7 +238,14 @@ const literalBackslash = {
   tokenizer: (src) => src[0] === '\\' ? { type: 'text', raw: '\\', text: '\\' } : undefined,
 };
 if (window.marked) marked.use({ gfm: true, extensions: [literalBackslash], renderer: { html: (token) => esc(typeof token === 'string' ? token : token.text) } });
-const md = (text) => window.marked ? marked.parse(text ?? '') : `<pre>${esc(text)}</pre>`;
+// What each flag reason means for the human, shown above the flag's own detail in the job modal.
+const FLAG_MEANS = {
+  escalated: 'the factory stopped short of the gate and needs your decision before this goes further.',
+  'max-rounds': 'reviewers still asked for changes after the last build round.',
+  'gate-failed': 'a gate command exited non-zero; gate.log has the output.',
+  'merge-blocked': 'the merge was refused.',
+};
+const md = (text) =>window.marked ? marked.parse(text ?? '') : `<pre>${esc(text)}</pre>`;
 
 // --- theme -------------------------------------------------------------------------------
 try { const t = localStorage.getItem('factory-theme'); if (t) document.documentElement.dataset.theme = t; } catch {}
@@ -293,8 +300,13 @@ function activeAgents() {
     if (ev.kind === 'agent-start') running.set(key, { id: ev.job ?? ev.idea, agent: ev.agent });
     else running.delete(key);
   }
+  // An escalated or killed run never logs agent-stop, so a job's agents count only while it is building.
+  const stage = new Map(state.board.jobs.map((j) => [j.id, j.stage]));
   const byAgent = {};
-  for (const { id, agent } of running.values()) (byAgent[agent] ??= new Set()).add(id);
+  for (const { id, agent } of running.values()) {
+    if (stage.has(id) && !BUILDING.includes(stage.get(id))) continue;
+    (byAgent[agent] ??= new Set()).add(id);
+  }
   for (const j of state.board.jobs) if (j.stage === 'gate') (byAgent.gate ??= new Set()).add(j.id);
   return byAgent;
 }
@@ -359,7 +371,7 @@ function renderBoard() {
     const items = c.key === 'ideas'
       ? [...state.sessions.map(sessionCard), ...state.board.ideas.filter((i) => i.status !== 'done' && !inSession.has(i.id)).map(ideaCard)]
       : state.board.jobs.filter((j) => c.stages.includes(j.stage)).map(jobCard);
-    const clear = c.key === 'done' ? '<button id="purge-btn" type="button" title="Remove done and discarded cards, their folders and branches">Clear</button>'
+    const clear = c.key === 'done' ? '<button id="purge-btn" type="button" title="Remove evaluated done and discarded cards, their folders and branches; unevaluated ones stay">Clear</button>'
       : c.key === 'ideas' && state.config.enabled ? '<button id="new-idea-btn" class="primary" type="button" title="Grill an idea with Claude, here">New idea</button>' : '';
     return `<section class="column" data-column="${c.key}"><h2>${c.label}<span>${items.length}${clear}</span></h2><div class="cards">${items.join('')}</div></section>`;
   }).join('');
@@ -495,7 +507,8 @@ function renderHead() {
   const prev = $('#rework-note', h);
   const reworkDraft = prev?.value ?? '';
   const reworkFocus = prev && document.activeElement === prev ? [prev.selectionStart, prev.selectionEnd] : null;
-  const flag = j.flag ? `<div class="flagbox"><b>${esc(j.flag.reason)}</b> — ${esc(j.flag.detail)}</div>` : '';
+  const flag = j.flag ? `<div class="flagbox" data-flagbox><b>${esc(j.flag.reason)}</b>${FLAG_MEANS[j.flag.reason] ? `: ${FLAG_MEANS[j.flag.reason]}` : ''}
+    ${j.flag.why ? `<div class="md">${md(j.flag.why)}</div>` : `<div>${esc(j.flag.detail)}</div>`}</div>` : '';
   let actions = '';
   if (j.stage === 'backlog') actions = `<button class="primary" id="approve-btn">Approve</button><button class="danger" id="discard-btn">Discard</button>`;
   if (j.stage === 'ready') actions = `${j.pr?.url ? `<a class="button" id="pr-btn" href="${esc(j.pr.url)}" target="_blank" rel="noopener">Open PR #${esc(j.pr.number)}</a>` : ''}<button class="primary" id="merge-btn">Merge (Done)</button><button class="danger" id="discard-btn">Discard</button>`;
@@ -917,11 +930,21 @@ function render() { renderPipeline(); renderBoard(); }
 
 // --- evaluations ---------------------------------------------------------------------------
 // fb is the open evaluation's human feedback: the saved file parsed, then the human's unsaved draft.
-const evalView = { list: [], text: '', open: null, body: '', fb: { rating: '', note: '' } };
+const evalView = { list: [], text: '', pend: '', open: null, body: '', fb: { rating: '', note: '' } };
 function duration(ms) {
   if (!ms) return '';
   const s = Math.round(ms / 1000);
   return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+}
+// Finished jobs on the board with no evaluation yet: purge keeps them until they have one.
+function pendingEvals() {
+  const done = new Set(evalView.list.map((e) => e.job));
+  return state.board.jobs.filter((j) => (j.stage === 'done' || j.stage === 'discarded') && !done.has(j.id))
+    .map((j) => ({ job: j.id, idea: j.idea, title: j.title, target: j.target, rating: 'not evaluated', pending: true,
+      stage: j.stage, round: j.round, flag: j.flag?.reason, merged: j.merged?.sha, costUsd: j.costUsd, durationMs: j.durationMs }));
+}
+function evalRows() {
+  return [...evalView.list, ...pendingEvals()].sort((a, b) => Number(b.job.replace(/\D/g, '')) - Number(a.job.replace(/\D/g, '')));
 }
 function evalRow(x) {
   const facts = [
@@ -929,7 +952,7 @@ function evalRow(x) {
     x.gate ? `gate ${esc(x.gate)}` : '', x.merged ? `merged ${esc(String(x.merged).slice(0, 7))}` : '',
     x.costUsd != null ? `$${Number(x.costUsd).toFixed(2)}` : '', duration(x.durationMs),
   ].filter(Boolean).map((f) => f.startsWith('<') ? f : `<span>${esc(f)}</span>`).join(' · ');
-  return `<div class="card eval-row${evalView.open === x.job ? ' selected' : ''}" data-eval="${esc(x.job)}">
+  return `<div class="card eval-row${evalView.open === x.job ? ' selected' : ''}" data-eval="${esc(x.job)}"${x.pending ? ' data-pending' : ''}>
     <div class="top"><span>${esc(x.job)}${x.idea ? ` · ${esc(x.idea)}` : ''}</span><span>${esc(String(x.evaluatedAt ?? '').slice(0, 10))}</span></div>
     <div class="title">${esc(x.title)}</div>
     ${x.target ? `<div class="repo" title="${esc(x.target)}">→ ${esc(leaf(x.target))}</div>` : ''}
@@ -986,14 +1009,17 @@ async function saveFeedback() {
 }
 function renderEvals() {
   const list = $('#evals .eval-list');
-  list.innerHTML = evalView.list.length ? evalView.list.map(evalRow).join('')
+  const rows = evalRows();
+  list.innerHTML = rows.length ? rows.map(evalRow).join('')
     : '<div class="eval-empty">No evaluations yet. A finished job is evaluated with <code>factory.ps1 eval &lt;id&gt; -File &lt;md&gt;</code>.</div>';
   for (const el of list.querySelectorAll('[data-eval]')) el.onclick = () => openEval(el.dataset.eval);
   const x = evalView.list.find((e) => e.job === evalView.open);
+  const pending = rows.find((e) => e.job === evalView.open && e.pending);
   const body = $('[data-eval-body]');
   const prev = $('[data-feedback] textarea', body);
   const focus = prev && document.activeElement === prev ? [prev.selectionStart, prev.selectionEnd] : null;
-  body.innerHTML = evalView.open ? (x ? evalFacts(x) : '') + md(evalView.body) + (x ? feedbackForm() : '') : '<p class="eval-empty">Pick an evaluation.</p>';
+  body.innerHTML = pending ? `<p class="eval-empty">${esc(pending.job)} is ${esc(pending.stage)} and not evaluated yet; Clear keeps it on the board until it is. Evaluate it in a Claude Code session with <code>factory.ps1 eval ${esc(pending.job)} -File &lt;md&gt;</code>.</p>`
+    : evalView.open ? (x ? evalFacts(x) : '') + md(evalView.body) + (x ? feedbackForm() : '') : '<p class="eval-empty">Pick an evaluation.</p>';
   const note = $('[data-feedback] textarea', body);
   if (!note) return;
   if (focus) { note.focus(); note.setSelectionRange(...focus); }
@@ -1003,14 +1029,16 @@ function renderEvals() {
 }
 async function refreshEvals() {
   const t = await getText('/api/evals');
-  if (t === evalView.text) return;
-  evalView.text = t;
+  const pend = pendingEvals().map((e) => e.job).join();
+  if (t === evalView.text && pend === evalView.pend) return;
+  evalView.text = t; evalView.pend = pend;
   try { evalView.list = t ? JSON.parse(t) : []; } catch { evalView.list = []; }
-  if (evalView.open) evalView.body = await getText(`/state/evals/${encodeURIComponent(evalView.open)}.md`);
+  if (evalView.open && evalView.list.some((e) => e.job === evalView.open)) evalView.body = await getText(`/state/evals/${encodeURIComponent(evalView.open)}.md`);
   renderEvals();
 }
 async function openEval(id) {
   evalView.open = id;
+  if (!evalView.list.some((e) => e.job === id)) { evalView.body = ''; renderEvals(); return; }
   evalView.body = await getText(`/state/evals/${encodeURIComponent(id)}.md`);
   await loadFeedback(id);
   renderEvals();
@@ -1028,9 +1056,12 @@ setInterval(() => { if (state.view === 'evals') refreshEvals(); }, 3000);
 document.addEventListener('click', async (e) => {
   if (!e.target.closest?.('#purge-btn')) return;
   const res = await api('POST', '/api/purge');
-  toast(res.ok ? (res.message ? `Cleared ${res.message.split('\n').join(', ')}` : 'Nothing to clear') : res.message, !res.ok);
   state.boardText = '';
-  poll();
+  await poll();
+  const kept = state.board.jobs.filter((j) => j.stage === 'done' || j.stage === 'discarded').map((j) => j.id);
+  const keptMsg = kept.length ? `${kept.join(', ')} kept until evaluated` : '';
+  const cleared = res.message ? `Cleared ${res.message.split('\n').join(', ')}` : kept.length ? '' : 'Nothing to clear';
+  toast(res.ok ? [cleared, keptMsg].filter(Boolean).join(' · ') : res.message, !res.ok);
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && state.open) closeModal(); });
 

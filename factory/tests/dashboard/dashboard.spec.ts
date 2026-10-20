@@ -120,6 +120,30 @@ test.describe.serial('factory dashboard', () => {
     }
   });
 
+  test('an escalated card says why it was escalated, and its modal shows the approver\'s reason', async ({ page }) => {
+    const id = board().jobs.find((j: { title: string }) => j.title === 'Keycloak sign-in').id;
+    await page.goto('/');
+    const c = column(page, 'ready').locator(`[data-card="${id}"]`);
+    await expect(c.locator('[data-flag]')).toHaveText('escalated');
+    await expect(c.locator('[data-flag]')).toHaveAttribute('title', /AC8 \(manual\) has no evidence/);
+    await c.click();
+    const box = modal(page).locator('[data-flagbox]');
+    await expect(box).toContainText('needs your decision');            // what the reason code means
+    await expect(box).toContainText('is that acceptable before merge?');
+    await expect(box.locator('ol li')).toHaveCount(2);                   // the options, as markdown
+    await expect(box.locator('strong')).toHaveText('Verify first');
+  });
+
+  test('an agent left running by an escalated job is not shown as active', async ({ page }) => {
+    // The runner kills claude on escalation, so the builder's agent-stop is never logged.
+    execFileSync('pwsh', ['-NoProfile', '-File', path.join(repo, 'factory/scripts/factory.ps1'), 'event', '-Job', 'J-002', '-Kind', 'agent-start', '-Agent', 'builder'], {
+      env: { ...process.env, ...factoryEnv },
+    });
+    await page.goto('/');
+    await expect(page.locator('[data-node="builder"]')).not.toHaveClass(/active/);
+    await expect(page.locator('[data-node="builder"]')).not.toContainText('J-002');
+  });
+
   test('merging a ready bootstrap job releases its idea for a /factory:idea session', async ({ page }) => {
     const idea = board().ideas.find((i: { text: string }) => i.text === 'A todo app, bootstrapped');
     const boot = idea.jobs[0];
@@ -293,14 +317,18 @@ test.describe.serial('factory dashboard', () => {
     await expect(modal(page)).toBeHidden();
   });
 
-  test('Clear in Done purges finished cards, their folders and finished ideas', async ({ page }) => {
+  test('Clear in Done purges evaluated finished cards, their folders and finished ideas, and keeps unevaluated ones', async ({ page }) => {
     await page.goto('/');
     await expect(column(page, 'done').locator('[data-card="J-001"]')).toBeVisible();
     await column(page, 'done').locator('#purge-btn').click();
-    await expect(column(page, 'done').locator('[data-card]')).toHaveCount(0);
+    await expect(page.locator('#toast')).toContainText('kept until evaluated');
+    await expect(column(page, 'done').locator('[data-card="J-001"]')).toHaveCount(0);
     await expect(column(page, 'ideas').locator('[data-idea="I-003"]')).toHaveCount(0);
-    expect(board().jobs.filter((j: Job) => j.stage === 'done' || j.stage === 'discarded')).toEqual([]);
     expect(existsSync(path.join(simDir, 'jobs/J-001'))).toBe(false);
+    // J-003 (merged) and J-004 (discarded) have no evaluation, so they and their folders stay.
+    await expect(column(page, 'done').locator('[data-card="J-003"]')).toBeVisible();
+    expect(job('J-004').stage).toBe('discarded');
+    expect(existsSync(path.join(simDir, 'jobs/J-003'))).toBe(true);
     expect(job('J-005')).toBeTruthy();
   });
 
@@ -308,9 +336,9 @@ test.describe.serial('factory dashboard', () => {
     await page.goto('/');
     await page.locator('[data-view="evals"]').click();
     await expect(page.locator('#board')).toBeHidden();
-    const rows = page.locator('[data-eval]');
-    await expect(rows).toHaveCount(2);
-    await expect(rows.nth(0)).toHaveAttribute('data-eval', 'J-002');
+    const rated = page.locator('[data-eval]:not([data-pending])');
+    await expect(rated).toHaveCount(2);
+    await expect(rated.nth(0)).toHaveAttribute('data-eval', 'J-002');
     const j1 = page.locator('[data-eval="J-001"]');
     await expect(j1.locator('[data-rating]')).toHaveText('good');
     await expect(j1).toContainText('Book search filter');
@@ -336,6 +364,20 @@ test.describe.serial('factory dashboard', () => {
     await page.locator('[data-view="board"]').click();
     await expect(page.locator('#board')).toBeVisible();
     await expect(page.locator('#evals')).toBeHidden();
+  });
+
+  test('the Evaluations tab also lists every finished job not yet evaluated, and how to evaluate it', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('[data-view="evals"]').click();
+    const ids = await page.locator('[data-eval]').evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.eval));
+    expect(ids).toEqual([...ids].sort((a, b) => Number(b!.slice(2)) - Number(a!.slice(2))));
+    for (const id of ['J-003', 'J-004']) {
+      await expect(page.locator(`[data-eval="${id}"][data-pending] [data-rating]`)).toHaveText('not evaluated');
+    }
+    await expect(page.locator('[data-eval="J-005"]')).toHaveCount(0);   // still in the backlog
+    await page.locator('[data-eval="J-004"]').click();
+    await expect(page.locator('[data-eval-body]')).toContainText('factory.ps1 eval J-004 -File');
+    await expect(page.locator('[data-feedback]')).toHaveCount(0);
   });
 
   test('the human leaves feedback on an evaluation; it survives the poll and a reload', async ({ page }) => {

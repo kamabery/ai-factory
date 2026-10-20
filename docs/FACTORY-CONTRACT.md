@@ -330,7 +330,7 @@ event. The dashboard shows these facts as a **Gate, cost and time** grid above t
 
 Running `eval` again for the same job replaces both files, e.g. after the merge. It appends an
 `eval` event whose `detail` is the rating. `purge` never touches `evals/`, so an evaluation outlives
-its job's card.
+its job's card, and `purge` keeps a finished job until it has one.
 
 **Human feedback** is the human's own verdict after a hands-on check of the built product, kept
 apart from the session's evaluation. `factory.ps1 feedback <id> -File <path>` takes any job that has
@@ -350,11 +350,13 @@ facts. The board records each one on its own. Only a human drag to Done merges.
 ### Purge
 
 `factory.ps1 purge` clears finished work off the board. It removes every job in `done` or
-`discarded`, and every idea in `done` or `failed` none of whose jobs is left. For each it deletes
+`discarded` that has an evaluation (`evals/<id>.json`), and every idea in `done` or `failed` none of whose jobs is left. For each it deletes
 `jobs/<id>/` or `ideas/<id>/`, and for a job also a work directory still left at `<work>\jobs\<id>`
 (one that a locked file kept `merge` or `discard` from deleting). It appends one `note` event (`purged J-001, ...`) and
 prints the removed ids, one per line. Ideas in `waiting` or `drafting` and jobs in any other stage
-are untouched. `events.jsonl` keeps its history, and `board.seq` stops a purged id being reused.
+are untouched. A finished job with no evaluation stays on the board, with its `jobs/<id>/`, until it
+is evaluated: purging it would delete the run logs an evaluation is written from. `events.jsonl`
+keeps its history, and `board.seq` stops a purged id being reused.
 
 ## Files
 
@@ -439,7 +441,10 @@ those lines and nothing else; if one is missing or malformed, the script treats 
 - `gate` is `null` until the gate runs, then `{ "build": 0, "test": 0, "ui": 0, "sha": "<branch head>", "at": "..." }`
   (process exit codes).
 - `flag` is `null` or `{ "reason": "<code from the table>", "detail": "<one line>" }`. Only a
-  `ready` job carries one.
+  `ready` job carries one. When the approver escalates, `read-decision` copies the decision's
+  `## Escalation reason` section into the flag: its first line is `detail`, and the whole section
+  is `why` (markdown). An empty or `N/A` section leaves `detail` as `approver escalated; see
+  decision.md` and no `why`. The job modal shows what the reason code means, then `detail`, then `why`.
 - `merged` is `null` until a merge, then `{ "sha": "<merge commit>", "repo": "<owner/name>", "pr": "<PR url>", "added": ["<repo-relative path>", ...], "modified": [...] }`,
   from `git diff --name-status --no-renames <sha>^1 <sha>` in the work directory after fetching the merge.
 - `pr` is `null` (or absent) until `publish` opens the job's pull request.
@@ -603,7 +608,9 @@ command is taken from `$env:FACTORY_CLAUDE_CMD` when it is set, so tests spend n
 
 The header's **Board** and **Evaluations** tabs switch the page. Evaluations lists every
 evaluation with its rating, the human's rating if given, and snapshot facts, and opens one to its
-markdown. Below the markdown, **Human feedback** is a rating and a note that **Save feedback** sends
+markdown. It also lists every `done` or `discarded` job on the board that has no evaluation yet,
+rated `not evaluated`, newest job first with the rest; opening one shows the `factory.ps1 eval`
+command that evaluates it. Below the markdown, **Human feedback** is a rating and a note that **Save feedback** sends
 as `Rating: <r>`, a blank line, then the note.
 
 The job modal's **Output** tab tails `run-<n>.jsonl` (the orchestrator) and each agent's
