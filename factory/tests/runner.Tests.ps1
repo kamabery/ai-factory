@@ -287,6 +287,11 @@ if ($held) { $held.Dispose() }
                 $p.allow | Should -Contain "PowerShell($rule)"
             }
             $p.allow | Should -Contain 'PowerShell(Get-ChildItem*)'
+            # The devops agent's offline Terraform and the approver's smoke test - and no apply or plan.
+            foreach ($rule in 'terraform init -backend=false*', 'terraform validate*', 'terraform test*', 'terraform fmt*', 'curl *') {
+                $p.allow | Should -Contain "Bash($rule)"
+            }
+            @($p.allow | Where-Object { $_ -match "terraform (apply|plan|destroy)|terraform \*|\((az|gh) " }) | Should -BeNullOrEmpty
             $p.deny | Should -Contain 'Bash(git push*)'
             $p.deny | Should -Contain 'Bash(git merge*)'
             $templates = (Join-Path (Split-Path $script:Scripts -Parent) 'templates') -replace '\\', '/'

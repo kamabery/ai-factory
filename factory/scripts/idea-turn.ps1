@@ -127,7 +127,8 @@ function Get-Tools {
             resource = @{ type = 'string'; description = 'PascalCase: the main thing the app manages' }
             db = @{ type = 'string'; enum = @('sqlite', 'sqlserver', 'postgres') }
             ui = @{ type = 'string'; enum = @('react', 'blazor', 'blazor-maui', 'none') }
-            events = @{ type = 'boolean' } } @('name', 'resource', 'db', 'ui', 'events')
+            events = @{ type = 'boolean' }
+            auth = @{ type = 'boolean'; description = 'sign-in: Keycloak locally, Entra External ID in Azure; only with a web ui (not none)' } } @('name', 'resource', 'db', 'ui', 'events')
         Tool 'submit_brief' 'Show the human the whole brief for confirmation. Ends your turn; a correction comes back as the result.' @{ markdown = @{ type = 'string' } } @('markdown')
     )
 }

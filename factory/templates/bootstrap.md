@@ -3,13 +3,14 @@
 ## Intent
 Start the new project `{{name}}` from the `template-projects` templates, so later feature jobs work
 on a known scaffold. The human chose these options in the idea form: resource `{{resource}}`, data
-store `{{db}}`, front end `{{ui}}`, events `{{events}}`. Nothing beyond the scaffold is built here;
+store `{{db}}`, front end `{{ui}}`, events `{{events}}`, sign-in `{{auth}}`. Nothing beyond the scaffold is built here;
 the idea's features are specced after this job is merged.
 
 Invoke the `/aspire-starter:boot-strap-app` skill with the Skill tool (if it is not available, read
 `{{templates}}/.claude/skills/boot-strap-app/SKILL.md` and follow it). Every answer is supplied, so
 use its **answers-supplied** mode: name `{{name}}`, output directory `.` (the work dir root),
-resource `{{resource}}`, data store `{{db}}`, events `{{events}}`, front end `{{ui}}`. Do not
+resource `{{resource}}`, data store `{{db}}`, events `{{events}}`, front end `{{ui}}`, sign-in
+`{{auth}}`. Do not
 interview anyone and do not install the template pack or `aspire-addon`; if either is missing, give
 up and say so. **Skip Phase 5** (graphify) and list it as a follow-up in build.md. The template
 workspace is read-only.

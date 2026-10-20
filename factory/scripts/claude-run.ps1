@@ -24,6 +24,9 @@ function ConvertTo-RulePath([string] $path) {
 # is denied, and so is reading .env: only factory.ps1 holds the GitHub token. Each rule is given for both the Bash and the PowerShell tool.
 $AllowCommands = @(
     'dotnet *', 'npm *', 'npx *', 'node *', 'aspire *', 'aspire-addon *',
+    # Offline Terraform for the devops agent (no backend, so no state and no credentials), and curl for
+    # the approver's smoke test of the preview. Never apply, plan or destroy: factory.ps1 deploys.
+    'terraform init -backend=false*', 'terraform validate*', 'terraform test*', 'terraform fmt*', 'curl *',
     'git status*', 'git diff*', 'git log*', 'git show*', 'git add *', 'git commit *', 'git branch*', 'git rev-parse*', 'git ls-files*',
     'ls*', 'cat *', 'head *', 'tail *', 'wc *', 'grep *', 'echo *', 'pwd', 'cd *', 'which *',
     'Get-ChildItem*', 'Get-Content *', 'Select-String *', 'Test-Path *', 'Resolve-Path *', 'Get-Location', 'Set-Location *', 'Write-Output *'

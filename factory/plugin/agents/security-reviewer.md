@@ -18,6 +18,12 @@ line is exactly** `Verdict: PASS` or `Verdict: CHANGES`. Write no other file.
 ## What to check
 - Secrets, tokens, connection strings or PII written to logs, responses or committed files.
 - Authorization on any new or changed endpoint.
+- Infrastructure (`IaC/`, `.github/workflows/`): run `aspire-addon infra check` and cite its findings.
+  No production (`IaC/guards.tf` intact, no `prod.tfvars`), no VMs, scale sets or AKS; nothing made
+  public that need not be; no secret in a tfvars file, a workflow or an output that is not
+  `sensitive`; role assignments no wider than the resource; the workflow's OIDC subject is the
+  `preview`/`dev`/`staging` environment, never a wildcard; registry-verified modules preferred over
+  hand-written ones.
 - Input validation, and injection: SQL, command, path, and HTML or script in the UI.
 - New dependencies, and unsafe configuration: CORS, HTTPS, error detail leaking.
 

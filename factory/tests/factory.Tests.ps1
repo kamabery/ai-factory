@@ -1059,6 +1059,8 @@ Describe 'targets' {
         @{ case = 'bad resource'; target = 'NEW'; scaffold = '{"name":"todo","resource":"todo","db":"sqlite","ui":"react","events":false}' }
         @{ case = 'bad db'; target = 'NEW'; scaffold = '{"name":"todo","resource":"Todo","db":"mysql","ui":"react","events":false}' }
         @{ case = 'bad ui'; target = 'NEW'; scaffold = '{"name":"todo","resource":"Todo","db":"sqlite","ui":"vue","events":false}' }
+        @{ case = 'auth, no web ui'; target = 'NEW'; scaffold = '{"name":"todo","resource":"Todo","db":"sqlite","ui":"none","events":false,"auth":true}' }
+        @{ case = 'bad auth'; target = 'NEW'; scaffold = '{"name":"todo","resource":"Todo","db":"sqlite","ui":"react","events":false,"auth":"yes"}' }
         @{ case = 'existing'; target = 'REPO'; scaffold = '{"name":"todo","resource":"Todo","db":"sqlite","ui":"react","events":false}' }
     ) {
         $t = if ($target -eq 'NEW') { $script:New } else { $script:Repo }
@@ -1096,6 +1098,16 @@ Describe 'targets' {
         F approve 'J-001' | Out-Null
         $LASTEXITCODE | Should -Be 0
         Test-Path (Bare $script:New) | Should -BeFalse    # nothing is created on GitHub before checkout
+    }
+
+    It 'a bootstrap with auth adds sign-in after the front end, and every bootstrap gates on infra check' {
+        F new-idea 'a todo app' -Target $script:New -Scaffold '{"name":"todo","resource":"Todo","db":"sqlite","ui":"blazor","events":false,"auth":true}' | Out-Null
+        $spec = Get-Content (Join-Path (JobDir 'J-001') 'spec.md') -Raw
+        $spec | Should -Match ([regex]::Escape('`aspire-addon add ui-blazor --web true --maui false`'))
+        $spec | Should -Match ([regex]::Escape('`aspire-addon add auth`'))
+        $spec.IndexOf('add auth') | Should -BeGreaterThan $spec.IndexOf('add ui-blazor')
+        $spec | Should -Match ([regex]::Escape('- infra: `aspire-addon infra check`'))
+        (Board).ideas[0].scaffold.auth | Should -BeTrue
     }
 
     It "the bootstrap spec's ui gate runs npm ci only when node_modules is missing or older than package-lock.json" {

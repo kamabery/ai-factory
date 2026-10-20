@@ -72,7 +72,8 @@ the simulator at a stub.
   starting the spec-writer: its spec, generated from `factory/templates/bootstrap.md`, scaffolds
   the project from the `template-projects` templates: the builder runs `/aspire-starter:boot-strap-app`
   with every answer supplied (no interview, no pack install, no graphify phase), so the add-ons go
-  through the `aspire-addon` CLI and the gate adds `dotnet build .aspire/apphost.cs`. The idea waits (`waiting`) until that job is
+  through the `aspire-addon` CLI and the gate adds `dotnet build .aspire/apphost.cs` and
+  `aspire-addon infra check`. The idea waits (`waiting`) until that job is
   merged; the merge releases it (`drafting`), and the human resumes it with `/factory:idea I-NNN`,
   so the spec-writer specs features against real code.
   The first `checkout` creates the repo on GitHub (**private**; under the token's user when the
@@ -95,6 +96,7 @@ Scaffold options (`-Scaffold <json>` on `new-idea`, `idea.scaffold` on the board
 | `db` | `sqlite`, `sqlserver`, `postgres` |
 | `ui` | `react`, `blazor`, `blazor-maui`, `none` |
 | `events` | `true` / `false`; the event store follows `db` (fisher, polecat, marten) |
+| `auth` | optional, `true` / `false`: sign-in (`aspire-addon add auth`: Keycloak locally, Entra External ID in Azure); refused with `ui: none` |
 
 The template workspace is `$env:FACTORY_TEMPLATES`, else `<parent of this repo>\template-projects`.
 Agents may read it and never edit it. It is also a plugin (`aspire-starter`, its own

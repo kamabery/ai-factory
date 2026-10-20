@@ -91,6 +91,8 @@ function Test-Scaffold($sc) {
     if ($sc.db -cnotin 'sqlite', 'sqlserver', 'postgres') { return "scaffold db '$($sc.db)' must be sqlite, sqlserver or postgres" }
     if ($sc.ui -cnotin 'react', 'blazor', 'blazor-maui', 'none') { return "scaffold ui '$($sc.ui)' must be react, blazor, blazor-maui or none" }
     if ($sc.Contains('events') -and $sc.events -isnot [bool]) { return 'scaffold events must be true or false' }
+    if ($sc.Contains('auth') -and $sc.auth -isnot [bool]) { return 'scaffold auth must be true or false' }
+    if ($sc.Contains('auth') -and $sc.auth -and $sc.ui -eq 'none') { return 'scaffold auth needs a web front end (react, blazor or blazor-maui) for sign-in to redirect back to' }
     $null
 }
 
@@ -110,11 +112,15 @@ function Bootstrap-Spec($sc, [string] $target) {
         'blazor-maui' { $cmds += 'aspire-addon add ui-blazor --web true --maui true' }
     }
     if ($sc.events) { $cmds += 'aspire-addon add events' }
-    $gate = @("- build: ``dotnet build $n.slnx``", "- test: ``dotnet test $n.slnx``", '- apphost: `dotnet build .aspire/apphost.cs`')
+    # After the front end: auth reads which one from the manifest.
+    if ($sc.Contains('auth') -and $sc.auth) { $cmds += 'aspire-addon add auth' }
+    $gate = @("- build: ``dotnet build $n.slnx``", "- test: ``dotnet test $n.slnx``", '- apphost: `dotnet build .aspire/apphost.cs`',
+              '- infra: `aspire-addon infra check`')
     if ($sc.ui -eq 'react') { $gate += '- ui: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build`' }
     $text = Get-Content (Join-Path (Split-Path $PSScriptRoot -Parent) 'templates/bootstrap.md') -Raw
     $values = @{
         name = $n; resource = $r; db = $sc.db; ui = $sc.ui; events = "$([bool]$sc.events)".ToLowerInvariant()
+        auth = "$([bool]($sc.Contains('auth') -and $sc.auth))".ToLowerInvariant()
         target = $target; templates = (TemplatesRoot); gate = ($gate -join "`n")
         commands = (($cmds | ForEach-Object { "  - ``$_``" }) -join "`n")
     }
