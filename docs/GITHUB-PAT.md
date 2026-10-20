@@ -13,6 +13,10 @@ push. See "Targets" in [FACTORY-CONTRACT.md](FACTORY-CONTRACT.md) for the rules.
 | Create a repo (private) | First checkout of a new target's bootstrap job | Administration: write |
 | Push the empty initial commit, clone, push `factory/<id>`, delete the branch | Every job | Contents: write |
 | Open, close and merge the job's PR | Ready, Discarded, Done | Pull requests: write |
+| Push a branch that changes `.github/workflows/` (the devops agent retrofits `deploy.yml`) | Any job that touches a workflow | Workflows: write |
+| Dispatch `deploy.yml` and read its runs and job logs | The deploy stage ([DEPLOY.md](DEPLOY.md)) | Actions: write |
+| Create the `preview` environment and set its variables | The deploy stage | Environments: write · Variables: write |
+| Set the `TF_API_TOKEN` secret (through `gh`, the PAT in its environment only) | The deploy stage | Secrets: write |
 
 ## Create it
 
@@ -25,7 +29,7 @@ Generate new token**.
 | Resource owner | You, or the organization that owns your targets (the same as `GITHUB_OWNER`) |
 | Expiration | Your call. When it expires, every GitHub call fails with GitHub 401 |
 | **Repository access** | **All repositories** |
-| Repository permissions | **Administration**: Read and write · **Contents**: Read and write · **Pull requests**: Read and write · Metadata: Read (added automatically) |
+| Repository permissions | **Administration**: Read and write · **Contents**: Read and write · **Pull requests**: Read and write · **Workflows**: Read and write · Metadata: Read (added automatically). For deploys also **Actions**, **Environments**, **Secrets** and **Variables**: Read and write |
 | Account permissions | None |
 
 **Why All repositories:** with *Only select repositories*, the PAT can create a repo, but the new repo
@@ -35,6 +39,10 @@ isn't on its list, so it can't push to it. The bootstrap job then fails on its f
 remote: Write access to repository not granted.
 fatal: ... The requested URL returned error: 403
 ```
+
+Without **Workflows**, the first push of a branch whose commits touch `.github/workflows/` is
+refused (`refusing to allow a Personal Access Token to create or update workflow ... without
+workflow scope`); every scaffold carries `deploy.yml`, so a bootstrap job needs it.
 
 If you must use *Only select repositories*, create each new target repo yourself, add it to the
 PAT's list, and only then approve its bootstrap job.

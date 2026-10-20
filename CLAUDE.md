@@ -8,7 +8,9 @@ Two things live in this repo:
    "Build Your Own AI Software Factory with Claude Code" video. A `/factory` skill orchestrates
    spec, build, four parallel reviewers and an approver; ideas are grilled and specced in a
    dashboard idea session on the Claude API (key in `.env`), or in the CLI fallback, an interactive
-   `/factory:idea` session. A deterministic PowerShell control plane
+   `/factory:idea` session. Each job's branch is deployed to an ephemeral Azure preview
+   through HCP Terraform before the approver (`docs/DEPLOY.md`), and jobs that go bad leave lessons
+   the dashboard proposes as template fixes. A deterministic PowerShell control plane
    owns state, the gate and the merge. A local dashboard is where the human works the factory:
    backlog specs edited and approved by drag and drop, and finished work reviewed, merged and cleared.
 
@@ -39,6 +41,8 @@ and `...\build-your-own-ai-software-factory-with-claude-code.md`. How to build t
 - **No agent weakens the thing that judges it.** Factory jobs never edit `factory/`, `.claude/`,
   `docs/FACTORY-CONTRACT.md` or test assertions in order to pass. Changes to the factory itself are
   made by a human session, not by `/factory`.
+- **Previews are never production.** The deploy stage applies only `j<NNN>` previews; dev and
+  staging are ready to deploy by hand, and nothing in the factory deploys prod.
 - **Tests are seen red before green.** The factory scripts are tested with Pester
   (`Invoke-Pester factory/tests`) and the dashboard with a Playwright check against `simulate.ps1`.
 
