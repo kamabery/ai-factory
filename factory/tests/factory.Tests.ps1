@@ -1244,4 +1244,253 @@ Describe 'targets' {
     }
 }
 
+Describe 'deploy' {
+    BeforeAll {
+        # A job in deploy, its branch carrying one commit beyond main.
+        function Move-ToDeploy([string]$id) {
+            Move-ToReview $id
+            Commit-OnBranch $id
+            Write-Reviews $id (All 'Verdict: PASS')
+            F read-reviews $id | Out-Null
+        }
+
+        # A commit on the job branch in its work dir: adds $file with $text, or removes it.
+        function Commit-Change([string]$id, [string]$file, [string]$text, [switch]$Remove) {
+            $wt = Work $id
+            if ($Remove) { Remove-Item (Join-Path $wt $file) } else { Set-Content (Join-Path $wt $file) $text }
+            git -C $wt add -A 2>&1 | Out-Null
+            git -C $wt -c user.email=f@t -c user.name=f commit -q -m "change $file" 2>&1 | Out-Null
+        }
+
+        function RepoName { ($script:Repo -split '/')[1] }
+
+        # Polls the board until the job's preview reaches $status (a detached destroy), or fails.
+        function Wait-Preview([string]$id, [string]$status) {
+            $deadline = (Get-Date).AddSeconds(30)
+            while ((Job $id).deploy.status -ne $status) {
+                if ((Get-Date) -gt $deadline) { throw "preview of $id never reached $status (is $((Job $id).deploy.status))" }
+                Start-Sleep -Milliseconds 300
+            }
+        }
+    }
+
+    BeforeEach { Use-Deploys }
+    AfterEach { Clear-Deploys }
+
+    It 'with no HCP_ORG, all-PASS reviews go straight to approve and a note says deploys are off' {
+        $env:FACTORY_ENV_FILE = $script:EnvFile
+        $id = New-ApprovedJob
+        Move-ToReview $id
+        Write-Reviews $id (All 'Verdict: PASS')
+
+        F read-reviews $id | Should -Be 'approve'
+        (Events | Where-Object { $_.kind -eq 'note' -and $_.job -eq $id }).detail | Should -Contain 'deploy skipped: no HCP_ORG in .env'
+    }
+
+    It 'with HCP_ORG, all-PASS reviews move the job to deploy' {
+        $id = New-ApprovedJob
+        Move-ToReview $id
+        Write-Reviews $id (All 'Verdict: PASS')
+
+        F read-reviews $id | Should -Be 'deploy'
+    }
+
+    It 'refuses outside the deploy stage' {
+        $id = New-ApprovedJob
+        F deploy $id | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+    }
+
+    It 'applies the preview and moves the job to approve with its urls' {
+        $id = New-ApprovedJob
+        Move-ToDeploy $id
+
+        $out = F deploy $id
+        $LASTEXITCODE | Should -Be 0
+        ($out -join "`n") | Should -Match 'https://stapp-'
+
+        $j = Job $id
+        $j.stage | Should -Be 'approve'
+        $j.deploy.status | Should -Be 'up'
+        $j.deploy.env | Should -Be 'j001'
+        $j.deploy.workspace | Should -Be "$(RepoName)-j001"
+        $j.deploy.attempts | Should -Be 1
+        $j.deploy.urls.frontend | Should -Be "https://stapp-$(RepoName)-react-j001.test"
+        $j.deploy.urls.api | Should -Be "https://ca-$(RepoName)-api.j001.test"
+        $j.deploy.sha | Should -Be (git -C (Work $id) rev-parse HEAD)
+        $j.deploy.destroyAt | Should -Not -BeNullOrEmpty
+        (Events | Where-Object { $_.kind -eq 'deploy' -and $_.job -eq $id }).detail | Should -Be "up https://stapp-$(RepoName)-react-j001.test"
+    }
+
+    It 'prepares HCP: the repo project with the Azure varset, idle dev and staging, and the preview workspace on a 24 hour timer' {
+        $id = New-ApprovedJob
+        Move-ToDeploy $id
+        F deploy $id | Out-Null
+
+        $s = DeployState
+        $project = $s.projects.Values | Where-Object { $_.name -eq (RepoName) }
+        $project | Should -Not -BeNullOrEmpty
+        $s.varsets['varset-azure'] | Should -Contain $project.id
+        foreach ($e in 'dev', 'staging', 'j001') { (HcpWorkspace "$(RepoName)-$e").project | Should -Be $project.id }
+        (HcpWorkspace "$(RepoName)-dev").autoDestroyAt | Should -BeNullOrEmpty
+        $at = [datetime]::Parse((HcpWorkspace "$(RepoName)-j001").autoDestroyAt).ToUniversalTime()
+        ($at - (Get-Date).ToUniversalTime()).TotalHours | Should -BeGreaterThan 23
+        ($at - (Get-Date).ToUniversalTime()).TotalHours | Should -BeLessThan 25
+    }
+
+    It 'prepares GitHub and Azure: preview variables, the HCP team token as a secret through gh, and the federated credential' {
+        $id = New-ApprovedJob
+        Move-ToDeploy $id
+        F deploy $id | Out-Null
+
+        $vars = (DeployState).vars
+        $vars["$script:Repo/env/preview"].AZURE_CLIENT_ID | Should -Be 'gh-app-client'
+        $vars["$script:Repo/env/preview"].AZURE_TENANT_ID | Should -Be 'tenant-1'
+        $vars["$script:Repo/env/preview"].AZURE_SUBSCRIPTION_ID | Should -Be 'sub-1'
+        $vars["$script:Repo/repo"].TF_CLOUD_ORGANIZATION | Should -Be 'test-org'
+
+        $calls = @(ToolCalls)
+        $secret = $calls | Where-Object { $_.args[0] -eq 'secret' } | Select-Object -First 1
+        $secret.args | Should -Be @('secret', 'set', 'TF_API_TOKEN', '--env', 'preview', '--repo', $script:Repo)
+        $secret.stdin | Should -Be 'team-token-for-actions'
+        $secret.ghTokenValue | Should -Be $script:Token
+        $fed = $calls | Where-Object { $_.args -contains 'create' } | Select-Object -First 1
+        ($fed.args -join ' ') | Should -Match 'ad app federated-credential create --id gh-app-client'
+        ($fed.args -join ' ') | Should -Match ([regex]::Escape("repo:$($script:Repo):environment:preview"))
+        $env:GH_TOKEN | Should -BeNullOrEmpty
+    }
+
+    It 'a failed run writes deploy-1.log from GitHub and HCP, keeps the job in deploy, and exits 1' {
+        $id = New-ApprovedJob
+        Move-ToDeploy $id
+        Commit-Change $id 'deploy-fail.txt' 'probe on /health fails every revision'
+
+        F deploy $id | Out-Null
+        $LASTEXITCODE | Should -Be 1
+
+        $j = Job $id
+        $j.stage | Should -Be 'deploy'
+        $j.deploy.status | Should -Be 'failed'
+        $log = Get-Content (Join-Path (JobDir $id) 'deploy-1.log') -Raw
+        $log | Should -Match '## GitHub'
+        $log | Should -Match '## HCP'
+        ([regex]::Matches($log, 'probe on /health fails every revision')).Count | Should -Be 2
+        (F deploy-log $id) -join "`n" | Should -Match 'probe on /health'
+        (Events | Where-Object { $_.kind -eq 'deploy' -and $_.job -eq $id }).detail | Should -Match '^failed \(attempt 1\): '
+    }
+
+    It 'a fix and a second attempt get the job to approve' {
+        $id = New-ApprovedJob
+        Move-ToDeploy $id
+        Commit-Change $id 'deploy-fail.txt' 'boom'
+        F deploy $id | Out-Null
+
+        Commit-Change $id 'deploy-fail.txt' -Remove
+        F deploy $id | Out-Null
+        $LASTEXITCODE | Should -Be 0
+
+        (Job $id).stage | Should -Be 'approve'
+        (Job $id).deploy.attempts | Should -Be 2
+        (Job $id).deploy.status | Should -Be 'up'
+    }
+
+    It 'the third failed attempt moves the job to ready flagged deploy-failed, and a fourth is refused' {
+        $id = New-ApprovedJob
+        Move-ToDeploy $id
+        Commit-Change $id 'deploy-fail.txt' 'boom'
+        1..3 | ForEach-Object { F deploy $id | Out-Null }
+
+        $j = Job $id
+        $j.stage | Should -Be 'ready'
+        $j.flag.reason | Should -Be 'deploy-failed'
+        $j.flag.detail | Should -Match 'boom'
+        $j.deploy.attempts | Should -Be 3
+        Test-Path (Join-Path (JobDir $id) 'deploy-3.log') | Should -BeTrue
+
+        F deploy $id | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        (Job $id).deploy.attempts | Should -Be 3
+    }
+
+    It 'destroy runs a destroy, deletes the workspace and records down; again it is a no-op' {
+        $id = New-ApprovedJob
+        Move-ToDeploy $id
+        F deploy $id | Out-Null
+        $ws = HcpWorkspace "$(RepoName)-j001"
+
+        F destroy $id | Out-Null
+        $LASTEXITCODE | Should -Be 0
+
+        (Job $id).deploy.status | Should -Be 'down'
+        (Job $id).stage | Should -Be 'approve'
+        (DeployState).hcpRuns.Values | Where-Object { $_.ws -eq $ws.id -and $_.isDestroy } | Should -Not -BeNullOrEmpty
+        (DeployState).workspaces[$ws.id].deleted | Should -BeTrue
+        (Events | Where-Object { $_.kind -eq 'destroy' -and $_.job -eq $id }).detail | Should -Be 'down'
+
+        F destroy $id | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        @(Events | Where-Object { $_.kind -eq 'destroy' -and $_.job -eq $id }).Count | Should -Be 1
+    }
+
+    It 'destroy is a no-op for a job that never deployed' {
+        $id = New-ApprovedJob
+        F destroy $id | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        @(Events | Where-Object { $_.kind -eq 'destroy' }).Count | Should -Be 0
+    }
+
+    It 'qa-login prints the preview QA user and its sensitive password' {
+        $id = New-ApprovedJob
+        Move-ToDeploy $id
+        F deploy $id | Out-Null
+
+        $out = (F qa-login $id) -join "`n"
+        $out | Should -Match "qa-j001@$(RepoName).test"
+        $out | Should -Match 'pw-j001'
+    }
+
+    It 'merging the job tears its preview down' {
+        $id = New-ApprovedJob
+        Move-ToDeploy $id
+        F deploy $id | Out-Null
+        Set-Content (Join-Path (JobDir $id) 'decision.md') "Decision: APPROVE`n"
+        F read-decision $id | Out-Null
+        F gate $id | Out-Null
+        (Job $id).stage | Should -Be 'ready'
+
+        F merge $id | Out-Null
+        (Job $id).stage | Should -Be 'done'
+        Wait-Preview $id 'down'
+    }
+
+    It 'discarding the job tears its preview down' {
+        $id = New-ApprovedJob
+        Move-ToDeploy $id
+        Commit-Change $id 'deploy-fail.txt' 'boom'
+        1..3 | ForEach-Object { F deploy $id | Out-Null }
+
+        F discard $id | Out-Null
+        Wait-Preview $id 'down'
+    }
+
+    It 'a rework tears the preview down and starts the next round with no attempts used' {
+        $id = New-ApprovedJob
+        Move-ToDeploy $id
+        Commit-Change $id 'deploy-fail.txt' 'boom'
+        1..3 | ForEach-Object { F deploy $id | Out-Null }
+
+        F rework $id 'fix the probe' | Out-Null
+        (Job $id).stage | Should -Be 'approved'
+        (Job $id).deploy.attempts | Should -Be 0
+        Wait-Preview $id 'down'
+    }
+
+    It 'escalation from deploy is allowed, as from every Building stage' {
+        $id = New-ApprovedJob
+        Move-ToDeploy $id
+        F set-stage $id ready -Reason escalated -Detail 'claude died' | Out-Null
+        (Job $id).stage | Should -Be 'ready'
+    }
+}
+
 }

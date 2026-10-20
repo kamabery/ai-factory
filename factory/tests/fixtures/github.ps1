@@ -17,7 +17,33 @@ function Start-GitHubStub {
     }
     $script:EnvFile = Join-Path $TestDrive 'github.env'
     Set-Content $script:EnvFile @("GITHUB_TOKEN=$script:Token", 'GITHUB_OWNER=test', "GITHUB_API_URL=http://localhost:$script:GhPort", "FACTORY_GIT_BASE=$script:GitUrl")
+
+    # The same, with deploys on: HCP's API is served by the same stub. See "Deploy" in the contract.
+    $script:HcpToken = 'hcp_test_' + [guid]::NewGuid().ToString('N')
+    $script:DeployEnvFile = Join-Path $TestDrive 'deploy.env'
+    Set-Content $script:DeployEnvFile ((Get-Content $script:EnvFile) + @(
+        'HCP_ORG=test-org', "HCP_TOKEN=$script:HcpToken", 'HCP_TEAM_TOKEN=team-token-for-actions', 'HCP_AZURE_VARSET=varset-azure',
+        'AZURE_GH_CLIENT_ID=gh-app-client', 'AZURE_TENANT_ID=tenant-1', 'AZURE_SUBSCRIPTION_ID=sub-1',
+        "HCP_API_URL=http://localhost:$script:GhPort"))
 }
+
+# Deploys on, with gh and az replaced by a stub that records each call in $env:FACTORY_TOOL_LOG.
+function Use-Deploys {
+    $env:FACTORY_ENV_FILE = $script:DeployEnvFile
+    $stub = Join-Path $PSScriptRoot 'tool-stub.ps1'
+    $env:FACTORY_GH_CMD = $stub
+    $env:FACTORY_AZ_CMD = $stub
+    $env:FACTORY_TOOL_LOG = Join-Path $TestDrive "tools-$([guid]::NewGuid().ToString('N').Substring(0,8)).jsonl"
+    $env:FACTORY_DEPLOY_POLL_SECONDS = '0'
+}
+
+function Clear-Deploys { Remove-Item Env:FACTORY_GH_CMD, Env:FACTORY_AZ_CMD, Env:FACTORY_TOOL_LOG, Env:FACTORY_DEPLOY_POLL_SECONDS -ErrorAction SilentlyContinue }
+
+function ToolCalls { if (Test-Path $env:FACTORY_TOOL_LOG) { Get-Content $env:FACTORY_TOOL_LOG | ForEach-Object { $_ | ConvertFrom-Json -AsHashtable } } }
+
+# The stub's Actions and HCP state, shared by every test (names carry the repo, so tests do not collide).
+function DeployState { Get-Content (Join-Path $script:GitBase 'deploy-state.json') -Raw | ConvertFrom-Json -AsHashtable -DateKind String }
+function HcpWorkspace([string]$name) { (DeployState).workspaces.Values | Where-Object { $_.name -eq $name } | Select-Object -First 1 }
 
 function Stop-GitHubStub {
     if ($script:GhProc -and -not $script:GhProc.HasExited) { Stop-Process -Id $script:GhProc.Id -Force }

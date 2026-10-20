@@ -29,8 +29,8 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 3
 
 $Roles = 'security', 'code', 'ux', 'ui'
-$Building = 'build', 'review', 'approve', 'gate'
-$EventKinds = 'idea', 'stage', 'agent-start', 'agent-stop', 'gate', 'merge', 'cost', 'note', 'eval', 'feedback'
+$Building = 'build', 'review', 'deploy', 'approve', 'gate'
+$EventKinds = 'idea', 'stage', 'agent-start', 'agent-stop', 'gate', 'merge', 'cost', 'note', 'eval', 'feedback', 'deploy', 'destroy'
 $Providers = 'subscription', 'openrouter'
 
 function Fail([string] $msg, [int] $code = 1) {
@@ -58,6 +58,8 @@ $BoardPath = Join-Path $Home_ 'board.json'
 $EventsPath = Join-Path $Home_ 'events.jsonl'
 
 . (Join-Path $PSScriptRoot 'github.ps1')
+. (Join-Path $PSScriptRoot 'hcp.ps1')
+. (Join-Path $PSScriptRoot 'deploy.ps1')
 
 # A job's local clone of its target, where it builds and is gated; deleted at done or discarded.
 function WorkRoot {
@@ -438,6 +440,7 @@ function Complete-Merge($j, [string] $sha) {
     Move-Job $j 'done' 'human'
     Add-Event ([ordered]@{ job = $j.id; kind = 'merge'; detail = $sha })
     Remove-WorkDir $j
+    Start-Destroy $j
     # A merged bootstrap releases its idea for a /factory:idea session.
     $i = if ($j.Contains('kind') -and $j.kind -eq 'bootstrap' -and $j.idea) { $Board.ideas | Where-Object { $_.id -eq $j.idea } | Select-Object -First 1 }
     if ($i -and $i.status -eq 'waiting') {
@@ -564,7 +567,9 @@ try {
             Reset-Reviews $j
             $j.decision = $null
             $j.approvedAt = Now
+            if ($j.Contains('deploy') -and $j.deploy) { $j.deploy.attempts = 0 }
             Move-Job $j 'approved' 'human'
+            Start-Destroy $j
         }
 
         'discard' {
@@ -572,6 +577,7 @@ try {
             Require-Stage $j 'backlog', 'ready' 'discard'
             Move-Job $j 'discarded' 'human'
             Remove-JobWork $j
+            Start-Destroy $j
         }
 
         'purge' {
@@ -678,6 +684,81 @@ try {
             Add-Event ([ordered]@{ job = $j.id; kind = 'cost'; costUsd = $usd; durationMs = $ms; provider = $j['provider'] ?? 'subscription' })
         }
 
+        'deploy' {
+            $j = Get-Job $Arg1
+            Require-Stage $j 'deploy' 'deploy'
+            if (-not (Deploys-On)) { Fail 'deploy refused: deploys are off (no HCP_ORG in .env)' }
+            $d = Get-Deploy $j
+            if ([int]$d.attempts -ge 3) { Fail "deploy refused: $($j.id) has used its 3 attempts" }
+            $d.attempts = [int]$d.attempts + 1
+            $d.status = 'applying'
+            Save-Board $Board
+            $attempt = $d.attempts
+            $res = Invoke-Deploy $j
+            $j = Get-Job $Arg1
+            $d = $j.deploy
+            $d.sha = $res.sha
+            $d.run = $res.run
+            if ($res.ok) {
+                $d.status = 'up'
+                $d.urls = $res.urls
+                $d.appliedAt = Now
+                $d.destroyAt = $res.destroyAt
+                Save-Board $Board
+                $where = if ($res.urls.frontend) { $res.urls.frontend } else { $res.urls.api }
+                Add-Event ([ordered]@{ job = $j.id; kind = 'deploy'; detail = "up $where" })
+                Move-Job $j 'approve' 'orchestrator'
+                "frontend: $($res.urls.frontend)"
+                "api: $($res.urls.api)"
+            } else {
+                $d.status = 'failed'
+                Save-Board $Board
+                Set-Content (Join-Path (JobDir $j.id) "deploy-$attempt.log") $res.log
+                $first = First-Error $res.log
+                Add-Event ([ordered]@{ job = $j.id; kind = 'deploy'; detail = "failed (attempt $attempt): $first" })
+                if ($attempt -ge 3) { Move-Job $j 'ready' 'orchestrator' 'deploy-failed' $first }
+                Fail "deploy attempt $attempt failed: $first; see deploy-$attempt.log (factory.ps1 deploy-log $($j.id))"
+            }
+        }
+
+        'deploy-log' {
+            $j = Get-Job $Arg1
+            $logs = @(Get-ChildItem (JobDir $j.id) -Filter 'deploy-*.log' -ErrorAction SilentlyContinue | Sort-Object { [int]($_.BaseName -replace '\D', '') })
+            if (-not $logs) { Fail "$($j.id) has no failed deploy" }
+            Get-Content $logs[-1].FullName -Raw
+        }
+
+        'destroy' {
+            $j = Get-Job $Arg1
+            if (-not $j.Contains('deploy') -or -not $j.deploy -or $j.deploy.status -in 'down', $null) { "no preview for $($j.id)"; break }
+            $before = $j.deploy.status
+            $j.deploy.status = 'destroying'
+            Save-Board $Board
+            $err = Invoke-Destroy $j
+            $j = Get-Job $Arg1
+            if ($err) {
+                $j.deploy.status = $before
+                Save-Board $Board
+                Add-Event ([ordered]@{ job = $j.id; kind = 'destroy'; detail = "failed: $err" })
+                Fail "destroy failed: $err"
+            }
+            $j.deploy.status = 'down'
+            $j.deploy.urls = $null
+            Save-Board $Board
+            Add-Event ([ordered]@{ job = $j.id; kind = 'destroy'; detail = 'down' })
+            'down'
+        }
+
+        'qa-login' {
+            $j = Get-Job $Arg1
+            if (-not $j.Contains('deploy') -or -not $j.deploy -or $j.deploy.status -ne 'up') { Fail "qa-login refused: $($j.id) has no live preview" }
+            $wsId = Get-HcpWorkspaceId $j.deploy.workspace
+            $outs = if ($wsId) { Get-HcpOutputs $wsId @('qa_password') } else { @{} }
+            if (-not $outs['qa_user']) { Fail 'qa-login refused: the preview has no QA user (no auth add-on)' }
+            "user: $($outs['qa_user'])"
+            "password: $($outs['qa_password'])"
+        }
+
         'set-stage' {
             $j = Get-Job $Arg1
             $to = $Arg2
@@ -726,7 +807,13 @@ try {
             }
             if ($missing) { Save-Board $Board; Fail "no verdict from: $($missing -join ', ')" 2 }
             $changes = @($Roles | Where-Object { $j.reviews[$_] -eq 'CHANGES' })
-            if (-not $changes) { Move-Job $j 'approve' 'orchestrator' }
+            if (-not $changes) {
+                if (Deploys-On) { Move-Job $j 'deploy' 'orchestrator' }
+                else {
+                    Move-Job $j 'approve' 'orchestrator'
+                    Add-Event ([ordered]@{ job = $j.id; kind = 'note'; detail = 'deploy skipped: no HCP_ORG in .env' })
+                }
+            }
             elseif ([int]$j.round -lt 2) {
                 $j.round = [int]$j.round + 1
                 Reset-Reviews $j

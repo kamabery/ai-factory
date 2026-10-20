@@ -24,8 +24,9 @@ No agent, skill or endpoint writes to `.factory-runs/board.json`. Every state ch
         │ "not yet"                                  ↓
         └────→ Backlog ──human drag──→ Approved ──runner──→ Building ──→ Ready for review ──human drag──→ Done
                (edit spec)             (FIFO queue)        build         (flag if the       (merge)
-                  │                         ↑              review ×4      factory gave up)
-                  └──discard                │              approve            │
+                  │                         ↑              review ×4      factory gave up;
+                  └──discard                │              deploy         live preview,
+                                            │              approve        Launch / Tear down)
                                             │              gate               ├──discard
                                             └────────── rework <note> ────────┘
 ```
@@ -39,7 +40,7 @@ Done and discarded cards stay until a human clears them ([Purge](#purge), the Do
 | Ideas | `idea` records with status `waiting`, `drafting` or `failed`, and open dashboard [idea sessions](#idea-sessions-dashboard) (not jobs) | the idea session |
 | Backlog | `backlog` | human (drag to Approved, or discard) |
 | Approved | `approved` | runner |
-| Building | `build`, `review`, `approve`, `gate` | orchestrator / script |
+| Building | `build`, `review`, `deploy`, `approve`, `gate` | orchestrator / script |
 | Ready for review | `ready` | human (drag to Done, rework, or discard) |
 | Done | `done` | nobody (terminal) |
 | (hidden) | `discarded` | nobody (terminal) |
@@ -289,17 +290,24 @@ has merged), and closing the session deletes the clone.
 | build | review | `round-<n>/build.md` exists | |
 | review | build | all 4 verdicts in, at least one `CHANGES`, round < 2; round += 1, reviews reset to `pending` | |
 | review | ready | at least one `CHANGES` at round ≥ 2 | `max-rounds` |
-| review | approve | all 4 verdicts are `PASS` | |
+| review | deploy | all 4 verdicts are `PASS`, and deploys are on (see [Deploy](#deploy)) | |
+| review | approve | all 4 verdicts are `PASS`, and deploys are off; a `note` event says so | |
+| deploy | approve | `factory.ps1 deploy` saw the preview applied for the branch head, and only then; it makes the move | |
+| deploy | ready | the third failed `deploy`; the preview is left up for diagnosis | `deploy-failed` |
 | approve | gate | `decision.md` first line is `Decision: APPROVE` | |
 | approve | ready | `Decision: ESCALATE` | `escalated` |
 | gate | ready | every gate command exited 0 (no flag), or any one did not. Run by the orchestrator, or by the runner when claude ended with the job in `gate` | `gate-failed` |
-| build / review / approve | ready | the orchestrator gives up, or the runner's `claude` process ends with the job still here | `escalated` |
+| build / review / deploy / approve | ready | the orchestrator gives up, or the runner's `claude` process ends with the job still here | `escalated` |
 | ready | done | human `merge`, or `sync-prs` after the human merged the PR on GitHub; see [Gate and merge](#gate-and-merge). Merges the PR (or records the GitHub merge) and deletes the work directory. A bootstrap job's merge moves its idea `waiting` → `drafting` and prints `released <ideaId>` | |
 | ready | ready | human `merge` refused: nothing to merge, uncommitted changes in the work directory, PR not mergeable / red gate | `merge-blocked` / `gate-failed` |
 | ready | approved | human `rework <id> <note>`; writes `jobs/<id>/rework-<n>.md`, round += 1, sets `approvedAt` | |
 | ready | discarded | human; closes the PR, deletes branch `factory/<id>` on GitHub and the work directory | |
 
 `done` and `discarded` are terminal. `flag` is cleared on every move out of `ready`.
+
+`merge` (and `sync-prs`), `discard` and `rework` also tear down the job's preview when it has one
+that is not `down`: they start `factory.ps1 destroy <id>` detached and do not wait for it. A failed
+destroy is a `note` event, never a failed move, and HCP's auto-destroy timer is the backstop.
 
 ### Evaluations
 
@@ -378,8 +386,10 @@ keeps its history, and `board.seq` stops a purged id being reused.
     round-<n>/
       build.md
       review-security.md  review-code.md  review-ux.md  review-ui.md
+      deploy.md                the devops agent's report: what it deployed, fixes after review, template gaps
     decision.md
     gate.log
+    deploy-<a>.log             attempt a's GitHub job log and HCP run log, written when it failed
     run-<n>.jsonl              the claude -p stream-json output of each runner pass, written live
   evals/                       kept by purge (see Evaluations)
     <id>.md  <id>.json         the evaluation, and the board facts snapshotted when it was written
@@ -448,6 +458,10 @@ those lines and nothing else; if one is missing or malformed, the script treats 
 - `merged` is `null` until a merge, then `{ "sha": "<merge commit>", "repo": "<owner/name>", "pr": "<PR url>", "added": ["<repo-relative path>", ...], "modified": [...] }`,
   from `git diff --name-status --no-renames <sha>^1 <sha>` in the work directory after fetching the merge.
 - `pr` is `null` (or absent) until `publish` opens the job's pull request.
+- `deploy` is `null` (or absent) until the first `deploy`, then
+  `{ "env": "j001", "workspace": "<repo>-j001", "status": "applying|up|failed|destroying|down", "attempts": 1, "sha": "<deployed head>", "run": "<GitHub run url>", "urls": { "frontend": "...", "api": "..." }, "appliedAt": "...", "destroyAt": "..." }`.
+  `urls.frontend` is null for an API-only target. `destroyAt` is HCP's auto-destroy time; after it
+  the dashboard treats the preview as gone whatever `status` says.
 - `kind` is `feature` (from a spec-writer spec) or `bootstrap` (generated by `new-idea`); absent means `feature`.
 - `provider` is `subscription` or `openrouter` (see [Providers](#providers)); absent means `subscription`.
 - `costUsd` and `durationMs` are summed over every runner pass on the job.
@@ -470,7 +484,9 @@ now" pulses from this file.
 {"ts":"2026-10-12T14:08:00Z","job":"J-001","kind":"cost","costUsd":1.84,"durationMs":412000,"provider":"subscription"}
 ```
 
-`kind` is one of `idea | stage | agent-start | agent-stop | gate | merge | cost | note | eval | feedback`. Spec-writer
+`kind` is one of `idea | stage | agent-start | agent-stop | gate | merge | cost | note | eval | feedback | deploy | destroy`.
+A `deploy` event's `detail` is `up <frontend or api url>` or `failed (attempt <a>): <first error line>`; a
+`destroy` event's is `down` or `failed: <message>`. Spec-writer
 agent events carry `"idea"` instead of `"job"`. `agent` is the plain agent name (the hook strips the
 plugin's `factory:` prefix). `agent-start` carries `agentId` and `transcript`, the subagent's live
 Claude Code transcript, which is derived from the hook's `transcript_path` and `agent_id`.
@@ -494,6 +510,8 @@ stderr and leaves the board unchanged.
 | `sync-prs` (moves each `ready` job whose PR was merged on GitHub to `done`; prints their ids) | serve.ps1 (PR sync) |
 | `next` (prints the next runnable approved id, or nothing) · `checkout <id>` (creates the GitHub repo if needed, then clones or reuses `<work>\jobs\<id>` on `factory/<id>`; prints the work directory) · `publish <id>` (`ready` only: pushes `factory/<id>` and opens the job's PR if it has none; prints the PR url) · `set-cost <id> <usd> <ms>` | runner.ps1 |
 | `set-stage <id> <to> [-By] [-Reason] [-Detail]` · `set-review <id> <role> <state>` · `read-reviews <id>` · `read-decision <id>` · `gate <id>` | `/factory run` |
+| `deploy <id>` (deploy only) · `deploy-log <id>` (prints the last failed attempt's log) | `/factory run`, the devops agent |
+| `destroy <id>` (any stage; a no-op without a preview) · `qa-login <id>` (prints the preview's QA user and password) | serve.ps1 (**Tear down**, **QA login**), and `merge`/`discard`/`rework` |
 | `event <json \| -Job -Idea -Kind -Agent>` | hook-event.ps1 |
 | `eval <id> -File <path>` | a human session evaluating a finished job (see [Evaluations](#evaluations)) |
 | `feedback <id> -File <path>` | serve.ps1 (the human's feedback on an evaluation) |
@@ -506,7 +524,9 @@ does not move. `set-stage` only performs `approved → build`, `build → review
 Overrides, for tests: `$env:FACTORY_GATE_CMDS` (JSON `[{ "name", "cmd" }]`; wins over the spec's
 `## Gate`, so tests can use `exit 0` / `exit 1`), `$env:FACTORY_WORK` (the work root),
 `$env:FACTORY_ENV_FILE` (the `.env` holding the GitHub settings) and `$env:FACTORY_REPO` (this
-repo's main checkout).
+repo's main checkout). For [Deploy](#deploy): `$env:FACTORY_GH_CMD` and `$env:FACTORY_AZ_CMD` (a
+script run with `pwsh -File` in place of `gh` / `az`), `$env:FACTORY_DEPLOY_POLL_SECONDS` (default
+15) and `$env:FACTORY_DEPLOY_TIMEOUT_MINUTES` (default 60).
 
 ## Agents
 
@@ -518,9 +538,14 @@ repo's main checkout).
 | code-reviewer | sonnet | same | round-n/review-code.md |
 | ux-reviewer | sonnet | same | round-n/review-ux.md |
 | ui-reviewer | sonnet | same + the target's docs/DESIGN.md, if any | round-n/review-ui.md |
-| approver | opus | spec.md, every build.md and review in the job | decision.md |
+| devops | sonnet | spec.md, the diff, build.md, `deploy-<a>.log`; loads the template workspace's `aspire-starter:deploy-app` skill | `IaC/` and `.github/workflows/` on the job branch, round-n/deploy.md |
+| approver | opus | spec.md, every build.md, review and deploy.md in the job; smoke-tests the preview | decision.md |
 
 Every agent works in the job's work directory and follows the target's `CLAUDE.md`, if it has one.
+The devops agent runs twice per round: after the builder (author: `aspire-addon infra adopt` /
+`infra check`, so the reviewers see the infrastructure the round needs), and in `deploy` (operate:
+`factory.ps1 deploy`, and on a failure `deploy-log`, a fix, a commit and `deploy` again). It edits
+the target's `IaC/` and workflows, never this repo's.
 Reviewers inspect the diff (`git diff main...HEAD`) and re-run the spec's Gate commands themselves.
 They treat `build.md`'s claims as claims, not as evidence.
 
@@ -566,6 +591,61 @@ every `ready` job with a PR that GitHub reports merged, and prints each one's id
 `factory.ps1 discard <id>` closes the job's open PR, deletes `factory/<id>` on GitHub if it was
 pushed, and deletes the work directory.
 
+## Deploy
+
+Between review and approve, every job's branch is deployed to an **ephemeral preview** in Azure:
+environment `j<NNN>` (the job id, e.g. `j012`), resource group `rg-<project>-j012`, HCP Terraform
+workspace `<repo name>-j012` in the HCP project named after the repo. The approver smoke-tests it,
+and the human QAs it from Ready for review. Production is never deployed: the target's
+`IaC/guards.tf` refuses it and the workflow accepts only `dev`, `staging` and `j<NNN>`.
+
+**On or off.** Deploys are on when `.env` has `HCP_ORG`. Off, `read-reviews` moves an all-PASS job
+straight to `approve` and appends a `note` event "deploy skipped: no HCP_ORG in .env". On, every job
+deploys; a target without HCP-ready infrastructure gets it from the devops agent's author pass.
+
+**Settings** (`.env`, read like `GITHUB_TOKEN`: into a local variable, never into the environment of
+anything but the one child process that needs it, never logged):
+
+| Key | What |
+| --- | --- |
+| `HCP_ORG` | the HCP Terraform organization |
+| `HCP_TOKEN` | an org token for `factory.ps1`: projects, workspaces, runs, state outputs |
+| `HCP_TEAM_TOKEN` | a team token scoped to the factory's projects, set as each target's `TF_API_TOKEN` GitHub secret |
+| `HCP_AZURE_VARSET` | id of the variable set holding Azure (and Entra External) dynamic credentials, attached to every project |
+| `AZURE_GH_CLIENT_ID` · `AZURE_TENANT_ID` · `AZURE_SUBSCRIPTION_ID` | the app registration GitHub Actions signs in as (OIDC), for image builds and schema steps |
+| `HCP_API_URL` | default `https://app.terraform.io`; tests point it at a stub |
+
+**`factory.ps1 deploy <id>`** (job in `deploy`), in order; any step's failure is a failed attempt:
+
+1. Refuses when `deploy.attempts` is already 3. Increments `attempts`, sets `status: applying`.
+2. Pushes `factory/<id>` (as `publish` does, without the PR).
+3. HCP: ensures the project (`<repo name>`), attaches `HCP_AZURE_VARSET` to it, ensures the
+   workspaces `<repo>-dev` and `<repo>-staging` (idle - "ready to deploy once Done"), and ensures
+   `<repo>-j<NNN>` with `auto-destroy-at` 24 hours ahead.
+4. GitHub: ensures the environment `preview`, its variables `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
+   `AZURE_SUBSCRIPTION_ID`, the repo variable `TF_CLOUD_ORGANIZATION`, and the secret
+   `TF_API_TOKEN` (`gh secret set`, the GitHub PAT in `gh`'s environment only, the value on stdin).
+   Azure: ensures the federated credential `repo:<owner>/<name>:environment:preview` on
+   `AZURE_GH_CLIENT_ID` (`az ad app federated-credential`, under the human's own `az login`).
+5. Dispatches `.github/workflows/deploy.yml` on `factory/<id>` with `environment = j<NNN>`, finds
+   that run, and polls it until it completes or the timeout passes.
+6. Success: reads the workspace's outputs - `react_url` or `blazor_web_url` as `urls.frontend`,
+   `api_url` as `urls.api` - records `status: up`, the head `sha`, `appliedAt`, `destroyAt`, appends a
+   `deploy` event, **moves the job to `approve`**, and prints the urls.
+7. Failure: writes `deploy-<a>.log` (the failed GitHub jobs' logs, then the workspace's latest HCP
+   run's plan and apply logs), records `status: failed`, appends a `deploy` event, and exits 1 - or,
+   when that was attempt 3, moves the job to `ready` with flag `deploy-failed`. The preview is left
+   up either way, for diagnosis.
+
+A rework starts a new round with `attempts` back at 0 (the old preview is torn down by `rework`).
+
+**`factory.ps1 destroy <id>`** queues a destroy run on the workspace (auto-applied), waits for it,
+safe-deletes the workspace, and records `status: down` and a `destroy` event. Without a `deploy`, or
+when it is already `down`, it does nothing. It never moves the job.
+
+**`factory.ps1 qa-login <id>`** prints `qa_user` and `qa_password` from the workspace's outputs (the
+auth add-on's), or refuses when the preview has none. Only the dashboard calls it, for the human.
+
 ## Dashboard API
 
 `serve.ps1` listens on localhost only. GETs serve `factory/dashboard/index.html`, the files under
@@ -585,6 +665,8 @@ and a refused move snaps the card back and shows the message.
 | `POST /api/jobs/<id>/move` `{ "to": "done" }` | `merge` | |
 | `POST /api/jobs/<id>/move` `{ "to": "discarded" }` | `discard` | |
 | `POST /api/purge` | `purge` | |
+| `POST /api/jobs/<id>/destroy` | `destroy`, started detached | **Tear down** on a card with a live preview; answers at once, the card shows `destroying` until the board says `down` |
+| `GET /api/jobs/<id>/qa-login` | `qa-login` | `{ ok, message }` with the user and password; the card's **QA login** shows it, never stores it |
 | `GET /api/evals` | (read-only) | every `evals/<id>.json`, newest job first; the markdown is at `/state/evals/<id>.md` |
 | `PUT /api/evals/<id>/feedback` (text/markdown) | `feedback` | the feedback is at `/state/evals/<id>.feedback.md` |
 | `GET /api/ideate/config` | (read-only) | `{ enabled, model, owner }`; `enabled` means `.env` has an Anthropic key; `owner` is `GITHUB_OWNER`; no key is ever returned |
@@ -632,7 +714,8 @@ longer running. Otherwise it loops:
    `claude -p "/factory:factory run <id> <stateDir> <factory.ps1>" --plugin-dir <this repo>/factory/plugin --plugin-dir <template workspace> --settings <stateDir>/headless-settings.json --add-dir <stateDir> --output-format stream-json --verbose --permission-mode acceptEdits`
    (`claude-run.ps1` builds this command for both scripts).
    - `headless-settings.json` `permissions.allow` lets agents run the toolchain (`dotnet`, `npm`,
-     `npx`, `node`, `aspire`, `aspire-addon`), git reads and commits, and read-only shell commands, in both the Bash and the
+     `npx`, `node`, `aspire`, `aspire-addon`, `terraform init -backend=false`, `terraform validate`,
+     `terraform test`, `terraform fmt`, and `curl` for the approver's smoke test), git reads and commits, and read-only shell commands, in both the Bash and the
      PowerShell tool; `deny` blocks `git push`, `merge`, `rebase`, `reset --hard`, switching to
      `main` and `git worktree`, and reading the environment (`printenv`, `env`, and
      `Get-ChildItem`/`Get-Item`/`Get-Content` on `env:`), which holds an `openrouter` job's key. `additionalDirectories` makes `factory/templates` and the template

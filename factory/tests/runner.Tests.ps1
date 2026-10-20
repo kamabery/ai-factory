@@ -51,6 +51,7 @@ Set-Content (Join-Path `$dir 'build.md') 'built'
 & `$f set-stage `$id review | Out-Null
 foreach (`$r in 'security','code','ux','ui') { Set-Content (Join-Path `$dir "review-`$r.md") 'Verdict: PASS' }
 & `$f read-reviews `$id | Out-Null
+if ('$mode' -eq 'deploy-stall') { '{"type":"result","total_cost_usd":0.1,"duration_ms":10}'; exit 0 }
 Set-Content (Join-Path `$env:FACTORY_HOME "jobs/`$id/decision.md") 'Decision: APPROVE'
 & `$f read-decision `$id | Out-Null
 if ('$mode' -eq 'gate-crash') { exit 1 }
@@ -379,6 +380,17 @@ if ($held) { $held.Dispose() }
             Run-Runner | Out-Null
             (Job $a).flag.reason | Should -Be 'escalated'
             (Job $b).flag.reason | Should -Be 'escalated'
+        }
+
+        It 'escalates a job claude leaves in deploy, the way it does any Building stage' {
+            Use-Deploys
+            try {
+                $id = New-ApprovedJob 'A'
+                Set-FakeClaude 'deploy-stall'
+                Run-Runner | Out-Null
+                (Job $id).flag.reason | Should -Be 'escalated'
+                ((Job $id).history | Where-Object { $_.from -eq 'deploy' }).to | Should -Be 'ready'
+            } finally { Clear-Deploys }
         }
     }
 

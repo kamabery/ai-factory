@@ -12,7 +12,7 @@ Set-StrictMode -Version 3
 
 $Factory = Join-Path $PSScriptRoot 'factory.ps1'
 . (Join-Path $PSScriptRoot 'claude-run.ps1')
-$Building = 'build', 'review', 'approve', 'gate'
+$Building = 'build', 'review', 'deploy', 'approve', 'gate'
 
 function F { & $Factory @args }
 # factory.ps1 in a child process, for a call whose refusal must be read: Fail writes to the console's
