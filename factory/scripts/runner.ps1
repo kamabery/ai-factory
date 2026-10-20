@@ -123,6 +123,9 @@ try {
             if ((Stage $id) -eq 'ready') {
                 $pub = F-Child publish $id
                 if ($pub.Code -ne 0) { Log "publish $($id): $($pub.Err)" }
+                # What a job that went bad taught, for the templates; a clean job writes nothing.
+                $les = F-Child lesson $id
+                if ($les.Code -ne 0) { Log "lesson $($id): $($les.Err)" }
             }
         } catch {
             Log "error $($id): $($_.Exception.Message)`n$($_.ScriptStackTrace)"

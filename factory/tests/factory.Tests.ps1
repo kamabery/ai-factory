@@ -1505,4 +1505,83 @@ Describe 'deploy' {
     }
 }
 
+Describe 'lessons' {
+    BeforeAll {
+        function Write-DeployReport([string]$id, [int]$round, [string]$gaps) {
+            $dir = Join-Path (JobDir $id) "round-$round"
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            Set-Content (Join-Path $dir 'deploy.md') "# Deploy: $id, round $round`n`n## Attempts`n- Attempt 1: up`n`n## Template gaps`n$gaps`n"
+        }
+        function Lesson([string]$id) { Get-Content (Join-Path $env:FACTORY_HOME "lessons/$id.json") -Raw | ConvertFrom-Json -AsHashtable -DateKind String }
+        function LessonMd([string]$id) { Get-Content (Join-Path $env:FACTORY_HOME "lessons/$id.md") -Raw }
+    }
+
+    It 'writes nothing for a job with no flag and no template gaps' {
+        $id = New-ApprovedJob
+        Move-ToGate $id
+        Write-DeployReport $id 1 'None.'
+        F gate $id | Out-Null
+
+        F lesson $id | Should -Be 'no lessons'
+        Test-Path (Join-Path $env:FACTORY_HOME "lessons/$id.json") | Should -BeFalse
+    }
+
+    It 'compiles the flag and every template gap from the rounds'' deploy reports' {
+        $id = New-ApprovedJob 'Search'
+        Move-ToReview $id
+        Write-DeployReport $id 1 "- Symptom: probe failed`n  Cause: /health is Development-only`n  Belongs in: template-projects:IaC/containerapp.api.tf`n- Symptom: second gap`n  Belongs in: template-projects:IaC/README.md"
+        F set-stage $id ready -Reason escalated -Detail 'claude died mid-deploy' | Out-Null
+
+        F lesson $id | Out-Null
+        $LASTEXITCODE | Should -Be 0
+
+        $l = Lesson $id
+        $l.job | Should -Be $id
+        $l.title | Should -Be 'Search'
+        $l.target | Should -Be $script:Repo
+        $l.flag | Should -Be 'escalated'
+        $l.templateGaps | Should -Be 2
+        $l.status | Should -Be 'open'
+        $md = LessonMd $id
+        $md | Should -Match 'claude died mid-deploy'
+        $md | Should -Match 'template-projects:IaC/containerapp.api.tf'
+        $md | Should -Match 'second gap'
+        (Events | Where-Object { $_.kind -eq 'lesson' -and $_.job -eq $id }).detail | Should -Be '2'
+    }
+
+    It 'appends a human evaluation''s lessons with -File' {
+        $id = New-ApprovedJob
+        Move-ToReview $id
+        F set-stage $id ready -Reason escalated -Detail 'stuck' | Out-Null
+        $f = Join-Path $TestDrive "lessons-$([guid]::NewGuid().ToString('N')).md"
+        Set-Content $f '- The React add-on should ship an empty-state component.'
+
+        F lesson $id -File $f | Out-Null
+
+        $md = LessonMd $id
+        $md | Should -Match 'stuck'
+        $md | Should -Match '## From the evaluation'
+        $md | Should -Match 'empty-state component'
+    }
+
+    It 'lesson-mark records the status and the session, and purge keeps lessons' {
+        $id = New-ApprovedJob
+        Move-ToReview $id
+        F set-stage $id ready -Reason escalated -Detail 'stuck' | Out-Null
+        F lesson $id | Out-Null
+
+        F lesson-mark $id proposed -Detail 'S-004' | Out-Null
+        (Lesson $id).status | Should -Be 'proposed'
+        (Lesson $id).session | Should -Be 'S-004'
+
+        F lesson-mark $id bogus | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+
+        F discard $id | Out-Null
+        Evaluate @($id)
+        F purge | Out-Null
+        Test-Path (Join-Path $env:FACTORY_HOME "lessons/$id.json") | Should -BeTrue
+    }
+}
+
 }

@@ -150,6 +150,65 @@ Describe 'serve.ps1 evaluations' {
     }
 }
 
+Describe 'serve.ps1 lessons' {
+    AfterEach { Stop-Serve }
+
+    It 'lists every lessons/J-NNN.json, newest job first, serves the markdown, and names the templates repo' {
+        $envFile = Join-Path $TestDrive 'lessons.env'
+        Set-Content $envFile ((Get-Content $script:EnvFile) + 'FACTORY_TEMPLATES_REPO=test/template-projects')
+        Start-Serve $envFile
+        (Invoke-WebRequest "http://localhost:$script:Port/api/lessons").Content | Should -Be '[]'
+
+        $dir = Join-Path $script:State 'lessons'
+        New-Item -ItemType Directory -Force $dir | Out-Null
+        foreach ($id in 'J-002', 'J-011') {
+            Set-Content (Join-Path $dir "$id.json") (Json @{ job = $id; title = "job $id"; status = 'open'; templateGaps = 1 })
+            Set-Content (Join-Path $dir "$id.md") "# Lessons: $id"
+        }
+        @((Api GET '/api/lessons').Body | ForEach-Object job) | Should -Be @('J-011', 'J-002')
+        (Invoke-WebRequest "http://localhost:$script:Port/state/lessons/J-011.md").Content | Should -Match '# Lessons: J-011'
+        (Api GET '/api/ideate/config').Body.templatesRepo | Should -Be 'test/template-projects'
+    }
+
+    It 'marks a lesson through factory.ps1 lesson-mark, and refuses an unknown status' {
+        Start-Serve $script:EnvFile
+        $dir = Join-Path $script:State 'lessons'
+        New-Item -ItemType Directory -Force $dir | Out-Null
+        Set-Content (Join-Path $dir 'J-004.json') (Json @{ job = 'J-004'; title = 'job'; status = 'open'; session = $null })
+
+        $r = Api POST '/api/lessons/J-004/mark' @{ status = 'proposed'; session = 'S-002' }
+        $r.Status | Should -Be 200
+        $l = Read-J (Join-Path $dir 'J-004.json')
+        $l.status | Should -Be 'proposed'
+        $l.session | Should -Be 'S-002'
+
+        (Api POST '/api/lessons/J-004/mark' @{ status = 'shipped' }).Status | Should -Be 409
+    }
+}
+
+Describe 'serve.ps1 previews' {
+    AfterEach { Stop-Serve }
+
+    It 'Tear down answers at once, and QA login refuses a job without a live preview' {
+        Start-Serve $script:EnvFile
+        $env:FACTORY_ENV_FILE = $script:EnvFile
+        $factory = Join-Path $script:Scripts 'factory.ps1'
+        $repo = New-Repo
+        $idea = & $factory new-idea 'x' -Target $repo 2>$null
+        $spec = Join-Path $TestDrive "spec-$([guid]::NewGuid().ToString('N')).md"
+        Set-Content $spec (Spec-Md 'Thing' $repo)
+        $id = & $factory add-spec $idea $spec 2>$null
+
+        $r = Api POST "/api/jobs/$id/destroy" @{}
+        $r.Status | Should -Be 200
+        $r.Body.ok | Should -BeTrue
+
+        $q = Api GET "/api/jobs/$id/qa-login"
+        $q.Status | Should -Be 409
+        $q.Body.message | Should -Match 'no live preview'
+    }
+}
+
 Describe 'serve.ps1 state files' {
     AfterEach { Stop-Serve }
 

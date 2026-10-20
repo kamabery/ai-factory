@@ -430,8 +430,35 @@ function Handle($ctx) {
         return Send-Result $ctx $r
     }
 
+    # Tear down: destroying takes minutes, so it runs detached and the card follows the board.
+    if ($method -eq 'POST' -and $path -match '^/api/jobs/([A-Z]+-\d+)/destroy$') {
+        Start-Detached 'factory.ps1' @('destroy', $Matches[1])
+        return Send-Result $ctx ([pscustomobject]@{ Ok = $true; Message = 'tearing down the preview' })
+    }
+
+    if ($method -eq 'GET' -and $path -match '^/api/jobs/([A-Z]+-\d+)/qa-login$') {
+        return Send-Result $ctx (Invoke-Factory qa-login $Matches[1])
+    }
+
+    if ($method -eq 'GET' -and $path -eq '/api/lessons') {
+        $dir = Join-Path $StateDir 'lessons'
+        $list = @(if (Test-Path $dir) {
+            Get-ChildItem $dir -Filter '*.json' -File | Where-Object Name -match '^[A-Z]+-(\d+)\.json$' |
+                Sort-Object { [int]($_.Name -replace '\D', '') } -Descending | ForEach-Object { Read-Json $_.FullName }
+        })
+        return Send $ctx 200 (ConvertTo-Json -Compress -Depth 10 -InputObject $list)
+    }
+
+    if ($method -eq 'POST' -and $path -match '^/api/lessons/([A-Z]+-\d+)/mark$') {
+        $id = $Matches[1]
+        $req = Read-Body $ctx | ConvertFrom-Json
+        $session = if ($req.PSObject.Properties['session'] -and $req.session) { @('-Detail', "$($req.session)") } else { @() }
+        return Send-Result $ctx (Invoke-Factory lesson-mark $id "$($req.status)" @session)
+    }
+
     if ($method -eq 'GET' -and $path -eq '/api/ideate/config') {
-        return Send $ctx 200 (@{ enabled = [bool](Get-EnvValue 'ANTHROPIC_API_KEY'); model = (Get-IdeaModel); owner = (Get-EnvValue 'GITHUB_OWNER') } | ConvertTo-Json -Compress)
+        return Send $ctx 200 (@{ enabled = [bool](Get-EnvValue 'ANTHROPIC_API_KEY'); model = (Get-IdeaModel); owner = (Get-EnvValue 'GITHUB_OWNER')
+                                 templatesRepo = (Get-EnvValue 'FACTORY_TEMPLATES_REPO') } | ConvertTo-Json -Compress)
     }
 
     if ($method -eq 'GET' -and $path -eq '/api/repos') {

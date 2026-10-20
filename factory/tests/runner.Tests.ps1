@@ -378,6 +378,16 @@ if ($held) { $held.Dispose() }
             (Job $id).flag.reason | Should -Be 'gate-failed'
         }
 
+        It 'compiles the lessons of a pass that leaves the job flagged' {
+            $id = New-ApprovedJob 'A'
+            Set-FakeClaude 'stall'
+            Run-Runner | Out-Null
+            (Job $id).flag.reason | Should -Be 'escalated'
+            $l = Get-Content (Join-Path $env:FACTORY_HOME "lessons/$id.json") -Raw | ConvertFrom-Json
+            $l.flag | Should -Be 'escalated'
+            $l.status | Should -Be 'open'
+        }
+
         It 'escalates a job left in Building, so the queue moves on' {
             $a = New-ApprovedJob 'A'
             $b = New-ApprovedJob 'B'

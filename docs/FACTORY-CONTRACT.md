@@ -368,6 +368,33 @@ are untouched. A finished job with no evaluation stays on the board, with its `j
 is evaluated: purging it would delete the run logs an evaluation is written from. `events.jsonl`
 keeps its history, and `board.seq` stops a purged id being reused.
 
+### Lessons
+
+When a job goes bad, what it taught is kept so the **templates** can absorb it - the
+`template-projects` add-ons, the `aspire-addon` CLI and the `aspire-starter` skills - and the next
+scaffold does not need the same hand fix.
+
+`factory.ps1 lesson <id> [-File <path>]` writes `lessons/<id>.md` and `lessons/<id>.json`. Without
+`-File` it compiles them from the job, deterministically: the flag (reason, detail and `why`), and the
+`## Template gaps` section of every `round-*/deploy.md` that is not empty or "none". With nothing to
+say - no flag and no gaps - it writes nothing and prints `no lessons`. With `-File` (a human
+evaluation session) it appends that file's text under `## From the evaluation`. Either way it appends a
+`lesson` event whose `detail` is the number of template gaps.
+
+The runner calls `factory.ps1 lesson <id>` after every pass that leaves the job in `ready`, beside
+`publish`; a failure is logged and changes nothing.
+
+```json
+{ "job": "J-012", "title": "...", "target": "kamabery/todo-app", "flag": "deploy-failed" | null,
+  "templateGaps": 2, "status": "open" | "proposed" | "applied", "session": "S-004" | null, "at": "..." }
+```
+
+`factory.ps1 lesson-mark <id> <open|proposed|applied> [-Detail <session id>]` changes `status` (and
+`session`). The dashboard's **Lessons** tab lists every lesson, newest first, opens its markdown, and
+**Propose template fix** starts an idea session (`POST /api/sessions`) on the repo `.env` names as
+`FACTORY_TEMPLATES_REPO` with the selected lessons as its text, then marks each `proposed` with that
+session. A human marks one `applied` once the fix has merged. `purge` never touches `lessons/`.
+
 ## Files
 
 ```
@@ -396,6 +423,8 @@ keeps its history, and `board.seq` stops a purged id being reused.
   evals/                       kept by purge (see Evaluations)
     <id>.md  <id>.json         the evaluation, and the board facts snapshotted when it was written
     <id>.feedback.md           the human's feedback on it, if any
+  lessons/                     kept by purge (see Lessons)
+    <id>.md  <id>.json         what a job that went bad taught, for the templates
 
 <work>\                       $env:FACTORY_WORK, else <system temp>\claude-factory
   jobs\<id>\                   the job's clone of its target, on factory/<id>; deleted at done / discarded
@@ -486,7 +515,7 @@ now" pulses from this file.
 {"ts":"2026-10-12T14:08:00Z","job":"J-001","kind":"cost","costUsd":1.84,"durationMs":412000,"provider":"subscription"}
 ```
 
-`kind` is one of `idea | stage | agent-start | agent-stop | gate | merge | cost | note | eval | feedback | deploy | destroy`.
+`kind` is one of `idea | stage | agent-start | agent-stop | gate | merge | cost | note | eval | feedback | deploy | destroy | lesson`.
 A `deploy` event's `detail` is `up <frontend or api url>` or `failed (attempt <a>): <first error line>`; a
 `destroy` event's is `down` or `failed: <message>`. Spec-writer
 agent events carry `"idea"` instead of `"job"`. `agent` is the plain agent name (the hook strips the
@@ -517,6 +546,7 @@ stderr and leaves the board unchanged.
 | `event <json \| -Job -Idea -Kind -Agent>` | hook-event.ps1 |
 | `eval <id> -File <path>` | a human session evaluating a finished job (see [Evaluations](#evaluations)) |
 | `feedback <id> -File <path>` | serve.ps1 (the human's feedback on an evaluation) |
+| `lesson <id> [-File <path>]` · `lesson-mark <id> <open\|proposed\|applied> [-Detail <session>]` | runner.ps1, a human evaluation session, serve.ps1 (see [Lessons](#lessons)) |
 | `status [-Json]` | anyone |
 
 `read-reviews` and `read-decision` exit 2 when a verdict line is missing or malformed; the job
@@ -669,9 +699,11 @@ and a refused move snaps the card back and shows the message.
 | `POST /api/purge` | `purge` | |
 | `POST /api/jobs/<id>/destroy` | `destroy`, started detached | **Tear down** on a card with a live preview; answers at once, the card shows `destroying` until the board says `down` |
 | `GET /api/jobs/<id>/qa-login` | `qa-login` | `{ ok, message }` with the user and password; the card's **QA login** shows it, never stores it |
+| `GET /api/lessons` | (read-only) | every `lessons/<id>.json`, newest job first; the markdown is at `/state/lessons/<id>.md` |
+| `POST /api/lessons/<id>/mark` `{ status, session? }` | `lesson-mark` | |
 | `GET /api/evals` | (read-only) | every `evals/<id>.json`, newest job first; the markdown is at `/state/evals/<id>.md` |
 | `PUT /api/evals/<id>/feedback` (text/markdown) | `feedback` | the feedback is at `/state/evals/<id>.feedback.md` |
-| `GET /api/ideate/config` | (read-only) | `{ enabled, model, owner }`; `enabled` means `.env` has an Anthropic key; `owner` is `GITHUB_OWNER`; no key is ever returned |
+| `GET /api/ideate/config` | (read-only) | `{ enabled, model, owner, templatesRepo }`; `enabled` means `.env` has an Anthropic key; `owner` is `GITHUB_OWNER`; `templatesRepo` is `FACTORY_TEMPLATES_REPO`; no key is ever returned |
 | `GET /api/sessions` | (read-only) | every session that is not `closed`: `{ id, target, text, status, idea, bootstrap, costUsd, newTarget }` |
 | `GET /api/repos` | `list-repos` | the JSON array, for the New idea picker |
 | `POST /api/sessions` `{ target, text }` or `{ new: true, text }` | `check-target` (not for `new`, which needs `GITHUB_OWNER`) | allocates `S-NNN`, writes `session.json` and the first message, starts a turn |
@@ -738,7 +770,8 @@ longer running. Otherwise it loops:
    nothing. If the job is still in Building after that, whether claude exited non-zero or not, it
    moves the job to `ready` with flag `escalated`. That way the queue never stalls. Once the job is
    in `ready`, it calls `factory.ps1 publish <id>`; a failed publish is logged (`publish <id>:
-   <message>`) and leaves the job as it is, since `merge` publishes again. The runner runs
+   <message>`) and leaves the job as it is, since `merge` publishes again. Then it calls
+   `factory.ps1 lesson <id>` ([Lessons](#lessons)); a failure there is logged the same way. The runner runs
    `checkout` and `publish` in a child `pwsh`, so it can read the refusal `factory.ps1` writes to stderr.
 5. An error while handling one job does not end the runner. It logs the error, moves the job to
    `ready` with flag `escalated` if it is still in Building (detail `runner error: <message>`), and

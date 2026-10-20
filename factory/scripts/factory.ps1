@@ -30,7 +30,7 @@ Set-StrictMode -Version 3
 
 $Roles = 'security', 'code', 'ux', 'ui'
 $Building = 'build', 'review', 'deploy', 'approve', 'gate'
-$EventKinds = 'idea', 'stage', 'agent-start', 'agent-stop', 'gate', 'merge', 'cost', 'note', 'eval', 'feedback', 'deploy', 'destroy'
+$EventKinds = 'idea', 'stage', 'agent-start', 'agent-stop', 'gate', 'merge', 'cost', 'note', 'eval', 'feedback', 'deploy', 'destroy', 'lesson'
 $Providers = 'subscription', 'openrouter'
 
 function Fail([string] $msg, [int] $code = 1) {
@@ -949,6 +949,53 @@ try {
             [IO.File]::WriteAllText($tmp, ($snap | ConvertTo-Json -Depth 10))
             Replace-File $tmp $path
             Add-Event ([ordered]@{ job = $Arg1; kind = 'feedback'; detail = $rating })
+        }
+
+        'lesson' {
+            $j = Get-Job $Arg1
+            if ($File -and -not (Test-Path $File)) { Fail "lesson file not found: $File" }
+            $gaps = @()
+            foreach ($d in Get-ChildItem (JobDir $j.id) -Directory -Filter 'round-*' -ErrorAction SilentlyContinue | Sort-Object { [int]($_.Name -replace '\D', '') }) {
+                $g = Read-Section (Join-Path $d.FullName 'deploy.md') 'Template gaps'
+                if ($g -and $g -notmatch '^(?i)none\.?$') { $gaps += [pscustomobject]@{ round = $d.Name; text = $g } }
+            }
+            $count = 0
+            foreach ($g in $gaps) { $count += @($g.text -split "`n" | Where-Object { $_ -match '^- ' }).Count }
+            if (-not $j.flag -and -not $gaps -and -not $File) { 'no lessons'; break }
+
+            $md = @("# Lessons: $($j.id) - $($j.title)", '', "- Target: $($j.target)")
+            if ($j.flag) {
+                $md += "- Flag: $($j.flag.reason): $($j.flag.detail)"
+                if ($j.flag.Contains('why') -and $j.flag.why) { $md += '', '## Why it was flagged', $j.flag.why }
+            }
+            foreach ($g in $gaps) { $md += '', "## Template gaps ($($g.round))", $g.text }
+            if ($File) { $md += '', '## From the evaluation', (Get-Content $File -Raw).Trim() }
+
+            $dir = Join-Path $Home_ 'lessons'
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            $path = Join-Path $dir "$($j.id).json"
+            $old = if (Test-Path $path) { Get-Content $path -Raw | ConvertFrom-Json -AsHashtable -DateKind String }
+            $info = [ordered]@{ job = $j.id; title = $j.title; target = $j.target; flag = $(if ($j.flag) { $j.flag.reason })
+                templateGaps = $count; status = $(if ($old) { $old.status } else { 'open' }); session = $(if ($old) { $old.session }); at = Now }
+            Set-Content (Join-Path $dir "$($j.id).md") ($md -join "`n")
+            $tmp = "$path.$PID.tmp"
+            [IO.File]::WriteAllText($tmp, ($info | ConvertTo-Json -Depth 5))
+            Replace-File $tmp $path
+            Add-Event ([ordered]@{ job = $j.id; kind = 'lesson'; detail = "$count" })
+            "lessons/$($j.id).md"
+        }
+
+        'lesson-mark' {
+            if ($Arg1 -notmatch '^[A-Z]+-\d+$') { Fail "lesson-mark refused: '$Arg1' is not a job id" }
+            if ($Arg2 -notin 'open', 'proposed', 'applied') { Fail 'lesson-mark: status must be open, proposed or applied' }
+            $path = Join-Path (Join-Path $Home_ 'lessons') "$Arg1.json"
+            if (-not (Test-Path $path)) { Fail "lesson-mark refused: $Arg1 has no lessons" }
+            $info = Get-Content $path -Raw | ConvertFrom-Json -AsHashtable -DateKind String
+            $info.status = $Arg2
+            if ($Detail) { $info.session = $Detail }
+            $tmp = "$path.$PID.tmp"
+            [IO.File]::WriteAllText($tmp, ($info | ConvertTo-Json -Depth 5))
+            Replace-File $tmp $path
         }
 
         'status' {

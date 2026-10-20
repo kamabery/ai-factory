@@ -153,7 +153,8 @@ function First-Error([string] $log) {
 # Starts `factory.ps1 destroy <id>` detached when the job has a preview that is not already gone.
 function Start-Destroy($j) {
     if (-not $j.Contains('deploy') -or -not $j.deploy -or $j.deploy.status -in 'down', 'destroying', $null) { return }
-    Start-Process pwsh -ArgumentList '-NoProfile', '-File', (Join-Path $PSScriptRoot 'factory.ps1'), 'destroy', $j.id -WindowStyle Hidden | Out-Null
+    $a = '-NoProfile', '-File', (Join-Path $PSScriptRoot 'factory.ps1'), 'destroy', $j.id
+    if ($IsWindows) { Start-Process pwsh -ArgumentList $a -WindowStyle Hidden | Out-Null } else { Start-Process pwsh -ArgumentList $a | Out-Null }
 }
 
 # Destroys the preview's resources and its workspace, lock released. Returns $null or an error.
