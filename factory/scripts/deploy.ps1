@@ -11,7 +11,7 @@ function Repo-Name($j) { ($j.target -split '/', 2)[1] }
 # The job's deploy record, created empty on first use.
 function Get-Deploy($j) {
     if (-not $j.Contains('deploy') -or -not $j.deploy) {
-        $j.deploy = [ordered]@{ env = (Preview-Env $j.id); workspace = "$(Repo-Name $j)-$(Preview-Env $j.id)"; status = $null; attempts = 0
+        $j.deploy = [ordered]@{ env = (Preview-Env $j.id); workspace = "$(Repo-Name $j)-$(Preview-Env $j.id)"; workspaceId = $null; status = $null; attempts = 0
             sha = $null; run = $null; urls = $null; appliedAt = $null; destroyAt = $null }
     }
     $j.deploy
@@ -107,7 +107,7 @@ function Get-RunLog($j, $run) {
 # The whole attempt, lock released. Returns { ok, sha, run, urls, destroyAt, log }.
 function Invoke-Deploy($j) {
     $d = $j.deploy
-    $result = [ordered]@{ ok = $false; sha = $null; run = $null; urls = $null; destroyAt = $null; log = '' }
+    $result = [ordered]@{ ok = $false; sha = $null; run = $null; urls = $null; destroyAt = $null; workspaceId = $null; log = '' }
     $wt = WorkDir $j
     $branch = "factory/$($j.id)"
     $push = Invoke-GitAuth $wt push -q -f origin "$($branch):$branch"
@@ -122,6 +122,7 @@ function Invoke-Deploy($j) {
             foreach ($idle in 'dev', 'staging') { Ensure-HcpWorkspace "$(Repo-Name $j)-$idle" $project | Out-Null }
             $result.destroyAt = (Get-Date).ToUniversalTime().AddHours(24).ToString('yyyy-MM-ddTHH:mm:ssZ')
             $wsId = Ensure-HcpWorkspace $d.workspace $project $result.destroyAt
+            $result.workspaceId = $wsId
             Prepare-GitHub $j
             $run = Invoke-DeployRun $j $d.env
             $result.run = $run.html_url
@@ -160,9 +161,10 @@ function Start-Destroy($j) {
 # Destroys the preview's resources and its workspace, lock released. Returns $null or an error.
 function Invoke-Destroy($j) {
     $name = $j.deploy.workspace
+    $known = if ($j.deploy.Contains('workspaceId')) { $j.deploy.workspaceId }
     $Mutex.ReleaseMutex()
     try {
-        $wsId = Get-HcpWorkspaceId $name
+        $wsId = if ($known) { $known } else { Get-HcpWorkspaceId $name }
         if ($wsId) {
             $status = Invoke-HcpDestroy $wsId (Poll-Seconds) (Deploy-Deadline)
             if ($status -ne 'applied') { return "destroy run ended $status" }

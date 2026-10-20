@@ -18,6 +18,11 @@ writeFileSync(envFile, [
   'ANTHROPIC_API_KEY=sk-ant-playwright-fake', `ANTHROPIC_BASE_URL=http://localhost:${stubPort}`,
   'GITHUB_TOKEN=gh-playwright-fake', 'GITHUB_OWNER=sim', `GITHUB_API_URL=http://localhost:${githubPort}`,
   `FACTORY_GIT_BASE=file:///${gitBase.replace(/\\/g, '/')}`,
+  // Previews: the HCP token and API (the GitHub stub serves both), but no HCP_ORG, so deploys stay
+  // off for the dashboard's own moves; simulate.ps1 deploys J-008 with an env of its own.
+  'HCP_TOKEN=sim-hcp', `HCP_API_URL=http://localhost:${githubPort}`,
+  // Lessons propose their template fix as an idea session on this repo.
+  'FACTORY_TEMPLATES_REPO=sim/sandbox',
 ].join('\n'));
 
 // serve.ps1 runs against the simulator's state and its GitHub stub repos. Claude is a no-op and the

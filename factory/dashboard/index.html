@@ -35,7 +35,14 @@
   #views button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 4px 10px; color: var(--muted); }
   #views button.on { color: var(--text); border-bottom-color: var(--accent); }
   #evals { display: grid; grid-template-columns: minmax(320px, 2fr) 3fr; gap: 12px; padding: 16px; align-items: start; }
-  #pipeline[hidden], #board[hidden], #evals[hidden] { display: none; }
+  #lessons { display: grid; grid-template-columns: minmax(320px, 2fr) 3fr; gap: 12px; padding: 16px; align-items: start; }
+  #pipeline[hidden], #board[hidden], #evals[hidden], #lessons[hidden] { display: none; }
+  .chip.preview { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+  .chip.preview.down, .chip.preview.expired { color: var(--muted); background: transparent; border-color: var(--border); }
+  .chip.preview.failed { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
+  .chip.action { cursor: pointer; text-decoration: none; color: var(--text); background: var(--panel); }
+  .lesson-actions { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+  .lesson-row .top input { margin-right: 6px; }
   .eval-list { display: flex; flex-direction: column; gap: 8px; }
   .eval-row.card .meta span { white-space: nowrap; }
   .chip.rating-good { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
@@ -185,7 +192,7 @@
   #toast.error { background: var(--warn); color: #fff; }
   @media (max-width: 700px) {
     #board { grid-template-columns: repeat(6, 78vw); }
-    .split, .art, #evals, .breakdown { grid-template-columns: 1fr; height: auto; }
+    .split, .art, #evals, #lessons, .breakdown { grid-template-columns: 1fr; height: auto; }
     #modal { height: 95vh; }
   }
 </style>
@@ -193,7 +200,7 @@
 <body>
 <header>
   <h1>Factory</h1>
-  <nav id="views" aria-label="Views"><button type="button" data-view="board" class="on">Board</button><button type="button" data-view="evals">Evaluations</button></nav>
+  <nav id="views" aria-label="Views"><button type="button" data-view="board" class="on">Board</button><button type="button" data-view="evals">Evaluations</button><button type="button" data-view="lessons">Lessons</button></nav>
   <span id="idea-hint">New idea: <code>pwsh factory/scripts/idea.ps1 &lt;owner/name&gt;</code> opens a Claude session that grills you, writes the specs and puts the ones you approve on the board.</span>
   <button id="theme" type="button" title="Toggle theme">◐</button>
 </header>
@@ -201,6 +208,7 @@
 <nav id="pipeline" aria-label="Pipeline"></nav>
 <main id="board"></main>
 <main id="evals" hidden><div class="eval-list"></div><div class="eval-body md" data-eval-body></div></main>
+<main id="lessons" hidden><div class="eval-list"></div><div class="eval-body md" data-lesson-body></div></main>
 <div id="backdrop"><section id="modal" role="dialog" aria-modal="true" aria-label="Details">
   <div id="m-head"></div><nav id="m-tabs"></nav><div id="m-body"></div>
 </section></div>
@@ -211,14 +219,14 @@ const COLUMNS = [
   { key: 'ideas', label: 'Ideas' },
   { key: 'backlog', label: 'Backlog', stages: ['backlog'] },
   { key: 'approved', label: 'Approved', stages: ['approved'] },
-  { key: 'building', label: 'Building', stages: ['build', 'review', 'approve', 'gate'] },
+  { key: 'building', label: 'Building', stages: ['build', 'review', 'deploy', 'approve', 'gate'] },
   { key: 'ready', label: 'Ready for review', stages: ['ready'] },
   { key: 'done', label: 'Done', stages: ['done'] },
 ];
 const DROP_TARGETS = { backlog: ['approved', 'done'], ready: ['approved', 'done'] };
 const ROLES = ['security', 'code', 'ux', 'ui'];
-const NODES = ['spec-writer', 'builder', ['security-reviewer', 'code-reviewer', 'ux-reviewer', 'ui-reviewer'], 'approver', 'gate'];
-const BUILDING = ['build', 'review', 'approve', 'gate'];
+const NODES = ['spec-writer', 'builder', ['security-reviewer', 'code-reviewer', 'ux-reviewer', 'ui-reviewer'], 'devops', 'approver', 'gate'];
+const BUILDING = ['build', 'review', 'deploy', 'approve', 'gate'];
 
 const state = {
   board: { jobs: [], ideas: [] }, events: [], boardText: '', eventsText: '',
@@ -244,6 +252,7 @@ const FLAG_MEANS = {
   'max-rounds': 'reviewers still asked for changes after the last build round.',
   'gate-failed': 'a gate command exited non-zero; gate.log has the output.',
   'merge-blocked': 'the merge was refused.',
+  'deploy-failed': 'the preview did not deploy in three attempts; deploy-<n>.log has the GitHub and HCP logs, and the preview is left up for you to look at.',
 };
 const md = (text) =>window.marked ? marked.parse(text ?? '') : `<pre>${esc(text)}</pre>`;
 
@@ -332,7 +341,8 @@ function jobCard(j) {
   const draggable = j.stage === 'backlog' || j.stage === 'ready';
   const reviews = j.reviews && ROLES.some((r) => j.reviews[r] && j.reviews[r] !== 'pending')
     ? ROLES.map((r) => `<span class="chip ${esc(j.reviews[r])}" data-review="${r}" title="${r}">${r}:${esc(j.reviews[r])}</span>`).join('') : '';
-  const sub = BUILDING.includes(j.stage) ? `<span class="sub">${j.stage} r${j.round}</span>` : '';
+  const sub = BUILDING.includes(j.stage)
+    ? `<span class="sub">${j.stage} r${j.round}${j.stage === 'deploy' && j.deploy ? ` · ${j.deploy.attempts}/3` : ''}</span>` : '';
   const flag = j.flag ? `<span class="flag" data-flag title="${esc(j.flag.detail)}">${esc(j.flag.reason)}</span>` : '';
   const cost = j.costUsd != null ? `<span data-cost>$${Number(j.costUsd).toFixed(2)}</span>` : '';
   const repo = j.target ? `<div class="repo" title="${esc(j.target)}">→ ${esc(leaf(j.target))}</div>` : '';
@@ -346,7 +356,31 @@ function jobCard(j) {
   return `<div class="card${state.open?.id === j.id ? ' selected' : ''}" data-card="${esc(j.id)}" data-stage="${esc(j.stage)}" draggable="${draggable}">
     <div class="top"><span>${esc(j.id)}</span><span>r${j.round} · ${elapsed(j)}</span></div>
     <div class="title">${esc(j.title)}</div>${repo}
-    <div class="meta">${kind}${provider}${pr}${sub}${flag}${reviews}${cost}</div></div>`;
+    <div class="meta">${kind}${provider}${pr}${sub}${flag}${reviews}${cost}</div>${previewBar(j)}</div>`;
+}
+// The job's ephemeral preview: its state, and Launch / QA login / Tear down while it is up.
+function previewBar(j) {
+  const d = j.deploy;
+  if (!d || !d.status) return '';
+  const expired = d.status === 'up' && d.destroyAt && Date.parse(d.destroyAt) < Date.now();
+  const status = expired ? 'expired' : d.status;
+  const url = d.urls?.frontend ?? (d.urls?.api ? `${d.urls.api}/openapi/v1.json` : null);
+  const live = status === 'up';
+  const title = d.destroyAt ? ` title="auto-destroys ${esc(new Date(d.destroyAt).toLocaleString())}"` : '';
+  return `<div class="meta" data-preview-bar><span class="chip preview ${esc(status)}" data-preview${title}>preview: ${esc(status)}</span>`
+    + (live && url ? `<a class="chip action" data-launch href="${esc(url)}" target="_blank" rel="noopener" draggable="false">Launch</a>` : '')
+    + (live ? '<button type="button" class="chip action" data-qa>QA login</button>' : '')
+    + (live || status === 'failed' ? '<button type="button" class="chip action" data-teardown>Tear down</button>' : '')
+    + '</div>';
+}
+async function qaLogin(id) {
+  const r = await fetch(`/api/jobs/${encodeURIComponent(id)}/qa-login`);
+  let res; try { res = await r.json(); } catch { res = { ok: false, message: `HTTP ${r.status}` }; }
+  toast(res.ok ? res.message.replace(/\n/g, ' · ') : res.message, !res.ok);
+}
+async function tearDown(id) {
+  const res = await api('POST', `/api/jobs/${encodeURIComponent(id)}/destroy`, {});
+  toast(res.ok ? `${id}: ${res.message}` : res.message, !res.ok);
 }
 function ideaCard(i) {
   return `<div class="card idea-card ${esc(i.status)}" data-idea="${esc(i.id)}">
@@ -437,6 +471,11 @@ document.addEventListener('click', (e) => {
   if (e.target.closest('#modal')) return;
   if (e.target.id === 'backdrop') { closeModal(); return; }
   if (e.target.closest?.('a[data-pr]')) return;   // the card's PR link opens GitHub, not the modal
+  if (e.target.closest?.('a[data-launch]')) return;   // Launch opens the preview, not the modal
+  const qa = e.target.closest?.('[data-qa]');
+  if (qa) { qaLogin(qa.closest('[data-card]').dataset.card); return; }
+  const td = e.target.closest?.('[data-teardown]');
+  if (td) { td.disabled = true; tearDown(td.closest('[data-card]').dataset.card); return; }
   const pc = e.target.closest?.('[data-provider][data-toggle]');
   if (pc) { setProvider(pc.closest('[data-card]').dataset.card, pc.dataset.provider === 'openrouter' ? 'subscription' : 'openrouter'); return; }
   const c = e.target.closest?.('[data-card]');
@@ -760,7 +799,7 @@ function toolLine(b) {
   const i = b.input ?? {};
   const text = b.name === 'ask_questions' ? `? ${(i.questions ?? []).map((q) => q.question).join(' · ')}`
     : b.name === 'submit_brief' ? '▸ proposed the brief'
-    : b.name === 'propose_scaffold' ? `▸ proposed the scaffold: ${[i.name, i.resource, i.db, i.ui, i.events ? 'events' : 'no events'].join(' / ')}`
+    : b.name === 'propose_scaffold' ? `▸ proposed the scaffold: ${[i.name, i.resource, i.db, i.ui, i.events ? 'events' : 'no events', i.auth ? 'sign-in' : 'no sign-in'].join(' / ')}`
     : b.name === 'submit_specs' ? `▸ wrote ${(i.specs ?? []).length} spec(s)`
     : b.name === 'revise_spec' ? `▸ revised spec ${i.k}`
     : `▸ ${b.name}(${i.path ?? i.pattern ?? ''})`;
@@ -818,6 +857,7 @@ function scaffoldForm(i) {
       <label for="sc-db">Data store</label><select id="sc-db">${opt(['sqlite', 'sqlserver', 'postgres'], i.db)}</select>
       <label for="sc-ui">Front end</label><select id="sc-ui">${opt(['react', 'blazor', 'blazor-maui', 'none'], i.ui)}</select>
       <label for="sc-events">Events</label><div><input type="checkbox" id="sc-events"${i.events ? ' checked' : ''}></div>
+      <label for="sc-auth">Sign-in</label><div><input type="checkbox" id="sc-auth"${i.auth ? ' checked' : ''}> <small>Keycloak locally, Entra External ID in Azure; needs a web front end</small></div>
       <span></span><div class="actions"><button class="primary" id="s-confirm-scaffold">Confirm scaffold</button></div></div>`;
 }
 
@@ -892,7 +932,7 @@ function renderSessionActions() {
     sessApi('reply', { text });
   });
   $('#s-confirm-scaffold', el)?.addEventListener('click', () => {
-    const scaffold = { name: $('#sc-name').value.trim(), resource: $('#sc-resource').value.trim(), db: $('#sc-db').value, ui: $('#sc-ui').value, events: $('#sc-events').checked };
+    const scaffold = { name: $('#sc-name').value.trim(), resource: $('#sc-resource').value.trim(), db: $('#sc-db').value, ui: $('#sc-ui').value, events: $('#sc-events').checked, auth: $('#sc-auth').checked };
     if ($('#sc-repo')) scaffold.repo = $('#sc-repo').value.trim();
     sessApi('reply', { text: `Scaffold confirmed: ${scaffold.repo ? `repo ${scaffold.repo}, ` : ''}name ${scaffold.name}, resource ${scaffold.resource}, data store ${scaffold.db}, front end ${scaffold.ui}, ${scaffold.events ? 'with' : 'no'} events.`, scaffold });
   });
@@ -1043,15 +1083,81 @@ async function openEval(id) {
   await loadFeedback(id);
   renderEvals();
 }
+// --- lessons -------------------------------------------------------------------------------
+const lessonView = { list: [], text: '', open: null, body: '', picked: new Set() };
+function lessonRow(x) {
+  const gaps = x.templateGaps ? `${x.templateGaps} template gap${x.templateGaps > 1 ? 's' : ''}` : 'no template gaps';
+  return `<div class="card eval-row lesson-row${lessonView.open === x.job ? ' selected' : ''}" data-lesson="${esc(x.job)}">
+    <div class="top"><span>${x.status === 'open' ? `<input type="checkbox" data-select${lessonView.picked.has(x.job) ? ' checked' : ''} aria-label="select ${esc(x.job)}">` : ''}${esc(x.job)}</span><span>${esc(String(x.at ?? '').slice(0, 10))}</span></div>
+    <div class="title">${esc(x.title)}</div>
+    ${x.target ? `<div class="repo" title="${esc(x.target)}">→ ${esc(leaf(x.target))}</div>` : ''}
+    <div class="meta"><span class="chip" data-status>${esc(x.status)}${x.session ? ` ${esc(x.session)}` : ''}</span>${x.flag ? `<span class="flag">${esc(x.flag)}</span>` : ''}<span data-gaps>${gaps}</span>`
+    + `${x.status === 'proposed' ? '<button type="button" class="chip action" data-applied>Mark applied</button>' : ''}</div></div>`;
+}
+function renderLessons() {
+  const list = $('#lessons .eval-list');
+  const repo = state.config.templatesRepo;
+  const head = `<div class="lesson-actions"><button type="button" class="primary" data-propose${lessonView.picked.size ? '' : ' disabled'}>Propose template fix</button>`
+    + `<small>${repo ? `as an idea on ${esc(repo)}` : 'set FACTORY_TEMPLATES_REPO in .env'}</small></div>`;
+  list.innerHTML = head + (lessonView.list.length ? lessonView.list.map(lessonRow).join('')
+    : '<div class="eval-empty">No lessons yet. A job that ends flagged, or whose devops report names a template gap, leaves one here.</div>');
+  for (const el of list.querySelectorAll('[data-lesson]')) {
+    const id = el.dataset.lesson;
+    el.onclick = (e) => {
+      if (e.target.closest('[data-select]')) { e.target.checked ? lessonView.picked.add(id) : lessonView.picked.delete(id); renderLessons(); return; }
+      if (e.target.closest('[data-applied]')) { markLesson(id, 'applied'); return; }
+      openLesson(id);
+    };
+  }
+  $('[data-propose]', list).onclick = proposeFix;
+  $('[data-lesson-body]').innerHTML = lessonView.open ? md(lessonView.body) : '<p class="eval-empty">Pick a lesson.</p>';
+}
+async function refreshLessons() {
+  const t = await getText('/api/lessons');
+  if (t === lessonView.text) return;
+  lessonView.text = t;
+  try { lessonView.list = t ? JSON.parse(t) : []; } catch { lessonView.list = []; }
+  renderLessons();
+}
+async function openLesson(id) {
+  lessonView.open = id;
+  lessonView.body = await getText(`/state/lessons/${encodeURIComponent(id)}.md`);
+  renderLessons();
+}
+async function markLesson(id, status, session) {
+  const res = await api('POST', `/api/lessons/${encodeURIComponent(id)}/mark`, session ? { status, session } : { status });
+  if (!res.ok) toast(res.message, true);
+  lessonView.text = '';
+  await refreshLessons();
+}
+// The selected lessons become one idea session on the templates repo, so the fix goes through the
+// factory under the human's approval like any other change.
+async function proposeFix() {
+  const repo = state.config.templatesRepo;
+  if (!repo) { toast('Set FACTORY_TEMPLATES_REPO in .env to the template-projects repo', true); return; }
+  const ids = [...lessonView.picked];
+  const bodies = await Promise.all(ids.map((id) => getText(`/state/lessons/${encodeURIComponent(id)}.md`)));
+  const text = `Template fixes from factory lessons (${ids.join(', ')}). Each says what went wrong in a job and where the fix belongs; make the templates handle it so the next scaffold needs no hand fix.\n\n${bodies.join('\n\n---\n\n')}`;
+  if (!state.config.enabled) { toast(`No Anthropic key: run pwsh factory/scripts/idea.ps1 ${repo} and paste the lessons`, true); return; }
+  const res = await api('POST', '/api/sessions', { target: repo, text });
+  if (!res.ok) { toast(res.message, true); return; }
+  for (const id of ids) await markLesson(id, 'proposed', res.message);
+  lessonView.picked.clear();
+  renderLessons();
+  toast(`Proposed as ${res.message} on ${repo}`);
+}
+
 function showView(v) {
   state.view = v;
   for (const b of document.querySelectorAll('#views [data-view]')) b.classList.toggle('on', b.dataset.view === v);
   $('#pipeline').hidden = $('#board').hidden = v !== 'board';
   $('#evals').hidden = v !== 'evals';
+  $('#lessons').hidden = v !== 'lessons';
   if (v === 'evals') refreshEvals();
+  if (v === 'lessons') { lessonView.text = ''; refreshLessons(); }
 }
 for (const b of document.querySelectorAll('#views [data-view]')) b.onclick = () => showView(b.dataset.view);
-setInterval(() => { if (state.view === 'evals') refreshEvals(); }, 3000);
+setInterval(() => { if (state.view === 'evals') refreshEvals(); if (state.view === 'lessons') refreshLessons(); }, 3000);
 
 document.addEventListener('click', async (e) => {
   if (!e.target.closest?.('#purge-btn')) return;

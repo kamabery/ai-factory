@@ -1326,6 +1326,7 @@ Describe 'deploy' {
         $j.deploy.status | Should -Be 'up'
         $j.deploy.env | Should -Be 'j001'
         $j.deploy.workspace | Should -Be "$(RepoName)-j001"
+        $j.deploy.workspaceId | Should -Be (HcpWorkspace "$(RepoName)-j001").id
         $j.deploy.attempts | Should -Be 1
         $j.deploy.urls.frontend | Should -Be "https://stapp-$(RepoName)-react-j001.test"
         $j.deploy.urls.api | Should -Be "https://ca-$(RepoName)-api.j001.test"
@@ -1455,6 +1456,11 @@ Describe 'deploy' {
         $id = New-ApprovedJob
         Move-ToDeploy $id
         F deploy $id | Out-Null
+        # The dashboard's serve.ps1 may hold the HCP token without HCP_ORG (deploys off): the
+        # workspace id recorded at deploy time is enough.
+        $noOrg = Join-Path $TestDrive "noorg-$([guid]::NewGuid().ToString('N')).env"
+        Set-Content $noOrg (Get-Content $env:FACTORY_ENV_FILE | Where-Object { $_ -notmatch '^HCP_ORG=' })
+        $env:FACTORY_ENV_FILE = $noOrg
 
         $out = (F qa-login $id) -join "`n"
         $out | Should -Match "qa-j001@$(RepoName).test"

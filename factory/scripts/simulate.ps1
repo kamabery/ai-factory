@@ -240,6 +240,48 @@ F-Must approve $d[0] | Out-Null
 Sim-Start $d[0]; Sim-Build $d[0]; Sim-Review $d[0] @{}
 Sim-Approve $d[0] 'ESCALATE' "AC8 (manual) has no evidence: is that acceptable before merge?`n`nOptions:`n1. **Verify first** under ``aspire run``.`n2. Accept as is."
 
+# J-008: deploys on for this one job (the rest keep them off). Every review PASS, the preview is
+# applied through the GitHub Actions and HCP stubs, the approver and the gate pass, and it waits in
+# Ready for review with a live preview: Launch, QA login and Tear down. Its devops report names a
+# template gap, so it has lessons although it went well.
+$p = Sim-Idea 'Preview the reading list' @(, @('Reading list preview', 'The reading list is reviewed on a live preview.'))
+F-Must approve $p[0] | Out-Null
+$plainEnv = $env:FACTORY_ENV_FILE
+$deployEnv = Join-Path $StateDir 'deploy.env'
+Set-Content $deployEnv ((Get-Content $plainEnv) + @('HCP_ORG=sim-org', 'HCP_TOKEN=sim-hcp', 'HCP_TEAM_TOKEN=sim-team', 'HCP_AZURE_VARSET=sim-varset',
+    'AZURE_GH_CLIENT_ID=sim-client', 'AZURE_TENANT_ID=sim-tenant', 'AZURE_SUBSCRIPTION_ID=sim-sub', "HCP_API_URL=$($gh.GITHUB_API_URL)"))
+$toolStub = Join-Path $repoRoot 'factory/tests/fixtures/tool-stub.ps1'
+$env:FACTORY_ENV_FILE = $deployEnv
+$env:FACTORY_GH_CMD = $toolStub; $env:FACTORY_AZ_CMD = $toolStub
+$env:FACTORY_TOOL_LOG = Join-Path $StateDir 'tools.jsonl'; $env:FACTORY_DEPLOY_POLL_SECONDS = '0'
+try {
+    Sim-Start $p[0]; Sim-Build $p[0]; Sim-Review $p[0] @{}
+    Ev $p[0] agent-start devops
+    F-Must deploy $p[0] | Out-Null
+    Set-Content (Join-Path $StateDir "jobs/$($p[0])/round-1/deploy.md") @"
+# Deploy: $($p[0]), round 1
+
+## Attempts
+- Attempt 1: up
+
+## Template gaps
+- Symptom: the React front end had no empty-state for an empty list
+  Cause: aspire-ui-react ships no empty-state component
+  Fix applied here: src/ui/react/src/components/ui/empty.tsx
+  Belongs in: template-projects:base-project/src/ui/react/src/components/ui
+"@
+    Ev $p[0] agent-stop devops
+    Sim-Approve $p[0]
+    F gate $p[0] | Out-Null
+    F publish $p[0] | Out-Null
+} finally {
+    $env:FACTORY_ENV_FILE = $plainEnv
+    Remove-Item Env:FACTORY_GH_CMD, Env:FACTORY_AZ_CMD, Env:FACTORY_TOOL_LOG, Env:FACTORY_DEPLOY_POLL_SECONDS -ErrorAction SilentlyContinue
+}
+
+# Lessons, as the runner compiles them when a pass leaves a job in Ready for review.
+foreach ($id in @($a[1], $d[0], $p[0])) { F lesson $id | Out-Null }
+
 # Evaluations of the merged J-001 and the max-rounds J-002, as a human session would write them.
 foreach ($e in @(@($a[0], 'good', 'Clean run: one round, every AC evidenced.'), @($a[1], 'mixed', 'The ui reviewer and the builder never converged.'))) {
     $file = Join-Path $StateDir "eval-$($e[0]).md"

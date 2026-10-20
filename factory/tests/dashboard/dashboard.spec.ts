@@ -12,6 +12,7 @@ type Job = {
   pr?: { number: number; url: string };
   merged?: { sha: string; repo: string; pr: string; added: string[]; modified: string[] };
   history: { from: string; to: string; by: string }[];
+  deploy?: { status: string; urls: { frontend: string | null; api: string } | null };
 };
 const board = () => JSON.parse(readFileSync(path.join(simDir, 'board.json'), 'utf8'));
 const job = (id: string): Job => board().jobs.find((j: Job) => j.id === id);
@@ -115,7 +116,7 @@ test.describe.serial('factory dashboard', () => {
 
   test('the pipeline strip has a node for every agent and the gate', async ({ page }) => {
     await page.goto('/');
-    for (const node of ['spec-writer', 'builder', 'security-reviewer', 'code-reviewer', 'ux-reviewer', 'ui-reviewer', 'approver', 'gate']) {
+    for (const node of ['spec-writer', 'builder', 'security-reviewer', 'code-reviewer', 'ux-reviewer', 'ui-reviewer', 'devops', 'approver', 'gate']) {
       await expect(page.locator(`[data-node="${node}"]`)).toBeVisible();
     }
   });
@@ -286,7 +287,7 @@ test.describe.serial('factory dashboard', () => {
     const replies = [
       { content: [{ type: 'tool_use', id: 'q1', name: 'ask_questions', input: { questions: [
         { question: 'Who uses it?', header: 'Users', multiSelect: false, options: [{ label: 'Just me', description: 'one person' }, { label: 'A team', description: 'several' }] }] } }], stop_reason: 'tool_use' },
-      { content: [{ type: 'tool_use', id: 'p1', name: 'propose_scaffold', input: { repo: 'recipes', name: 'recipes', resource: 'Recipe', db: 'sqlite', ui: 'react', events: false } }], stop_reason: 'tool_use' },
+      { content: [{ type: 'tool_use', id: 'p1', name: 'propose_scaffold', input: { repo: 'recipes', name: 'recipes', resource: 'Recipe', db: 'sqlite', ui: 'react', events: false, auth: true } }], stop_reason: 'tool_use' },
       { content: [{ type: 'tool_use', id: 'b1', name: 'submit_brief', input: { markdown: '# Brief: Recipes\n\n## Target\n- Repo: sim/recipes-box' } }], stop_reason: 'tool_use' },
     ];
     replies.forEach((r, i) => writeFileSync(path.join(dir, `${String(i + 1).padStart(3, '0')}.json`), JSON.stringify(r)));
@@ -304,6 +305,7 @@ test.describe.serial('factory dashboard', () => {
     await modal(page).locator('#s-send-answers').click();
 
     await expect(modal(page).locator('#sc-repo')).toHaveValue('recipes');
+    await expect(modal(page).locator('#sc-auth')).toBeChecked();
     await expect(modal(page).locator('[data-scaffold]')).toContainText('sim/');
     await modal(page).locator('#sc-repo').fill('recipes-box');
     await modal(page).locator('#s-confirm-scaffold').click();
@@ -403,5 +405,70 @@ test.describe.serial('factory dashboard', () => {
     await page.locator('[data-eval="J-002"]').click();
     await expect(page.locator('[data-feedback] [data-human="poor"]')).toHaveClass(/on/);
     await expect(page.locator('[data-feedback] textarea')).toHaveValue('The ui never settled; I would have split this spec.');
+  });
+
+  test('a job with a live preview offers Launch and QA login on its card, without opening the modal', async ({ page }) => {
+    await page.goto('/');
+    const c = column(page, 'ready').locator('[data-card="J-008"]');
+    await expect(c).toBeVisible();
+    await expect(c.locator('[data-preview]')).toHaveText(/up/);
+    const urls = board().jobs.find((j: Job) => j.id === 'J-008').deploy.urls;
+    await expect(c.locator('a[data-launch]')).toHaveAttribute('href', urls.frontend);
+    await expect(c.locator('a[data-launch]')).toHaveAttribute('target', '_blank');
+
+    await c.locator('[data-qa]').click();
+    await expect(page.locator('#toast')).toContainText('qa-j008@sandbox.test');
+    await expect(page.locator('#toast')).toContainText('pw-j008');
+    await expect(modal(page)).toBeHidden();
+  });
+
+  test('Tear down destroys the preview: the card shows destroying, then down, and Launch goes away', async ({ page }) => {
+    await page.goto('/');
+    const c = column(page, 'ready').locator('[data-card="J-008"]');
+    await c.locator('[data-teardown]').click();
+    await expect(modal(page)).toBeHidden();
+    await expect(c.locator('[data-preview]')).toHaveText(/down/, { timeout: 30_000 });
+    await expect(c.locator('a[data-launch]')).toHaveCount(0);
+    await expect(c.locator('[data-teardown]')).toHaveCount(0);
+    expect(board().jobs.find((j: Job) => j.id === 'J-008').deploy.status).toBe('down');
+  });
+
+  test('the Lessons tab lists what jobs that went bad taught, newest first, and opens the markdown', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('#views [data-view="lessons"]').click();
+    const rows = page.locator('#lessons [data-lesson]');
+    // The simulator's J-002, J-007 and J-008, plus whatever the runner compiled for jobs the earlier
+    // tests sent through it (its no-op claude leaves them escalated).
+    await expect(page.locator('#lessons [data-lesson="J-008"]')).toBeVisible();
+    const ids = await rows.evaluateAll((els) => els.map((e) => Number((e as HTMLElement).dataset.lesson!.replace(/\D/g, ''))));
+    expect(ids).toEqual([...ids].sort((a, b) => b - a));
+    expect(ids).toEqual(expect.arrayContaining([8, 7, 2]));
+    await expect(page.locator('#lessons [data-lesson="J-008"] [data-gaps]')).toHaveText(/1 template gap/);
+    await expect(page.locator('#lessons [data-lesson="J-007"] .flag')).toHaveText(/escalated/);
+
+    await page.locator('#lessons [data-lesson="J-008"] .title').click();
+    await expect(page.locator('[data-lesson-body]')).toContainText('empty-state');
+  });
+
+  test('Propose template fix starts an idea session on the templates repo with the selected lessons, and marks them proposed', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('#views [data-view="lessons"]').click();
+    await page.locator('#lessons [data-lesson="J-008"] [data-select]').check();
+    await page.locator('#lessons [data-lesson="J-002"] [data-select]').check();
+    await page.locator('[data-propose]').click();
+
+    await expect(page.locator('#lessons [data-lesson="J-008"] [data-status]')).toHaveText(/proposed/, { timeout: 20_000 });
+    await expect(page.locator('#lessons [data-lesson="J-002"] [data-status]')).toHaveText(/proposed/);
+    const lesson = JSON.parse(readFileSync(path.join(simDir, 'lessons/J-008.json'), 'utf8'));
+    expect(lesson.status).toBe('proposed');
+    expect(lesson.session).toMatch(/^S-\d+$/);
+    expect(JSON.parse(readFileSync(path.join(simDir, 'lessons/J-002.json'), 'utf8')).session).toBe(lesson.session);
+    const session = JSON.parse(readFileSync(path.join(simDir, `sessions/${lesson.session}/session.json`), 'utf8'));
+    expect(session.target).toBe('sim/sandbox');
+    expect(session.text).toContain('empty-state');
+    expect(session.text).toContain('J-002');
+
+    await page.locator('#lessons [data-lesson="J-008"] [data-applied]').click();
+    await expect(page.locator('#lessons [data-lesson="J-008"] [data-status]')).toHaveText(/applied/);
   });
 });

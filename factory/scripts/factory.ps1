@@ -705,6 +705,7 @@ try {
             $d = $j.deploy
             $d.sha = $res.sha
             $d.run = $res.run
+            if ($res.workspaceId) { $d.workspaceId = $res.workspaceId }
             if ($res.ok) {
                 $d.status = 'up'
                 $d.urls = $res.urls
@@ -758,7 +759,7 @@ try {
         'qa-login' {
             $j = Get-Job $Arg1
             if (-not $j.Contains('deploy') -or -not $j.deploy -or $j.deploy.status -ne 'up') { Fail "qa-login refused: $($j.id) has no live preview" }
-            $wsId = Get-HcpWorkspaceId $j.deploy.workspace
+            $wsId = if ($j.deploy.Contains('workspaceId') -and $j.deploy.workspaceId) { $j.deploy.workspaceId } else { Get-HcpWorkspaceId $j.deploy.workspace }
             $outs = if ($wsId) { Get-HcpOutputs $wsId @('qa_password') } else { @{} }
             if (-not $outs['qa_user']) { Fail 'qa-login refused: the preview has no QA user (no auth add-on)' }
             "user: $($outs['qa_user'])"
