@@ -26,7 +26,8 @@ you changed and its `## Template gaps`.
 
 ## Operate (the deploy stage)
 1. `pwsh -NoProfile -File <factory.ps1> deploy <id>`, with the path written out in full. Exit 0 means
-   the preview is up and the job has moved to approve: smoke the printed URLs (`curl -sf
+   the job has moved to approve. If it printed `skipped:` (a bootstrap: no preview until it merges),
+   note that and finish. Otherwise the preview is up: smoke the printed URLs (`curl -sf
    <api>/openapi/v1.json`, and the front end), note the result, and finish.
 2. Exit 1 saying `deploy refused by GitHub: the GitHub PAT needs <permission>`: stop. The code is
    not at fault; the job is already with the human, who must add the permission. Never try to work

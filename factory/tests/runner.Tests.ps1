@@ -34,7 +34,8 @@ BeforeAll {
 `$id = `$env:FACTORY_JOB
 `$f = '$script:Factory'
 `$building = @((& `$f status -Json | ConvertFrom-Json).jobs | Where-Object { `$_.stage -in 'build','review','approve','gate' })
-Add-Content (Join-Path `$env:FACTORY_HOME 'fake.log') "`$id building=`$(`$building.Count) cwd=`$((Get-Location).Path) branch=`$(git branch --show-current)"
+`$stage = ((& `$f status -Json | ConvertFrom-Json).jobs | Where-Object id -eq `$id).stage
+Add-Content (Join-Path `$env:FACTORY_HOME 'fake.log') "`$id building=`$(`$building.Count) stage=`$stage cwd=`$((Get-Location).Path) branch=`$(git branch --show-current)"
 `$runs = Join-Path `$env:FACTORY_HOME "jobs/`$id"
 '{"type":"system","subtype":"init"}'
 Start-Sleep -Milliseconds 1500
@@ -347,6 +348,20 @@ if ($held) { $held.Dispose() }
             (Job $id).flag.reason | Should -Be 'escalated'
             (Job $id).flag.detail | Should -Match 'GITHUB_TOKEN is not set'
             (Get-Content (Join-Path $env:FACTORY_HOME 'runner.log') -Raw) | Should -Match "checkout $id failed: .*GITHUB_TOKEN is not set"
+        }
+
+        It 'resumes a redeployed job at deploy instead of build, and clears resume' {
+            $id = New-ApprovedJob 'A'
+            # As `redeploy` leaves it: Approved, round and attempts kept, resume set. (redeploy itself is
+            # covered in factory.Tests.ps1, which has the deploy stubs.)
+            $b = Board; ($b.jobs | Where-Object id -eq $id).resume = 'deploy'
+            Set-Content (Join-Path $env:FACTORY_HOME 'board.json') ($b | ConvertTo-Json -Depth 20)
+            Set-FakeClaude 'crash'
+            Run-Runner | Out-Null
+            (Get-Content (Join-Path $env:FACTORY_HOME 'fake.log') -Raw) | Should -Match "$id building=\d+ stage=deploy "
+            $j = Job $id
+            ($j.history | Where-Object { $_.from -eq 'approved' }).to | Should -Be 'deploy'
+            $j.resume | Should -BeNullOrEmpty
         }
 
         It 'escalates a job whose claude process exits non-zero' {

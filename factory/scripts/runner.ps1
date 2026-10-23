@@ -67,8 +67,11 @@ try {
         $id = F next
         if (-not $id) { $how = 'drained'; break }
 
-        F set-stage $id build -By runner | Out-Null
-        if ($LASTEXITCODE -ne 0) { $how = "fatal: set-stage $id build refused"; break }
+        # A redeployed job resumes at deploy; everything else starts at build.
+        $resume = (Get-StatusJob $id).PSObject.Properties['resume']
+        $to = if ($resume -and $resume.Value -eq 'deploy') { 'deploy' } else { 'build' }
+        F set-stage $id $to -By runner | Out-Null
+        if ($LASTEXITCODE -ne 0) { $how = "fatal: set-stage $id $to refused"; break }
         Log "take $id"
 
         # One job's failure must not stall the queue: log it, escalate the job, take the next.

@@ -292,12 +292,14 @@ has merged), and closing the session deletes the clone.
 | build | review | `round-<n>/build.md` exists | |
 | review | build | all 4 verdicts in, at least one `CHANGES`, round < 2; round += 1, reviews reset to `pending` | |
 | review | ready | at least one `CHANGES` at round ≥ 2 | `max-rounds` |
-| review | deploy | all 4 verdicts are `PASS`, and deploys are on (see [Deploy](#deploy)) | |
-| review | approve | all 4 verdicts are `PASS`, and deploys are off; a `note` event says so | |
+| review | deploy | all 4 verdicts are `PASS`, deploys are on (see [Deploy](#deploy)), and the job is not a bootstrap | |
+| review | approve | all 4 verdicts are `PASS`, and deploys are off or the job is a bootstrap (its `deploy.yml` reaches `main`, where GitHub looks for workflows, only when it merges); a `note` event says which | |
+| deploy | approve | `factory.ps1 deploy` on a bootstrap job (one that reached `deploy` before this rule): skips the preview, attempts aside, with a `note` | |
 | deploy | approve | `factory.ps1 deploy` saw the preview applied for the branch head, and only then; it makes the move | |
 | deploy | ready | the third failed `deploy`; the preview is left up for diagnosis | `deploy-failed` |
 | deploy | ready | GitHub refused a call because the GitHub PAT lacks a permission; the attempt is not counted, and the detail names the permission | `github-permission` |
-| ready | deploy | human `redeploy <id>`, only when the flag is `github-permission` (the human has added the permission); attempts are unchanged | |
+| ready | approved | human `redeploy <id>`, when the flag is `github-permission` (the human has added the permission), or the job reached ready from `deploy` flagged `deploy-failed` or `escalated` (the human judged the failure was the environment or the factory, not the change, and fixed it). Sets `resume: "deploy"` and `approvedAt`; round and attempts are unchanged, and the third failure still ends in `deploy-failed` | |
+| approved | deploy | runner; the job has `resume: "deploy"` and is next in the queue (as for `build`). Clears `resume`; `/factory run` then starts at its deploy step | |
 | approve | gate | `decision.md` first line is `Decision: APPROVE` | |
 | approve | ready | `Decision: ESCALATE` | `escalated` |
 | gate | ready | every gate command exited 0 (no flag), or any one did not. Run by the orchestrator, or by the runner when claude ended with the job in `gate` | `gate-failed` |
@@ -491,6 +493,8 @@ those lines and nothing else; if one is missing or malformed, the script treats 
 - `merged` is `null` until a merge, then `{ "sha": "<merge commit>", "repo": "<owner/name>", "pr": "<PR url>", "added": ["<repo-relative path>", ...], "modified": [...] }`,
   from `git diff --name-status --no-renames <sha>^1 <sha>` in the work directory after fetching the merge.
 - `pr` is `null` (or absent) until `publish` opens the job's pull request.
+- `resume` is absent (or `null`) except on an Approved job queued by `redeploy`, where it is `"deploy"`:
+  the runner moves that job to `deploy` instead of `build`, and clears it.
 - `deploy` is `null` (or absent) until the first `deploy`, then
   `{ "env": "j001", "workspace": "<repo>-j001", "workspaceId": "ws-...", "status": "applying|up|failed|destroying|down", "attempts": 1, "sha": "<deployed head>", "run": "<GitHub run url>", "urls": { "frontend": "...", "api": "..." }, "appliedAt": "...", "destroyAt": "..." }`.
   `urls.frontend` is null for an API-only target. `destroyAt` is HCP's auto-destroy time; after it
@@ -546,7 +550,7 @@ stderr and leaves the board unchanged.
 | `next` (prints the next runnable approved id, or nothing) · `checkout <id>` (creates the GitHub repo if needed, then clones or reuses `<work>\jobs\<id>` on `factory/<id>`; prints the work directory) · `publish <id>` (`ready` only: pushes `factory/<id>` and opens the job's PR if it has none; prints the PR url) · `set-cost <id> <usd> <ms>` | runner.ps1 |
 | `set-stage <id> <to> [-By] [-Reason] [-Detail]` · `set-review <id> <role> <state>` · `read-reviews <id>` · `read-decision <id>` · `gate <id>` | `/factory run` |
 | `deploy <id>` (deploy only) · `deploy-log <id>` (prints the last failed attempt's log) | `/factory run`, the devops agent |
-| `redeploy <id>` (`ready` flagged `github-permission` only: back to `deploy` once the permission is added) | a human |
+| `redeploy <id>` (`ready` flagged `github-permission`, or come from `deploy` flagged `deploy-failed`/`escalated`: back to Approved with `resume: deploy` once the cause is fixed; the runner resumes it at deploy) | a human |
 | `destroy <id>` (any stage; a no-op without a preview) · `qa-login <id>` (prints the preview's QA user and password) | serve.ps1 (**Tear down**, **QA login**), and `merge`/`discard`/`rework` |
 | `event <json \| -Job -Idea -Kind -Agent>` | hook-event.ps1 |
 | `eval <id> -File <path>` | a human session evaluating a finished job (see [Evaluations](#evaluations)) |
@@ -654,6 +658,9 @@ anything but the one child process that needs it, never logged):
 
 **`factory.ps1 deploy <id>`** (job in `deploy`), in order; any step's failure is a failed attempt:
 
+0. A bootstrap job never deploys: GitHub dispatches only workflows on the default branch, and the
+   bootstrap is what puts `deploy.yml` there. `deploy` moves it to `approve` with a `note`, whatever
+   its attempts, and does nothing else. Its first feature job is the first preview.
 1. Refuses when `deploy.attempts` is already 3. Increments `attempts`, sets `status: applying`.
 2. Pushes `factory/<id>` (as `publish` does, without the PR).
 3. GitHub, first, so a missing permission fails before anything is created in HCP: ensures the
@@ -680,8 +687,8 @@ anything but the one child process that needs it, never logged):
 `secrets=write`), the error reads `the GitHub PAT needs <permission>`. `deploy` then gives the
 attempt back, writes `deploy-<a>.log` as usual, and moves the job to `ready` with flag
 `github-permission` and that sentence as the detail. No agent can widen the PAT: a human adds the
-permission (GitHub requires their 2FA for it) and runs `redeploy <id>`, which moves the job back to
-`deploy`. The factory never grants itself permissions.
+permission (GitHub requires their 2FA for it) and runs `redeploy <id>`, which queues the job in
+Approved to resume at `deploy`. The factory never grants itself permissions.
 
 A rework starts a new round with `attempts` back at 0 (the old preview is torn down by `rework`).
 

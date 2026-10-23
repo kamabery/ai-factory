@@ -254,6 +254,10 @@ function Move-Job($j, [string] $to, [string] $by, [string] $reason = $null, [str
     Add-Event $e
 }
 
+# GitHub dispatches only workflows on the default branch, and a bootstrap is what puts deploy.yml there.
+function Is-Bootstrap($j) { $j.Contains('kind') -and $j.kind -eq 'bootstrap' }
+$BootstrapNoDeploy = "deploy skipped: bootstrap (deploy.yml reaches main only when this merges; the first feature job gets the first preview)"
+
 function Require-Stage($j, [string[]] $stages, [string] $what) {
     if ($j.stage -notin $stages) { Fail "$what refused: $($j.id) is in '$($j.stage)', needs $($stages -join '|')" }
 }
@@ -693,6 +697,12 @@ try {
         'deploy' {
             $j = Get-Job $Arg1
             Require-Stage $j 'deploy' 'deploy'
+            if (Is-Bootstrap $j) {
+                Move-Job $j 'approve' 'orchestrator'
+                Add-Event ([ordered]@{ job = $j.id; kind = 'note'; detail = $BootstrapNoDeploy })
+                "skipped: $BootstrapNoDeploy"
+                break
+            }
             if (-not (Deploys-On)) { Fail 'deploy refused: deploys are off (no HCP_ORG in .env)' }
             $d = Get-Deploy $j
             if ([int]$d.attempts -ge 3) { Fail "deploy refused: $($j.id) has used its 3 attempts" }
@@ -737,8 +747,15 @@ try {
         'redeploy' {
             $j = Get-Job $Arg1
             Require-Stage $j 'ready' 'redeploy'
-            if (-not $j.flag -or $j.flag.reason -ne 'github-permission') { Fail "redeploy refused: $($j.id) is not flagged github-permission" }
-            Move-Job $j 'deploy' 'human'
+            $last = @($j.history)[-1]
+            $fromDeploy = $last -and $last.from -eq 'deploy' -and $j.flag -and $j.flag.reason -in 'deploy-failed', 'escalated'
+            if (-not ($j.flag -and $j.flag.reason -eq 'github-permission') -and -not $fromDeploy) {
+                Fail "redeploy refused: $($j.id) is neither flagged github-permission nor came to ready from deploy (deploy-failed or escalated)"
+            }
+            # Back in the queue; the runner resumes it at deploy rather than building it again.
+            $j.resume = 'deploy'
+            $j.approvedAt = Now
+            Move-Job $j 'approved' 'human'
         }
 
         'deploy-log' {
@@ -787,8 +804,16 @@ try {
                 'approved->build' {
                     $n = Next-Runnable
                     if (-not $n -or $n.id -ne $j.id) { Fail "approved->build refused: $($j.id) is not next in the queue, or a job is already building" }
+                    if ($j['resume']) { Fail "approved->build refused: $($j.id) was redeployed; it resumes at $($j.resume)" }
                     Reset-Reviews $j
                     Move-Job $j 'build' $by_
+                }
+                'approved->deploy' {
+                    $n = Next-Runnable
+                    if (-not $n -or $n.id -ne $j.id) { Fail "approved->deploy refused: $($j.id) is not next in the queue, or a job is already building" }
+                    if ($j['resume'] -ne 'deploy') { Fail "approved->deploy refused: $($j.id) was not redeployed" }
+                    $j.resume = $null
+                    Move-Job $j 'deploy' $by_
                 }
                 'build->review' {
                     if (-not (Test-Path (Join-Path (JobDir $j.id) "round-$($j.round)/build.md"))) { Fail "build->review refused: round-$($j.round)/build.md missing" }
@@ -828,7 +853,11 @@ try {
             if ($missing) { Save-Board $Board; Fail "no verdict from: $($missing -join ', ')" 2 }
             $changes = @($Roles | Where-Object { $j.reviews[$_] -eq 'CHANGES' })
             if (-not $changes) {
-                if (Deploys-On) { Move-Job $j 'deploy' 'orchestrator' }
+                if (Is-Bootstrap $j) {
+                    Move-Job $j 'approve' 'orchestrator'
+                    Add-Event ([ordered]@{ job = $j.id; kind = 'note'; detail = $BootstrapNoDeploy })
+                }
+                elseif (Deploys-On) { Move-Job $j 'deploy' 'orchestrator' }
                 else {
                     Move-Job $j 'approve' 'orchestrator'
                     Add-Event ([ordered]@{ job = $j.id; kind = 'note'; detail = 'deploy skipped: no HCP_ORG in .env' })

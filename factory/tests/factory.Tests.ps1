@@ -1299,6 +1299,31 @@ Describe 'deploy' {
         (Events | Where-Object { $_.kind -eq 'note' -and $_.job -eq $id }).detail | Should -Contain 'deploy skipped: no HCP_ORG in .env'
     }
 
+    It 'with HCP_ORG, an all-PASS bootstrap skips deploy: its deploy.yml reaches main only when it merges' {
+        $out = F new-idea 'boot' -Target "test/boot-$([guid]::NewGuid().ToString('N').Substring(0,8))" -Scaffold '{"name":"todo","resource":"Todo","db":"sqlite","ui":"none","events":false}'
+        $id = ($out -split ' ')[1]
+        F approve $id | Out-Null
+        Move-ToReview $id
+        Write-Reviews $id (All 'Verdict: PASS')
+
+        F read-reviews $id | Should -Be 'approve'
+        (Events | Where-Object { $_.kind -eq 'note' -and $_.job -eq $id }).detail | Should -Match 'deploy skipped: bootstrap'
+    }
+
+    It 'deploy on a bootstrap already in deploy moves it to approve, even with its attempts used up' {
+        $out = F new-idea 'boot' -Target "test/boot-$([guid]::NewGuid().ToString('N').Substring(0,8))" -Scaffold '{"name":"todo","resource":"Todo","db":"sqlite","ui":"none","events":false}'
+        $id = ($out -split ' ')[1]
+        # As J-018 was before this rule: in deploy, three attempts spent on GitHub's 404.
+        $b = Board; $j = $b.jobs | Where-Object id -eq $id
+        $j.stage = 'deploy'; $j.deploy = @{ attempts = 3; status = 'failed' }
+        Set-Content (Join-Path $env:FACTORY_HOME 'board.json') ($b | ConvertTo-Json -Depth 20)
+
+        F deploy $id | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        (Job $id).stage | Should -Be 'approve'
+        (Events | Where-Object { $_.kind -eq 'note' -and $_.job -eq $id }).detail | Should -Match 'deploy skipped: bootstrap'
+    }
+
     It 'with HCP_ORG, all-PASS reviews move the job to deploy' {
         $id = New-ApprovedJob
         Move-ToReview $id
@@ -1369,7 +1394,11 @@ Describe 'deploy' {
         $secret.ghTokenValue | Should -Be $script:Token
         $fed = $calls | Where-Object { $_.args -contains 'create' } | Select-Object -First 1
         ($fed.args -join ' ') | Should -Match 'ad app federated-credential create --id gh-app-client'
-        ($fed.args -join ' ') | Should -Match ([regex]::Escape("repo:$($script:Repo):environment:preview"))
+        # The JSON goes through a file: az on Windows is a .cmd, and cmd strips the quotes of inline JSON.
+        $p = $fed.args[[array]::IndexOf($fed.args, '--parameters') + 1]
+        $p | Should -BeLike '@*'
+        ($fed.files[0] | ConvertFrom-Json).subject | Should -Be "repo:$($script:Repo):environment:preview"
+        ($fed.files[0] | ConvertFrom-Json).issuer | Should -Be 'https://token.actions.githubusercontent.com'
         $env:GH_TOKEN | Should -BeNullOrEmpty
     }
 
@@ -1401,23 +1430,68 @@ Describe 'deploy' {
         $j.flag.detail | Should -Match 'the GitHub PAT needs secrets=write'
     }
 
-    It 'redeploy, after the permission is added, moves the job back to deploy and the deploy goes through' {
+    It 'redeploy, after the permission is added, queues the job to resume at deploy, and the deploy goes through' {
         $id = New-ApprovedJob
         Move-ToDeploy $id
         $deny = Join-Path $script:GitBase "$script:Repo.deny"
         Set-Content $deny 'actions=write'
         try { F deploy $id | Out-Null } finally { Remove-Item $deny }
         (Job $id).flag.detail | Should -Match 'actions=write'
+        $round = (Job $id).round
 
         F redeploy $id | Out-Null
         $LASTEXITCODE | Should -Be 0
+        $j = Job $id
+        $j.stage | Should -Be 'approved'
+        $j.resume | Should -Be 'deploy'
+        $j.round | Should -Be $round
+        $j.flag | Should -BeNullOrEmpty
+
+        # The runner's move: approved -> deploy, not build, and resume is cleared.
+        F set-stage $id deploy -By runner | Out-Null
+        $LASTEXITCODE | Should -Be 0
         (Job $id).stage | Should -Be 'deploy'
-        (Job $id).flag | Should -BeNullOrEmpty
+        (Job $id).resume | Should -BeNullOrEmpty
 
         F deploy $id | Out-Null
         $LASTEXITCODE | Should -Be 0
         (Job $id).stage | Should -Be 'approve'
         (Job $id).deploy.attempts | Should -Be 1
+    }
+
+    It 'redeploy sends a job escalated out of deploy back to deploy, keeping its attempts' {
+        $id = New-ApprovedJob
+        Move-ToDeploy $id
+        Commit-Change $id 'deploy-fail.txt' 'factory bug'
+        F deploy $id | Out-Null
+        F set-stage $id ready -By orchestrator -Reason escalated -Detail 'devops gave up' | Out-Null
+        (Job $id).flag.reason | Should -Be 'escalated'
+
+        Commit-Change $id 'deploy-fail.txt' -Remove
+        F redeploy $id | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        (Job $id).stage | Should -Be 'approved'
+        (Job $id).deploy.attempts | Should -Be 1
+        F set-stage $id deploy -By runner | Out-Null
+        F deploy $id | Out-Null
+        (Job $id).stage | Should -Be 'approve'
+        (Job $id).deploy.attempts | Should -Be 2
+    }
+
+    It 'the runner cannot move an ordinary approved job to deploy' {
+        $id = New-ApprovedJob
+        F set-stage $id deploy -By runner 2>$null | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        (Job $id).stage | Should -Be 'approved'
+    }
+
+    It 'redeploy refuses a job escalated from a stage other than deploy' {
+        $id = New-ApprovedJob
+        Move-ToReview $id
+        F set-stage $id ready -By orchestrator -Reason escalated -Detail 'reviewer stuck' | Out-Null
+        F redeploy $id 2>$null | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        (Job $id).stage | Should -Be 'ready'
     }
 
     It 'redeploy refuses a job that is not flagged github-permission' {

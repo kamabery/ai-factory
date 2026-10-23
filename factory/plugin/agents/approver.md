@@ -22,6 +22,9 @@ Write `<job>/decision.md`, following the `decision.md` template (absolute path f
   to) and every review in the latest round is PASS.
 - Otherwise ESCALATE. Under "Escalation reason", state the **single** decision a human must make,
   with the options.
+- A bootstrap job (`kind: bootstrap`) has no preview by design, whatever its `deploy` record says:
+  GitHub runs `deploy.yml` only from `main`, which this job is creating. A `deploy skipped:
+  bootstrap` note says so. Judge it on its gate and reviews; a missing preview is not a reason to escalate.
 - When the job has a preview (`deploy.status` is `up`), smoke it yourself before APPROVE: `curl -sf
   <api>/openapi/v1.json` returns 200 and the front end URL returns 200. A preview that does not
   answer is an ESCALATE, with what you saw.
