@@ -19,8 +19,7 @@ Work through the sections in order: later values depend on earlier ones.
 | Value | Goes in | Where you get it | Section |
 | --- | --- | --- | --- |
 | `HCP_ORG` | `.env`, `setup-azure.ps1 -HcpOrg` | the organization name you create at app.terraform.io | 1 |
-| `HCP_TOKEN` | `.env` | Organization settings → API tokens | 1 |
-| `HCP_TEAM_TOKEN` | `.env` | Organization settings → Teams → *team* → Team API token | 1 |
+| `HCP_TOKEN`, `HCP_TEAM_TOKEN` | `.env` | one owners team token, in both: Settings → API tokens → Team tokens | 1 |
 | External tenant ID | `setup-azure.ps1 -ExternalTenantId` | the External tenant's **Overview** page | 2 |
 | `AZURE_SUBSCRIPTION_ID` | `.env`, `setup-azure.ps1 -SubscriptionId` | `az account list -o table` | 3 |
 | `AZURE_TENANT_ID`, `AZURE_GH_CLIENT_ID` | `.env` | written by `setup-azure.ps1` | 3 |
@@ -38,14 +37,17 @@ API; the workflow in each target queues runs.
 1. **Organization → `HCP_ORG`.** Sign in at https://app.terraform.io and create an organization. Its
    name, as it appears in the URL `app.terraform.io/app/<org>`, is `HCP_ORG`. Azure will trust tokens
    from this organization only (section 3).
-2. **Organization token → `HCP_TOKEN`.** **Organization settings** → **API tokens** →
-   **Organization Tokens** → **Create an organization token**. `factory.ps1` uses it to create each
-   target's project and workspaces and attach the variable set. Copy it when shown; it isn't
-   shown again.
-3. **Team token → `HCP_TEAM_TOKEN`.** **Settings** (bottom of the left menu) → **Security** → **API
-   tokens** → **Team tokens** tab → **Create a team token**, for a team that can manage all projects
-   (on the Free plan, **owners**). The factory sets it as each target's `TF_API_TOKEN` secret, which the target's workflow
-   uses to queue runs. Organization tokens can't run plans and applies; team tokens can.
+2. **Team token → `HCP_TOKEN` and `HCP_TEAM_TOKEN`.**
+   https://app.terraform.io/app/<org>/settings/authentication-tokens?tabIndex=1 (**Settings** →
+   **Security** → **API tokens** → **Team tokens**) → **Create a team token**: team **owners** (the only
+   team on the Free plan), description `claude-factory`, 90 days. Copy it when shown; it isn't shown
+   again, and creating another replaces it. Put the same token in both lines.
+   - `HCP_TOKEN`: `factory.ps1` creates each target's project and workspaces, attaches the variable
+     set, and queues destroy runs.
+   - `HCP_TEAM_TOKEN`: becomes each target's `TF_API_TOKEN` secret, which its workflow uses to
+     queue runs.
+   Not an organization token: HCP's own page says those "can't perform plans and applies", so
+   tear-down would fail.
 
 ## 2. Entra External ID: the tenant previews sign in with
 
@@ -160,7 +162,7 @@ projects* with none selected (the factory attaches it to each target's project).
 | `entra_external_tenant_id` · `entra_external_subdomain` · `entra_external_user_flow_id` | terraform | printed (auth add-on only) |
 
 Save it. Its id is in the URL, `.../settings/varsets/varset-XXXXXXXX` → `HCP_AZURE_VARSET`. Or
-list them with the organization token:
+list them with the team token:
 
 ```powershell
 $h = @{ Authorization = "Bearer <HCP_TOKEN>" }
@@ -198,8 +200,8 @@ Lessons tab proposes template fixes. From its local clone:
 
 ```dotenv
 HCP_ORG=your-org              # section 1
-HCP_TOKEN=...                 # section 1: organization token, factory.ps1 only
-HCP_TEAM_TOKEN=...            # section 1: becomes each target's TF_API_TOKEN secret
+HCP_TOKEN=...                 # section 1: owners team token, factory.ps1 only
+HCP_TEAM_TOKEN=...            # section 1: the same token; becomes each target's TF_API_TOKEN secret
 HCP_AZURE_VARSET=varset-...   # section 4
 AZURE_GH_CLIENT_ID=...        # section 3, written by setup-azure.ps1
 AZURE_TENANT_ID=...           # section 3, written by setup-azure.ps1

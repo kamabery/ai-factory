@@ -646,7 +646,7 @@ anything but the one child process that needs it, never logged):
 | Key | What |
 | --- | --- |
 | `HCP_ORG` | the HCP Terraform organization |
-| `HCP_TOKEN` | an org token for `factory.ps1`: projects, workspaces, runs, state outputs |
+| `HCP_TOKEN` | a team token (the owners team) for `factory.ps1`: projects, workspaces, runs, state outputs. Not an organization token: those can't queue runs, and `destroy` queues one |
 | `HCP_TEAM_TOKEN` | a team token scoped to the factory's projects, set as each target's `TF_API_TOKEN` GitHub secret |
 | `HCP_AZURE_VARSET` | id of the variable set holding Azure (and Entra External) dynamic credentials, attached to every project |
 | `AZURE_GH_CLIENT_ID` · `AZURE_TENANT_ID` · `AZURE_SUBSCRIPTION_ID` | the app registration GitHub Actions signs in as (OIDC), for image builds and schema steps |
