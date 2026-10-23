@@ -145,6 +145,15 @@ test.describe.serial('factory dashboard', () => {
     await expect(page.locator('[data-node="builder"]')).not.toContainText('J-002');
   });
 
+  test('an agent left running by a job that was purged from the board is not shown as active', async ({ page }) => {
+    // J-913 never existed on this board: like a discarded job after Purge, only its events remain.
+    execFileSync('pwsh', ['-NoProfile', '-File', path.join(repo, 'factory/scripts/factory.ps1'), 'event', '-Job', 'J-913', '-Kind', 'agent-start', '-Agent', 'builder'], {
+      env: { ...process.env, ...factoryEnv },
+    });
+    await page.goto('/');
+    await expect(page.locator('[data-node="builder"]')).not.toContainText('J-913');
+  });
+
   test('merging a ready bootstrap job releases its idea for a /factory:idea session', async ({ page }) => {
     const idea = board().ideas.find((i: { text: string }) => i.text === 'A todo app, bootstrapped');
     const boot = idea.jobs[0];

@@ -310,11 +310,12 @@ function activeAgents() {
     if (ev.kind === 'agent-start') running.set(key, { id: ev.job ?? ev.idea, agent: ev.agent });
     else running.delete(key);
   }
-  // An escalated or killed run never logs agent-stop, so a job's agents count only while it is building.
+  // An escalated or killed run never logs agent-stop, so a job's agents count only while it is on the
+  // board and building (a purged job is gone from the board but not from the events).
   const stage = new Map(state.board.jobs.map((j) => [j.id, j.stage]));
   const byAgent = {};
   for (const { id, agent } of running.values()) {
-    if (stage.has(id) && !BUILDING.includes(stage.get(id))) continue;
+    if (/^J-/.test(id) && !BUILDING.includes(stage.get(id))) continue;
     (byAgent[agent] ??= new Set()).add(id);
   }
   for (const j of state.board.jobs) if (j.stage === 'gate') (byAgent.gate ??= new Set()).add(j.id);
