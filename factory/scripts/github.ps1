@@ -21,24 +21,32 @@ function GitHubConfig {
     $script:Gh
 }
 
-# Returns { Status, Body }; Status 0 means no answer (no token, or the request itself failed).
+# Returns { Status, Body, Permission }; Status 0 means no answer (no token, or the request itself
+# failed). Permission is GitHub's X-Accepted-GitHub-Permissions on a 403: what the PAT lacks.
 function Invoke-GitHub([string] $Method, [string] $Path, $Body = $null) {
     $c = GitHubConfig
-    if (-not $c.token) { return [pscustomobject]@{ Status = 0; Body = @{ message = 'GITHUB_TOKEN is not set in .env' } } }
+    if (-not $c.token) { return [pscustomobject]@{ Status = 0; Body = @{ message = 'GITHUB_TOKEN is not set in .env' }; Permission = $null } }
     $p = @{
-        Method = $Method; Uri = "$($c.api)$Path"; SkipHttpErrorCheck = $true; StatusCodeVariable = 'status'
+        Method = $Method; Uri = "$($c.api)$Path"; SkipHttpErrorCheck = $true; StatusCodeVariable = 'status'; ResponseHeadersVariable = 'headers'
         Headers = @{ Authorization = "Bearer $($c.token)"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' }
     }
     if ($null -ne $Body) { $p.Body = $Body | ConvertTo-Json -Depth 10 -Compress; $p.ContentType = 'application/json' }
-    try { $res = Invoke-RestMethod @p } catch { return [pscustomobject]@{ Status = 0; Body = @{ message = "$($_.Exception.Message)" } } }
-    [pscustomobject]@{ Status = [int]$status; Body = $res }
+    try { $res = Invoke-RestMethod @p } catch { return [pscustomobject]@{ Status = 0; Body = @{ message = "$($_.Exception.Message)" }; Permission = $null } }
+    $perm = if ([int]$status -eq 403 -and $headers -and $headers['X-Accepted-GitHub-Permissions']) { "$($headers['X-Accepted-GitHub-Permissions'])" }
+    [pscustomobject]@{ Status = [int]$status; Body = $res; Permission = $perm }
 }
+
+# The sentence a missing PAT permission becomes; factory.ps1 deploy matches it (PatNeedsPattern).
+function PatNeeds([string] $permission) { "the GitHub PAT needs $permission (add it at https://github.com/settings/personal-access-tokens)" }
+$script:PatNeedsPattern = 'the GitHub PAT needs (\S+)'
 
 function GhError($r) {
     $msg = if ($r.Body -is [string]) { $r.Body }
            elseif ($r.Body -is [Collections.IDictionary]) { $r.Body['message'] }
            elseif ($r.Body -and $r.Body.PSObject.Properties['message']) { $r.Body.message } else { '' }
-    "GitHub $($r.Status): $msg".Trim()
+    $text = "GitHub $($r.Status): $msg".Trim()
+    if ($r.PSObject.Properties['Permission'] -and $r.Permission) { $text += "; $(PatNeeds $r.Permission)" }
+    $text
 }
 
 # 'existing' (has main), 'missing' or 'empty' (no main), or an error string prefixed 'error: '.

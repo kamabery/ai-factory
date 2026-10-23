@@ -56,7 +56,10 @@ function Prepare-GitHub($j) {
     # The PAT reaches gh through its environment, the token through stdin: neither is on a command line.
     if (-not $c.teamToken) { throw 'HCP_TEAM_TOKEN is not set in .env' }
     $s = Invoke-Tool gh @('secret', 'set', 'TF_API_TOKEN', '--env', 'preview', '--repo', $t) $c.teamToken @{ GH_TOKEN = (GitHubConfig).token }
-    if ($s.Code -ne 0) { throw "gh secret set failed: $($s.Out)" }
+    if ($s.Code -ne 0) {
+        $why = if ($s.Out -match 'HTTP 403') { "; $(PatNeeds 'secrets=write')" } else { '' }
+        throw "gh secret set failed: $($s.Out)$why"
+    }
 
     $subject = "repo:$($t):environment:preview"
     $list = Invoke-Tool az @('ad', 'app', 'federated-credential', 'list', '--id', $c.azureClientId, '--output', 'json')
@@ -118,12 +121,13 @@ function Invoke-Deploy($j) {
     try {
         $wsId = $null
         try {
+            # GitHub first: a missing PAT permission fails here, before anything exists in HCP.
+            Prepare-GitHub $j
             $project = Ensure-HcpProject (Repo-Name $j)
             foreach ($idle in 'dev', 'staging') { Ensure-HcpWorkspace "$(Repo-Name $j)-$idle" $project | Out-Null }
             $result.destroyAt = (Get-Date).ToUniversalTime().AddHours(24).ToString('yyyy-MM-ddTHH:mm:ssZ')
             $wsId = Ensure-HcpWorkspace $d.workspace $project $result.destroyAt
             $result.workspaceId = $wsId
-            Prepare-GitHub $j
             $run = Invoke-DeployRun $j $d.env
             $result.run = $run.html_url
             if ($run.conclusion -eq 'success') {

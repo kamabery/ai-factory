@@ -1373,6 +1373,60 @@ Describe 'deploy' {
         $env:GH_TOKEN | Should -BeNullOrEmpty
     }
 
+    It 'a GitHub PAT missing a permission flags the job github-permission naming it, keeps the attempt, and creates nothing in HCP' {
+        $id = New-ApprovedJob
+        Move-ToDeploy $id
+        $deny = Join-Path $script:GitBase "$script:Repo.deny"
+        Set-Content $deny 'environments=write'
+        try { F deploy $id | Out-Null } finally { Remove-Item $deny }
+        $LASTEXITCODE | Should -Be 1
+
+        $j = Job $id
+        $j.stage | Should -Be 'ready'
+        $j.flag.reason | Should -Be 'github-permission'
+        $j.flag.detail | Should -Match 'the GitHub PAT needs environments=write'
+        $j.deploy.attempts | Should -Be 0
+        HcpWorkspace "$(RepoName)-j001" | Should -BeNullOrEmpty
+        Get-Content (Join-Path (JobDir $id) 'deploy-1.log') -Raw | Should -Match 'environments=write'
+    }
+
+    It 'gh refusing the TF_API_TOKEN secret with HTTP 403 names secrets=write' {
+        $id = New-ApprovedJob
+        Move-ToDeploy $id
+        $env:FACTORY_TOOL_FAIL = '^secret set|failed to set secret: HTTP 403: Resource not accessible by personal access token'
+        try { F deploy $id | Out-Null } finally { Remove-Item Env:FACTORY_TOOL_FAIL }
+
+        $j = Job $id
+        $j.flag.reason | Should -Be 'github-permission'
+        $j.flag.detail | Should -Match 'the GitHub PAT needs secrets=write'
+    }
+
+    It 'redeploy, after the permission is added, moves the job back to deploy and the deploy goes through' {
+        $id = New-ApprovedJob
+        Move-ToDeploy $id
+        $deny = Join-Path $script:GitBase "$script:Repo.deny"
+        Set-Content $deny 'actions=write'
+        try { F deploy $id | Out-Null } finally { Remove-Item $deny }
+        (Job $id).flag.detail | Should -Match 'actions=write'
+
+        F redeploy $id | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        (Job $id).stage | Should -Be 'deploy'
+        (Job $id).flag | Should -BeNullOrEmpty
+
+        F deploy $id | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        (Job $id).stage | Should -Be 'approve'
+        (Job $id).deploy.attempts | Should -Be 1
+    }
+
+    It 'redeploy refuses a job that is not flagged github-permission' {
+        $id = New-ApprovedJob
+        F redeploy $id 2>$null | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        (Job $id).stage | Should -Be 'approved'
+    }
+
     It 'a failed run writes deploy-1.log from GitHub and HCP, keeps the job in deploy, and exits 1' {
         $id = New-ApprovedJob
         Move-ToDeploy $id

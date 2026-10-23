@@ -723,9 +723,22 @@ try {
                 Set-Content (Join-Path (JobDir $j.id) "deploy-$attempt.log") $res.log
                 $first = First-Error $res.log
                 Add-Event ([ordered]@{ job = $j.id; kind = 'deploy'; detail = "failed (attempt $attempt): $first" })
+                if ($res.log -match $PatNeedsPattern) {
+                    # Not the change's fault: give the attempt back and wait for a human to add the permission.
+                    $d.attempts = [int]$d.attempts - 1
+                    Move-Job $j 'ready' 'orchestrator' 'github-permission' (PatNeeds $Matches[1])
+                    Fail "deploy refused by GitHub: $(PatNeeds $Matches[1]); then run: factory.ps1 redeploy $($j.id)"
+                }
                 if ($attempt -ge 3) { Move-Job $j 'ready' 'orchestrator' 'deploy-failed' $first }
                 Fail "deploy attempt $attempt failed: $first; see deploy-$attempt.log (factory.ps1 deploy-log $($j.id))"
             }
+        }
+
+        'redeploy' {
+            $j = Get-Job $Arg1
+            Require-Stage $j 'ready' 'redeploy'
+            if (-not $j.flag -or $j.flag.reason -ne 'github-permission') { Fail "redeploy refused: $($j.id) is not flagged github-permission" }
+            Move-Job $j 'deploy' 'human'
         }
 
         'deploy-log' {

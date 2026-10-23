@@ -28,10 +28,13 @@ you changed and its `## Template gaps`.
 1. `pwsh -NoProfile -File <factory.ps1> deploy <id>`, with the path written out in full. Exit 0 means
    the preview is up and the job has moved to approve: smoke the printed URLs (`curl -sf
    <api>/openapi/v1.json`, and the front end), note the result, and finish.
-2. Exit 1: `pwsh -NoProfile -File <factory.ps1> deploy-log <id>`. Find the first real error, fix
+2. Exit 1 saying `deploy refused by GitHub: the GitHub PAT needs <permission>`: stop. The code is
+   not at fault; the job is already with the human, who must add the permission. Never try to work
+   around it.
+3. Any other exit 1: `pwsh -NoProfile -File <factory.ps1> deploy-log <id>`. Find the first real error, fix
    it on the branch, commit, and run `deploy` again. The script counts attempts; after the third
    failure it hands the job to the human, and a further `deploy` is refused - then stop.
-3. Any other refusal: stop and say why.
+4. Any other refusal: stop and say why.
 
 Append to `deploy.md`: each attempt and its result, every commit you made after the reviewers
 passed (the approver reviews those), the URLs, and `## Template gaps`.

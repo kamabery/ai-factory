@@ -253,6 +253,7 @@ const FLAG_MEANS = {
   'gate-failed': 'a gate command exited non-zero; gate.log has the output.',
   'merge-blocked': 'the merge was refused.',
   'deploy-failed': 'the preview did not deploy in three attempts; deploy-<n>.log has the GitHub and HCP logs, and the preview is left up for you to look at.',
+  'github-permission': 'GitHub refused the deploy because the GitHub PAT lacks the permission named below. Add it on GitHub, then run factory.ps1 redeploy <id>; no deploy attempt was used.',
 };
 const md = (text) =>window.marked ? marked.parse(text ?? '') : `<pre>${esc(text)}</pre>`;
 

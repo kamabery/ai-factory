@@ -66,7 +66,7 @@ Read the job's `round` from `F status -Json`. Then loop:
    `<job>/round-<round>/build.md`, the template `<templates>/deploy.md`, the output path
    `<job>/round-<round>/deploy.md`, the job id and the absolute path of `factory.ps1`. It runs
    `F deploy <id>` itself, as often as the script allows. Afterwards read the stage from
-   `F status -Json`: `approve` means continue; `ready` (`deploy-failed`) means stop; still `deploy`
+   `F status -Json`: `approve` means continue; `ready` (`deploy-failed` or `github-permission`) means stop; still `deploy`
    means the agent stopped early - give up with its reason.
 6. **Approve.** Run the **approver** agent with every file under `<job>/`, the template
    `<templates>/decision.md`, and the output path `<job>/decision.md`. Then `F read-decision <id>`:

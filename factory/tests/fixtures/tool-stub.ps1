@@ -4,5 +4,10 @@ param([Parameter(ValueFromRemainingArguments)] [string[]] $Rest)
 $stdin = if ([Console]::IsInputRedirected) { [Console]::In.ReadToEnd() } else { '' }
 $line = [ordered]@{ args = @($Rest); stdin = $stdin.Trim(); ghToken = [bool]$env:GH_TOKEN; ghTokenValue = "$env:GH_TOKEN" } | ConvertTo-Json -Compress
 [IO.File]::AppendAllText($env:FACTORY_TOOL_LOG, $line + "`n")
+# $env:FACTORY_TOOL_FAIL = '<regex>|<message>': a call whose args match the regex prints the message and exits 1.
+if ($env:FACTORY_TOOL_FAIL) {
+    $pattern, $message = $env:FACTORY_TOOL_FAIL -split '\|', 2
+    if (($Rest -join ' ') -match $pattern) { $message; exit 1 }
+}
 if ($Rest -contains 'list') { '[]' } else { '{}' }
 exit 0

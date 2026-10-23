@@ -296,6 +296,8 @@ has merged), and closing the session deletes the clone.
 | review | approve | all 4 verdicts are `PASS`, and deploys are off; a `note` event says so | |
 | deploy | approve | `factory.ps1 deploy` saw the preview applied for the branch head, and only then; it makes the move | |
 | deploy | ready | the third failed `deploy`; the preview is left up for diagnosis | `deploy-failed` |
+| deploy | ready | GitHub refused a call because the GitHub PAT lacks a permission; the attempt is not counted, and the detail names the permission | `github-permission` |
+| ready | deploy | human `redeploy <id>`, only when the flag is `github-permission` (the human has added the permission); attempts are unchanged | |
 | approve | gate | `decision.md` first line is `Decision: APPROVE` | |
 | approve | ready | `Decision: ESCALATE` | `escalated` |
 | gate | ready | every gate command exited 0 (no flag), or any one did not. Run by the orchestrator, or by the runner when claude ended with the job in `gate` | `gate-failed` |
@@ -544,6 +546,7 @@ stderr and leaves the board unchanged.
 | `next` (prints the next runnable approved id, or nothing) · `checkout <id>` (creates the GitHub repo if needed, then clones or reuses `<work>\jobs\<id>` on `factory/<id>`; prints the work directory) · `publish <id>` (`ready` only: pushes `factory/<id>` and opens the job's PR if it has none; prints the PR url) · `set-cost <id> <usd> <ms>` | runner.ps1 |
 | `set-stage <id> <to> [-By] [-Reason] [-Detail]` · `set-review <id> <role> <state>` · `read-reviews <id>` · `read-decision <id>` · `gate <id>` | `/factory run` |
 | `deploy <id>` (deploy only) · `deploy-log <id>` (prints the last failed attempt's log) | `/factory run`, the devops agent |
+| `redeploy <id>` (`ready` flagged `github-permission` only: back to `deploy` once the permission is added) | a human |
 | `destroy <id>` (any stage; a no-op without a preview) · `qa-login <id>` (prints the preview's QA user and password) | serve.ps1 (**Tear down**, **QA login**), and `merge`/`discard`/`rework` |
 | `event <json \| -Job -Idea -Kind -Agent>` | hook-event.ps1 |
 | `eval <id> -File <path>` | a human session evaluating a finished job (see [Evaluations](#evaluations)) |
@@ -653,14 +656,15 @@ anything but the one child process that needs it, never logged):
 
 1. Refuses when `deploy.attempts` is already 3. Increments `attempts`, sets `status: applying`.
 2. Pushes `factory/<id>` (as `publish` does, without the PR).
-3. HCP: ensures the project (`<repo name>`), attaches `HCP_AZURE_VARSET` to it, ensures the
-   workspaces `<repo>-dev` and `<repo>-staging` (idle - "ready to deploy once Done"), and ensures
-   `<repo>-j<NNN>` with `auto-destroy-at` 24 hours ahead.
-4. GitHub: ensures the environment `preview`, its variables `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
+3. GitHub, first, so a missing permission fails before anything is created in HCP: ensures the
+   environment `preview`, its variables `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
    `AZURE_SUBSCRIPTION_ID`, the repo variable `TF_CLOUD_ORGANIZATION`, and the secret
    `TF_API_TOKEN` (`gh secret set`, the GitHub PAT in `gh`'s environment only, the value on stdin).
    Azure: ensures the federated credential `repo:<owner>/<name>:environment:preview` on
    `AZURE_GH_CLIENT_ID` (`az ad app federated-credential`, under the human's own `az login`).
+4. HCP: ensures the project (`<repo name>`), attaches `HCP_AZURE_VARSET` to it, ensures the
+   workspaces `<repo>-dev` and `<repo>-staging` (idle - "ready to deploy once Done"), and ensures
+   `<repo>-j<NNN>` with `auto-destroy-at` 24 hours ahead.
 5. Dispatches `.github/workflows/deploy.yml` on `factory/<id>` with `environment = j<NNN>`, finds
    that run, and polls it until it completes or the timeout passes.
 6. Success: reads the workspace's outputs - `react_url` or `blazor_web_url` as `urls.frontend`,
@@ -670,6 +674,14 @@ anything but the one child process that needs it, never logged):
    run's plan and apply logs), records `status: failed`, appends a `deploy` event, and exits 1 - or,
    when that was attempt 3, moves the job to `ready` with flag `deploy-failed`. The preview is left
    up either way, for diagnosis.
+
+**A missing GitHub PAT permission is not a failed attempt.** When GitHub answers 403 with an
+`X-Accepted-GitHub-Permissions` header (or `gh` reports HTTP 403 setting the secret, which needs
+`secrets=write`), the error reads `the GitHub PAT needs <permission>`. `deploy` then gives the
+attempt back, writes `deploy-<a>.log` as usual, and moves the job to `ready` with flag
+`github-permission` and that sentence as the detail. No agent can widen the PAT: a human adds the
+permission (GitHub requires their 2FA for it) and runs `redeploy <id>`, which moves the job back to
+`deploy`. The factory never grants itself permissions.
 
 A rework starts a new round with `attempts` back at 0 (the old preview is torn down by `rework`).
 

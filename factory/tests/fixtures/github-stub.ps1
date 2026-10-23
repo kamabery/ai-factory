@@ -17,6 +17,8 @@
     POST /repos/o/n/actions/workflows/deploy.yml/dispatches · GET /repos/o/n/actions/runs[/<id>[/jobs]]
     GET /repos/o/n/actions/jobs/<id>/logs · PUT /repos/o/n/environments/<e>
     POST|PATCH /repos/o/n/environments/<e>/variables[/<name>] · POST|PATCH /repos/o/n/actions/variables[/<name>]
+  A write under /actions or /environments answers 403 with X-Accepted-GitHub-Permissions when
+  <owner>/<name>.deny lists the permission it needs (a PAT missing it).
   A dispatched run completes at once: `failure` when the branch head has deploy-fail.txt (its text is
   the error), else `success`, which writes the workspace's outputs. HCP Terraform's API is served
   under /api/v2 from the same process, so the two agree: projects, varset attachment, workspaces,
@@ -38,6 +40,17 @@ function Invoke-StubGit([string] $dir) {
 }
 
 function Bare([string] $o, [string] $n) { Join-Path $GitBase "$o/$n.git" }
+
+# A fine-grained PAT that lacks a permission: <owner>/<name>.deny lists permissions (one per line, e.g.
+# environments=write) the token does not have. Returns the one this write needs when it is denied.
+function Denied-Permission([string] $o, [string] $n, [string] $method, [string] $rest) {
+    $f = Join-Path $GitBase "$o/$n.deny"
+    if ($method -eq 'GET' -or -not (Test-Path $f)) { return $null }
+    $need = if ($rest -match '^/environments/') { 'environments=write' }
+            elseif ($rest -match '^/actions/variables') { 'variables=write' }
+            elseif ($rest -match '^/actions/workflows/.+/dispatches$') { 'actions=write' }
+    if ($need -and $need -in @(Get-Content $f | ForEach-Object Trim)) { $need }
+}
 function PrFile([string] $o, [string] $n) { Join-Path $GitBase "$o/$n.prs.json" }
 function Prs([string] $o, [string] $n) {
     $f = PrFile $o $n
@@ -343,7 +356,13 @@ function Handle($ctx, [string] $method, [string] $path, $body) {
         return @{ status = 200; body = @{ number = $pr.number; state = $pr.state } }
     }
     if ($method -eq 'PUT' -and $rest -match '^/pulls/(\d+)/merge$') { return Merge-StubPr $o $n ([int]$Matches[1]) $body }
-    if ($rest -match '^/(actions|environments)/') { return Handle-Actions $method $o $n $rest $body $ctx }
+    if ($rest -match '^/(actions|environments)/') {
+        $denied = Denied-Permission $o $n $method $rest
+        if ($denied) {
+            return @{ status = 403; body = @{ message = 'Resource not accessible by personal access token' }; headers = @{ 'X-Accepted-GitHub-Permissions' = $denied } }
+        }
+        return Handle-Actions $method $o $n $rest $body $ctx
+    }
     if ($method -eq 'DELETE' -and $rest -match '^/git/refs/heads/(.+)$') {
         $r = Invoke-StubGit $bare branch --delete --force $Matches[1]
         if ($r.Code -ne 0) { return @{ status = 422; body = @{ message = 'Reference does not exist' } } }
@@ -367,6 +386,7 @@ while ($listener.IsListening) {
         $log = [ordered]@{ method = $method; path = $path; auth = "$($ctx.Request.Headers['Authorization'])"; body = $body }
         [IO.File]::AppendAllText((Join-Path $GitBase 'requests.jsonl'), ($log | ConvertTo-Json -Compress -Depth 10) + "`n")
         $r = Handle $ctx $method $path $body
+        if ($r.Contains('headers')) { foreach ($k in $r.headers.Keys) { $ctx.Response.Headers[$k] = $r.headers[$k] } }
         if ($r.Contains('text')) { Send-Text $ctx $r.status $r.text } else { Send $ctx $r.status $r.body }
     } catch {
         Write-Warning "github stub: $_"
