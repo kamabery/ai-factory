@@ -65,9 +65,12 @@ function Prepare-GitHub($j) {
     $list = Invoke-Tool az @('ad', 'app', 'federated-credential', 'list', '--id', $c.azureClientId, '--output', 'json')
     if ($list.Code -ne 0) { throw "az federated-credential list failed: $($list.Out)" }
     if (-not (@($list.Out | ConvertFrom-Json) | Where-Object { $_.subject -eq $subject })) {
-        $params = @{ name = "preview-$($t -replace '[^A-Za-z0-9-]', '-')"; issuer = 'https://token.actions.githubusercontent.com'
-                     subject = $subject; audiences = @('api://AzureADTokenExchange') } | ConvertTo-Json -Compress
-        $made = Invoke-Tool az @('ad', 'app', 'federated-credential', 'create', '--id', $c.azureClientId, '--parameters', $params)
+        # Through a file (`@path`): az on Windows is a .cmd, and cmd strips the quotes of inline JSON.
+        $file = New-TemporaryFile
+        @{ name = "preview-$($t -replace '[^A-Za-z0-9-]', '-')"; issuer = 'https://token.actions.githubusercontent.com'
+           subject = $subject; audiences = @('api://AzureADTokenExchange') } | ConvertTo-Json -Compress | Set-Content $file -Encoding utf8NoBOM
+        try { $made = Invoke-Tool az @('ad', 'app', 'federated-credential', 'create', '--id', $c.azureClientId, '--parameters', "@$file") }
+        finally { Remove-Item $file -ErrorAction SilentlyContinue }
         if ($made.Code -ne 0) { throw "az federated-credential create failed: $($made.Out)" }
     }
 }
