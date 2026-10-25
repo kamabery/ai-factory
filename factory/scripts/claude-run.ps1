@@ -38,10 +38,11 @@ $DenyCommands = @('git push*', 'git merge*', 'git rebase*', 'git reset --hard*',
 . (Join-Path $PSScriptRoot 'env-file.ps1')
 
 # The child environment for a job's provider (see "Providers" in docs/FACTORY-CONTRACT.md): name ->
-# value. Empty for subscription; $null when openrouter has no key in .env.
+# value. For subscription, blanks an inherited key or token, which would beat the CLI's login;
+# $null when openrouter has no key in .env.
 $ModelVars = 'ANTHROPIC_DEFAULT_FABLE_MODEL', 'ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_HAIKU_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL'
 function Get-ProviderEnv([string] $provider) {
-    if ($provider -ne 'openrouter') { return @{} }
+    if ($provider -ne 'openrouter') { return @{ ANTHROPIC_API_KEY = ''; ANTHROPIC_AUTH_TOKEN = '' } }
     $vars = Read-EnvFile $(if ($env:FACTORY_ENV_FILE) { $env:FACTORY_ENV_FILE } else { Join-Path $FactoryRoot '.env' })
     if (-not $vars['OPENROUTER_API_KEY']) { return $null }
     $e = [ordered]@{ ANTHROPIC_BASE_URL = 'https://openrouter.ai/api'; ANTHROPIC_AUTH_TOKEN = $vars['OPENROUTER_API_KEY']; ANTHROPIC_API_KEY = '' }

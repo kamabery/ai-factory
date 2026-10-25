@@ -9,6 +9,7 @@ live dashboard is where you work it.
 - **Contract:** [docs/FACTORY-CONTRACT.md](docs/FACTORY-CONTRACT.md) covers stages, files, board and event formats.
 - **Rules for agents:** [CLAUDE.md](CLAUDE.md).
 - **GitHub PAT setup:** [docs/GITHUB-PAT.md](docs/GITHUB-PAT.md).
+- **Tests:** [docs/PESTER-SUITE.md](docs/PESTER-SUITE.md) covers what the Pester suite tests and how it runs offline.
 
 ## Getting started
 
@@ -99,7 +100,7 @@ Card cost and duration feed the "validated" bar in the build guide.
 
 ```powershell
 pwsh factory/scripts/factory.ps1 status   # the board as text
-Invoke-Pester factory/tests               # control plane and runner
+Invoke-Pester factory/tests               # control plane and runner; see docs/PESTER-SUITE.md
 ```
 
 ### Checking without spending tokens
