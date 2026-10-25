@@ -61,31 +61,44 @@ function Prepare-GitHub($j) {
         throw "gh secret set failed: $($s.Out)$why"
     }
 
-    $subject = "repo:$($t):environment:preview"
+    # Repos on GitHub's immutable subject (the default for new ones) present repo:<owner>@<id>/<name>@<id>.
+    $oidc = Invoke-GitHub GET "/repos/$t/actions/oidc/customization/sub"
+    if ($oidc.Status -ne 200) { throw "cannot read the OIDC subject format: $(GhError $oidc)" }
+    $p = $oidc.Body.PSObject.Properties
+    $prefix = if ($p['use_immutable_subject']?.Value -and $p['sub_claim_prefix']?.Value) { $p['sub_claim_prefix'].Value } else { "repo:$t" }
+    $subject = "$($prefix):environment:preview"
     $list = Invoke-Tool az @('ad', 'app', 'federated-credential', 'list', '--id', $c.azureClientId, '--output', 'json')
     if ($list.Code -ne 0) { throw "az federated-credential list failed: $($list.Out)" }
-    if (-not (@($list.Out | ConvertFrom-Json) | Where-Object { $_.subject -eq $subject })) {
+    $existing = @($list.Out | ConvertFrom-Json)
+    if (-not ($existing | Where-Object { $_.subject -eq $subject })) {
         # Through a file (`@path`): az on Windows is a .cmd, and cmd strips the quotes of inline JSON.
+        $name = "preview-$($t -replace '[^A-Za-z0-9-]', '-')"
         $file = New-TemporaryFile
-        @{ name = "preview-$($t -replace '[^A-Za-z0-9-]', '-')"; issuer = 'https://token.actions.githubusercontent.com'
+        @{ name = $name; issuer = 'https://token.actions.githubusercontent.com'
            subject = $subject; audiences = @('api://AzureADTokenExchange') } | ConvertTo-Json -Compress | Set-Content $file -Encoding utf8NoBOM
-        try { $made = Invoke-Tool az @('ad', 'app', 'federated-credential', 'create', '--id', $c.azureClientId, '--parameters', "@$file") }
+        # A credential of this name with another subject (the repo's subject format changed) is updated in place.
+        $verb = if ($existing | Where-Object { $_.name -eq $name }) { 'update' } else { 'create' }
+        $target = @('--id', $c.azureClientId) + $(if ($verb -eq 'update') { @('--federated-credential-id', $name) } else { @() })
+        try { $made = Invoke-Tool az (@('ad', 'app', 'federated-credential', $verb) + $target + @('--parameters', "@$file")) }
         finally { Remove-Item $file -ErrorAction SilentlyContinue }
-        if ($made.Code -ne 0) { throw "az federated-credential create failed: $($made.Out)" }
+        if ($made.Code -ne 0) { throw "az federated-credential $verb failed: $($made.Out)" }
     }
 }
 
-# Dispatches deploy.yml on the job branch and waits for that run; returns it.
-function Invoke-DeployRun($j, [string] $envName) {
+# Dispatches deploy.yml on the job branch and waits for that run; returns it. A run of $sha that is
+# still going (its deploy's process died, J-019) is waited on instead of dispatching another.
+function Invoke-DeployRun($j, [string] $envName, [string] $branch = "factory/$($j.id)", [string] $sha = '') {
     $t = $j.target
-    $branch = "factory/$($j.id)"
     $runsPath = "/repos/$t/actions/runs?branch=$([uri]::EscapeDataString($branch))&event=workflow_dispatch"
-    $before = @((Invoke-GitHub GET $runsPath).Body.workflow_runs) | ForEach-Object { [long]$_.id } | Measure-Object -Maximum
-    $last = if ($before.Count) { [long]$before.Maximum } else { 0 }
-    $r = Invoke-GitHub POST "/repos/$t/actions/workflows/deploy.yml/dispatches" @{ ref = $branch; inputs = @{ environment = $envName } }
-    if ($r.Status -ne 204) { throw "cannot dispatch deploy.yml: $(GhError $r)" }
+    $runs = @((Invoke-GitHub GET $runsPath).Body.workflow_runs | Where-Object { $_ })
+    $run = if ($sha) { $runs | Where-Object { $_.status -ne 'completed' -and $_.head_sha -eq $sha } | Sort-Object { [long]$_.id } -Descending | Select-Object -First 1 }
+    if (-not $run) {
+        $before = $runs | ForEach-Object { [long]$_.id } | Measure-Object -Maximum
+        $last = if ($before.Count) { [long]$before.Maximum } else { 0 }
+        $r = Invoke-GitHub POST "/repos/$t/actions/workflows/deploy.yml/dispatches" @{ ref = $branch; inputs = @{ environment = $envName } }
+        if ($r.Status -ne 204) { throw "cannot dispatch deploy.yml: $(GhError $r)" }
+    }
     $deadline = Deploy-Deadline
-    $run = $null
     while ($true) {
         if (-not $run) {
             $run = @((Invoke-GitHub GET $runsPath).Body.workflow_runs) | Where-Object { [long]$_.id -gt $last } | Sort-Object { [long]$_.id } | Select-Object -First 1
@@ -131,11 +144,11 @@ function Invoke-Deploy($j) {
             $result.destroyAt = (Get-Date).ToUniversalTime().AddHours(24).ToString('yyyy-MM-ddTHH:mm:ssZ')
             $wsId = Ensure-HcpWorkspace $d.workspace $project $result.destroyAt
             $result.workspaceId = $wsId
-            $run = Invoke-DeployRun $j $d.env
+            $run = Invoke-DeployRun $j $d.env -sha $result.sha
             $result.run = $run.html_url
             if ($run.conclusion -eq 'success') {
                 $outs = Get-HcpOutputs $wsId
-                $result.urls = [ordered]@{ frontend = $outs['react_url'] ?? $outs['blazor_web_url']; api = $outs['api_url'] }
+                $result.urls = Preview-Urls $outs
                 $result.ok = $true
             } else {
                 $result.log = "## GitHub`n$(Get-RunLog $j $run)`n`n## HCP`n$(Get-HcpRunLog $wsId)"
@@ -151,11 +164,53 @@ function Invoke-Deploy($j) {
     $result
 }
 
+function Smoke-Seconds { if ($env:FACTORY_SMOKE_SECONDS) { [int]$env:FACTORY_SMOKE_SECONDS } else { 300 } }
+
+# GETs <api>/health and the front end until each answers 200, retrying every 10 s while a fresh
+# container starts. Adds one line per url to $lines; returns $null, or the first failure.
+# React's Static Web App links the API as its backend, which puts the API's own address behind the
+# Static Web App's auth (it answers 401), so /health is reached the way a browser reaches it.
+function Preview-Urls($outs) {
+    $react, $api = $outs['react_url'], $outs['api_url']
+    $health = if ($react) { "$($react.TrimEnd('/'))/api/health" } elseif ($api) { "$($api.TrimEnd('/'))/health" }
+    [ordered]@{ frontend = $react ?? $outs['blazor_web_url']; api = $api; health = $health }
+}
+
+function Invoke-Smoke($urls, [Collections.Generic.List[string]] $lines) {
+    if (-not $urls -or -not $urls.health) { $lines.Add('no api_url output'); return 'smoke: the workspace has no api_url output' }
+    $deadline = (Get-Date).AddSeconds((Smoke-Seconds))
+    $first = $null
+    foreach ($u in @($urls.health) + @($urls.frontend | Where-Object { $_ })) {
+        while ($true) {
+            $code = 0; $body = ''; $server = '-'
+            $sw = [Diagnostics.Stopwatch]::StartNew()
+            try {
+                $r = Invoke-WebRequest $u -TimeoutSec 30 -SkipHttpErrorCheck; $code = [int]$r.StatusCode; $body = "$($r.Content)"
+                if ($r.Headers['Server']) { $server = "$($r.Headers['Server'])" }
+            } catch { $body = $_.Exception.Message }
+            if ($code -eq 200 -or (Get-Date) -ge $deadline) { break }
+            Start-Sleep -Seconds 10
+        }
+        # The Server header tells the Container Apps ingress (envoy) from the app (Kestrel).
+        $lines.Add("$u answered $code in $([int]$sw.Elapsed.TotalSeconds)s, server: $server $($body.Substring(0, [Math]::Min(200, $body.Length)))")
+        if ($code -ne 200 -and -not $first) { $first = "smoke: $u answered $code" }
+    }
+    $first
+}
+
 # The first line that reads like an error, for the event and the flag.
+# GitHub prints each step's script in cyan (ESC[36;1m) before running it, so an `echo "::error::..."`
+# there is source, not an error. An action's `##[error]` or Terraform's `Error:` is the real thing;
+# the closing "Process completed with exit code" says only that something failed.
 function First-Error([string] $log) {
-    $line = ($log -split "`n" | Where-Object { $_ -match '(?i)\berror\b' } | Select-Object -First 1)
-    if (-not $line) { $line = ($log -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 1) }
-    ("$line".Trim() -replace '^##\[error\]', '')
+    $lines = @($log -split "`n" | Where-Object { $_ -notmatch '\x1b\[36;1m' } | ForEach-Object {
+            ($_ -replace '\x1b\[[0-9;]*m', '' -replace '^\d{4}-\d\d-\d\dT[\d:.]+Z\s?', '' -replace '^[│╷╵\s]+', '').Trim()
+        })
+    $generic = '^##\[error\]Process completed with exit code'
+    $line = $lines | Where-Object { ($_ -match '^##\[error\]' -and $_ -notmatch $generic) -or $_ -match '^Error: ' } | Select-Object -First 1
+    if (-not $line) { $line = $lines | Where-Object { $_ -match '(?i)\berror\b' -and $_ -notmatch $generic } | Select-Object -First 1 }
+    if (-not $line) { $line = $lines | Where-Object { $_ } | Select-Object -Last 1 }
+    "$line" -replace '^##\[error\]', ''
 }
 
 # Starts `factory.ps1 destroy <id>` detached when the job has a preview that is not already gone.
@@ -163,6 +218,13 @@ function Start-Destroy($j) {
     if (-not $j.Contains('deploy') -or -not $j.deploy -or $j.deploy.status -in 'down', 'destroying', $null) { return }
     $a = '-NoProfile', '-File', (Join-Path $PSScriptRoot 'factory.ps1'), 'destroy', $j.id
     if ($IsWindows) { Start-Process pwsh -ArgumentList $a -WindowStyle Hidden | Out-Null } else { Start-Process pwsh -ArgumentList $a | Out-Null }
+}
+
+# A destroy run that did not apply, with Terraform's own first error from its log when there is one
+# (canary-8's said only "errored"; the reason was a resource group Azure had added to).
+function Destroy-Failure([string] $wsId, [string] $status) {
+    $why = try { First-Error (Get-HcpRunLog $wsId) } catch { $null }
+    "destroy run ended $status$(if ($why) { ": $why" })"
 }
 
 # Destroys the preview's resources and its workspace, lock released. Returns $null or an error.
@@ -174,7 +236,7 @@ function Invoke-Destroy($j) {
         $wsId = if ($known) { $known } else { Get-HcpWorkspaceId $name }
         if ($wsId) {
             $status = Invoke-HcpDestroy $wsId (Poll-Seconds) (Deploy-Deadline)
-            if ($status -ne 'applied') { return "destroy run ended $status" }
+            if ($status -ne 'applied') { return Destroy-Failure $wsId $status }
             Remove-HcpWorkspace $wsId
         }
         $null

@@ -47,6 +47,7 @@ switch -Regex ($all) {
     }
     '^rest --method POST .*authenticationEventsFlows' { '{"id":"flow-1"}'; exit 0 }
     '^rest --method POST' { '{}'; exit 0 }
+    '^provider register' { exit 0 }
 }
 [Console]::Error.WriteLine("az-setup-stub: unexpected call: $all")
 exit 1

@@ -189,6 +189,16 @@ try {
     if (-not $tenantId) { throw "az returned no tenant id for subscription $SubscriptionId; run az login and try again" }
     $scope = "/subscriptions/$SubscriptionId"
 
+    # Every namespace the templates' IaC deploys to. azurerm registers only its own core set, and a
+    # new subscription lacks Microsoft.App: the Container Apps environment then fails with
+    # MissingSubscriptionRegistration (canary-6). Registering is idempotent; --wait so the first
+    # preview after setup does not race it.
+    foreach ($ns in 'Microsoft.App', 'Microsoft.ContainerRegistry', 'Microsoft.KeyVault', 'Microsoft.DBforPostgreSQL',
+                     'Microsoft.Sql', 'Microsoft.Storage', 'Microsoft.OperationalInsights', 'Microsoft.Insights',
+                     'Microsoft.Web', 'Microsoft.ManagedIdentity', 'Microsoft.ServiceBus') {
+        Az provider register --namespace $ns --subscription $SubscriptionId --wait | Out-Null
+    }
+
     $gh = Ensure-App 'factory-github-actions'
     $ghSp = Ensure-Sp $gh.appId
     Ensure-Role $ghSp 'Contributor' $scope
@@ -206,6 +216,9 @@ try {
     $varset = [ordered]@{
         TFC_AZURE_PROVIDER_AUTH = 'true'; TFC_AZURE_RUN_CLIENT_ID = $hcp.appId
         ARM_SUBSCRIPTION_ID = $SubscriptionId; ARM_TENANT_ID = $tenantId
+        # A terraform variable: each environment's Key Vault grants this identity Secrets User, so the
+        # workflow's schema step can read the connection string (its Contributor role is control-plane only).
+        deployer_object_id = $ghSp
     }
 
     if ($CreateExternalTenant) {
@@ -237,5 +250,5 @@ try {
 }
 
 Write-Host "`nWrote AZURE_GH_CLIENT_ID, AZURE_TENANT_ID and AZURE_SUBSCRIPTION_ID to $EnvFile."
-Write-Host 'HCP variable set (docs/DEPLOY.md section 4; entra_* are terraform variables, the rest env):'
+Write-Host 'HCP variable set (docs/DEPLOY.md section 4; deployer_object_id and entra_* are terraform variables, the rest env):'
 foreach ($k in $varset.Keys) { "$k=$($varset[$k])" }

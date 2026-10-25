@@ -157,6 +157,7 @@ projects* with none selected (the factory attaches it to each target's project).
 | `TFC_AZURE_RUN_CLIENT_ID` | env | printed |
 | `ARM_SUBSCRIPTION_ID` | env | printed |
 | `ARM_TENANT_ID` | env | printed |
+| `deployer_object_id` | terraform | printed: the GitHub Actions identity, which each environment's Key Vault lets read its secrets (the workflow's schema step) |
 | `TFC_AZURE_PROVIDER_AUTH_EXTERNAL` | env | `true` (auth add-on only) |
 | `TFC_AZURE_RUN_CLIENT_ID_EXTERNAL` | env | printed (auth add-on only) |
 | `entra_external_tenant_id` · `entra_external_subdomain` · `entra_external_user_flow_id` | terraform | printed (auth add-on only) |

@@ -37,7 +37,31 @@ function Use-Deploys {
     $env:FACTORY_DEPLOY_POLL_SECONDS = '0'
 }
 
-function Clear-Deploys { Remove-Item Env:FACTORY_GH_CMD, Env:FACTORY_AZ_CMD, Env:FACTORY_TOOL_LOG, Env:FACTORY_DEPLOY_POLL_SECONDS -ErrorAction SilentlyContinue }
+function Clear-Deploys {
+    Remove-Item Env:FACTORY_GH_CMD, Env:FACTORY_AZ_CMD, Env:FACTORY_TOOL_LOG, Env:FACTORY_DEPLOY_POLL_SECONDS,
+        Env:FACTORY_TEMPLATES, Env:FACTORY_CANARY_SCAFFOLD_CMD, Env:FACTORY_SMOKE_SECONDS, Env:CANARY_DEPLOY_FAIL -ErrorAction SilentlyContinue
+}
+
+# After Use-Deploys: what a canary needs (see "Canary" in the contract) - its own repo, a template
+# workspace for the fingerprint, and a scaffold command that writes a README, plus deploy-fail.txt
+# when $env:CANARY_DEPLOY_FAIL is set. Sets $script:CanaryRepo.
+function Use-Canary {
+    $script:CanaryRepo = "test/canary-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+    $envFile = Join-Path $TestDrive "canary-$([guid]::NewGuid().ToString('N').Substring(0,8)).env"
+    Set-Content $envFile ((Get-Content $env:FACTORY_ENV_FILE) + "FACTORY_CANARY_REPO=$script:CanaryRepo")
+    $env:FACTORY_ENV_FILE = $envFile
+    $env:FACTORY_TEMPLATES = Join-Path $TestDrive "templates-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+    New-Item -ItemType Directory -Force "$env:FACTORY_TEMPLATES/IaC", "$env:FACTORY_TEMPLATES/base-project/.github/workflows", "$env:FACTORY_TEMPLATES/artifacts/nupkg" | Out-Null
+    Set-Content "$env:FACTORY_TEMPLATES/IaC/providers.tf" 'provider "azurerm" {}'
+    Set-Content "$env:FACTORY_TEMPLATES/base-project/.github/workflows/deploy.yml" 'name: deploy'
+    Set-Content "$env:FACTORY_TEMPLATES/artifacts/nupkg/AspireStarter.Templates.1.0.0.nupkg" 'pack'
+    $env:FACTORY_CANARY_SCAFFOLD_CMD = Join-Path $TestDrive 'canary-scaffold.ps1'
+    Set-Content $env:FACTORY_CANARY_SCAFFOLD_CMD @(
+        'Set-Content README.md "canary scaffold"'
+        'if ($env:CANARY_DEPLOY_FAIL) { Set-Content deploy-fail.txt $env:CANARY_DEPLOY_FAIL }'
+    )
+    $env:FACTORY_SMOKE_SECONDS = '0'
+}
 
 function ToolCalls { if (Test-Path $env:FACTORY_TOOL_LOG) { Get-Content $env:FACTORY_TOOL_LOG | ForEach-Object { $_ | ConvertFrom-Json -AsHashtable } } }
 

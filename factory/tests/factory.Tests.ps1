@@ -1321,6 +1321,7 @@ Describe 'deploy' {
         F deploy $id | Out-Null
         $LASTEXITCODE | Should -Be 0
         (Job $id).stage | Should -Be 'approve'
+        (Job $id).deploy.status | Should -Be 'down'
         (Events | Where-Object { $_.kind -eq 'note' -and $_.job -eq $id }).detail | Should -Match 'deploy skipped: bootstrap'
     }
 
@@ -1355,6 +1356,7 @@ Describe 'deploy' {
         $j.deploy.attempts | Should -Be 1
         $j.deploy.urls.frontend | Should -Be "https://stapp-$(RepoName)-react-j001.test"
         $j.deploy.urls.api | Should -Be "https://ca-$(RepoName)-api.j001.test"
+        $j.deploy.urls.health | Should -Be "https://stapp-$(RepoName)-react-j001.test/api/health"
         $j.deploy.sha | Should -Be (git -C (Work $id) rev-parse HEAD)
         $j.deploy.destroyAt | Should -Not -BeNullOrEmpty
         (Events | Where-Object { $_.kind -eq 'deploy' -and $_.job -eq $id }).detail | Should -Be "up https://stapp-$(RepoName)-react-j001.test"
@@ -1400,6 +1402,35 @@ Describe 'deploy' {
         ($fed.files[0] | ConvertFrom-Json).subject | Should -Be "repo:$($script:Repo):environment:preview"
         ($fed.files[0] | ConvertFrom-Json).issuer | Should -Be 'https://token.actions.githubusercontent.com'
         $env:GH_TOKEN | Should -BeNullOrEmpty
+    }
+
+    It 'a repo on the immutable OIDC subject gets a federated credential for its ID-suffixed subject' {
+        $id = New-ApprovedJob
+        Move-ToDeploy $id
+        # As kamabery/todoapp-two: new repos default to repo:<owner>@<id>/<name>@<id>, and J-019 failed AADSTS700213.
+        $oidc = Join-Path $script:GitBase "$script:Repo.oidc.json"
+        Set-Content $oidc '{"use_default":true,"use_immutable_subject":true,"sub_claim_prefix":"repo:test@41/target@42"}'
+        try { F deploy $id | Out-Null } finally { Remove-Item $oidc }
+
+        $fed = @(ToolCalls) | Where-Object { $_.args -contains 'create' } | Select-Object -First 1
+        ($fed.files[0] | ConvertFrom-Json).subject | Should -Be 'repo:test@41/target@42:environment:preview'
+    }
+
+    It 'a federated credential of the same name with a stale subject is updated, not created again' {
+        $id = New-ApprovedJob
+        Move-ToDeploy $id
+        # As J-019's redeploy: the credential made for the plain subject holds the name, and create fails on it.
+        $name = "preview-$($script:Repo -replace '[^A-Za-z0-9-]', '-')"
+        $oidc = Join-Path $script:GitBase "$script:Repo.oidc.json"
+        Set-Content $oidc '{"use_default":true,"use_immutable_subject":true,"sub_claim_prefix":"repo:test@41/target@42"}'
+        $env:FACTORY_TOOL_LIST = ConvertTo-Json -Compress @(@{ name = $name; subject = "repo:$($script:Repo):environment:preview" })
+        try { F deploy $id | Out-Null } finally { Remove-Item $oidc; $env:FACTORY_TOOL_LIST = $null }
+
+        $calls = @(ToolCalls)
+        $calls | Where-Object { $_.args -contains 'create' } | Should -BeNullOrEmpty
+        $upd = $calls | Where-Object { $_.args -contains 'update' } | Select-Object -First 1
+        ($upd.args -join ' ') | Should -Match "ad app federated-credential update --id gh-app-client --federated-credential-id $name"
+        ($upd.files[0] | ConvertFrom-Json).subject | Should -Be 'repo:test@41/target@42:environment:preview'
     }
 
     It 'a GitHub PAT missing a permission flags the job github-permission naming it, keeps the attempt, and creates nothing in HCP' {
@@ -1459,7 +1490,25 @@ Describe 'deploy' {
         (Job $id).deploy.attempts | Should -Be 1
     }
 
-    It 'redeploy sends a job escalated out of deploy back to deploy, keeping its attempts' {
+    It 'redeploy after the attempts ran out gives the job a fresh budget, and the deploy goes through' {
+        $id = New-ApprovedJob
+        Move-ToDeploy $id
+        # As J-019: three attempts spent on factory and template bugs, not on the change.
+        Commit-Change $id 'deploy-fail.txt' 'exec: "az": executable file not found in $PATH'
+        1..3 | ForEach-Object { F deploy $id 2>$null | Out-Null }
+        (Job $id).flag.reason | Should -Be 'deploy-failed'
+
+        Commit-Change $id 'deploy-fail.txt' -Remove
+        F redeploy $id | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        (Job $id).deploy.attempts | Should -Be 0
+        F set-stage $id deploy -By runner | Out-Null
+        F deploy $id | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        (Job $id).stage | Should -Be 'approve'
+    }
+
+    It 'redeploy sends a job escalated out of deploy back to deploy, with a fresh attempt budget' {
         $id = New-ApprovedJob
         Move-ToDeploy $id
         Commit-Change $id 'deploy-fail.txt' 'factory bug'
@@ -1471,11 +1520,11 @@ Describe 'deploy' {
         F redeploy $id | Out-Null
         $LASTEXITCODE | Should -Be 0
         (Job $id).stage | Should -Be 'approved'
-        (Job $id).deploy.attempts | Should -Be 1
+        (Job $id).deploy.attempts | Should -Be 0
         F set-stage $id deploy -By runner | Out-Null
         F deploy $id | Out-Null
         (Job $id).stage | Should -Be 'approve'
-        (Job $id).deploy.attempts | Should -Be 2
+        (Job $id).deploy.attempts | Should -Be 1
     }
 
     It 'the runner cannot move an ordinary approved job to deploy' {
@@ -1571,6 +1620,41 @@ Describe 'deploy' {
         F destroy $id | Out-Null
         $LASTEXITCODE | Should -Be 0
         @(Events | Where-Object { $_.kind -eq 'destroy' -and $_.job -eq $id }).Count | Should -Be 1
+    }
+
+    It 'a deploy whose process died mid-run resumes that attempt: waits on its run, dispatches none, counts none' {
+        # J-019: the devops agent's shell call ended at 20 minutes, killing a deploy whose run takes ~60;
+        # each retry dispatched another run and spent an attempt.
+        $id = New-ApprovedJob
+        Move-ToDeploy $id
+        function Runs { $(try { @((DeployState).runs.Values | Where-Object { $_.head_branch -eq "factory/$id" -and $_.repo -eq $script:Repo }).Count } catch { 0 }) }
+        $slow = Join-Path $script:GitBase "$script:Repo.slow"
+        Set-Content $slow ''
+        $p = Start-Process pwsh -ArgumentList '-NoProfile', '-File', $script:Factory, 'deploy', $id -PassThru -WindowStyle Hidden
+        $deadline = (Get-Date).AddSeconds(60)
+        while (-not (Runs) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 200 }
+        Stop-Process -Id $p.Id -Force
+        Runs | Should -Be 1
+        (Job $id).deploy.status | Should -Be 'applying'
+
+        Remove-Item $slow
+        F deploy $id | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        Runs | Should -Be 1
+        (Job $id).deploy.attempts | Should -Be 1
+        (Job $id).deploy.status | Should -Be 'up'
+        (Job $id).stage | Should -Be 'approve'
+    }
+
+    It 'a destroy that errors records HCP''s own error, not just its status' {
+        $id = New-ApprovedJob
+        Move-ToDeploy $id
+        F deploy $id | Out-Null
+        Set-Content (Join-Path $script:GitBase 'destroy-fails') ''
+        try { F destroy $id | Out-Null } finally { Remove-Item (Join-Path $script:GitBase 'destroy-fails') }
+        $LASTEXITCODE | Should -Not -Be 0
+        (Events | Where-Object { $_.kind -eq 'destroy' -and $_.job -eq $id }).detail |
+            Should -Be 'failed: destroy run ended errored: Error: deleting Resource Group "rg-x": the Resource Group still contains Resources.'
     }
 
     It 'destroy is a no-op for a job that never deployed' {
@@ -1718,4 +1802,35 @@ Describe 'lessons' {
     }
 }
 
+}
+
+Describe 'First-Error' {
+    BeforeAll {
+        . (Join-Path $PSScriptRoot '../scripts/deploy.ps1')
+        $e = [char]27
+        # GitHub prints a step's script in cyan before running it; J-019's attempt 3 flag quoted this echo.
+        $script:Echo = "2026-10-24T17:00:55.1988402Z $e[36;1m  echo `"::error::environment must be dev, staging or j<NNN>; got '`$TF_ENV'`"$e[0m"
+    }
+
+    It 'skips a step script echoed by GitHub and finds the Terraform diagnostic' {
+        $log = @(
+            $script:Echo
+            "2026-10-24T17:01:57.2015297Z $e[31m│$e[0m $e[0m$e[1m$e[31mError: $e[0m$e[0m$e[1munable to build authorizer for Resource Manager API: could not configure AzureCli Authorizer$e[0m"
+            '2026-10-24T17:02:07.3340748Z ##[error]Process completed with exit code 1.'
+        ) -join "`n"
+        First-Error $log | Should -Be 'Error: unable to build authorizer for Resource Manager API: could not configure AzureCli Authorizer'
+    }
+
+    It 'takes an action''s ##[error] line, without its timestamp and marker' {
+        $log = @(
+            $script:Echo
+            "2026-10-24T13:24:01.9992159Z ##[error]AADSTS700213: No matching federated identity record found for presented assertion subject 'repo:o@1/n@2:environment:preview'."
+            '2026-10-24T13:24:02.1060520Z ##[error]Login failed with Error: The process ''/usr/bin/az'' failed with exit code 1.'
+        ) -join "`n"
+        First-Error $log | Should -Be "AADSTS700213: No matching federated identity record found for presented assertion subject 'repo:o@1/n@2:environment:preview'."
+    }
+
+    It 'falls back to the generic exit line when nothing better is there' {
+        First-Error "deploy`n2026-10-24T17:02:07.3340748Z ##[error]Process completed with exit code 1." | Should -Be 'Process completed with exit code 1.'
+    }
 }

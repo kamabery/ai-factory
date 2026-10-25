@@ -114,6 +114,13 @@ function Invoke-HcpDestroy([string] $workspaceId, [int] $pollSeconds, [datetime]
     $run.attributes.status
 }
 
+# The Azure variable set's variables as { key, value, category, sensitive }; a sensitive value is null.
+function Get-HcpVarsetVars {
+    $c = HcpConfig
+    if (-not $c.varset) { return @() }
+    @((Invoke-Hcp GET "/varsets/$($c.varset)/relationships/vars").data | ForEach-Object { $_.attributes })
+}
+
 function Remove-HcpWorkspace([string] $workspaceId) {
     Invoke-Hcp POST "/workspaces/$workspaceId/actions/safe-delete" | Out-Null
 }

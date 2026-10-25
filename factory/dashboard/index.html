@@ -190,6 +190,11 @@
   #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 6px; max-width: min(90vw, 640px); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 20; }
   #toast.show { opacity: 1; }
   #toast.error { background: var(--warn); color: #fff; }
+  #canary { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 8px 16px; font-size: 13px; background: var(--warn-soft); color: var(--warn); border-bottom: 1px solid var(--border); }
+  #canary[hidden] { display: none; }
+  #canary.running { background: var(--run-soft); color: var(--run); }
+  #canary .why { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  #canary code { font-size: 12px; }
   @media (max-width: 700px) {
     #board { grid-template-columns: repeat(6, 78vw); }
     .split, .art, #evals, #lessons, .breakdown { grid-template-columns: 1fr; height: auto; }
@@ -205,6 +210,7 @@
   <button id="theme" type="button" title="Toggle theme">◐</button>
 </header>
 
+<div id="canary" role="status" hidden></div>
 <nav id="pipeline" aria-label="Pipeline"></nav>
 <main id="board"></main>
 <main id="evals" hidden><div class="eval-list"></div><div class="eval-body md" data-eval-body></div></main>
@@ -272,8 +278,31 @@ async function getText(url) {
   const r = await fetch(url, { cache: 'no-store' });
   return r.ok ? r.text() : '';
 }
+// The deploy canary (see "Canary" in the contract): a banner while one runs, or after one failed,
+// because deployable jobs wait in Approved until it passes.
+function renderCanary(text) {
+  const el = $('#canary');
+  let c = null; try { c = text ? JSON.parse(text) : null; } catch { c = null; }
+  if (text === state.canaryText) return;
+  state.canaryText = text;
+  if (!c || (c.status !== 'failed' && c.status !== 'running')) { el.hidden = true; el.innerHTML = ''; return; }
+  el.hidden = false;
+  el.className = c.status === 'running' ? 'running' : '';
+  el.innerHTML = c.status === 'running'
+    ? `<span class="why">Deploy canary running (since ${esc(new Date(c.startedAt).toLocaleTimeString())}): deployable jobs wait for it.</span>`
+    : `<span class="why"><strong>Deployable jobs are waiting:</strong> the deploy canary failed. <code>${esc(c.error)}</code></span>
+       <a data-canary-log href="/state/${esc(c.log)}" target="_blank" rel="noopener">Log</a>
+       <button type="button" data-run-canary>Run canary</button>`;
+  $('[data-run-canary]', el)?.addEventListener('click', async (e) => {
+    e.currentTarget.disabled = true;
+    const r = await api('POST', '/api/canary', {});
+    toast(r.message, !r.ok);
+  });
+}
+
 async function poll() {
   try {
+    renderCanary(await getText('/state/canary.json'));
     const [b, e, ss] = await Promise.all([getText('/state/board.json'), getText('/state/events.jsonl'), state.config.enabled ? getText('/api/sessions') : '']);
     if (state.open?.kind === 'session') refreshSession();
     if (b === state.boardText && e === state.eventsText && ss === state.sessionsText) { if (state.open && state.tab === 'output') refreshOutput(); return; }
@@ -360,14 +389,20 @@ function jobCard(j) {
     <div class="title">${esc(j.title)}</div>${repo}
     <div class="meta">${kind}${provider}${pr}${sub}${flag}${reviews}${cost}</div>${previewBar(j)}</div>`;
 }
+// The preview's state (up, or expired once its auto-destroy time has passed) and where to open it.
+function preview(j) {
+  const d = j.deploy;
+  const expired = d.status === 'up' && d.destroyAt && Date.parse(d.destroyAt) < Date.now();
+  const status = expired ? 'expired' : d.status;
+  const url = d.urls?.frontend ?? (d.urls?.api ? `${d.urls.api}/openapi/v1.json` : null);
+  return { status, url, live: status === 'up' };
+}
+
 // The job's ephemeral preview: its state, and Launch / QA login / Tear down while it is up.
 function previewBar(j) {
   const d = j.deploy;
   if (!d || !d.status) return '';
-  const expired = d.status === 'up' && d.destroyAt && Date.parse(d.destroyAt) < Date.now();
-  const status = expired ? 'expired' : d.status;
-  const url = d.urls?.frontend ?? (d.urls?.api ? `${d.urls.api}/openapi/v1.json` : null);
-  const live = status === 'up';
+  const { status, url, live } = preview(j);
   const title = d.destroyAt ? ` title="auto-destroys ${esc(new Date(d.destroyAt).toLocaleString())}"` : '';
   return `<div class="meta" data-preview-bar><span class="chip preview ${esc(status)}" data-preview${title}>preview: ${esc(status)}</span>`
     + (live && url ? `<a class="chip action" data-launch href="${esc(url)}" target="_blank" rel="noopener" draggable="false">Launch</a>` : '')
@@ -552,7 +587,9 @@ function renderHead() {
     ${j.flag.why ? `<div class="md">${md(j.flag.why)}</div>` : `<div>${esc(j.flag.detail)}</div>`}</div>` : '';
   let actions = '';
   if (j.stage === 'backlog') actions = `<button class="primary" id="approve-btn">Approve</button><button class="danger" id="discard-btn">Discard</button>`;
-  if (j.stage === 'ready') actions = `${j.pr?.url ? `<a class="button" id="pr-btn" href="${esc(j.pr.url)}" target="_blank" rel="noopener">Open PR #${esc(j.pr.number)}</a>` : ''}<button class="primary" id="merge-btn">Merge (Done)</button><button class="danger" id="discard-btn">Discard</button>`;
+  const live = j.deploy?.status ? preview(j) : null;
+  const previewBtn = live?.live && live.url ? `<a class="button" id="preview-btn" href="${esc(live.url)}" target="_blank" rel="noopener">Open preview</a>` : '';
+  if (j.stage === 'ready') actions = `${previewBtn}${j.pr?.url ? `<a class="button" id="pr-btn" href="${esc(j.pr.url)}" target="_blank" rel="noopener">Open PR #${esc(j.pr.number)}</a>` : ''}<button class="primary" id="merge-btn">Merge (Done)</button><button class="danger" id="discard-btn">Discard</button>`;
   const gate = j.gate ? Object.entries(j.gate).filter(([k]) => k !== 'at' && k !== 'sha').map(([k, v]) => `${k}=${v}`).join(' ') + (j.gate.sha ? ` · ${j.gate.sha.slice(0, 7)}` : '') : '';
   const rework = j.stage === 'ready' ? `<div class="rework"><textarea id="rework-note" rows="2" placeholder="Rework: what should change? The note goes to the builder.">${esc(reworkDraft)}</textarea>
     <div class="actions"><button id="rework-btn">Rework</button></div></div>` : '';

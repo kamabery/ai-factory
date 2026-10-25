@@ -207,6 +207,20 @@ Describe 'serve.ps1 previews' {
         $q.Status | Should -Be 409
         $q.Body.message | Should -Match 'no live preview'
     }
+
+    It 'Run canary answers at once, and refuses while a live canary holds canary.lock' {
+        Start-Serve $script:EnvFile
+        $r = Api POST '/api/canary' @{}
+        $r.Status | Should -Be 200
+        $r.Body.ok | Should -BeTrue
+
+        Set-Content (Join-Path $script:State 'canary.lock') $PID
+        try {
+            $busy = Api POST '/api/canary' @{}
+            $busy.Status | Should -Be 409
+            $busy.Body.message | Should -Match 'already running'
+        } finally { Remove-Item (Join-Path $script:State 'canary.lock') -ErrorAction SilentlyContinue }
+    }
 }
 
 Describe 'serve.ps1 state files' {

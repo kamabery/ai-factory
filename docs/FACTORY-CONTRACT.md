@@ -23,13 +23,18 @@ No agent, skill or endpoint writes to `.factory-runs/board.json`. Every state ch
  (dashboard, or /factory:idea)                       │
         │ "not yet"                                  ↓
         └────→ Backlog ──human drag──→ Approved ──runner──→ Building ──→ Ready for review ──human drag──→ Done
-               (edit spec)             (FIFO queue)        build         (flag if the       (merge)
-                  │                         ↑              review ×4      factory gave up;
-                  └──discard                │              deploy         live preview,
-                                            │              approve        Launch / Tear down)
-                                            │              gate               ├──discard
+               (edit spec)             (FIFO queue)        build ←─┐     (flag if the       (merge)
+                  │                         ↑              review  │     factory gave up;
+                  └──discard                │              deploy ─┘     live preview,
+                                            │              approve  app  Launch / Tear down)
+                                            │              gate     fix       ├──discard
+                                            │              blocked ──retry deploy / rework / discard
                                             └────────── rework <note> ────────┘
 ```
+
+A **deployable** job (deploys on, not a bootstrap; see [Deploy](#deploy)) leaves Building for Ready
+for review only with a live preview of its branch head that passed the smoke check. When the factory
+cannot get it there, the job parks in Building as `blocked` instead (see [Blocked](#blocked)).
 
 Done and discarded cards stay until a human clears them ([Purge](#purge), the Done column's **Clear**).
 
@@ -40,12 +45,13 @@ Done and discarded cards stay until a human clears them ([Purge](#purge), the Do
 | Ideas | `idea` records with status `waiting`, `drafting` or `failed`, and open dashboard [idea sessions](#idea-sessions-dashboard) (not jobs) | the idea session |
 | Backlog | `backlog` | human (drag to Approved, or discard) |
 | Approved | `approved` | runner |
-| Building | `build`, `review`, `deploy`, `approve`, `gate` | orchestrator / script |
+| Building | `build`, `review`, `deploy`, `approve`, `gate`, `blocked` | orchestrator / script; a `blocked` card: human (retry deploy, rework, or discard) |
 | Ready for review | `ready` | human (drag to Done, rework, or discard) |
 | Done | `done` | nobody (terminal) |
 | (hidden) | `discarded` | nobody (terminal) |
 
-In Building, the card shows its sub-stage, its round and the reviewer chips. Only Backlog,
+In Building, the card shows its sub-stage, its round and the reviewer chips; a `blocked` card also
+shows its flag and the **Retry deploy**, **Rework** and **Discard** buttons. Only Backlog,
 Approved, Ready for review and Done accept drops.
 
 ## Targets
@@ -143,6 +149,10 @@ Idea sessions are not affected.
 - `add-spec` stamps `provider` from `FACTORY_PROVIDER` in `.env` (`subscription` when unset). Any
   other value is refused. `set-provider <id> <provider>` changes it while the job is in `backlog` or
   `approved`.
+- For a `subscription` job the runner sets an empty `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN`
+  for the `claude` child, and restores them afterwards. Either one, inherited from the human's
+  environment (a Windows user variable, say), would take precedence over the CLI's login and bill
+  API credits instead of the subscription.
 - For an `openrouter` job the runner reads `OPENROUTER_API_KEY` from `.env` into a local variable and
   sets, for the `claude` child only, `ANTHROPIC_BASE_URL=https://openrouter.ai/api`,
   `ANTHROPIC_AUTH_TOKEN=<key>` and an empty `ANTHROPIC_API_KEY`, plus any of
@@ -291,29 +301,53 @@ has merged), and closing the session deletes the clone.
 | approved | build | runner; no job is in `build`, `review`, `approve` or `gate`, and this is the oldest `approvedAt` | |
 | build | review | `round-<n>/build.md` exists | |
 | review | build | all 4 verdicts in, at least one `CHANGES`, round < 2; round += 1, reviews reset to `pending` | |
-| review | ready | at least one `CHANGES` at round ≥ 2 | `max-rounds` |
-| review | deploy | all 4 verdicts are `PASS`, deploys are on (see [Deploy](#deploy)), and the job is not a bootstrap | |
+| review | ready | at least one `CHANGES` at round ≥ 2, and the job is not deployable | `max-rounds` |
+| review | blocked | at least one `CHANGES` at round ≥ 2, and the job is deployable | `max-rounds` |
+| review | deploy | all 4 verdicts are `PASS`, and the job is deployable (see [Deploy](#deploy)) | |
 | review | approve | all 4 verdicts are `PASS`, and deploys are off or the job is a bootstrap (its `deploy.yml` reaches `main`, where GitHub looks for workflows, only when it merges); a `note` event says which | |
 | deploy | approve | `factory.ps1 deploy` on a bootstrap job (one that reached `deploy` before this rule): skips the preview, attempts aside, with a `note` | |
-| deploy | approve | `factory.ps1 deploy` saw the preview applied for the branch head, and only then; it makes the move | |
-| deploy | ready | the third failed `deploy`; the preview is left up for diagnosis | `deploy-failed` |
-| deploy | ready | GitHub refused a call because the GitHub PAT lacks a permission; the attempt is not counted, and the detail names the permission | `github-permission` |
-| ready | approved | human `redeploy <id>`, when the flag is `github-permission` (the human has added the permission), or the job reached ready from `deploy` flagged `deploy-failed` or `escalated` (the human judged the failure was the environment or the factory, not the change, and fixed it). Sets `resume: "deploy"` and `approvedAt`; round and attempts are unchanged, and the third failure still ends in `deploy-failed` | |
+| deploy | approve | `factory.ps1 deploy` saw the preview applied for the branch head and its smoke check pass, and only then; it makes the move | |
+| deploy | build | `factory.ps1 deploy-fix <id> -File <diagnosis>`: the last attempt failed, the devops agent judged the change at fault, and `deployFixes` < 2. Writes `jobs/<id>/deploy-fix-<n>.md` for the new round n, round += 1, `deployFixes` += 1, reviews reset to `pending`, `deploy.attempts` back to 0 | |
+| deploy | blocked | `deploy-fix` when `deployFixes` is already 2 | `deploy-fix-rounds` |
+| deploy | blocked | the fifth failed `deploy` of the round; the preview is left up for diagnosis | `deploy-failed` |
+| deploy | blocked | `factory.ps1 block <id> -Detail <line>`: the last attempt failed and the devops agent judged the environment or the factory at fault (a credential, a quota, a factory bug), not the change | `environment` |
+| deploy | blocked | GitHub refused a call because the GitHub PAT lacks a permission; the attempt is not counted, and the detail names the permission | `github-permission` |
+| blocked | approved | human `redeploy <id>`, when the job was blocked from `deploy` (the human fixed the cause). Sets `resume: "deploy"` and `approvedAt`, and `deploy.attempts` back to 0; round and `deployFixes` are unchanged | |
+| blocked | approved | human `rework <id> <note>`, as from `ready` | |
+| blocked | discarded | human `discard <id>`, as from `ready` | |
+| ready | approved | human `redeploy <id>`, for a job that reached `ready` from `deploy` before `blocked` existed (flag `github-permission`, `deploy-failed` or `escalated`). Sets `resume: "deploy"` and `approvedAt`, and `deploy.attempts` back to 0 | |
 | approved | deploy | runner; the job has `resume: "deploy"` and is next in the queue (as for `build`). Clears `resume`; `/factory run` then starts at its deploy step | |
 | approve | gate | `decision.md` first line is `Decision: APPROVE` | |
 | approve | ready | `Decision: ESCALATE` | `escalated` |
 | gate | ready | every gate command exited 0 (no flag), or any one did not. Run by the orchestrator, or by the runner when claude ended with the job in `gate` | `gate-failed` |
-| build / review / deploy / approve | ready | the orchestrator gives up, or the runner's `claude` process ends with the job still here | `escalated` |
+| build / review / deploy | blocked | the job is deployable, and the orchestrator gives up or the runner's `claude` process ends with the job still here | `escalated` |
+| build / review / deploy / approve | ready | the job is not deployable (or is in `approve`, so its preview is up), and the orchestrator gives up or the runner's `claude` process ends with the job still here | `escalated` |
 | ready | done | human `merge`, or `sync-prs` after the human merged the PR on GitHub; see [Gate and merge](#gate-and-merge). Merges the PR (or records the GitHub merge) and deletes the work directory. A bootstrap job's merge moves its idea `waiting` → `drafting` and prints `released <ideaId>` | |
 | ready | ready | human `merge` refused: nothing to merge, uncommitted changes in the work directory, PR not mergeable / red gate | `merge-blocked` / `gate-failed` |
-| ready | approved | human `rework <id> <note>`; writes `jobs/<id>/rework-<n>.md`, round += 1, sets `approvedAt` | |
+| ready | approved | human `rework <id> <note>`; writes `jobs/<id>/rework-<n>.md`, round += 1, `deployFixes` back to 0, sets `approvedAt` | |
 | ready | discarded | human; closes the PR, deletes branch `factory/<id>` on GitHub and the work directory | |
 
-`done` and `discarded` are terminal. `flag` is cleared on every move out of `ready`.
+`done` and `discarded` are terminal. `flag` is cleared on every move out of `ready` or `blocked`.
 
 `merge` (and `sync-prs`), `discard` and `rework` also tear down the job's preview when it has one
 that is not `down`: they start `factory.ps1 destroy <id>` detached and do not wait for it. A failed
 destroy is a `note` event, never a failed move, and HCP's auto-destroy timer is the backstop.
+
+### Blocked
+
+`blocked` is where a deployable job waits for a human when the factory cannot get it deployed. It
+stays in the Building column, so Ready for review means "there is a live preview to look at". It is
+not counted as building: the runner takes the next Approved job while a job is blocked, and the
+blocked job keeps its work directory, its PR (the runner publishes it) and its preview, which HCP's
+auto-destroy timer removes after 24 hours. Its flag is one of `max-rounds`, `deploy-fix-rounds`,
+`deploy-failed`, `environment`, `github-permission` or `escalated`.
+
+The human has three ways out:
+
+- **Retry deploy** (`redeploy`), once the cause is fixed. Only for a job blocked from `deploy`; one
+  blocked from `build` or `review` never had a passing round to deploy.
+- **Rework** with a note: a new round, as from Ready for review.
+- **Discard**: closes the PR, deletes the branch and the work directory, and tears the preview down.
 
 ### Evaluations
 
@@ -385,8 +419,8 @@ say - no flag and no gaps - it writes nothing and prints `no lessons`. With `-Fi
 evaluation session) it appends that file's text under `## From the evaluation`. Either way it appends a
 `lesson` event whose `detail` is the number of template gaps.
 
-The runner calls `factory.ps1 lesson <id>` after every pass that leaves the job in `ready`, beside
-`publish`; a failure is logged and changes nothing.
+The runner calls `factory.ps1 lesson <id>` after every pass that leaves the job in `ready` or
+`blocked`, beside `publish`; a failure is logged and changes nothing.
 
 ```json
 { "job": "J-012", "title": "...", "target": "kamabery/todo-app", "flag": "deploy-failed" | null,
@@ -406,6 +440,9 @@ session. A human marks one `applied` once the fix has merged. `purge` never touc
   board.json
   events.jsonl
   runner.lock                  held while runner.ps1 is draining the queue
+  canary.lock                  held while a canary runs
+  canary.json                  the last canary's result and fingerprint (see Canary)
+  canary-<n>.log               canary run n's log
   headless-settings.json       written by runner.ps1 for each claude -p run (see Runner)
   sessions/<S-NNN>/            a dashboard idea session (see Idea sessions)
     session.json  chat.json  stream.jsonl  human.jsonl  turn.lock
@@ -416,6 +453,7 @@ session. A human marks one `applied` once the fix has merged. `purge` never touc
   jobs/<id>/
     spec.md                    copied from the idea, then edited by the human in Backlog
     rework-<n>.md              the human's rework note for round n
+    deploy-fix-<n>.md          the devops agent's diagnosis of a failed deploy, the builder's input for round n
     round-<n>/
       build.md
       review-security.md  review-code.md  review-ux.md  review-ui.md
@@ -432,6 +470,7 @@ session. A human marks one `applied` once the fix has merged. `purge` never touc
 
 <work>\                       $env:FACTORY_WORK, else <system temp>\claude-factory
   jobs\<id>\                   the job's clone of its target, on factory/<id>; deleted at done / discarded
+  canary\                      the canary's scaffold, deleted when the run ends
   sessions\<S>\                a dashboard idea session's shallow clone of its target
   cli\<owner>-<name>\          idea.ps1's shallow clone of its target
 
@@ -486,7 +525,9 @@ those lines and nothing else; if one is missing or malformed, the script treats 
 - `gate` is `null` until the gate runs, then `{ "build": 0, "test": 0, "ui": 0, "sha": "<branch head>", "at": "..." }`
   (process exit codes).
 - `flag` is `null` or `{ "reason": "<code from the table>", "detail": "<one line>" }`. Only a
-  `ready` job carries one. When the approver escalates, `read-decision` copies the decision's
+  `ready` or `blocked` job carries one.
+- `deployFixes` is the number of rounds started by `deploy-fix` since the last rework, 0..2; absent
+  means 0. When the approver escalates, `read-decision` copies the decision's
   `## Escalation reason` section into the flag: its first line is `detail`, and the whole section
   is `why` (markdown). An empty or `N/A` section leaves `detail` as `approver escalated; see
   decision.md` and no `why`. The job modal shows what the reason code means, then `detail`, then `why`.
@@ -496,7 +537,7 @@ those lines and nothing else; if one is missing or malformed, the script treats 
 - `resume` is absent (or `null`) except on an Approved job queued by `redeploy`, where it is `"deploy"`:
   the runner moves that job to `deploy` instead of `build`, and clears it.
 - `deploy` is `null` (or absent) until the first `deploy`, then
-  `{ "env": "j001", "workspace": "<repo>-j001", "workspaceId": "ws-...", "status": "applying|up|failed|destroying|down", "attempts": 1, "sha": "<deployed head>", "run": "<GitHub run url>", "urls": { "frontend": "...", "api": "..." }, "appliedAt": "...", "destroyAt": "..." }`.
+  `{ "env": "j001", "workspace": "<repo>-j001", "workspaceId": "ws-...", "status": "applying|up|failed|destroying|down", "attempts": 1, "sha": "<deployed head>", "run": "<GitHub run url>", "urls": { "frontend": "...", "api": "...", "health": "..." }, "appliedAt": "...", "destroyAt": "..." }`.
   `urls.frontend` is null for an API-only target. `destroyAt` is HCP's auto-destroy time; after it
   the dashboard treats the preview as gone whatever `status` says. `destroy` and `qa-login` use
   `workspaceId`, so they need `HCP_TOKEN` but not `HCP_ORG`: a dashboard can tear down and log in to
@@ -523,7 +564,8 @@ now" pulses from this file.
 {"ts":"2026-10-12T14:08:00Z","job":"J-001","kind":"cost","costUsd":1.84,"durationMs":412000,"provider":"subscription"}
 ```
 
-`kind` is one of `idea | stage | agent-start | agent-stop | gate | merge | cost | note | eval | feedback | deploy | destroy | lesson`.
+`kind` is one of `idea | stage | agent-start | agent-stop | gate | merge | cost | note | eval | feedback | deploy | destroy | lesson | canary`.
+A `canary` event has no `job`; its `detail` is `pass` or `failed: <first error line>`.
 A `deploy` event's `detail` is `up <frontend or api url>` or `failed (attempt <a>): <first error line>`; a
 `destroy` event's is `down` or `failed: <message>`. Spec-writer
 agent events carry `"idea"` instead of `"job"`. `agent` is the plain agent name (the hook strips the
@@ -545,12 +587,13 @@ stderr and leaves the board unchanged.
 | `list-repos` (prints a JSON array of the token user's own repos, `owner/name`, newest push first, at most 100) | serve.ps1 (New idea) |
 | `edit-spec <id> -File <path>` (backlog only) · `set-provider <id> <subscription\|openrouter>` (backlog or approved) | serve.ps1 |
 | `approve <id>` | `/factory:idea` (on the human's yes), serve.ps1 (human drag) |
-| `rework <id> <note>` · `discard <id>` · `merge <id>` · `purge` | serve.ps1 (human drags and **Clear**) |
+| `rework <id> <note>` · `discard <id>` (both from `ready` or `blocked`) · `merge <id>` · `purge` | serve.ps1 (human drags, the blocked card's buttons, and **Clear**) |
 | `sync-prs` (moves each `ready` job whose PR was merged on GitHub to `done`; prints their ids) | serve.ps1 (PR sync) |
-| `next` (prints the next runnable approved id, or nothing) · `checkout <id>` (creates the GitHub repo if needed, then clones or reuses `<work>\jobs\<id>` on `factory/<id>`; prints the work directory) · `publish <id>` (`ready` only: pushes `factory/<id>` and opens the job's PR if it has none; prints the PR url) · `set-cost <id> <usd> <ms>` | runner.ps1 |
+| `next` (prints the next runnable approved id, or nothing; a deployable job is runnable only after a canary pass for the current fingerprint, and `next -NeedsCanary` prints `canary` when that is all that holds it back) · `checkout <id>` (creates the GitHub repo if needed, then clones or reuses `<work>\jobs\<id>` on `factory/<id>`; prints the work directory) · `publish <id>` (`ready` or `blocked`: pushes `factory/<id>` and opens the job's PR if it has none; prints the PR url) · `set-cost <id> <usd> <ms>` | runner.ps1 |
 | `set-stage <id> <to> [-By] [-Reason] [-Detail]` · `set-review <id> <role> <state>` · `read-reviews <id>` · `read-decision <id>` · `gate <id>` | `/factory run` |
-| `deploy <id>` (deploy only) · `deploy-log <id>` (prints the last failed attempt's log) | `/factory run`, the devops agent |
-| `redeploy <id>` (`ready` flagged `github-permission`, or come from `deploy` flagged `deploy-failed`/`escalated`: back to Approved with `resume: deploy` once the cause is fixed; the runner resumes it at deploy) | a human |
+| `deploy <id>` (deploy only) · `deploy-log <id>` (prints the last failed attempt's log) · `deploy-fix <id> -File <diagnosis>` · `block <id> -Detail <line>` (both deploy only, after a failed attempt) | `/factory run`, the devops agent |
+| `redeploy <id>` (`blocked` from `deploy`, or `ready` from `deploy` before `blocked` existed: back to Approved with `resume: deploy` and a fresh attempt budget once the cause is fixed; the runner resumes it at deploy) | serve.ps1 (**Retry deploy**), a human |
+| `canary [-Force]` (see [Canary](#canary)) | runner.ps1 (before a deployable job), serve.ps1 (**Run canary**), a human |
 | `destroy <id>` (any stage; a no-op without a preview) · `qa-login <id>` (prints the preview's QA user and password) | serve.ps1 (**Tear down**, **QA login**), and `merge`/`discard`/`rework` |
 | `event <json \| -Job -Idea -Kind -Agent>` | hook-event.ps1 |
 | `eval <id> -File <path>` | a human session evaluating a finished job (see [Evaluations](#evaluations)) |
@@ -560,7 +603,8 @@ stderr and leaves the board unchanged.
 
 `read-reviews` and `read-decision` exit 2 when a verdict line is missing or malformed; the job
 does not move. `set-stage` only performs `approved → build`, `build → review` and
-`Building → ready -Reason escalated`; every other transition has its own command.
+`Building → ready -Reason escalated`, which it turns into `→ blocked` for a deployable job outside
+`approve` and `gate`; every other transition has its own command.
 
 Overrides, for tests: `$env:FACTORY_GATE_CMDS` (JSON `[{ "name", "cmd" }]`; wins over the spec's
 `## Gate`, so tests can use `exit 0` / `exit 1`), `$env:FACTORY_WORK` (the work root),
@@ -574,19 +618,20 @@ script run with `pwsh -File` in place of `gh` / `az`), `$env:FACTORY_DEPLOY_POLL
 | Agent | Model | Reads | Writes |
 | --- | --- | --- | --- |
 | spec-writer | opus | idea.md, brief.md, the target repo | ideas/<id>/spec-1.md .. spec-N.md (N ≤ 5) |
-| builder | opus | spec.md, previous round's reviews, rework note | source on the job branch, round-n/build.md |
+| builder | opus | spec.md, previous round's reviews, rework note, deploy-fix diagnosis | source on the job branch, round-n/build.md |
 | security-reviewer | opus | spec.md, the diff, build.md | round-n/review-security.md |
 | code-reviewer | sonnet | same | round-n/review-code.md |
 | ux-reviewer | sonnet | same | round-n/review-ux.md |
 | ui-reviewer | sonnet | same + the target's docs/DESIGN.md, if any | round-n/review-ui.md |
-| devops | sonnet | spec.md, the diff, build.md, `deploy-<a>.log`; loads the template workspace's `aspire-starter:deploy-app` skill | `IaC/` and `.github/workflows/` on the job branch, round-n/deploy.md |
+| devops | sonnet | spec.md, the diff, build.md, `deploy-<a>.log`; loads the template workspace's `aspire-starter:deploy-app` skill | `IaC/` and `.github/workflows/` on the job branch, round-n/deploy.md, round-n/deploy-fix.md (the diagnosis it hands `deploy-fix`) |
 | approver | opus | spec.md, every build.md, review and deploy.md in the job; smoke-tests the preview | decision.md |
 
 Every agent works in the job's work directory and follows the target's `CLAUDE.md`, if it has one.
 The devops agent runs twice per round: after the builder (author: `aspire-addon infra adopt` /
 `infra check`, so the reviewers see the infrastructure the round needs), and in `deploy` (operate:
-`factory.ps1 deploy`, and on a failure `deploy-log`, a fix, a commit and `deploy` again). It edits
-the target's `IaC/` and workflows, never this repo's.
+`factory.ps1 deploy`, and on a failure `deploy-log` and a diagnosis; see [Deploy](#deploy)). It edits
+the target's `IaC/` and workflows, never this repo's, and never the app's source: a fault in the app
+goes back to the builder.
 Reviewers inspect the diff (`git diff main...HEAD`) and re-run the spec's Gate commands themselves.
 They treat `build.md`'s claims as claims, not as evidence.
 
@@ -642,7 +687,8 @@ and the human QAs it from Ready for review. Production is never deployed: the ta
 
 **On or off.** Deploys are on when `.env` has `HCP_ORG`. Off, `read-reviews` moves an all-PASS job
 straight to `approve` and appends a `note` event "deploy skipped: no HCP_ORG in .env". On, every job
-deploys; a target without HCP-ready infrastructure gets it from the devops agent's author pass.
+deploys; a target without HCP-ready infrastructure gets it from the devops agent's author pass. A
+job is **deployable** when deploys are on and it is not a bootstrap.
 
 **Settings** (`.env`, read like `GITHUB_TOKEN`: into a local variable, never into the environment of
 anything but the one child process that needs it, never logged):
@@ -660,41 +706,127 @@ anything but the one child process that needs it, never logged):
 
 0. A bootstrap job never deploys: GitHub dispatches only workflows on the default branch, and the
    bootstrap is what puts `deploy.yml` there. `deploy` moves it to `approve` with a `note`, whatever
-   its attempts, and does nothing else. Its first feature job is the first preview.
-1. Refuses when `deploy.attempts` is already 3. Increments `attempts`, sets `status: applying`.
+   its attempts, and does nothing else, except that a `deploy` record left by earlier attempts is
+   set to `status: down` (no preview), so the card stops showing a stale failure. Its first feature
+   job is the first preview.
+1. Refuses when `deploy.attempts` is already 5. Increments `attempts`, sets `status: applying`.
+   When `status` is already `applying`, the last attempt's process died before recording a result
+   (the caller's shell timed out; a full apply takes about an hour), and this call **resumes that
+   attempt**: no refusal, no increment.
 2. Pushes `factory/<id>` (as `publish` does, without the PR).
 3. GitHub, first, so a missing permission fails before anything is created in HCP: ensures the
    environment `preview`, its variables `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
    `AZURE_SUBSCRIPTION_ID`, the repo variable `TF_CLOUD_ORGANIZATION`, and the secret
    `TF_API_TOKEN` (`gh secret set`, the GitHub PAT in `gh`'s environment only, the value on stdin).
-   Azure: ensures the federated credential `repo:<owner>/<name>:environment:preview` on
-   `AZURE_GH_CLIENT_ID` (`az ad app federated-credential`, under the human's own `az login`).
+   Azure: ensures the federated credential `preview-<owner>-<name>` on `AZURE_GH_CLIENT_ID`
+   (`az ad app federated-credential`, under the human's own `az login`) for the subject GitHub
+   presents: `<prefix>:environment:preview`, where `<prefix>` is the repo's `sub_claim_prefix` from
+   `GET /repos/<t>/actions/oidc/customization/sub` when it has `use_immutable_subject` (the
+   default for new repos: `repo:<owner>@<id>/<name>@<id>`), else `repo:<owner>/<name>`. A
+   credential of that name with another subject is updated in place.
 4. HCP: ensures the project (`<repo name>`), attaches `HCP_AZURE_VARSET` to it, ensures the
    workspaces `<repo>-dev` and `<repo>-staging` (idle - "ready to deploy once Done"), and ensures
    `<repo>-j<NNN>` with `auto-destroy-at` 24 hours ahead.
 5. Dispatches `.github/workflows/deploy.yml` on `factory/<id>` with `environment = j<NNN>`, finds
-   that run, and polls it until it completes or the timeout passes.
-6. Success: reads the workspace's outputs - `react_url` or `blazor_web_url` as `urls.frontend`,
-   `api_url` as `urls.api` - records `status: up`, the head `sha`, `appliedAt`, `destroyAt`, appends a
-   `deploy` event, **moves the job to `approve`**, and prints the urls.
-7. Failure: writes `deploy-<a>.log` (the failed GitHub jobs' logs, then the workspace's latest HCP
-   run's plan and apply logs), records `status: failed`, appends a `deploy` event, and exits 1 - or,
-   when that was attempt 3, moves the job to `ready` with flag `deploy-failed`. The preview is left
-   up either way, for diagnosis.
+   that run, and polls it until it completes or the timeout passes. A run on that branch for the
+   same head sha that has not completed is polled instead, and nothing is dispatched.
+6. Applied: reads the workspace's outputs - `react_url` or `blazor_web_url` as `urls.frontend`,
+   `api_url` as `urls.api`, and as `urls.health` the address a browser reaches `/health` by:
+   `<react_url>/api/health` when there is a React front end, else `<api_url>/health`. React's Static
+   Web App links the API as its backend, which puts the API behind the Static Web App's own auth, so
+   `<api_url>` itself answers 401 to anything else.
+7. Smoke: `GET <urls.health>` and, when there is one, `GET <urls.frontend>` must both answer
+   200. A freshly started container can take a while, so each is retried every 10 seconds for up to
+   `$env:FACTORY_SMOKE_SECONDS` (default 300). A probe that never answers 200 is a failed attempt,
+   and `deploy-<a>.log` ends with a `## Smoke` section: each url, its last status, how long it took,
+   its `Server` header and the start of its body. (The templates map `/health` in every environment,
+   not only in Development, and serve every route with and without the `/api` prefix.)
+8. Success: records `status: up`, the head `sha`, `appliedAt`, `destroyAt`, appends a `deploy`
+   event, **moves the job to `approve`**, and prints the urls.
+9. Failure: writes `deploy-<a>.log` (the failed GitHub jobs' logs, then the workspace's latest HCP
+   run's plan and apply logs, then the smoke results if it got that far), records `status: failed`,
+   appends a `deploy` event, and exits 1 - or, when that was attempt 5, moves the job to `blocked`
+   with flag `deploy-failed`. The preview is left up either way, for diagnosis.
+
+**The deploy loop.** After every failed attempt the devops agent reads `deploy-log` and diagnoses
+the first real error as one of three, and acts:
+
+| Diagnosis | Examples | Action |
+| --- | --- | --- |
+| infrastructure | Terraform, the workflow, a module input, an image build step | fix `IaC/` or `.github/workflows/`, commit, `deploy` again |
+| the change | a migration that fails, an API that crashes on start, a `/health` that is not 200 | write `round-<n>/deploy-fix.md` (the error, the evidence, what the builder should change) and `deploy-fix <id> -File` it. The job goes back to `build` as a new round, and that round is built, fully reviewed and deployed again |
+| the environment | a federated credential, a quota, a region outage, a factory bug | `block <id> -Detail "<one line>"`. No agent can fix these; a human fixes the cause and retries |
+
+`deploy-fix` and `block` are refused unless the job is in `deploy` and its last attempt failed, so
+an agent cannot skip the deploy. A deploy-fix round is like a rework round: one build and one review
+pass, and a `CHANGES` verdict then blocks the job `max-rounds`.
 
 **A missing GitHub PAT permission is not a failed attempt.** When GitHub answers 403 with an
 `X-Accepted-GitHub-Permissions` header (or `gh` reports HTTP 403 setting the secret, which needs
 `secrets=write`), the error reads `the GitHub PAT needs <permission>`. `deploy` then gives the
-attempt back, writes `deploy-<a>.log` as usual, and moves the job to `ready` with flag
+attempt back, writes `deploy-<a>.log` as usual, and moves the job to `blocked` with flag
 `github-permission` and that sentence as the detail. No agent can widen the PAT: a human adds the
-permission (GitHub requires their 2FA for it) and runs `redeploy <id>`, which queues the job in
-Approved to resume at `deploy`. The factory never grants itself permissions.
+permission (GitHub requires their 2FA for it) and clicks **Retry deploy** (`redeploy <id>`), which
+queues the job in Approved to resume at `deploy`. The factory never grants itself permissions.
 
-A rework starts a new round with `attempts` back at 0 (the old preview is torn down by `rework`).
+Every new round starts with `attempts` back at 0. A rework tears the old preview down; a deploy-fix
+round leaves it, and the next `deploy` applies over it.
 
 **`factory.ps1 destroy <id>`** queues a destroy run on the workspace (auto-applied), waits for it,
 safe-deletes the workspace, and records `status: down` and a `destroy` event. Without a `deploy`, or
 when it is already `down`, it does nothing. It never moves the job.
+
+### Canary
+
+The deploy path is tested against stubs, and stubs encode our assumptions about GitHub, Azure and
+HCP. The **canary** tests the real thing: it deploys a fresh scaffold of the current templates
+end to end, then tears it down. Deployable jobs wait until a canary has passed for the current
+inputs. (J-019 used up all three of its attempts on three bugs - an OIDC subject format, a
+credential that already existed, provider auth in the template - and a canary would have found each
+one before any real job paid for it.)
+
+**Settings** (`.env`): `FACTORY_CANARY_REPO` (`owner/name`; default `<GITHUB_OWNER>/factory-canary`)
+and `FACTORY_CANARY_SCAFFOLD` (scaffold options as in [Targets](#targets); default
+`{"name":"canary","resource":"Item","db":"postgres","ui":"react","events":false}`).
+
+**Fingerprint.** A SHA-256 over what the deploy path depends on: `deploy.ps1`, `hcp.ps1` and
+`github.ps1`; the template workspace's `IaC/` and `base-project/.github/workflows/deploy.yml`; the
+template pack as built (`artifacts/nupkg/*.nupkg`, which is what gets installed); the canary's own
+settings; and
+the HCP variable set's variables (key, category, and the value unless it is sensitive). A changed
+sensitive value does not change the fingerprint; rotate one and run the canary by hand.
+
+**`factory.ps1 canary [-Force]`** - one run at a time (`canary.lock`, as `runner.lock`):
+
+1. Computes the fingerprint. Without `-Force`, when `canary.json` already records a pass for it,
+   prints `canary: up to date` and exits 0.
+2. Scaffolds into `<work>\canary` (emptied first): `dotnet new aspire-base -n <name> -o .
+   --dbProvider <db> --resource <resource>`, then `aspire-addon add ui-<ui>` (and `add auth` when
+   the options say so) - the commands a bootstrap job runs, with no agent.
+3. Creates the repo if it is missing (private, as `checkout` does) and force-pushes the scaffold to
+   its `main`, where GitHub looks for `deploy.yml`.
+4. Deploys it as environment `j000` (workspace `<repo name>-j000`) through the same steps as
+   `deploy` 3-7 - GitHub and Azure preparation, HCP, dispatch, outputs, smoke check - with the
+   dispatch on `main`.
+5. Destroys it as `destroy` does, pass or fail, then confirms the workspace is gone. A canary that
+   cannot be torn down has failed: discarding a job relies on the same teardown.
+6. Writes `canary.json` and `canary-<n>.log` (the same sections as `deploy-<a>.log`, plus
+   `## Destroy`), appends a `canary` event (`pass` or `failed: <first error line>`), and exits 0 on
+   a pass, 1 otherwise. The work directory is deleted either way.
+
+```json
+{ "fingerprint": "sha256:...", "status": "running" | "pass" | "failed", "error": null | "<first error line>",
+  "repo": "kamabery/factory-canary", "sha": "<scaffold commit>", "urls": { "frontend": "...", "api": "...", "health": "..." },
+  "log": "canary-3.log", "startedAt": "...", "finishedAt": "...", "n": 3 }
+```
+
+**The gate.** `next` does not return a deployable job unless `canary.json` records a pass for the
+current fingerprint. When it does not, the runner runs `canary` itself (logging `canary pass` or
+`canary failed: <error>`) before taking that job. On a failure, deployable jobs stay in Approved and
+the runner takes only jobs that are not deployable (bootstraps); the dashboard shows a banner with
+the error and **Run canary**. A failed canary is not retried automatically, because each run costs
+real Azure time; the human fixes the cause and clicks **Run canary** (`canary -Force`), and the
+watchdog starts the runner once it passes.
 
 **`factory.ps1 qa-login <id>`** prints `qa_user` and `qa_password` from the workspace's outputs (the
 auth add-on's), or refuses when the preview has none. Only the dashboard calls it, for the human.
@@ -714,9 +846,11 @@ and a refused move snaps the card back and shows the message.
 | `PUT /api/jobs/<id>/spec` (text/markdown) | `edit-spec` | |
 | `POST /api/jobs/<id>/provider` `{ "provider": "openrouter" }` | `set-provider` | the card's provider chip (backlog and approved) toggles it |
 | `POST /api/jobs/<id>/move` `{ "to": "approved" }` from backlog | `approve` | starts the runner |
-| `POST /api/jobs/<id>/move` `{ "to": "approved", "note" }` from ready | `rework` | starts the runner |
+| `POST /api/jobs/<id>/move` `{ "to": "approved", "note" }` from ready or blocked | `rework` | starts the runner |
 | `POST /api/jobs/<id>/move` `{ "to": "done" }` | `merge` | |
 | `POST /api/jobs/<id>/move` `{ "to": "discarded" }` | `discard` | |
+| `POST /api/jobs/<id>/redeploy` | `redeploy` | **Retry deploy** on a blocked card; starts the runner |
+| `POST /api/canary` | `canary -Force`, started detached | **Run canary** on the canary banner; 409 while `canary.lock` is held. The banner reads `/state/canary.json` and shows the error and the log link |
 | `POST /api/purge` | `purge` | |
 | `POST /api/jobs/<id>/destroy` | `destroy`, started detached | **Tear down** on a card with a live preview; answers at once, the card shows `destroying` until the board says `down` |
 | `GET /api/jobs/<id>/qa-login` | `qa-login` | `{ ok, message }` with the user and password; the card's **QA login** shows it, never stores it |
@@ -760,7 +894,9 @@ empty text, so a thinking block shows only as a marker.
 `runner.lock` (an exclusive file create holding its PID). It takes over a lock whose PID is no
 longer running. Otherwise it loops:
 
-1. `factory.ps1 next`. If nothing comes back, it deletes the lock and exits.
+1. `factory.ps1 next -NeedsCanary`. If it prints `canary`, the runner runs `factory.ps1 canary` and
+   logs the outcome; after a pass it goes back to step 1, after a failure it takes only what plain
+   `next` returns. If nothing comes back, it deletes the lock and exits.
 2. It calls `factory.ps1 set-stage <id> build -By runner`, then `factory.ps1 checkout <id>`, which
    creates the GitHub repo if needed and clones or reuses `<work>\jobs\<id>` on `factory/<id>` (the
    pushed branch when the job is reworked, otherwise a new one from `origin/main`).
@@ -788,9 +924,12 @@ longer running. Otherwise it loops:
    with `total_cost_usd` and `duration_ms` from the final `"type":"result"` line. If the job is
    in `gate` afterwards, the approver has approved and only the gate is left, so the runner runs
    `factory.ps1 gate <id>` itself. A claude that dies at that point (out of credit, say) costs
-   nothing. If the job is still in Building after that, whether claude exited non-zero or not, it
-   moves the job to `ready` with flag `escalated`. That way the queue never stalls. Once the job is
-   in `ready`, it calls `factory.ps1 publish <id>`; a failed publish is logged (`publish <id>:
+   nothing. If the job is still in Building (and not `blocked`) after that, whether claude exited
+   non-zero or not, it escalates the job (`set-stage <id> ready -Reason escalated`, which lands a
+   deployable job outside `approve` and `gate` in `blocked`). That way the queue never stalls. When claude's
+   result line is an error (`is_error`), its text ends the flag detail (`claude exited with exit 1:
+   Credit balance is too low; see run-<n>.jsonl`), so the card says why. Once the job is
+   in `ready` or `blocked`, it calls `factory.ps1 publish <id>`; a failed publish is logged (`publish <id>:
    <message>`) and leaves the job as it is, since `merge` publishes again. Then it calls
    `factory.ps1 lesson <id>` ([Lessons](#lessons)); a failure there is logged the same way. The runner runs
    `checkout` and `publish` in a child `pwsh`, so it can read the refusal `factory.ps1` writes to stderr.

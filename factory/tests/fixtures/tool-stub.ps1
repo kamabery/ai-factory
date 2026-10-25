@@ -11,5 +11,6 @@ if ($env:FACTORY_TOOL_FAIL) {
     $pattern, $message = $env:FACTORY_TOOL_FAIL -split '\|', 2
     if (($Rest -join ' ') -match $pattern) { $message; exit 1 }
 }
-if ($Rest -contains 'list') { '[]' } else { '{}' }
+# $env:FACTORY_TOOL_LIST: the JSON a `list` answers instead of an empty array (what already exists).
+if ($Rest -contains 'list') { $env:FACTORY_TOOL_LIST ?? '[]' } else { '{}' }
 exit 0

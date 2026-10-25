@@ -16,6 +16,7 @@
   Deploys (see "Deploy" in docs/FACTORY-CONTRACT.md):
     POST /repos/o/n/actions/workflows/deploy.yml/dispatches · GET /repos/o/n/actions/runs[/<id>[/jobs]]
     GET /repos/o/n/actions/jobs/<id>/logs · PUT /repos/o/n/environments/<e>
+    GET /repos/o/n/actions/oidc/customization/sub (<owner>/<name>.oidc.json, else {use_default:true})
     POST|PATCH /repos/o/n/environments/<e>/variables[/<name>] · POST|PATCH /repos/o/n/actions/variables[/<name>]
   A write under /actions or /environments answers 403 with X-Accepted-GitHub-Permissions when
   <owner>/<name>.deny lists the permission it needs (a PAT missing it).
@@ -23,7 +24,10 @@
   the error), else `success`, which writes the workspace's outputs. HCP Terraform's API is served
   under /api/v2 from the same process, so the two agree: projects, varset attachment, workspaces,
   current-state-version-outputs, state-version-outputs, runs (a destroy run applies at once and
-  clears the outputs), plans and applies with a log-read-url under /hcp-log/, and safe-delete.
+  clears the outputs), plans and applies with a log-read-url under /hcp-log/, safe-delete, and a
+  variable set's variables (<GitBase>/varset-vars.json, else two fixed ones). A j000 preview (the
+  canary's) gets urls under /preview/<o>/<n>/j000/ that this stub serves: web/api/health answers 200
+  Healthy, or 503 while <owner>/<name>.unhealthy exists, api/health answers 401 and web 200.
 #>
 param(
     [Parameter(Mandatory)] [int] $Port,
@@ -105,6 +109,8 @@ function Dispatch-Run([string] $o, [string] $n, $body) {
     $conclusion = if ($fail.Code -eq 0) { 'failure' } else { 'success' }
     $s.runs["$id"] = [ordered]@{ id = $id; repo = "$o/$n"; head_branch = $body.ref; head_sha = $sha; event = 'workflow_dispatch'
         status = 'completed'; conclusion = $conclusion; environment = $envName; html_url = "https://github.test/$o/$n/actions/runs/$id" }
+    # <owner>/<name>.slow: the run stays in_progress until the file is gone (a real one takes ~60 minutes).
+    if (Test-Path (Join-Path $GitBase "$o/$n.slow")) { $s.runs["$id"].status = 'in_progress'; $s.runs["$id"].conclusion = $null; $s.runs["$id"].final = $conclusion }
     $ws = Ws-ByName $s "$n-$envName"
     if ($conclusion -eq 'failure') {
         $s.logs["job-$id"] = "deploy`nRun terraform apply`nError: $($fail.Out)`n##[error]Process completed with exit code 1."
@@ -117,9 +123,12 @@ function Dispatch-Run([string] $o, [string] $n, $body) {
         $rid = "run-$(Next-Id $s)"
         $s.hcpRuns[$rid] = [ordered]@{ id = $rid; ws = $ws.id; status = 'applied'; isDestroy = $false }
         $s.logs["plan-$rid"] = 'Plan: 21 to add, 0 to change, 0 to destroy.'
+        # The canary's j000 smoke-checks its urls, so they point back at this stub (see /preview below).
+        $api = if ($envName -eq 'j000') { "http://localhost:$Port/preview/$o/$n/j000/api" } else { "https://ca-$n-api.$envName.test" }
+        $web = if ($envName -eq 'j000') { "http://localhost:$Port/preview/$o/$n/j000/web" } else { "https://stapp-$n-react-$envName.test" }
         $s.outputs[$ws.id] = [ordered]@{
-            api_url = @{ value = "https://ca-$n-api.$envName.test"; sensitive = $false }
-            react_url = @{ value = "https://stapp-$n-react-$envName.test"; sensitive = $false }
+            api_url = @{ value = $api; sensitive = $false }
+            react_url = @{ value = $web; sensitive = $false }
             qa_user = @{ value = "qa-$envName@$n.test"; sensitive = $false }
             qa_password = @{ value = "pw-$envName"; sensitive = $true }
         }
@@ -139,6 +148,9 @@ function Handle-Actions([string] $method, [string] $o, [string] $n, [string] $re
     if ($method -eq 'GET' -and $rest -match '^/actions/runs/(\d+)$') {
         $r = $s.runs[$Matches[1]]
         if (-not $r) { return @{ status = 404; body = @{ message = 'Not Found' } } }
+        if ($r.status -ne 'completed' -and -not (Test-Path (Join-Path $GitBase "$($r.repo).slow"))) {
+            $r.status = 'completed'; $r.conclusion = $r.final; Save-DeployState $s
+        }
         return @{ status = 200; body = $r }
     }
     if ($method -eq 'GET' -and $rest -match '^/actions/runs/(\d+)/jobs$') {
@@ -148,6 +160,10 @@ function Handle-Actions([string] $method, [string] $o, [string] $n, [string] $re
     }
     if ($method -eq 'GET' -and $rest -match '^/actions/jobs/(\d+)/logs$') {
         return @{ status = 200; text = ($s.logs["job-$($Matches[1])"] ?? 'deploy succeeded') }
+    }
+    if ($method -eq 'GET' -and $rest -eq '/actions/oidc/customization/sub') {
+        $f = Join-Path $GitBase "$o/$n.oidc.json"
+        return @{ status = 200; body = if (Test-Path $f) { Get-Content $f -Raw | ConvertFrom-Json } else { @{ use_default = $true } } }
     }
     if ($method -eq 'PUT' -and $rest -match '^/environments/([^/]+)$') {
         $s.vars["$o/$n/env/$($Matches[1])"] = $s.vars["$o/$n/env/$($Matches[1])"] ?? @{}
@@ -240,7 +256,11 @@ function Handle-Hcp([string] $method, [string] $path, $body, $ctx) {
         $rid = "run-$(Next-Id $s)"
         $destroy = [bool]$body.data.attributes.'is-destroy'
         $s.hcpRuns[$rid] = [ordered]@{ id = $rid; ws = $wsId; status = 'applied'; isDestroy = $destroy }
-        if ($destroy) { $s.outputs.Remove($wsId) }
+        # <GitBase>/destroy-fails: a destroy errors as Azure's late-added alert rule made canary-8's.
+        if ($destroy -and (Test-Path (Join-Path $GitBase 'destroy-fails'))) {
+            $s.hcpRuns[$rid].status = 'errored'
+            $s.logs["apply-$rid"] = 'Error: deleting Resource Group "rg-x": the Resource Group still contains Resources.'
+        } elseif ($destroy) { $s.outputs.Remove($wsId) }
         Save-DeployState $s
         return @{ status = 201; body = @{ data = (Hcp-Run $s.hcpRuns[$rid]) } }
     }
@@ -251,6 +271,14 @@ function Handle-Hcp([string] $method, [string] $path, $body, $ctx) {
     }
     if ($method -eq 'GET' -and $path -match '^/api/v2/(plans|applies)/((plan|apply)-(.+))$') {
         return @{ status = 200; body = @{ data = @{ attributes = @{ 'log-read-url' = "http://localhost:$Port/hcp-log/$($Matches[2])" } } } }
+    }
+    # The variable set's variables: <GitBase>/varset-vars.json, else two fixed ones.
+    if ($method -eq 'GET' -and $path -match '^/api/v2/varsets/([^/]+)/relationships/vars$') {
+        $f = Join-Path $GitBase 'varset-vars.json'
+        $vars = if (Test-Path $f) { @(Get-Content $f -Raw | ConvertFrom-Json) } else {
+            @(@{ key = 'TFC_AZURE_PROVIDER_AUTH'; value = 'true'; category = 'env'; sensitive = $false }
+              @{ key = 'TFC_AZURE_RUN_CLIENT_ID'; value = 'run-client'; category = 'env'; sensitive = $false }) }
+        return @{ status = 200; body = @{ data = @($vars | ForEach-Object { @{ type = 'vars'; attributes = $_ } }) } }
     }
     if ($method -eq 'POST' -and $path -match '^/api/v2/workspaces/([^/]+)/actions/safe-delete$') {
         $ws = Ws-ById $s $Matches[1]
@@ -299,6 +327,15 @@ function Merge-StubPr([string] $o, [string] $n, [int] $num, $body) {
 
 function Handle($ctx, [string] $method, [string] $path, $body) {
     if ($method -eq 'GET' -and $path -eq '/') { return @{ status = 200 } }
+    # A j000 preview's app, reached as a browser does through the front end's /api: /health answers
+    # Healthy, or 503 while <owner>/<name>.unhealthy exists. The API's own address answers 401, as
+    # a Static Web App's linked backend does.
+    if ($method -eq 'GET' -and $path -match '^/preview/([^/]+)/([^/]+)/[^/]+/(api/health|web|web/api/health)$') {
+        if ($Matches[3] -eq 'web') { return @{ status = 200; text = '<!doctype html>' } }
+        if ($Matches[3] -eq 'api/health') { return @{ status = 401 } }
+        if (Test-Path (Join-Path $GitBase "$($Matches[1])/$($Matches[2]).unhealthy")) { return @{ status = 503; text = 'Unhealthy' } }
+        return @{ status = 200; text = 'Healthy' }
+    }
     if ($path.StartsWith('/api/v2/')) { return Handle-Hcp $method $path $body $ctx }
     if ($method -eq 'GET' -and $path -match '^/hcp-log/(.+)$') {
         $key = $Matches[1]

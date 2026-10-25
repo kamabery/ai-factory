@@ -429,6 +429,14 @@ test.describe.serial('factory dashboard', () => {
     await expect(page.locator('#toast')).toContainText('qa-j008@sandbox.test');
     await expect(page.locator('#toast')).toContainText('pw-j008');
     await expect(modal(page)).toBeHidden();
+
+    // The ticket links the preview too, first in its actions: before Open PR when there is one.
+    await c.click();
+    const open = modal(page).locator('.actions').first();
+    await expect(open.locator('#preview-btn')).toHaveAttribute('href', urls.frontend);
+    await expect(open.locator('#preview-btn')).toHaveAttribute('target', '_blank');
+    await expect(open.locator('#preview-btn')).toHaveText('Open preview');
+    await expect(open.locator(':scope > :first-child')).toHaveId('preview-btn');
   });
 
   test('Tear down destroys the preview: the card shows destroying, then down, and Launch goes away', async ({ page }) => {
@@ -479,5 +487,29 @@ test.describe.serial('factory dashboard', () => {
 
     await page.locator('#lessons [data-lesson="J-008"] [data-applied]').click();
     await expect(page.locator('#lessons [data-lesson="J-008"] [data-status]')).toHaveText(/applied/);
+  });
+
+  test('a failed canary shows a banner with its error and log, and Run canary starts one', async ({ page }) => {
+    const file = path.join(simDir, 'canary.json');
+    writeFileSync(path.join(simDir, 'canary-4.log'), '## HCP\nError: exec: "az": executable file not found in $PATH');
+    writeFileSync(file, JSON.stringify({
+      fingerprint: 'sha256:00', status: 'failed', error: 'Error: exec: "az": executable file not found in $PATH',
+      repo: 'sim/factory-canary', sha: null, urls: null, log: 'canary-4.log',
+      startedAt: '2026-10-24T17:00:00Z', finishedAt: '2026-10-24T17:05:00Z', n: 4,
+    }));
+    await page.goto('/');
+    const banner = page.locator('#canary');
+    await expect(banner).toBeVisible();
+    await expect(banner).toContainText('Deployable jobs are waiting');
+    await expect(banner).toContainText('executable file not found');
+    await expect(banner.locator('a[data-canary-log]')).toHaveAttribute('href', '/state/canary-4.log');
+
+    const answer = page.waitForResponse((r) => r.url().endsWith('/api/canary') && r.request().method() === 'POST');
+    await banner.locator('[data-run-canary]').click();
+    expect((await (await answer).json()).ok).toBe(true);
+
+    // A pass clears the banner.
+    writeFileSync(file, JSON.stringify({ fingerprint: 'sha256:00', status: 'pass', error: null, log: 'canary-5.log', n: 5 }));
+    await expect(banner).toBeHidden();
   });
 });

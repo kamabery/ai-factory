@@ -436,6 +436,17 @@ function Handle($ctx) {
         return Send-Result $ctx ([pscustomobject]@{ Ok = $true; Message = 'tearing down the preview' })
     }
 
+    # Run canary: a canary takes many minutes, so it runs detached and the banner follows canary.json.
+    if ($method -eq 'POST' -and $path -eq '/api/canary') {
+        $lock = Join-Path $StateDir 'canary.lock'
+        $holder = if (Test-Path $lock) { (Get-Content $lock -ErrorAction SilentlyContinue | Select-Object -First 1) -as [int] }
+        if ($holder -and (Get-Process -Id $holder -ErrorAction SilentlyContinue)) {
+            return Send $ctx 409 '{"ok":false,"message":"a canary is already running"}'
+        }
+        Start-Detached 'factory.ps1' @('canary', '-Force')
+        return Send-Result $ctx ([pscustomobject]@{ Ok = $true; Message = 'canary started' })
+    }
+
     if ($method -eq 'GET' -and $path -match '^/api/jobs/([A-Z]+-\d+)/qa-login$') {
         return Send-Result $ctx (Invoke-Factory qa-login $Matches[1])
     }

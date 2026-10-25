@@ -22,7 +22,9 @@ param(
     [string] $Target,
     [string] $Scaffold,
     [switch] $Failed,
-    [switch] $Json
+    [switch] $Json,
+    [switch] $Force,
+    [switch] $NeedsCanary
 )
 
 $ErrorActionPreference = 'Stop'
@@ -30,7 +32,7 @@ Set-StrictMode -Version 3
 
 $Roles = 'security', 'code', 'ux', 'ui'
 $Building = 'build', 'review', 'deploy', 'approve', 'gate'
-$EventKinds = 'idea', 'stage', 'agent-start', 'agent-stop', 'gate', 'merge', 'cost', 'note', 'eval', 'feedback', 'deploy', 'destroy', 'lesson'
+$EventKinds = 'idea', 'stage', 'agent-start', 'agent-stop', 'gate', 'merge', 'cost', 'note', 'eval', 'feedback', 'deploy', 'destroy', 'lesson', 'canary'
 $Providers = 'subscription', 'openrouter'
 
 function Fail([string] $msg, [int] $code = 1) {
@@ -60,6 +62,7 @@ $EventsPath = Join-Path $Home_ 'events.jsonl'
 . (Join-Path $PSScriptRoot 'github.ps1')
 . (Join-Path $PSScriptRoot 'hcp.ps1')
 . (Join-Path $PSScriptRoot 'deploy.ps1')
+. (Join-Path $PSScriptRoot 'canary.ps1')
 
 # A job's local clone of its target, where it builds and is gated; deleted at done or discarded.
 function WorkRoot {
@@ -101,10 +104,10 @@ function TemplatesRoot {
     Join-Path (Split-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) -Parent) 'template-projects'
 }
 
-# The bootstrap job's spec: factory/templates/bootstrap.md with the human's scaffold options filled in.
-function Bootstrap-Spec($sc, [string] $target) {
-    $n = $sc.name; $r = $sc.resource
-    $cmds = @("dotnet new aspire-base -n $n -o . --dbProvider $($sc.db) --resource $r")
+# The commands that scaffold a project from the templates, in order; a bootstrap job's builder and
+# the canary run the same ones.
+function Scaffold-Commands($sc) {
+    $cmds = @("dotnet new aspire-base -n $($sc.name) -o . --dbProvider $($sc.db) --resource $($sc.resource)")
     # aspire-addon reads name, resource and data store (so the event store) from .aspirestarter.json.
     switch ($sc.ui) {
         'react' { $cmds += 'aspire-addon add ui-react' }
@@ -114,6 +117,13 @@ function Bootstrap-Spec($sc, [string] $target) {
     if ($sc.events) { $cmds += 'aspire-addon add events' }
     # After the front end: auth reads which one from the manifest.
     if ($sc.Contains('auth') -and $sc.auth) { $cmds += 'aspire-addon add auth' }
+    $cmds
+}
+
+# The bootstrap job's spec: factory/templates/bootstrap.md with the human's scaffold options filled in.
+function Bootstrap-Spec($sc, [string] $target) {
+    $n = $sc.name; $r = $sc.resource
+    $cmds = Scaffold-Commands $sc
     $gate = @("- build: ``dotnet build $n.slnx``", "- test: ``dotnet test $n.slnx``", '- apphost: `dotnet build .aspire/apphost.cs`',
               '- infra: `aspire-addon infra check`')
     if ($sc.ui -eq 'react') { $gate += '- ui: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build`' }
@@ -283,6 +293,30 @@ function Next-Runnable {
     if ($Board.jobs | Where-Object { $_.stage -in $Building }) { return $null }
     $Board.jobs | Where-Object { $_.stage -eq 'approved' } |
         Sort-Object { $_.approvedAt }, { $_.id } | Select-Object -First 1
+}
+
+function Is-Deployable($j) { (Deploys-On) -and -not (Is-Bootstrap $j) }
+
+# Whether the runner may take $j: it heads the queue, or `next` chose it past jobs held for a canary.
+function Is-Next($j) {
+    $n = Next-Runnable
+    ($n -and $n.id -eq $j.id) -or (Next-Gated $false) -eq $j.id
+}
+
+# What `next` prints: the oldest approved job the runner may take, skipping deployable jobs until a
+# canary has passed for the current fingerprint (see "Canary" in the contract). With -NeedsCanary,
+# 'canary' when a deployable job is held back only because no canary has run for these inputs.
+function Next-Gated([bool] $needsCanary) {
+    if ($Board.jobs | Where-Object { $_.stage -in $Building }) { return $null }
+    $queue = @($Board.jobs | Where-Object { $_.stage -eq 'approved' } | Sort-Object { $_.approvedAt }, { $_.id })
+    $state = $null
+    foreach ($j in $queue) {
+        if (-not (Is-Deployable $j)) { return $j.id }
+        if (-not $state) { $state = Canary-State }
+        if ($state -eq 'pass') { return $j.id }
+        if ($needsCanary -and $state -eq 'none') { return 'canary' }
+    }
+    $null
 }
 
 # --- git helpers ----------------------------------------------------------------------------
@@ -654,8 +688,11 @@ try {
         }
 
         'next' {
-            $n = Next-Runnable
-            if ($n) { $n.id }
+            Next-Gated ([bool]$NeedsCanary)
+        }
+
+        'canary' {
+            Invoke-Canary ([bool]$Force)
         }
 
         'checkout' {
@@ -698,6 +735,8 @@ try {
             $j = Get-Job $Arg1
             Require-Stage $j 'deploy' 'deploy'
             if (Is-Bootstrap $j) {
+                # Earlier attempts' record would otherwise keep showing a failed preview.
+                if ($j.Contains('deploy') -and $j.deploy) { $j.deploy.status = 'down' }
                 Move-Job $j 'approve' 'orchestrator'
                 Add-Event ([ordered]@{ job = $j.id; kind = 'note'; detail = $BootstrapNoDeploy })
                 "skipped: $BootstrapNoDeploy"
@@ -705,8 +744,11 @@ try {
             }
             if (-not (Deploys-On)) { Fail 'deploy refused: deploys are off (no HCP_ORG in .env)' }
             $d = Get-Deploy $j
-            if ([int]$d.attempts -ge 3) { Fail "deploy refused: $($j.id) has used its 3 attempts" }
-            $d.attempts = [int]$d.attempts + 1
+            # Still applying: the last attempt's process died before it recorded a result (J-019: the
+            # devops agent's shell call ended at 20 minutes). This resumes that attempt, not a new one.
+            $resume = $d.status -eq 'applying'
+            if (-not $resume -and [int]$d.attempts -ge 3) { Fail "deploy refused: $($j.id) has used its 3 attempts" }
+            if (-not $resume) { $d.attempts = [int]$d.attempts + 1 }
             $d.status = 'applying'
             Save-Board $Board
             $attempt = $d.attempts
@@ -752,8 +794,10 @@ try {
             if (-not ($j.flag -and $j.flag.reason -eq 'github-permission') -and -not $fromDeploy) {
                 Fail "redeploy refused: $($j.id) is neither flagged github-permission nor came to ready from deploy (deploy-failed or escalated)"
             }
-            # Back in the queue; the runner resumes it at deploy rather than building it again.
+            # Back in the queue; the runner resumes it at deploy rather than building it again. The human
+            # fixed the cause, so the attempts spent on it don't count against the change.
             $j.resume = 'deploy'
+            if ($j['deploy']) { $j.deploy.attempts = 0 }
             $j.approvedAt = Now
             Move-Job $j 'approved' 'human'
         }
@@ -802,15 +846,13 @@ try {
             $by_ = if ($By) { $By } else { 'orchestrator' }
             switch ("$($j.stage)->$to") {
                 'approved->build' {
-                    $n = Next-Runnable
-                    if (-not $n -or $n.id -ne $j.id) { Fail "approved->build refused: $($j.id) is not next in the queue, or a job is already building" }
+                    if (-not (Is-Next $j)) { Fail "approved->build refused: $($j.id) is not next in the queue, or a job is already building" }
                     if ($j['resume']) { Fail "approved->build refused: $($j.id) was redeployed; it resumes at $($j.resume)" }
                     Reset-Reviews $j
                     Move-Job $j 'build' $by_
                 }
                 'approved->deploy' {
-                    $n = Next-Runnable
-                    if (-not $n -or $n.id -ne $j.id) { Fail "approved->deploy refused: $($j.id) is not next in the queue, or a job is already building" }
+                    if (-not (Is-Next $j)) { Fail "approved->deploy refused: $($j.id) is not next in the queue, or a job is already building" }
                     if ($j['resume'] -ne 'deploy') { Fail "approved->deploy refused: $($j.id) was not redeployed" }
                     $j.resume = $null
                     Move-Job $j 'deploy' $by_

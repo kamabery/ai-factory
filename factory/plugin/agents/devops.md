@@ -25,7 +25,10 @@ missing, `aspire-addon infra adopt`, then check again. Fix what remains in `IaC/
 you changed and its `## Template gaps`.
 
 ## Operate (the deploy stage)
-1. `pwsh -NoProfile -File <factory.ps1> deploy <id>`, with the path written out in full. Exit 0 means
+1. `pwsh -NoProfile -File <factory.ps1> deploy <id>`, with the path written out in full, and the
+   longest timeout your shell allows: a full apply takes about an hour. If the call is cut off
+   before it exits, run the same command again - it resumes the attempt in flight, waits on its
+   GitHub run, and is not counted again. Exit 0 means
    the job has moved to approve. If it printed `skipped:` (a bootstrap: no preview until it merges),
    note that and finish. Otherwise the preview is up: smoke the printed URLs (`curl -sf
    <api>/openapi/v1.json`, and the front end), note the result, and finish.

@@ -63,8 +63,17 @@ function Log([string] $msg) { Add-Content -LiteralPath $runLog "$((Get-Date).ToU
 $how = 'stopped'
 Log "start pid=$PID"
 try {
+    $canaryRan = $false
     while ($true) {
-        $id = F next
+        # A deployable job waits for a canary pass on the current deploy inputs (see "Canary" in the
+        # contract). One run per drain: a failure leaves those jobs in Approved for the human.
+        $id = if ($canaryRan) { F next } else { F next -NeedsCanary }
+        if ($id -eq 'canary') {
+            $canaryRan = $true
+            $c = F-Child canary
+            Log $(if ($c.Code -eq 0) { 'canary pass' } else { "canary failed: $($c.Err -replace '^factory: canary failed: ', '')" })
+            continue
+        }
         if (-not $id) { $how = 'drained'; break }
 
         # A redeployed job resumes at deploy; everything else starts at build.
@@ -119,6 +128,7 @@ try {
 
             if ((Stage $id) -in $Building) {
                 $why = if ($code -ne 0) { "claude exited with exit $code" } else { 'claude finished but the job is still in Building' }
+                if ($result -and $result.PSObject.Properties['is_error'] -and $result.is_error -and $result.PSObject.Properties['result']) { $why += ": $($result.result)" }
                 F set-stage $id ready -By runner -Reason escalated -Detail "$why; see run-$n.jsonl" | Out-Null
             }
 

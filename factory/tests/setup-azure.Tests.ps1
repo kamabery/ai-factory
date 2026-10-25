@@ -54,6 +54,22 @@ Describe 'setup-azure.ps1' {
         $out | Should -Contain 'entra_external_user_flow_id=flow-1'
     }
 
+    It 'registers the resource providers the templates deploy to, Microsoft.App among them' {
+        # canary-6: creating the Container Apps environment failed with MissingSubscriptionRegistration.
+        Setup -SubscriptionId sub-1 -HcpOrg acme | Out-Null
+        $ns = Matching '^provider register' | ForEach-Object { $a = $_.args; $a[[array]::IndexOf($a, '--namespace') + 1] }
+        foreach ($n in 'Microsoft.App', 'Microsoft.ContainerRegistry', 'Microsoft.KeyVault', 'Microsoft.DBforPostgreSQL', 'Microsoft.Web', 'Microsoft.ServiceBus') {
+            $ns | Should -Contain $n
+        }
+        Matching '^provider register' | ForEach-Object { $_.args -join ' ' | Should -Match '--subscription sub-1' }
+    }
+
+    It 'prints deployer_object_id, the GitHub Actions identity each preview''s Key Vault lets read its secrets' {
+        # canary-4: the schema step's `az keyvault secret show` was ForbiddenByRbac for this identity.
+        $out = Setup -SubscriptionId sub-1 -HcpOrg acme
+        $out | Should -Contain 'deployer_object_id=sp-app-factory-github-actions'
+    }
+
     It 'sets up the External tenant: user flow, HCP app, Graph roles and federated credential' {
         Setup -SubscriptionId sub-1 -HcpOrg acme -ExternalTenantId ext-1 -ExternalSubdomain extsub | Out-Null
         Matching '^account set --subscription ext-1' | Should -HaveCount 1

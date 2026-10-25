@@ -42,6 +42,7 @@ Start-Sleep -Milliseconds 1500
 `$live = @(Get-ChildItem `$runs -Filter 'run-*.jsonl' | Where-Object { (Get-Content `$_.FullName -Raw) -match 'init' }).Count -gt 0
 Add-Content (Join-Path `$env:FACTORY_HOME 'fake.log') "`$id live=`$live"
 if ('$mode' -eq 'crash') { exit 1 }
+if ('$mode' -eq 'api-error') { '{"type":"result","is_error":true,"result":"Credit balance is too low","total_cost_usd":0,"duration_ms":10}'; exit 1 }
 if ('$mode' -eq 'stall') { '{"type":"result","total_cost_usd":0.1,"duration_ms":10}'; exit 0 }
 Add-Content "`$id.txt" ([guid]::NewGuid())
 git add -A 2>&1 | Out-Null; git -c user.email=f@t -c user.name=f commit -q -m "work `$id" 2>&1 | Out-Null
@@ -373,6 +374,14 @@ if ($held) { $held.Dispose() }
             (Job $id).flag.detail | Should -Match 'exit 1'
         }
 
+        It 'puts the API error claude reported in the escalation detail' {
+            $id = New-ApprovedJob 'A'
+            Set-FakeClaude 'api-error'
+            Run-Runner | Out-Null
+            (Job $id).flag.reason | Should -Be 'escalated'
+            (Job $id).flag.detail | Should -Match '^claude exited with exit 1: Credit balance is too low; see run-1\.jsonl$'
+        }
+
         It 'runs the gate itself when claude dies after the approver approved' {
             $id = New-ApprovedJob 'A'
             Set-FakeClaude 'gate-crash'
@@ -414,6 +423,7 @@ if ($held) { $held.Dispose() }
 
         It 'escalates a job claude leaves in deploy, the way it does any Building stage' {
             Use-Deploys
+            Use-Canary
             try {
                 $id = New-ApprovedJob 'A'
                 Set-FakeClaude 'deploy-stall'
@@ -421,6 +431,39 @@ if ($held) { $held.Dispose() }
                 (Job $id).flag.reason | Should -Be 'escalated'
                 ((Job $id).history | Where-Object { $_.from -eq 'deploy' }).to | Should -Be 'ready'
             } finally { Clear-Deploys }
+        }
+    }
+
+    Context 'canary' {
+        BeforeEach { Use-Deploys; Use-Canary }
+        AfterEach { Clear-Deploys }
+
+        It 'runs the canary before the first deployable job, then takes it' {
+            $id = New-ApprovedJob 'A'
+            Set-FakeClaude 'stall'
+            Run-Runner | Out-Null
+
+            $log = Get-Content (Join-Path $env:FACTORY_HOME 'runner.log')
+            $canary = [array]::FindIndex([string[]]$log, [Predicate[string]] { param($l) $l -match ' canary pass$' })
+            $take = [array]::FindIndex([string[]]$log, [Predicate[string]] { param($l) $l -match " take $id$" })
+            $canary | Should -BeGreaterThan -1
+            $take | Should -BeGreaterThan $canary
+            (Get-Content (Join-Path $env:FACTORY_HOME 'canary.json') -Raw | ConvertFrom-Json).status | Should -Be 'pass'
+        }
+
+        It 'after a failed canary, leaves deployable jobs in Approved and still takes a bootstrap' {
+            $env:CANARY_DEPLOY_FAIL = 'boom'
+            $id = New-ApprovedJob 'A'
+            $out = F new-idea 'boot' -Target "test/boot-$([guid]::NewGuid().ToString('N').Substring(0,8))" -Scaffold '{"name":"todo","resource":"Todo","db":"sqlite","ui":"none","events":false}'
+            $boot = ($out -split ' ')[1]
+            F approve $boot | Out-Null
+            Set-FakeClaude 'stall'
+            Run-Runner | Out-Null
+
+            Get-Content (Join-Path $env:FACTORY_HOME 'runner.log') -Raw | Should -Match 'canary failed: Error: boom'
+            (Job $id).stage | Should -Be 'approved'
+            (Job $boot).stage | Should -Not -Be 'approved'
+            @(Get-Content (Join-Path $env:FACTORY_HOME 'runner.log') | Where-Object { $_ -match ' canary ' }) | Should -HaveCount 1
         }
     }
 
@@ -437,11 +480,12 @@ Add-Content (Join-Path $env:FACTORY_HOME 'env.log') ($seen | ConvertTo-Json -Com
 '@ | Set-Content $fake
             $env:FACTORY_CLAUDE_CMD = "& '$fake'"
             $env:ANTHROPIC_API_KEY = 'sk-ant-from-the-runner'
+            $env:ANTHROPIC_AUTH_TOKEN = 'sk-ant-oat-from-the-runner'
             $script:ProviderEnv = Join-Path $TestDrive "provider-$([guid]::NewGuid().ToString('N')).env"
             $env:FACTORY_ENV_FILE = $script:ProviderEnv
         }
 
-        AfterEach { Remove-Item Env:ANTHROPIC_API_KEY -ErrorAction SilentlyContinue }
+        AfterEach { Remove-Item Env:ANTHROPIC_API_KEY, Env:ANTHROPIC_AUTH_TOKEN -ErrorAction SilentlyContinue }
 
         BeforeAll {
             function Seen([string]$id) {
@@ -465,9 +509,10 @@ Add-Content (Join-Path $env:FACTORY_HOME 'env.log') ($seen | ConvertTo-Json -Com
 
             $sub = Seen $b
             $sub.Keys | Should -Not -Contain 'ANTHROPIC_BASE_URL'
-            $sub.Keys | Should -Not -Contain 'ANTHROPIC_AUTH_TOKEN'
             $sub.Keys | Should -Not -Contain 'ANTHROPIC_DEFAULT_SONNET_MODEL'
-            $sub.ANTHROPIC_API_KEY | Should -Be 'sk-ant-from-the-runner'
+            # An inherited key or token would bill API credits instead of the subscription (J-019).
+            $sub.ANTHROPIC_API_KEY | Should -Be ''
+            $sub.ANTHROPIC_AUTH_TOKEN | Should -Be ''
 
             (Events | Where-Object { $_.job -eq $a -and $_.kind -eq 'cost' }).provider | Should -Be 'openrouter'
             (Events | Where-Object { $_.job -eq $b -and $_.kind -eq 'cost' }).provider | Should -Be 'subscription'
