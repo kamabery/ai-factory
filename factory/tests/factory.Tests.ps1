@@ -926,7 +926,11 @@ Describe 'evaluations' {
         }
         $usage = { param($usd, $out) @{ 'claude-opus-5-5' = @{ costUSD = $usd; outputTokens = $out }; 'claude-sonnet-5-5' = @{ costUSD = 0.25; outputTokens = 10 } } }
         Set-Content (Join-Path (JobDir $id) 'run-1.jsonl') @('not json', (@{ type = 'result'; total_cost_usd = 2.25; modelUsage = (& $usage 2.0 100) } | ConvertTo-Json -Compress -Depth 5))
-        Set-Content (Join-Path (JobDir $id) 'run-2.jsonl') (@{ type = 'result'; total_cost_usd = 1.25; modelUsage = (& $usage 1.0 50) } | ConvertTo-Json -Compress -Depth 5)
+        # A session that a background task wakes again ends each turn with a result carrying the
+        # session's cumulative usage so far (J-019's run-8 had five); only the last one counts.
+        Set-Content (Join-Path (JobDir $id) 'run-2.jsonl') @(
+            (@{ type = 'result'; total_cost_usd = 0.75; modelUsage = (& $usage 0.5 20) } | ConvertTo-Json -Compress -Depth 5),
+            (@{ type = 'result'; total_cost_usd = 1.25; modelUsage = (& $usage 1.0 50) } | ConvertTo-Json -Compress -Depth 5))
 
         F eval $id -File (Eval-File) | Out-Null
         $e = Get-Content (Join-Path $env:FACTORY_HOME "evals/$id.json") -Raw | ConvertFrom-Json -AsHashtable -DateKind String

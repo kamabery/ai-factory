@@ -163,6 +163,16 @@ function Invoke-Canary([bool] $force) {
     $last = Get-Canary
     if (-not $force -and $last -and $last.fingerprint -eq $fp -and $last.status -eq 'pass') { return 'canary: up to date' }
     if (-not (Lock-Canary)) { Fail 'canary refused: another canary is running (canary.lock)' }
+    # In azure, also the lease on locks/canary: one canary across machines (see "State backends").
+    $canaryLease = $null; $canaryKeeper = $null
+    if (State-IsAzure) {
+        $canaryLease = Enter-StateLease 'canary' 0
+        if (-not $canaryLease) {
+            Remove-Item (Join-Path $Home_ 'canary.lock') -Force -ErrorAction SilentlyContinue
+            Fail 'canary refused: another canary is running on another machine (locks/canary)'
+        }
+        $canaryKeeper = Start-StateLeaseKeeper 'canary' $canaryLease
+    }
     try {
         $repo = Canary-Repo
         $sc = Canary-Options
@@ -171,9 +181,9 @@ function Invoke-Canary([bool] $force) {
             log = "canary-$n.log"; startedAt = (Now); finishedAt = $null; n = $n }
         Save-Canary $rec
         $log = [Collections.Generic.List[string]]::new()
-        $Mutex.ReleaseMutex()
+        Exit-BoardLock
         try { $err = Invoke-CanaryRun $repo $sc $rec $log }
-        finally { $null = $Mutex.WaitOne() }
+        finally { Enter-BoardLock -1 }
 
         Set-Content (Join-Path $Home_ $rec.log) ($log -join "`n`n")
         $rec.status = if ($err) { 'failed' } else { 'pass' }
@@ -182,6 +192,7 @@ function Invoke-Canary([bool] $force) {
         Save-Canary $rec
         Add-Event ([ordered]@{ kind = 'canary'; detail = $(if ($err) { "failed: $err" } else { 'pass' }) })
     } finally {
+        if ($canaryLease) { Stop-StateLeaseKeeper $canaryKeeper; try { Exit-StateLease 'canary' $canaryLease } catch { } }
         Remove-Item (Join-Path $Home_ 'canary.lock') -Force -ErrorAction SilentlyContinue
     }
     if ($err) { Fail "canary failed: $err; see $($rec.log)" }

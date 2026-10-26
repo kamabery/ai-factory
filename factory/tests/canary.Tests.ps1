@@ -3,7 +3,9 @@
 BeforeAll {
     $script:Factory = Join-Path $PSScriptRoot '..\scripts\factory.ps1' | Resolve-Path | Select-Object -ExpandProperty Path
     . (Join-Path $PSScriptRoot 'fixtures\github.ps1')
+    . (Join-Path $PSScriptRoot 'fixtures\blob.ps1')
     Start-GitHubStub
+    Start-BlobStub
     function F { $out = & $script:Factory @args 2>$null; $out }
     function Canary { Get-Content (Join-Path $env:FACTORY_HOME 'canary.json') -Raw | ConvertFrom-Json -AsHashtable -DateKind String }
     function Events { Get-Content (Join-Path $env:FACTORY_HOME 'events.jsonl') | ForEach-Object { $_ | ConvertFrom-Json -AsHashtable -DateKind String } }
@@ -19,7 +21,7 @@ BeforeAll {
         $id
     }
 }
-AfterAll { Stop-GitHubStub }
+AfterAll { Stop-GitHubStub; Stop-BlobStub }
 
 Describe 'factory.ps1 canary' {
 
@@ -154,6 +156,29 @@ Describe 'canary' {
         F canary | Out-Null
         $LASTEXITCODE | Should -Not -Be 0
         CanaryRuns | Should -HaveCount 0
+    }
+}
+
+Describe 'canary on azure' {
+    BeforeEach { Use-AzureState }
+    AfterEach { Clear-AzureState }
+
+    It 'refuses while another machine holds locks/canary, and frees the lease after a run' {
+        . (Join-Path $PSScriptRoot '..\scripts\state.ps1')
+        Initialize-State -StateHome (Join-Path $TestDrive 'elsewhere') -EnvFile $null
+        $held = Enter-StateLease 'canary' 5
+        try {
+            F canary | Out-Null
+            $LASTEXITCODE | Should -Not -Be 0
+            CanaryRuns | Should -HaveCount 0
+            Test-Path (Join-Path $env:FACTORY_HOME 'canary.lock') | Should -BeFalse
+        } finally { Exit-StateLease 'canary' $held }
+
+        F canary | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        (Canary).status | Should -Be 'pass'
+        (Blob-State).Blobs['locks/canary'].leased | Should -BeFalse
+        Blob-Text 'canary.json' | Should -Match '"pass"'
     }
 }
 

@@ -77,5 +77,7 @@ pwsh factory/scripts/serve.ps1               # dashboard on http://localhost:431
 pwsh factory/scripts/idea.ps1 <owner/name|I-NNN> # CLI fallback for the dashboard's New idea: grill -> brief -> specs -> you approve
 pwsh factory/scripts/runner.ps1              # drains the Approved queue; serve.ps1 starts it for you (after step 2)
 Invoke-Pester factory/tests                  # control-plane, runner, idea-turn and serve tests (after steps 1-2)
+$env:FACTORY_TEST_STATE='azure'; Invoke-Pester factory/tests/factory.Tests.ps1   # the same on the azure state backend (blob stub)
+pwsh factory/scripts/factory.ps1 state-migrate | allow-ip | prune   # FACTORY_STATE=azure: state in Blob storage (docs/STATE.md)
 pwsh factory/scripts/setup-azure.ps1 -SubscriptionId <id> -HcpOrg <org> [-CreateExternalTenant <sub> -ExternalResourceGroup <rg> | -ExternalTenantId <id>]  # one-time preview identities (docs/DEPLOY.md)
 ```

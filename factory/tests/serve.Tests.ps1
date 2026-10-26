@@ -393,6 +393,9 @@ Describe 'serve.ps1 repo list and Add new' {
     }
 
     It 'Add new starts a session with no target, no clone and no check-target, and asks for a repo name' {
+        # An earlier test's runner may still be publishing its PR (slower on the azure state backend);
+        # its requests are not this session's.
+        Wait-Until { -not (Get-CimInstance Win32_Process -Filter "Name='pwsh.exe'" | Where-Object CommandLine -match 'runner\.ps1') } 'earlier runners to finish'
         $before = @(Get-Content (Join-Path $script:GitBase 'requests.jsonl')).Count
         $r = Api POST '/api/sessions' @{ new = $true; text = 'a todo app' }
         $r.Status | Should -Be 200

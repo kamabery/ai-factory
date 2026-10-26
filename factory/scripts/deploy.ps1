@@ -133,7 +133,7 @@ function Invoke-Deploy($j) {
     if ($push.Code -ne 0) { $result.log = "## Push`nError: push failed: $($push.Out)"; return $result }
     $result.sha = (Invoke-Git $wt rev-parse HEAD).Out
 
-    $Mutex.ReleaseMutex()
+    Exit-BoardLock
     try {
         $wsId = $null
         try {
@@ -158,7 +158,7 @@ function Invoke-Deploy($j) {
             $result.log = "## Factory`nError: $($_.Exception.Message)$hcp"
         }
     } finally {
-        $null = $Mutex.WaitOne()
+        Enter-BoardLock -1
         $script:Board = Load-Board
     }
     $result
@@ -231,7 +231,7 @@ function Destroy-Failure([string] $wsId, [string] $status) {
 function Invoke-Destroy($j) {
     $name = $j.deploy.workspace
     $known = if ($j.deploy.Contains('workspaceId')) { $j.deploy.workspaceId }
-    $Mutex.ReleaseMutex()
+    Exit-BoardLock
     try {
         $wsId = if ($known) { $known } else { Get-HcpWorkspaceId $name }
         if ($wsId) {
@@ -243,7 +243,7 @@ function Invoke-Destroy($j) {
     } catch {
         $_.Exception.Message
     } finally {
-        $null = $Mutex.WaitOne()
+        Enter-BoardLock -1
         $script:Board = Load-Board
     }
 }

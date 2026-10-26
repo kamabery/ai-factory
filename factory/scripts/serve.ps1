@@ -35,6 +35,23 @@ New-Item -ItemType Directory -Force $StateDir | Out-Null
 $env:FACTORY_HOME = $StateDir
 $Sessions = Join-Path $StateDir 'sessions'
 
+# In azure, the dashboard's files are a cache of the container (see "State backends" in the
+# contract): the board and events are refreshed at most every FACTORY_STATE_POLL_SECONDS (default 5,
+# a conditional GET each), and a job's folder when it is opened.
+. (Join-Path $Scripts 'state.ps1')
+Initialize-State -StateHome $StateDir -EnvFile $EnvFile
+$StatePoll = if ($env:FACTORY_STATE_POLL_SECONDS) { [double]$env:FACTORY_STATE_POLL_SECONDS } else { 5 }
+$StateSeen = @{}
+
+# Runs $sync for $key unless it ran in the last $every seconds; a failure is a warning, never a 500.
+function Sync-Throttled([string] $key, [double] $every, [scriptblock] $sync) {
+    if (-not (State-IsAzure)) { return }
+    $now = Get-Date
+    if ($StateSeen.ContainsKey($key) -and ($now - $StateSeen[$key]).TotalSeconds -lt $every) { return }
+    $StateSeen[$key] = $now
+    try { $null = & $sync } catch { Write-Warning "state sync $($key): $($_.Exception.Message)" }
+}
+
 $Types = @{
     '.html' = 'text/html'; '.json' = 'application/json'; '.jsonl' = 'text/plain'; '.md' = 'text/plain'
     '.log' = 'text/plain'; '.txt' = 'text/plain'; '.js' = 'text/javascript'; '.css' = 'text/css'
@@ -361,6 +378,8 @@ function Handle($ctx) {
     if ($method -eq 'GET' -and $path -like '/state/*') {
         $full = [IO.Path]::GetFullPath((Join-Path $StateDir $path.Substring(7)))
         if (-not $full.StartsWith($StateDir, [StringComparison]::OrdinalIgnoreCase)) { return Send $ctx 400 '{"ok":false,"message":"bad path"}' }
+        if ($path -eq '/state/board.json') { Sync-Throttled 'board' $StatePoll { Sync-Board } }
+        if ($path -eq '/state/events.jsonl') { Sync-Throttled 'events' $StatePoll { Sync-Events } }
         return Send-File $ctx $full
     }
 
@@ -378,11 +397,19 @@ function Handle($ctx) {
                 Select-Object -Last 1 | ConvertFrom-Json
         }
         if (-not $start -or -not $start.PSObject.Properties['transcript']) { return Send $ctx 404 '{"ok":false,"message":"no such agent"}' }
+        # Run on another machine: the copy its agent-stop took into the job's folder.
+        if (-not (Test-Path -LiteralPath $start.transcript) -and $start.PSObject.Properties['job']) {
+            $jobId = $start.job
+            Sync-Throttled "job-$jobId" $StatePoll { Pull-State "jobs/$jobId/" }.GetNewClosure()
+            return Send-File $ctx (Join-Path $StateDir "jobs/$jobId/transcripts/agent-$agentId.jsonl")
+        }
         return Send-File $ctx $start.transcript
     }
 
     if ($method -eq 'GET' -and $path -match '^/api/jobs/([A-Z]+-\d+)/files$') {
-        $dir = Join-Path $StateDir "jobs/$($Matches[1])"
+        $jobId = $Matches[1]
+        Sync-Throttled "job-$jobId" $StatePoll { Pull-State "jobs/$jobId/" }.GetNewClosure()
+        $dir = Join-Path $StateDir "jobs/$jobId"
         $files = @()
         if (Test-Path $dir) {
             $files = @(Get-ChildItem $dir -Recurse -File | ForEach-Object {

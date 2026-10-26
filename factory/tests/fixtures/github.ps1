@@ -3,6 +3,8 @@
 # Targets are bare repos in $script:GitBase, served by github-stub.ps1 and cloned by factory.ps1 over
 # file:// (git ignores --depth for a plain local path).
 
+. (Join-Path $PSScriptRoot 'blob.ps1')   # FACTORY_TEST_STATE=azure (see Start-GitHubStub)
+
 function Start-GitHubStub {
     $stub = Join-Path $PSScriptRoot 'github-stub.ps1'
     $script:Token = 'ghp_test_' + [guid]::NewGuid().ToString('N')
@@ -25,6 +27,16 @@ function Start-GitHubStub {
         'HCP_ORG=test-org', "HCP_TOKEN=$script:HcpToken", 'HCP_TEAM_TOKEN=team-token-for-actions', 'HCP_AZURE_VARSET=varset-azure',
         'AZURE_GH_CLIENT_ID=gh-app-client', 'AZURE_TENANT_ID=tenant-1', 'AZURE_SUBSCRIPTION_ID=sub-1',
         "HCP_API_URL=http://localhost:$script:GhPort"))
+
+    # FACTORY_TEST_STATE=azure runs the suite on the azure state backend: a blob stub, one container
+    # per FACTORY_HOME (see "State backends" in the contract).
+    if ($env:FACTORY_TEST_STATE -eq 'azure') {
+        Start-BlobStub
+        $env:FACTORY_STATE = 'azure'
+        $env:FACTORY_BLOB_URL = "http://localhost:$script:BlobPort/{home}"
+        $env:FACTORY_STATE_TOKEN = 'test-token'
+        $env:FACTORY_LOCAL_DIR = Join-Path $TestDrive 'local'
+    }
 }
 
 # Deploys on, with gh and az replaced by a stub that records each call in $env:FACTORY_TOOL_LOG.
@@ -71,6 +83,7 @@ function HcpWorkspace([string]$name) { (DeployState).workspaces.Values | Where-O
 
 function Stop-GitHubStub {
     if ($script:GhProc -and -not $script:GhProc.HasExited) { Stop-Process -Id $script:GhProc.Id -Force }
+    if ($env:FACTORY_TEST_STATE -eq 'azure') { Stop-BlobStub; Remove-Item Env:FACTORY_STATE, Env:FACTORY_BLOB_URL, Env:FACTORY_STATE_TOKEN, Env:FACTORY_LOCAL_DIR -ErrorAction SilentlyContinue }
 }
 
 function Bare([string]$repo = $script:Repo) { Join-Path $script:GitBase "$repo.git" }

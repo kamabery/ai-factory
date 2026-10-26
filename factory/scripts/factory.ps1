@@ -35,8 +35,12 @@ $Building = 'build', 'review', 'deploy', 'approve', 'gate'
 $EventKinds = 'idea', 'stage', 'agent-start', 'agent-stop', 'gate', 'merge', 'cost', 'note', 'eval', 'feedback', 'deploy', 'destroy', 'lesson', 'canary'
 $Providers = 'subscription', 'openrouter'
 
+$BoardLease = $null
+
 function Fail([string] $msg, [int] $code = 1) {
     [Console]::Error.WriteLine("factory: $msg")
+    # A refused command must not leave the board's lease held for its 60 s (see "State backends").
+    if ($script:BoardLease) { Exit-BoardLease }
     exit $code
 }
 
@@ -63,6 +67,8 @@ $EventsPath = Join-Path $Home_ 'events.jsonl'
 . (Join-Path $PSScriptRoot 'hcp.ps1')
 . (Join-Path $PSScriptRoot 'deploy.ps1')
 . (Join-Path $PSScriptRoot 'canary.ps1')
+. (Join-Path $PSScriptRoot 'state.ps1')
+try { Initialize-State -StateHome $Home_ -EnvFile (EnvFilePath) } catch { Fail "$($_.Exception.Message)" }
 
 # A job's local clone of its target, where it builds and is gated; deleted at done or discarded.
 function WorkRoot {
@@ -159,9 +165,32 @@ function JobDir([string] $id) { Join-Path $Home_ "jobs/$id" }
 
 $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($Home_.ToLowerInvariant()))).Substring(0, 16)
 $Mutex = [Threading.Mutex]::new($false, "factory-board-$hash")
-try { $null = $Mutex.WaitOne([TimeSpan]::FromSeconds(30)) } catch [Threading.AbandonedMutexException] { }
+
+# The board lock: the mutex serializes this machine, and in azure the lease on locks/board serializes
+# machines. -Seconds -1 waits as long as it takes (re-taking it after a gate, deploy or canary).
+function Enter-BoardLock([int] $Seconds = 30) {
+    try { $null = $Mutex.WaitOne($(if ($Seconds -lt 0) { -1 } else { $Seconds * 1000 })) } catch [Threading.AbandonedMutexException] { }
+    if (-not (State-IsAzure)) { return }
+    $wait = if ($env:FACTORY_STATE_LOCK_SECONDS) { [int]$env:FACTORY_STATE_LOCK_SECONDS } elseif ($Seconds -lt 0) { 600 } else { $Seconds }
+    try { $script:BoardLease = Enter-StateLease 'board' $wait } catch { $Mutex.ReleaseMutex(); Fail "$($_.Exception.Message)" }
+    if (-not $script:BoardLease) { $Mutex.ReleaseMutex(); Fail "state lock refused: another machine has held the board (locks/board) for over $wait s" }
+}
+
+function Exit-BoardLease {
+    $l = $script:BoardLease
+    $script:BoardLease = $null
+    if ($l) { try { Exit-StateLease 'board' $l } catch { } }
+}
+
+function Exit-BoardLock { Exit-BoardLease; $Mutex.ReleaseMutex() }
+
+Enter-BoardLock
 
 function Load-Board {
+    # In azure, the container's board wins; when it changed, so may everything else.
+    if ((State-IsAzure) -and $Command -ne 'state-migrate') {
+        try { if ((Sync-Board) -eq 'changed') { $null = Pull-State } } catch { Fail "$($_.Exception.Message)" }
+    }
     if (-not (Test-Path $BoardPath)) { return @{ version = 2; ideas = @(); jobs = @() } }
     $b = Get-Content $BoardPath -Raw | ConvertFrom-Json -AsHashtable -DateKind String
     if (-not $b.ContainsKey('ideas')) { $b.ideas = @() }
@@ -178,6 +207,11 @@ function Replace-File([string] $tmp, [string] $path) {
 }
 
 function Save-Board($b) {
+    if (State-IsAzure) {
+        if (-not $script:BoardLease -or -not (Update-StateLease 'board' $script:BoardLease)) { Fail 'state lock refused: the board lease lapsed and another machine took it' }
+        try { Save-StateBoard ($b | ConvertTo-Json -Depth 20) } catch { Fail "$($_.Exception.Message)" }
+        return
+    }
     $tmp = "$BoardPath.$PID.tmp"
     [IO.File]::WriteAllText($tmp, ($b | ConvertTo-Json -Depth 20))
     Replace-File $tmp $BoardPath
@@ -186,7 +220,30 @@ function Save-Board($b) {
 function Add-Event([hashtable] $e) {
     $o = [ordered]@{ ts = Now }
     foreach ($k in $e.Keys) { $o[$k] = $e[$k] }
-    [IO.File]::AppendAllText($EventsPath, ($o | ConvertTo-Json -Compress -Depth 10) + "`n")
+    try { Add-StateEvent ($o | ConvertTo-Json -Compress -Depth 10) } catch { Fail "$($_.Exception.Message)" }
+}
+
+# A subagent's transcript lives under ~/.claude on the machine that ran it; in azure, its agent-stop
+# copies it into the job's folder so the push takes it to the container.
+function Copy-Transcript($e) {
+    if (-not (State-IsAzure) -or $e.kind -ne 'agent-stop' -or -not $e['job']) { return }
+    $start = Get-Content $EventsPath -ErrorAction SilentlyContinue | Where-Object { $_ -match '"kind":"agent-start"' } |
+        ForEach-Object { try { $_ | ConvertFrom-Json -AsHashtable } catch { } } |
+        Where-Object { $_['job'] -eq $e.job -and $_['agent'] -eq $e['agent'] -and $_['transcript'] } | Select-Object -Last 1
+    if (-not $start -or -not (Test-Path -LiteralPath $start.transcript)) { return }
+    $dir = Join-Path (JobDir $e.job) 'transcripts'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    Copy-Item -LiteralPath $start.transcript (Join-Path $dir "agent-$($start['agentId']).jsonl") -Force
+}
+
+# Every command ends here in azure, still under the board lock: push what changed, then hold the
+# container to its cap. A live job's run logs wait until it leaves the Building stages.
+function Sync-Up {
+    $live = @($Board.jobs | Where-Object { $_.stage -in $Building } | ForEach-Object { $_.id })
+    $n = Push-State -Skip { param($rel) $rel -match '^jobs/([^/]+)/run-[^/]*\.jsonl$' -and $Matches[1] -in $live }.GetNewClosure()
+    if ($n -eq 0) { return }
+    $r = Invoke-StatePrune -Jobs $Board.jobs
+    if ($r.Deleted) { Add-Event ([ordered]@{ kind = 'note'; detail = "pruned $($r.Deleted) blobs, $($r.Freed) bytes freed" }) }
 }
 
 $Board = Load-Board
@@ -430,7 +487,7 @@ function Invoke-Gate([string] $id) {
     New-Item -ItemType Directory -Force (JobDir $j.id) | Out-Null
     Set-Content $log "# gate $($j.id) at $(Now)"
     $result = [ordered]@{}
-    $Mutex.ReleaseMutex()
+    Exit-BoardLock
     # npm and vite write UTF-8; a runner started by serve.ps1 has a fresh console on the OEM codepage.
     $enc = [Console]::OutputEncoding
     [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
@@ -448,7 +505,7 @@ function Invoke-Gate([string] $id) {
     }
     } finally {
         [Console]::OutputEncoding = $enc
-        $null = $Mutex.WaitOne()
+        Enter-BoardLock -1
         $script:Board = Load-Board
     }
     $j = Get-Job $id
@@ -957,6 +1014,7 @@ try {
                 if ($j) { $e.round = $j.round }
             }
             Add-Event $e
+            Copy-Transcript $e
         }
 
         'eval' {
@@ -979,7 +1037,9 @@ try {
                 models = [ordered]@{}; agents = @(); gateMs = $null
             }
             foreach ($run in Get-ChildItem (JobDir $j.id) -Filter 'run-*.jsonl' -File -ErrorAction SilentlyContinue) {
-                foreach ($l in Get-Content $run.FullName | Where-Object { $_ -match '"type"\s*:\s*"result"' }) {
+                # Each result carries the session's usage so far, so a run woken again by a background
+                # task logs several; the last is the run's total, as the runner records it.
+                foreach ($l in Get-Content $run.FullName | Where-Object { $_ -match '"type"\s*:\s*"result"' } | Select-Object -Last 1) {
                     try { $r = $l | ConvertFrom-Json -AsHashtable } catch { continue }
                     if (-not $r['modelUsage']) { continue }
                     foreach ($m in @($r['modelUsage'].Keys)) {
@@ -1093,10 +1153,39 @@ try {
             }
         }
 
+        'state-migrate' {
+            if (-not (State-IsAzure)) { Fail 'state-migrate refused: FACTORY_STATE is not azure' }
+            try { $n = Invoke-StateMigrate } catch { Fail "$($_.Exception.Message)" }
+            "migrated: $n blobs to $($script:StateUrl)"
+        }
+
+        'state-pull' {
+            if (-not (State-IsAzure)) { Fail 'state-pull refused: FACTORY_STATE is not azure' }
+            try { $n = Pull-State $Arg1; $null = Sync-Events } catch { Fail "$($_.Exception.Message)" }
+            "pulled: $n"
+        }
+
+        'prune' {
+            if (-not (State-IsAzure)) { Fail 'prune refused: FACTORY_STATE is not azure' }
+            try { $r = Invoke-StatePrune -Jobs $Board.jobs } catch { Fail "$($_.Exception.Message)" }
+            if ($r.Deleted) { Add-Event ([ordered]@{ kind = 'note'; detail = "pruned $($r.Deleted) blobs, $($r.Freed) bytes freed" }) }
+            "$($r.Used) of $($r.Cap) bytes"
+        }
+
+        'allow-ip' {
+            if (-not (State-IsAzure)) { Fail 'allow-ip refused: FACTORY_STATE is not azure' }
+            try { $r = Invoke-StateAllowIp } catch { Fail "$($_.Exception.Message)" }
+            "allowed $($r.Ip) on $($r.Account)" + $(if ($r.Removed) { "; removed $($r.Removed)" } else { '' })
+        }
+
         default { Fail "unknown command '$Command'" }
     }
 }
 finally {
+    if (State-IsAzure) {
+        try { Sync-Up } catch { [Console]::Error.WriteLine("factory: state push failed: $($_.Exception.Message)") }
+    }
+    Exit-BoardLease
     $Mutex.ReleaseMutex()
     $Mutex.Dispose()
 }

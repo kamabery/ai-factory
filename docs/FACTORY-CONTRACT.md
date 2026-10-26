@@ -572,6 +572,85 @@ agent events carry `"idea"` instead of `"job"`. `agent` is the plain agent name 
 plugin's `factory:` prefix). `agent-start` carries `agentId` and `transcript`, the subagent's live
 Claude Code transcript, which is derived from the hook's `transcript_path` and `agent_id`.
 
+## State backends
+
+`$env:FACTORY_STATE` is `local` (the default) or `azure`. With `local`, everything above is the whole
+story. With `azure`, an Azure Blob container is the system of record and `FACTORY_HOME` is its
+write-through cache: agents, `serve.ps1`'s `/state/*` and every reader keep working on local files,
+and `factory.ps1` and `serve.ps1` keep the two in step. All of this lives in `factory/scripts/state.ps1`.
+Provisioning and the runbook are in `docs/STATE.md`.
+
+**Settings** (environment, else `.env`): `FACTORY_STATE`; `FACTORY_BLOB_URL`, the container's URL
+(`https://<account>.blob.core.windows.net/factory`); `FACTORY_STATE_CAP`, the container's size
+cap in bytes, default `1073741824` (1 GB); `FACTORY_STORAGE_ACCOUNT` and `FACTORY_STATE_RG`
+(default `rg-factory-state`), used only by `allow-ip`. Environment only: `FACTORY_STATE_POLL_SECONDS`
+(default 5, see Dashboard below).
+
+Overrides, for tests: `FACTORY_STATE_TOKEN` (the bearer token), `FACTORY_LOCAL_DIR` (in place of
+`%LOCALAPPDATA%\claude-factory`), `FACTORY_STATE_LOCK_SECONDS` (the board lease's wait),
+`FACTORY_STATE_RENEW_SECONDS` (the keepers' interval), `FACTORY_IP_URL` (allow-ip's public-IP
+lookup, default `https://api.ipify.org`), and a `{home}` in `FACTORY_BLOB_URL`, which becomes a hash of
+`FACTORY_HOME` so each test's home gets its own container. `FACTORY_TEST_STATE=azure` runs the Pester
+suites on a blob stub (`factory/tests/fixtures/blob-stub.ps1`).
+
+**Auth** is Entra only; the account has shared keys disabled. The bearer token comes from
+`$env:FACTORY_STATE_TOKEN` (tests), else the managed identity (`IDENTITY_ENDPOINT` and
+`IDENTITY_HEADER`, in Azure), else `az account get-access-token --resource https://storage.azure.com`
+(through `FACTORY_AZ_CMD` when set). An `az` token is cached until five minutes before it expires in
+`%LOCALAPPDATA%\claude-factory\storage-token.json`, never under `FACTORY_HOME`.
+
+**Layout.** Blob names are paths relative to `FACTORY_HOME`, with `/` separators, except:
+
+| Blob | Local | Rule |
+| --- | --- | --- |
+| `board.json` | `board.json` | block blob, versioned; written only with `If-Match` on the ETag it was read at, under the board lease |
+| `events/<yyyy-MM>.jsonl` | `events.jsonl` | append blob per UTC month; an event is appended locally, then as one block. A pull rebuilds `events.jsonl` from every month, oldest first |
+| `locks/<name>` | — | empty blobs that only carry leases: `board`, `runner`, `canary`, `turn-<S-NNN>` |
+| `jobs/<id>/transcripts/agent-<agentId>.jsonl` | same | a subagent's transcript, copied in at its `agent-stop` |
+
+Never synced: `*.tmp`, `*.lock`, `headless-settings.json`, `.sync.json` (the cache's manifest:
+each synced path's length, mtime and ETag).
+
+**Locks.** In `azure`, each lock is also a 60 s lease on its `locks/` blob, taken alongside the
+local one:
+- `board`: taken where the board mutex is, released and re-taken with it, and renewed before every
+  board write. A lease that cannot be taken within 30 s, or renewed, refuses the command
+  (`state lock refused`).
+- `runner`, `canary`, `turn-<S>`: renewed every 20 s by a background thread while the holder runs.
+  A lease held elsewhere means another machine holds the lock: `runner.ps1` exits 0, `canary` and
+  the turn refuse as they do for a local lock.
+A crashed holder's lease lapses within 60 s.
+
+**Sync.**
+- **Board:** every `factory.ps1` command reads it with `If-None-Match`; when it changed, it refreshes
+  `board.json` and pulls the rest of the container.
+- **Push:** every `factory.ps1` command ends, still under the board lock, by pushing every local file
+  whose length or mtime differs from `.sync.json`, and by deleting the blob of every path in
+  `.sync.json` that is gone locally (`purge`, `discard`). A path the cap rolled off is marked pruned
+  in `.sync.json` and is never pushed again.
+- **Pull:** pulls download every blob whose ETag differs from `.sync.json`, except a path changed
+  locally since its last sync. Local changes win, last writer wins, and only `board.json` is
+  ETag-checked. A pull never deletes local files.
+- **Dashboard:** when the dashboard polls `/state/board.json` or `/state/events.jsonl`, `serve.ps1`
+  refreshes that file with `If-None-Match`, at most once per `FACTORY_STATE_POLL_SECONDS` (the poll runs
+  every 1.5 s; one conditional GET per file per 5 s costs about $0.45 a month while a dashboard is
+  open). It pulls a job's folder when the job's files are listed. A transcript whose path is not on
+  this machine is served from `jobs/<id>/transcripts/`.
+- **Idea turns:** `idea-turn.ps1` pulls `sessions/<S>/` before the turn and pushes at its end.
+
+**Cap.** After a push that uploaded anything, `factory.ps1` lists the container with versions. While
+the total exceeds `FACTORY_STATE_CAP`, it deletes in this order:
+1. `board.json` versions older than the newest 50.
+2. For each job that is `done`, `discarded`, or no longer on the board (purged), oldest first (by
+   `updatedAt`, or by the blob's last-modified time for a purged one): its `run-*.jsonl`, `transcripts/`,
+   `deploy-*.log` and `gate.log`.
+3. Those jobs' whole folders, in the same order.
+4. Sessions, oldest `session.json` first, whose `turn` lease is free.
+
+It never deletes the current `board.json`, `events/`, `ideas/`, `evals/`, `lessons/`, or a job that is
+not `done` or `discarded`. It records one `note` event per pass: `pruned <n> blobs, <bytes> freed`.
+The cap applies only to the container. Local files are kept.
+
 ## `factory.ps1` commands
 
 State resolves from `$env:FACTORY_HOME`, else `<main checkout>/.factory-runs` (found through
@@ -600,6 +679,8 @@ stderr and leaves the board unchanged.
 | `feedback <id> -File <path>` | serve.ps1 (the human's feedback on an evaluation) |
 | `lesson <id> [-File <path>]` · `lesson-mark <id> <open\|proposed\|applied> [-Detail <session>]` | runner.ps1, a human evaluation session, serve.ps1 (see [Lessons](#lessons)) |
 | `status [-Json]` | anyone |
+| `state-migrate` (`azure` only: uploads everything in `FACTORY_HOME` that is not already in the container, then writes `.sync.json`; refuses when the container already has a `board.json` newer than the local one) · `state-pull [<prefix>]` (pulls the container, or one prefix such as `jobs/J-019/`) · `prune` (runs the cap now and prints `<used> of <cap> bytes`) | a human; serve.ps1 (`state-pull jobs/<id>/` when a job is opened) |
+| `allow-ip` (`azure` only: adds this machine's public IP to `FACTORY_STORAGE_ACCOUNT`'s firewall through `az storage account network-rule add`, and removes the IP it added last time, recorded in `%LOCALAPPDATA%\claude-factory\allowed-ip.txt`) | a human, after the public IP changes |
 
 `read-reviews` and `read-decision` exit 2 when a verdict line is missing or malformed; the job
 does not move. `set-stage` only performs `approved → build`, `build → review` and

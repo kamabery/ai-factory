@@ -55,6 +55,17 @@ function Stage([string] $id) { (Get-StatusJob $id).stage }
 
 if (-not (Take-Lock)) { exit 0 }
 
+# In azure, runner.lock is also the lease on locks/runner, so one runner drains the queue across
+# machines (see "State backends" in the contract). A lease held elsewhere is a running runner.
+. (Join-Path $PSScriptRoot 'state.ps1')
+Initialize-State -StateHome $env:FACTORY_HOME -EnvFile $(if ($env:FACTORY_ENV_FILE) { $env:FACTORY_ENV_FILE } else { Join-Path $mainRoot '.env' })
+$lease = $null; $keeper = $null
+if (State-IsAzure) {
+    $lease = Enter-StateLease 'runner' 0
+    if (-not $lease) { Remove-Item $lock -Force -ErrorAction SilentlyContinue; exit 0 }
+    $keeper = Start-StateLeaseKeeper 'runner' $lease
+}
+
 # The runner runs in a hidden window; this log is the only place its failures can be seen.
 $runLog = Join-Path $env:FACTORY_HOME 'runner.log'
 function Log([string] $msg) { Add-Content -LiteralPath $runLog "$((Get-Date).ToUniversalTime().ToString('o')) $msg" -Encoding utf8 }
@@ -154,6 +165,7 @@ try {
     Log $_.ScriptStackTrace
 } finally {
     Log "exit $how"
+    if ($lease) { Stop-StateLeaseKeeper $keeper; try { Exit-StateLease 'runner' $lease } catch { } }
     Remove-Item $lock -Force -ErrorAction SilentlyContinue
 }
 exit 0
