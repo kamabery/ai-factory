@@ -105,4 +105,4 @@ pwsh -NoProfile -Command "Start-Process pwsh -ArgumentList '-NoProfile','-File',
 ```
 
 Finish with one line per job (id, title, Approved or Backlog), and point the human at the dashboard,
-`http://localhost:4317` (`pwsh factory/scripts/serve.ps1` if it isn't running).
+at the URL `serve.ps1` printed (`pwsh factory/scripts/serve.ps1` if it isn't running).

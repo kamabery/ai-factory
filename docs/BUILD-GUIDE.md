@@ -102,7 +102,7 @@ cost per card from step 2 onward. Those numbers are half of the "validated" bar.
 >    - `J-004` discarded from backlog, and `J-005` left in backlog
 >
 >    The gate and merge use injected commands; the simulator never touches this repo's git, dotnet or npm.
-> 2. `factory/scripts/serve.ps1 [-Port 4317] [-StateDir]`: an HttpListener on localhost only, with the GETs
+> 2. `factory/scripts/serve.ps1 [-Port N] [-StateDir]` (no -Port: a random free port, printed at start): an HttpListener on localhost only, with the GETs
 >    and the write endpoints in the contract, each a thin wrapper over one factory.ps1 call. It starts
 >    `runner.ps1` and `spec-run.ps1` as the contract says (Pester-test spec-run first), using
 >    `$env:FACTORY_CLAUDE_CMD` when it is set.
@@ -133,7 +133,7 @@ cost per card from step 2 onward. Those numbers are half of the "validated" bar.
 >    - polling of board.json and events.jsonl every 1.5 s, with light and dark themes.
 
 **Evidence:** the Playwright test red, then green. Then **watch it by eye**: run `serve.ps1` and
-`simulate.ps1 -Speed 0.5`, open `http://localhost:4317`, and confirm the cards visibly travel the
+`simulate.ps1 -Speed 0.5`, open the URL `serve.ps1` prints, and confirm the cards visibly travel the
 board and the pipeline nodes light up.
 
 ---
@@ -201,7 +201,7 @@ the pipeline strip. Discard the card afterwards.
 
 ## Step 6: First real job, end to end
 
-1. Terminal A: `pwsh factory/scripts/serve.ps1`, then open `http://localhost:4317`. That's the only terminal you need.
+1. Terminal A: `pwsh factory/scripts/serve.ps1`, then open the URL it prints. That's the only terminal you need.
 2. Paste the "Book search filter" idea from `factory/backlog.md` into the idea box.
 3. Read the spec that comes back, tighten it in the drawer, and save it. Drag the card to **Approved**.
 4. Watch the card move through Building and the pipeline nodes light up. When it reaches **Ready for review**, inspect

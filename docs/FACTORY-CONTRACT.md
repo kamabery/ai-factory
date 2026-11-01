@@ -575,6 +575,9 @@ session. A human marks one `applied` once the fix has merged. `purge` never touc
   board.json
   events.jsonl
   runner.lock                  held while runner.ps1 is draining the queue
+  serve.lock                   held while serve.ps1 runs: its PID, then its URL. A second serve.ps1 on
+                               the same state refuses to start and names that URL; a lock whose PID is
+                               no longer running is taken over, as runner.lock's is
   canary.lock                  held while a canary runs
   canary.json                  the last canary's result and fingerprint (see Canary)
   canary-<n>.log               canary run n's log

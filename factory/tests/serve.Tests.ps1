@@ -94,6 +94,55 @@ AfterAll {
     Remove-Item Env:FACTORY_HOME, Env:FACTORY_WORK, Env:FACTORY_ENV_FILE, Env:FACTORY_CLAUDE_CMD, Env:FACTORY_GATE_CMDS -ErrorAction SilentlyContinue
 }
 
+Describe 'serve.ps1 port' {
+    It 'without -Port listens on a random free port and prints it, so two dashboards never collide' {
+        $procs = @()
+        try {
+            $urls = foreach ($n in 1, 2) {
+                $state = Join-Path $TestDrive "port-state-$n"
+                New-Item -ItemType Directory -Force $state | Out-Null
+                $out = Join-Path $TestDrive "port-out-$n.txt"
+                $procs += Start-Process pwsh -PassThru -WindowStyle Hidden -RedirectStandardOutput $out -ArgumentList @(
+                    '-NoProfile', '-File', (Join-Path $script:Scripts 'serve.ps1'), '-StateDir', $state, '-EnvFile', $script:EnvFile)
+                Wait-Until { (Test-Path $out) -and ((Get-Content $out -Raw) -match 'factory dashboard on (http://localhost:\d+/)') } "dashboard $n to print its url"
+                [regex]::Match((Get-Content $out -Raw), 'factory dashboard on (http://localhost:\d+/)').Groups[1].Value
+            }
+            $urls[0] | Should -Not -Be 'http://localhost:4317/'
+            $urls[0] | Should -Not -Be $urls[1]
+            foreach ($u in $urls) { (Invoke-WebRequest $u -SkipHttpErrorCheck).StatusCode | Should -Be 200 }
+        } finally { $procs | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue } }
+    }
+
+    It 'refuses a second dashboard on the same state, naming the first one, and takes over a dead one''s lock' {
+        $state = Join-Path $TestDrive 'lock-state'
+        New-Item -ItemType Directory -Force $state | Out-Null
+        $serve = { param($n) $out = Join-Path $TestDrive "lock-out-$n.txt"
+            $p = Start-Process pwsh -PassThru -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError "$out.err" -ArgumentList @(
+                '-NoProfile', '-File', (Join-Path $script:Scripts 'serve.ps1'), '-StateDir', $state, '-EnvFile', $script:EnvFile)
+            @{ Proc = $p; Out = $out } }
+        $url = { param($o) [regex]::Match("$(Get-Content $o -Raw)",'factory dashboard on (http://localhost:\d+/)').Groups[1].Value }
+        $procs = @()
+        try {
+            $first = & $serve 1; $procs += $first.Proc
+            Wait-Until { (Test-Path $first.Out) -and (& $url $first.Out) } 'the first dashboard to print its url'
+            $firstUrl = & $url $first.Out
+            (Get-Content (Join-Path $state 'serve.lock'))[0] | Should -Be "$($first.Proc.Id)"
+
+            $second = & $serve 2; $procs += $second.Proc
+            $second.Proc.WaitForExit(30000) | Should -BeTrue
+            $second.Proc.ExitCode | Should -Not -Be 0
+            ((Get-Content $second.Out -Raw) + (Get-Content "$($second.Out).err" -Raw)) | Should -Match ([regex]::Escape($firstUrl))
+
+            Stop-Process -Id $first.Proc.Id -Force   # no finally runs: the lock is left behind
+            $first.Proc.WaitForExit(10000) | Out-Null
+            Test-Path (Join-Path $state 'serve.lock') | Should -BeTrue
+            $third = & $serve 3; $procs += $third.Proc
+            Wait-Until { (Test-Path $third.Out) -and (& $url $third.Out) } 'a dashboard to take over the dead lock'
+            (Get-Content (Join-Path $state 'serve.lock'))[0] | Should -Be "$($third.Proc.Id)"
+        } finally { $procs | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue } }
+    }
+}
+
 Describe 'serve.ps1 ideate config' {
     AfterEach { Stop-Serve }
 

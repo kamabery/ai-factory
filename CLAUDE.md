@@ -73,7 +73,7 @@ dotnet test tests/shelf.api.tests
 cd src/ui/react; npm install; npm run build
 aspire run                                   # no Docker needed (SQLite)
 
-pwsh factory/scripts/serve.ps1               # dashboard on http://localhost:4317 (after step 3)
+pwsh factory/scripts/serve.ps1               # dashboard on a random localhost port it prints; -Port N to fix one
 pwsh factory/scripts/idea.ps1 <owner/name|I-NNN> # CLI fallback for the dashboard's New idea: grill -> brief -> specs -> you approve
 pwsh factory/scripts/runner.ps1              # drains the Approved queue; serve.ps1 starts it for you (after step 2)
 Invoke-Pester factory/tests                  # control-plane, runner, idea-turn and serve tests (after steps 1-2)

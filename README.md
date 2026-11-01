@@ -23,7 +23,7 @@ without spending tokens, run the simulator first (see "Checking without spending
 ### 1. Start the dashboard
 
 ```powershell
-pwsh factory/scripts/serve.ps1        # http://localhost:4317
+pwsh factory/scripts/serve.ps1        # prints its URL (a random free port; -Port N to fix one)
 ```
 
 That's the only process you start. The dashboard starts the agent runs itself. Targets are GitHub

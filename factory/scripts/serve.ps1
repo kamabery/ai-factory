@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  The factory dashboard server: http://localhost:4317. See "Dashboard API" in docs/FACTORY-CONTRACT.md.
+  The factory dashboard server, on a random localhost port it prints at start (-Port to fix one). See "Dashboard API" in docs/FACTORY-CONTRACT.md.
 .DESCRIPTION
   Serves factory/dashboard/index.html, its vendor/ files, read-only files under the state dir
   (/state/...) and agent transcripts named by agent-start events. Every board write is one
@@ -10,7 +10,7 @@
   a key; it never reads the key into the environment.
 #>
 param(
-    [int] $Port = 4317,
+    [int] $Port = 0,   # 0: a random free port, printed at start
     [string] $StateDir,
     [string] $EnvFile,
     [int] $WatchdogSeconds = 10,
@@ -563,9 +563,33 @@ function Handle($ctx) {
     Send $ctx 404 '{"ok":false,"message":"not found"}'
 }
 
-$listener = [Net.HttpListener]::new()
-$listener.Prefixes.Add("http://localhost:$Port/")
-$listener.Start()
+# serve.lock: one dashboard per state dir, so one watchdog and one PR sync. Its PID, then its URL;
+# a lock whose PID is gone is taken over, as runner.lock's is.
+$ServeLock = Join-Path $StateDir 'serve.lock'
+try { $fs = [IO.File]::Open($ServeLock, 'CreateNew', 'Write', 'None') }
+catch [IO.IOException] {
+    $held = @(Get-Content $ServeLock -ErrorAction SilentlyContinue)
+    if (($held[0] -as [int]) -and (Get-Process -Id ($held[0] -as [int]) -ErrorAction SilentlyContinue)) {
+        [Console]::Error.WriteLine("serve.ps1 refused: a dashboard (PID $($held[0])) already serves $StateDir at $($held[1])")
+        exit 1
+    }
+    Remove-Item $ServeLock -Force -ErrorAction SilentlyContinue
+    $fs = [IO.File]::Open($ServeLock, 'CreateNew', 'Write', 'None')
+}
+$fs.Dispose()
+Set-Content $ServeLock "$PID"
+
+# -Port 0 (the default) takes a free loopback port, so a second dashboard never collides with one
+# already running. The probe frees the port before HttpListener binds it, so retry on a lost race.
+for ($try = 1; ; $try++) {
+    $p = $Port
+    if (-not $p) { $probe = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0); $probe.Start(); $p = $probe.LocalEndpoint.Port; $probe.Stop() }
+    $listener = [Net.HttpListener]::new()
+    $listener.Prefixes.Add("http://localhost:$p/")
+    try { $listener.Start(); $Port = $p; break }
+    catch { $listener.Close(); if ($Port -or $try -ge 5) { Remove-Item $ServeLock -Force -ErrorAction SilentlyContinue; throw } }
+}
+Set-Content $ServeLock "$PID`nhttp://localhost:$Port/"
 Write-Host "factory dashboard on http://localhost:$Port/  (state: $StateDir)"
 try {
     while ($listener.IsListening) {
@@ -580,4 +604,5 @@ try {
     }
 } finally {
     $listener.Stop()
+    if ((Get-Content $ServeLock -ErrorAction SilentlyContinue | Select-Object -First 1) -eq "$PID") { Remove-Item $ServeLock -Force -ErrorAction SilentlyContinue }
 }
