@@ -2076,6 +2076,32 @@ Describe 'deploy' {
         (Job $id).stage | Should -Be 'approve'
     }
 
+    It 'a resumed deploy whose run already finished takes that run''s result: dispatches none, counts none' {
+        # J-023: a fresh preview's run took 28 minutes; the devops agent's shell call died at 10 and the
+        # run succeeded 7 minutes after the job escalated. Resuming dispatched a second, needless run.
+        $id = New-ApprovedJob
+        Move-ToDeploy $id
+        function Runs { $(try { @((DeployState).runs.Values | Where-Object { $_.head_branch -eq "factory/$id" -and $_.repo -eq $script:Repo }) } catch { @() }) }
+        $slow = Join-Path $script:GitBase "$script:Repo.slow"
+        Set-Content $slow ''
+        $p = Start-Process pwsh -ArgumentList '-NoProfile', '-File', $script:Factory, 'deploy', $id -PassThru -WindowStyle Hidden
+        $deadline = (Get-Date).AddSeconds(60)
+        while (-not @(Runs).Count -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 200 }
+        Stop-Process -Id $p.Id -Force
+        Remove-Item $slow
+        $run = @(Runs)[0]
+        # Nobody is waiting on it: one look at the run completes it, as GitHub would have meanwhile.
+        (Invoke-RestMethod "http://localhost:$script:GhPort/repos/$script:Repo/actions/runs/$($run.id)" -Headers @{ Authorization = "Bearer $script:Token" }).status | Should -Be 'completed'
+        (Job $id).deploy.status | Should -Be 'applying'
+
+        F deploy $id | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        @(Runs).Count | Should -Be 1
+        (Job $id).deploy.attempts | Should -Be 1
+        (Job $id).deploy.status | Should -Be 'up'
+        (Job $id).stage | Should -Be 'approve'
+    }
+
     It 'a destroy that errors records HCP''s own error, not just its status' {
         $id = New-ApprovedJob
         Move-ToDeploy $id

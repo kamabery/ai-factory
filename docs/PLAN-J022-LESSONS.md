@@ -50,7 +50,9 @@ The smallest change, and the one that would have prevented round 11.
 4. Keep the `terraform …` allow rules in `claude-run.ps1`. Agents may still run ad hoc
    `terraform fmt` and `validate`.
 5. **Verify:** a simulator run (`simulate.ps1`) or a live job where a reviewer's verdict quotes a
-   `gate-check` result for iac-test.
+   `gate-check` result for iac-test. **Done 2026-11-01, J-023:** the builder saw `caps_log_ingestion`
+   red then green through `gate-check`, and the code, security and ux reviewers quote
+   `iac-test exit 0 (cached at dc533a4)`, 11 passed. No agent hit "requires approval".
 
 ## Phase 1b — the `blocked` stage (found missing while starting Phase 2)
 
@@ -187,7 +189,35 @@ Last, because it is the largest change and the least certain gain.
 4. Dashboard: the **Tweak** checkbox and the factory-fault hint in the rework dialog, the skipped
    reviewer chips, and a Playwright check against `simulate.ps1`.
 
+## Phase 7 — deploy time (from J-023, added 2026-11-01)
+
+J-023's fresh `j023` preview took 28 minutes to apply, against about 10 for a re-apply on existing
+resources (J-022), and the devops agent's 10-minute shell limit escalated it. A canary takes about
+55 to 65 minutes, and about 30 of those are the destroy. Most of the time goes on slow platform
+resources (the Container Apps environment, registry, Key Vault and role assignments, the Entra app),
+not on the app.
+
+1. **Measure first.** Read J-023's HCP apply log for per-resource create times, and the canary
+   logs for the apply/smoke/destroy split. Decide what to share from those numbers, not guesses.
+2. **Factory side** (this repo, red then green as usual):
+   - The canary records its pass once the smoke passes, and the destroy runs after; the `destroyAt`
+     sweep catches a destroy that fails. Roughly halves the canary.
+   - Two canary levels: a change to only the factory's deploy scripts re-applies a `j000` kept up;
+     the full create-and-destroy canary stays for template IaC, `deploy.yml` and add-on changes.
+3. **Template side** (`template-projects`, so a template job or lesson, not this repo, and it
+   overlaps the deferred AVM migration): split the IaC into a long-lived platform stack and a thin
+   per-preview stack. Shared candidates, all cheap idle: the Container Apps environment
+   (Consumption, ~$0 idle), a Basic registry (~$5/month), Log Analytics + App Insights (pay per GB),
+   Key Vault Standard, the managed identity and its role assignments, the Entra External ID app
+   (a redirect URI per preview), and the storage account (a file share per preview). The aim is
+   a fresh preview at or under the re-apply time.
+4. **Trade-off to accept:** previews share logs, the vault and environment limits, and a fresh
+   preview no longer proves a from-scratch create. The full canary keeps proving that.
+
 ## Not decided (ask before doing)
+
+- Phase 7: which resources to share (after step 1's measurements), and whether a canary may pass
+  before its destroy finishes.
 
 - Whether reviewers should also flag out-of-scope paths. The decision was deterministic only.
 - Whether the canary scaffold gets `auth: true` by default (Phase 5, step 4).

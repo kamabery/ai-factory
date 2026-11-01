@@ -86,12 +86,14 @@ function Prepare-GitHub($j) {
 }
 
 # Dispatches deploy.yml on the job branch and waits for that run; returns it. A run of $sha that is
-# still going (its deploy's process died, J-019) is waited on instead of dispatching another.
-function Invoke-DeployRun($j, [string] $envName, [string] $branch = "factory/$($j.id)", [string] $sha = '') {
+# still going (its deploy's process died, J-019) is waited on instead of dispatching another. With
+# -Resume (the board still says applying), the newest run of $sha counts even if it has finished:
+# it finished after the process waiting on it died (J-023).
+function Invoke-DeployRun($j, [string] $envName, [string] $branch = "factory/$($j.id)", [string] $sha = '', [switch] $Resume) {
     $t = $j.target
     $runsPath = "/repos/$t/actions/runs?branch=$([uri]::EscapeDataString($branch))&event=workflow_dispatch"
     $runs = @((Invoke-GitHub GET $runsPath).Body.workflow_runs | Where-Object { $_ })
-    $run = if ($sha) { $runs | Where-Object { $_.status -ne 'completed' -and $_.head_sha -eq $sha } | Sort-Object { [long]$_.id } -Descending | Select-Object -First 1 }
+    $run = if ($sha) { $runs | Where-Object { ($Resume -or $_.status -ne 'completed') -and $_.head_sha -eq $sha } | Sort-Object { [long]$_.id } -Descending | Select-Object -First 1 }
     if (-not $run) {
         $before = $runs | ForEach-Object { [long]$_.id } | Measure-Object -Maximum
         $last = if ($before.Count) { [long]$before.Maximum } else { 0 }
@@ -124,7 +126,7 @@ function Get-RunLog($j, $run) {
 }
 
 # The whole attempt, lock released. Returns { ok, sha, run, urls, destroyAt, log }.
-function Invoke-Deploy($j) {
+function Invoke-Deploy($j, [switch] $Resume) {
     $d = $j.deploy
     $result = [ordered]@{ ok = $false; sha = $null; run = $null; urls = $null; destroyAt = $null; workspaceId = $null; log = '' }
     $wt = WorkDir $j
@@ -144,7 +146,7 @@ function Invoke-Deploy($j) {
             $result.destroyAt = (Get-Date).ToUniversalTime().AddHours(24).ToString('yyyy-MM-ddTHH:mm:ssZ')
             $wsId = Ensure-HcpWorkspace $d.workspace $project $result.destroyAt
             $result.workspaceId = $wsId
-            $run = Invoke-DeployRun $j $d.env -sha $result.sha
+            $run = Invoke-DeployRun $j $d.env -sha $result.sha -Resume:$Resume
             $result.run = $run.html_url
             if ($run.conclusion -eq 'success') {
                 $outs = Get-HcpOutputs $wsId

@@ -949,7 +949,7 @@ try {
             $d.status = 'applying'
             Save-Board $Board
             $attempt = $d.attempts
-            $res = Invoke-Deploy $j
+            $res = Invoke-Deploy $j -Resume:$resume
             $j = Get-Job $Arg1
             $d = $j.deploy
             $d.sha = $res.sha

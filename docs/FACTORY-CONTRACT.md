@@ -983,7 +983,9 @@ anything but the one child process that needs it, never logged):
 1. Refuses when `deploy.attempts` is already 5. Increments `attempts`, sets `status: applying`.
    When `status` is already `applying`, the last attempt's process died before recording a result
    (the caller's shell timed out; a full apply takes about an hour), and this call **resumes that
-   attempt**: no refusal, no increment.
+   attempt**: no refusal, no increment. A resumed attempt takes the newest `deploy.yml` run of the
+   pushed head even when that run has finished (it finished after the process waiting on it died,
+   J-023), and dispatches a run only when there is none.
 2. Pushes `factory/<id>` (as `publish` does, without the PR).
 3. GitHub, first, so a missing permission fails before anything is created in HCP: ensures the
    environment `preview`, its variables `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
