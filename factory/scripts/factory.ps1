@@ -379,6 +379,10 @@ function Next-Runnable {
 
 function Is-Deployable($j) { (Deploys-On) -and -not (Is-Bootstrap $j) }
 
+# Where a job the factory gives up on waits for a human (see "Blocked" in the contract): a deployable
+# job that never reached a passing preview parks in blocked; one in approve or gate has its preview up.
+function Escalation-Stage($j) { if ((Is-Deployable $j) -and $j.stage -in 'build', 'review', 'deploy') { 'blocked' } else { 'ready' } }
+
 # Whether the runner may take $j: it heads the queue, or `next` chose it past jobs held for a canary.
 function Is-Next($j) {
     $n = Next-Runnable
@@ -729,7 +733,7 @@ try {
 
         'rework' {
             $j = Get-Job $Arg1
-            Require-Stage $j 'ready' 'rework'
+            Require-Stage $j 'ready', 'blocked' 'rework'
             if (-not $Arg2) { Fail 'usage: rework <id> <note>' }
             $j.round = [int]$j.round + 1
             Set-Content (Join-Path (JobDir $j.id) "rework-$($j.round).md") $Arg2
@@ -743,7 +747,7 @@ try {
 
         'discard' {
             $j = Get-Job $Arg1
-            Require-Stage $j 'backlog', 'ready' 'discard'
+            Require-Stage $j 'backlog', 'ready', 'blocked' 'discard'
             $kids = @($Board.jobs | Where-Object { $_.Contains('base') -and $_.base -eq $j.id -and $_.stage -notin 'done', 'discarded' } | ForEach-Object id)
             if ($kids) { Fail "discard refused: $($kids -join ', ') stacked on $($j.id); discard them first, or merge $($j.id)" }
             Move-Job $j 'discarded' 'human'
@@ -845,7 +849,7 @@ try {
 
         'publish' {
             $j = Get-Job $Arg1
-            Require-Stage $j 'ready' 'publish'
+            Require-Stage $j 'ready', 'blocked' 'publish'
             $url = Publish-Job $j
             if ($url -like 'error: *') { Fail "publish refused: $($url.Substring(7))" }
             $url
@@ -923,20 +927,26 @@ try {
                 if ($res.log -match $PatNeedsPattern) {
                     # Not the change's fault: give the attempt back and wait for a human to add the permission.
                     $d.attempts = [int]$d.attempts - 1
-                    Move-Job $j 'ready' 'orchestrator' 'github-permission' (PatNeeds $Matches[1])
+                    Move-Job $j (Escalation-Stage $j) 'orchestrator' 'github-permission' (PatNeeds $Matches[1])
                     Fail "deploy refused by GitHub: $(PatNeeds $Matches[1]); then run: factory.ps1 redeploy $($j.id)"
                 }
-                if ($attempt -ge 3) { Move-Job $j 'ready' 'orchestrator' 'deploy-failed' $first }
+                if ($attempt -ge 3) { Move-Job $j (Escalation-Stage $j) 'orchestrator' 'deploy-failed' $first }
                 Fail "deploy attempt $attempt failed: $first; see deploy-$attempt.log (factory.ps1 deploy-log $($j.id))"
             }
         }
 
         'redeploy' {
             $j = Get-Job $Arg1
-            Require-Stage $j 'ready' 'redeploy'
+            Require-Stage $j 'ready', 'blocked' 'redeploy'
             $last = @($j.history)[-1]
-            $fromDeploy = $last -and $last.from -eq 'deploy' -and $j.flag -and $j.flag.reason -in 'deploy-failed', 'escalated'
-            if (-not ($j.flag -and $j.flag.reason -eq 'github-permission') -and -not $fromDeploy) {
+            # Blocked from deploy: whatever the flag, the human fixed the cause. A ready job is one that
+            # left deploy before blocked existed.
+            $fromDeploy = $last -and $last.from -eq 'deploy'
+            $legacy = $fromDeploy -and $j.flag -and $j.flag.reason -in 'deploy-failed', 'escalated', 'github-permission'
+            if ($j.stage -eq 'blocked' -and -not $fromDeploy) {
+                Fail "redeploy refused: $($j.id) was blocked from $($last.from), not deploy; it never had a passing round to deploy (rework or discard it)"
+            }
+            if ($j.stage -eq 'ready' -and -not $legacy -and -not ($j.flag -and $j.flag.reason -eq 'github-permission')) {
                 Fail "redeploy refused: $($j.id) is neither flagged github-permission nor came to ready from deploy (deploy-failed or escalated)"
             }
             # Back in the queue; the runner resumes it at deploy rather than building it again. The human
@@ -1009,7 +1019,7 @@ try {
                 }
                 default {
                     if ($to -eq 'ready' -and $j.stage -in $Building -and $Reason -eq 'escalated') {
-                        Move-Job $j 'ready' $by_ 'escalated' $Detail
+                        Move-Job $j (Escalation-Stage $j) $by_ 'escalated' $Detail
                     } else {
                         Fail "transition $($j.stage)->$to refused (use the dedicated command, or see FACTORY-CONTRACT.md)"
                     }
@@ -1055,7 +1065,7 @@ try {
                 Reset-Reviews $j
                 Move-Job $j 'build' 'orchestrator'
             }
-            else { Move-Job $j 'ready' 'orchestrator' 'max-rounds' "CHANGES from $($changes -join ', ') at round $($j.round)" }
+            else { Move-Job $j (Escalation-Stage $j) 'orchestrator' 'max-rounds' "CHANGES from $($changes -join ', ') at round $($j.round)" }
             $j.stage
         }
 

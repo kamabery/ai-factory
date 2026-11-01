@@ -551,6 +551,59 @@ test.describe.serial('factory dashboard', () => {
     await expect(card(page, 'J-200').locator('[data-wait]')).toHaveCount(0);
   });
 
+  test('a blocked card waits in Building with its flag and Retry deploy, Rework and Discard, and does not hold the queue', async ({ page }) => {
+    // Rendering and wiring only: a board served by the test, and the write calls captured.
+    const at = (m: number) => new Date(Date.UTC(2026, 10, 1, 12, m)).toISOString();
+    const j = (id: string, stage: string, m: number, extra = {}) => ({
+      id, stage, round: 2, title: `job ${id}`, target: 'sim/sandbox', createdAt: at(m), approvedAt: at(m), updatedAt: at(m), history: [], ...extra,
+    });
+    const jobs = [
+      j('J-300', 'blocked', 1, { flag: { reason: 'deploy-failed', detail: 'Error: boom' }, history: [{ ts: at(2), from: 'deploy', to: 'blocked', by: 'orchestrator' }],
+        pr: { number: 7, url: 'https://github.com/sim/sandbox/pull/7' } }),
+      j('J-301', 'blocked', 2, { flag: { reason: 'max-rounds', detail: 'CHANGES from ui at round 2' }, history: [{ ts: at(3), from: 'review', to: 'blocked', by: 'orchestrator' }] }),
+      j('J-302', 'approved', 3),
+    ];
+    const canary = { fingerprint: 'sha256:01', status: 'pass', error: null, log: 'canary-1.log', startedAt: at(0), finishedAt: at(1), n: 1 };
+    await page.route('**/api/ideate/config', (r) => r.fulfill({ json: { enabled: false, deploys: true } }));
+    await page.route('**/state/board.json', (r) => r.fulfill({ body: JSON.stringify({ jobs, ideas: [] }) }));
+    await page.route('**/state/events.jsonl', (r) => r.fulfill({ body: '' }));
+    await page.route('**/state/canary.json', (r) => r.fulfill({ body: JSON.stringify(canary) }));
+    const calls: { url: string; body: unknown }[] = [];
+    await page.route(/\/api\/jobs\/J-30\d\/(redeploy|move)$/, (r) => {
+      calls.push({ url: new URL(r.request().url()).pathname, body: r.request().postDataJSON() });
+      return r.fulfill({ json: { ok: true, message: 'ok' } });
+    });
+
+    await page.goto('/');
+    const b0 = column(page, 'building').locator('[data-card="J-300"]');
+    const b1 = column(page, 'building').locator('[data-card="J-301"]');
+    await expect(b0).toBeVisible();
+    await expect(b0.locator('.sub')).toHaveText(/blocked r2/);
+    await expect(b0.locator('[data-flag]')).toHaveText('deploy-failed');
+    await expect(b0.locator('a[data-pr]')).toHaveText('PR #7');
+    await expect(b1.locator('[data-flag]')).toHaveText('max-rounds');
+    // Retry deploy only for a job blocked from deploy: one blocked from review never had a passing round.
+    await expect(b0.locator('[data-redeploy]')).toHaveText('Retry deploy');
+    await expect(b1.locator('[data-redeploy]')).toHaveCount(0);
+    await expect(b1.locator('[data-rework]')).toHaveText('Rework');
+    await expect(b1.locator('[data-discard]')).toHaveText('Discard');
+    await expect(card(page, 'J-302').locator('[data-wait]')).toHaveText('next');
+
+    await b0.locator('[data-redeploy]').click();
+    await expect(modal(page)).toBeHidden();
+    await expect.poll(() => calls.map((c) => c.url)).toEqual(['/api/jobs/J-300/redeploy']);
+
+    await b1.locator('[data-discard]').click();
+    await expect.poll(() => calls.at(-1)).toEqual({ url: '/api/jobs/J-301/move', body: { to: 'discarded' } });
+
+    // Rework opens the job with its note box; the note goes to rework as from Ready for review.
+    await b1.locator('[data-rework]').click();
+    await expect(modal(page).locator('[data-flagbox]')).toContainText('max-rounds');
+    await modal(page).locator('#rework-note').fill('drop the raw colour');
+    await modal(page).locator('#rework-btn').click();
+    await expect.poll(() => calls.at(-1)).toEqual({ url: '/api/jobs/J-301/move', body: { to: 'approved', note: 'drop the raw colour' } });
+  });
+
   test('New idea can start from an unmerged job, Abandon asks once more, and stacked cards name their base', async ({ page }) => {
     // Rendering and requests only: serve.ps1's side is in serve.Tests.ps1.
     const j = (id: string, stage: string, extra = {}) => ({ id, stage, round: 1, title: `job ${id}`, target: sandbox, history: [], ...extra });

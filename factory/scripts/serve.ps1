@@ -451,7 +451,7 @@ function Handle($ctx) {
         if (-not $job) { return Send $ctx 404 '{"ok":false,"message":"no such job"}' }
         $r = switch ($to) {
             'approved' {
-                if ($job.stage -eq 'ready') {
+                if ($job.stage -in 'ready', 'blocked') {
                     if (-not $note) { [pscustomobject]@{ Ok = $false; Message = 'rework refused: a rework needs a note' } }
                     else { Invoke-Factory rework $id $note }
                 } else { Invoke-Factory approve $id }
@@ -461,6 +461,13 @@ function Handle($ctx) {
             default { [pscustomobject]@{ Ok = $false; Message = "move to '$to' refused: not a human move" } }
         }
         if ($r.Ok -and $to -eq 'approved') { Start-Detached 'runner.ps1' }
+        return Send-Result $ctx $r
+    }
+
+    # Retry deploy on a blocked card: back to Approved, resuming at deploy.
+    if ($method -eq 'POST' -and $path -match '^/api/jobs/([A-Z]+-\d+)/redeploy$') {
+        $r = Invoke-Factory redeploy $Matches[1]
+        if ($r.Ok) { Start-Detached 'runner.ps1' }
         return Send-Result $ctx $r
     }
 

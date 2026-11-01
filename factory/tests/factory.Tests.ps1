@@ -1762,7 +1762,7 @@ Describe 'deploy' {
         $LASTEXITCODE | Should -Be 1
 
         $j = Job $id
-        $j.stage | Should -Be 'ready'
+        $j.stage | Should -Be 'blocked'
         $j.flag.reason | Should -Be 'github-permission'
         $j.flag.detail | Should -Match 'the GitHub PAT needs environments=write'
         $j.deploy.attempts | Should -Be 0
@@ -1858,9 +1858,10 @@ Describe 'deploy' {
         $id = New-ApprovedJob
         Move-ToReview $id
         F set-stage $id ready -By orchestrator -Reason escalated -Detail 'reviewer stuck' | Out-Null
+        (Job $id).stage | Should -Be 'blocked'
         F redeploy $id 2>$null | Out-Null
         $LASTEXITCODE | Should -Not -Be 0
-        (Job $id).stage | Should -Be 'ready'
+        (Job $id).stage | Should -Be 'blocked'
     }
 
     It 'redeploy refuses a job that is not flagged github-permission' {
@@ -1904,14 +1905,14 @@ Describe 'deploy' {
         (Job $id).deploy.status | Should -Be 'up'
     }
 
-    It 'the third failed attempt moves the job to ready flagged deploy-failed, and a fourth is refused' {
+    It 'the third failed attempt moves the job to blocked flagged deploy-failed, and a fourth is refused' {
         $id = New-ApprovedJob
         Move-ToDeploy $id
         Commit-Change $id 'deploy-fail.txt' 'boom'
         1..3 | ForEach-Object { F deploy $id | Out-Null }
 
         $j = Job $id
-        $j.stage | Should -Be 'ready'
+        $j.stage | Should -Be 'blocked'
         $j.flag.reason | Should -Be 'deploy-failed'
         $j.flag.detail | Should -Match 'boom'
         $j.deploy.attempts | Should -Be 3
@@ -2039,11 +2040,101 @@ Describe 'deploy' {
         @(Events | Where-Object { $_.job -eq $id -and $_.kind -eq 'destroy' }) | Should -HaveCount 0
     }
 
-    It 'escalation from deploy is allowed, as from every Building stage' {
+    It 'escalation from deploy is allowed, as from every Building stage, and parks the job in blocked' {
         $id = New-ApprovedJob
         Move-ToDeploy $id
         F set-stage $id ready -Reason escalated -Detail 'claude died' | Out-Null
-        (Job $id).stage | Should -Be 'ready'
+        (Job $id).stage | Should -Be 'blocked'
+        (Job $id).flag.reason | Should -Be 'escalated'
+    }
+
+    Context 'blocked' {
+        It 'max-rounds on a deployable job parks it in blocked' {
+            $id = New-ApprovedJob
+            Move-ToReview $id
+            Write-Reviews $id (All 'Verdict: CHANGES')
+            F read-reviews $id | Out-Null
+            Write-Build $id
+            F set-stage $id review | Out-Null
+            Write-Reviews $id (All 'Verdict: CHANGES')
+            F read-reviews $id | Should -Be 'blocked'
+            (Job $id).flag.reason | Should -Be 'max-rounds'
+        }
+
+        It 'escalation from <from> parks a deployable job in blocked' -ForEach @(@{ from = 'build' }, @{ from = 'review' }) {
+            $id = New-ApprovedJob
+            if ($from -eq 'build') { F set-stage $id build -By runner | Out-Null } else { Move-ToReview $id }
+            F set-stage $id ready -Reason escalated -Detail 'gave up' | Out-Null
+            (Job $id).stage | Should -Be 'blocked'
+        }
+
+        It 'escalation from approve lands in ready: the preview is up' {
+            $id = New-ApprovedJob
+            Move-ToDeploy $id
+            F deploy $id | Out-Null
+            (Job $id).stage | Should -Be 'approve'
+            F set-stage $id ready -Reason escalated -Detail 'approver died' | Out-Null
+            (Job $id).stage | Should -Be 'ready'
+        }
+
+        It 'an escalated bootstrap job lands in ready: it is not deployable' {
+            $i = F new-idea 'boot' -Target "test/boot-$([guid]::NewGuid().ToString('N').Substring(0,8))" -Scaffold '{"name":"todo","resource":"Todo","db":"sqlite","ui":"none","events":false}'
+            $boot = ($i -split ' ')[1]
+            F approve $boot | Out-Null
+            F set-stage $boot build -By runner | Out-Null
+            F set-stage $boot ready -Reason escalated -Detail 'gave up' | Out-Null
+            (Job $boot).stage | Should -Be 'ready'
+        }
+
+        It 'does not hold the queue: the next approved job can build' {
+            $a = New-ApprovedJob 'A'
+            F set-stage $a build -By runner | Out-Null
+            F set-stage $a ready -Reason escalated -Detail 'gave up' | Out-Null
+            (Job $a).stage | Should -Be 'blocked'
+            $b = New-ApprovedJob 'B'
+            F set-stage $b build -By runner | Out-Null
+            $LASTEXITCODE | Should -Be 0
+            (Job $b).stage | Should -Be 'build'
+        }
+
+        It 'rework moves it back to approved with the flag cleared and a new round' {
+            $id = New-ApprovedJob
+            Move-ToReview $id
+            F set-stage $id ready -Reason escalated -Detail 'gave up' | Out-Null
+            F rework $id 'try again' | Out-Null
+            $LASTEXITCODE | Should -Be 0
+            $j = Job $id
+            $j.stage | Should -Be 'approved'
+            $j.flag | Should -BeNullOrEmpty
+            $j.round | Should -Be 2
+        }
+
+        It 'discard discards it' {
+            $id = New-ApprovedJob
+            Move-ToReview $id
+            F set-stage $id ready -Reason escalated -Detail 'gave up' | Out-Null
+            F discard $id | Out-Null
+            $LASTEXITCODE | Should -Be 0
+            (Job $id).stage | Should -Be 'discarded'
+        }
+
+        It 'publish opens its PR' {
+            $id = New-ApprovedJob
+            Move-ToDeploy $id
+            F set-stage $id ready -Reason escalated -Detail 'gave up' | Out-Null
+            F publish $id | Should -Match '/pull/'
+            $LASTEXITCODE | Should -Be 0
+            (Job $id).pr.number | Should -Not -BeNullOrEmpty
+        }
+
+        It 'merge refuses it: only Ready for review is accepted' {
+            $id = New-ApprovedJob
+            Move-ToDeploy $id
+            F set-stage $id ready -Reason escalated -Detail 'gave up' | Out-Null
+            F merge $id | Out-Null
+            $LASTEXITCODE | Should -Not -Be 0
+            (Job $id).stage | Should -Be 'blocked'
+        }
     }
 }
 

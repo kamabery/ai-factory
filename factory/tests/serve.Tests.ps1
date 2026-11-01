@@ -267,6 +267,49 @@ Describe 'serve.ps1 job provider' {
     }
 }
 
+Describe 'serve.ps1 blocked jobs' {
+    BeforeAll {
+        # Deploys on, with the gh, az and canary stubs, so the runner a rework starts touches nothing real.
+        Use-Deploys
+        Use-Canary
+        Start-Serve $env:FACTORY_ENV_FILE
+        $script:Factory = Join-Path $script:Scripts 'factory.ps1'
+        function Fx { & pwsh -NoProfile -File $script:Factory @args 2>$null }
+        function New-BlockedJob([string] $title) {
+            $repo = New-Repo
+            $idea = Fx new-idea $title -Target $repo
+            $spec = Join-Path $TestDrive "$title-spec.md"
+            Set-Content $spec (Spec-Md $title $repo)
+            $id = Fx add-spec $idea $spec
+            Fx approve $id | Out-Null
+            Fx set-stage $id build -By runner | Out-Null
+            Fx set-stage $id ready -Reason escalated -Detail 'gave up' | Out-Null
+            $id
+        }
+    }
+    AfterAll { Stop-Serve; Clear-Deploys }
+
+    It 'Retry deploy calls factory.ps1 redeploy, which refuses a job blocked from build' {
+        $id = New-BlockedJob 'retry'
+        ((Board).jobs | Where-Object id -eq $id).stage | Should -Be 'blocked'
+        $r = Api POST "/api/jobs/$id/redeploy" @{}
+        $r.Status | Should -Be 409
+        $r.Body.message | Should -Match 'blocked from build, not deploy'
+    }
+
+    It 'Rework on a blocked card calls factory.ps1 rework, and needs a note' {
+        $id = New-BlockedJob 'rework'
+        $r = Api POST "/api/jobs/$id/move" @{ to = 'approved' }
+        $r.Status | Should -Be 409
+        $r.Body.message | Should -Match 'needs a note'
+        $r = Api POST "/api/jobs/$id/move" @{ to = 'approved'; note = 'remove the stray file' }
+        $r.Status | Should -Be 200
+        $r.Body.ok | Should -BeTrue
+        Get-Content (Join-Path $script:State "jobs/$id/rework-2.md") | Should -Be 'remove the stray file'
+        ((Board).jobs | Where-Object id -eq $id).history | Where-Object { $_.from -eq 'blocked' } | ForEach-Object to | Should -Be 'approved'
+    }
+}
+
 Describe 'serve.ps1 idea session on an existing repo' {
     BeforeAll {
         Start-Serve $script:EnvFile

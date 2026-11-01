@@ -144,7 +144,8 @@ try {
             }
 
             # Push the branch and open the PR, so the human reviews it on GitHub. merge publishes again.
-            if ((Stage $id) -eq 'ready') {
+            # escalated lands a deployable job in blocked (see "Blocked" in the contract), which is published too.
+            if ((Stage $id) -in 'ready', 'blocked') {
                 $pub = F-Child publish $id
                 if ($pub.Code -ne 0) { Log "publish $($id): $($pub.Err)" }
                 # What a job that went bad taught, for the templates; a clean job writes nothing.

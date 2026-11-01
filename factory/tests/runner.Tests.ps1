@@ -426,7 +426,7 @@ if ($held) { $held.Dispose() }
             (Job $b).flag.reason | Should -Be 'escalated'
         }
 
-        It 'escalates a job claude leaves in deploy, the way it does any Building stage' {
+        It 'escalates a job claude leaves in deploy to blocked, then publishes it and compiles its lessons' {
             Use-Deploys
             Use-Canary
             try {
@@ -434,7 +434,9 @@ if ($held) { $held.Dispose() }
                 Set-FakeClaude 'deploy-stall'
                 Run-Runner | Out-Null
                 (Job $id).flag.reason | Should -Be 'escalated'
-                ((Job $id).history | Where-Object { $_.from -eq 'deploy' }).to | Should -Be 'ready'
+                ((Job $id).history | Where-Object { $_.from -eq 'deploy' }).to | Should -Be 'blocked'
+                (Job $id).pr | Should -Not -BeNullOrEmpty
+                Test-Path (Join-Path $env:FACTORY_HOME "lessons/$id.json") | Should -BeTrue
             } finally { Clear-Deploys }
         }
     }

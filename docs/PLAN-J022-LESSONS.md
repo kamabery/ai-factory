@@ -52,6 +52,26 @@ The smallest change, and the one that would have prevented round 11.
 5. **Verify:** a simulator run (`simulate.ps1`) or a live job where a reviewer's verdict quotes a
    `gate-check` result for iac-test.
 
+## Phase 1b — the `blocked` stage (found missing while starting Phase 2)
+
+The contract has described `blocked` since fa212ec, but no code had it: every escalation landed in
+`ready`. Phases 2 and 3 send a deployable job there, so it is built first. Done:
+- `factory.ps1`: an escalation (`set-stage … -Reason escalated`, `max-rounds`, `deploy-failed`,
+  `github-permission`) parks a deployable job in build, review or deploy in `blocked`; anything
+  else still lands in `ready`. `rework`, `discard` and `publish` take a blocked job, `redeploy` takes
+  one blocked from `deploy` only, and `merge` refuses it. It is not building, so it does not hold the queue.
+- `runner.ps1` publishes a blocked job and compiles its lessons, as for `ready`.
+- `serve.ps1`: `POST /api/jobs/<id>/redeploy`, and the rework move from `blocked`.
+- Dashboard: blocked cards in Building with their flag, PR, **Retry deploy** (from deploy only),
+  **Rework** and **Discard**, on the card and in the modal.
+
+## Phase 1c — the rest of the deploy contract that is not built (not started; ask first)
+
+Also in the contract since before this plan, and not in code:
+- five deploy attempts a round (the code allows three),
+- `factory.ps1 deploy-fix <id> -File <diagnosis>`, `deployFixes` and the `deploy-fix-rounds` flag,
+- `factory.ps1 block <id> -Detail <line>` and the `environment` flag.
+
 ## Phase 2 — the scope check (it would have stopped round 3's `adopt.tf`)
 
 1. Tests:
