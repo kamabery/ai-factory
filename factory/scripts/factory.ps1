@@ -160,6 +160,40 @@ function Read-SpecMeta([string] $path) {
     $meta
 }
 
+# The spec's Scope: In globs: the first backticked span of each sub-bullet under `## Scope` `- In:`
+# (see "Targets" in the contract). Prose, and inline backticks after the glob, are not globs.
+# Returns the globs and, as .At, the index of the line after which a widening glob goes (-1: no In line).
+function Read-ScopeIn([string[]] $lines) {
+    $globs = [Collections.Generic.List[string]]::new()
+    $at = -1; $sec = $false; $in = $false
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $line = $lines[$i]
+        if ($line -match '^#{1,6}\s+(.*?)\s*$') { $sec = $Matches[1] -eq 'Scope'; $in = $false; continue }
+        if (-not $sec) { continue }
+        if ($line -match '^[-*]\s*In:') { $in = $true; $at = $i; continue }
+        if ($line -match '^\S') { $in = $false; continue }
+        if ($in -and $line -match '^\s+[-*]\s+`([^`]+)`') { $globs.Add($Matches[1].Trim()); $at = $i }
+        elseif ($in -and $line -match '^\s+\S') { $at = $i }
+    }
+    [pscustomobject]@{ Globs = @($globs); At = $at }
+}
+
+# A Scope glob as a regex: `*` matches within one path segment, `**` across segments.
+function Glob-Regex([string] $g) {
+    $r = [Text.StringBuilder]::new('^')
+    for ($i = 0; $i -lt $g.Length; $i++) {
+        $c = $g[$i]
+        if ($c -eq '*' -and $i + 1 -lt $g.Length -and $g[$i + 1] -eq '*') {
+            $i++
+            if ($i + 1 -lt $g.Length -and $g[$i + 1] -eq '/') { $i++; [void]$r.Append('(?:.*/)?') } else { [void]$r.Append('.*') }
+        }
+        elseif ($c -eq '*') { [void]$r.Append('[^/]*') }
+        elseif ($c -eq '?') { [void]$r.Append('[^/]') }
+        else { [void]$r.Append([regex]::Escape([string]$c)) }
+    }
+    $r.Append('$').ToString()
+}
+
 function JobDir([string] $id) { Join-Path $Home_ "jobs/$id" }
 
 # --- board I/O (serialized across processes, atomic write) ------------------------------------
@@ -735,7 +769,21 @@ try {
             $j = Get-Job $Arg1
             Require-Stage $j 'ready', 'blocked' 'rework'
             if (-not $Arg2) { Fail 'usage: rework <id> <note>' }
+            # `Scope +: <glob>, <glob>` widens the spec's Scope: In; the only write to spec.md after approval.
+            $widen = @($Arg2 -split '\r?\n' | Where-Object { $_ -match '^\s*Scope \+:\s*(.+)$' } |
+                ForEach-Object { ($_ -replace '^\s*Scope \+:\s*', '') -split ',' } | ForEach-Object { $_.Trim().Trim('`').Trim() } | Where-Object { $_ })
+            $specPath = Join-Path (JobDir $j.id) 'spec.md'
+            if ($widen) {
+                $lines = [Collections.Generic.List[string]]@(Get-Content $specPath)
+                $scope = Read-ScopeIn @($lines)
+                if (-not $scope.Globs) { Fail "rework refused: Scope + widens the spec's Scope: In globs, and this spec has none (it is not scope-checked)" }
+            }
             $j.round = [int]$j.round + 1
+            if ($widen) {
+                $lines.InsertRange($scope.At + 1, [string[]]@($widen | ForEach-Object { "  - ``$_`` (rework $($j.round))" }))
+                Set-Content $specPath $lines
+                Add-Event ([ordered]@{ job = $j.id; kind = 'note'; detail = "scope widened (rework $($j.round)): $($widen -join ', ')" })
+            }
             Set-Content (Join-Path (JobDir $j.id) "rework-$($j.round).md") $Arg2
             Reset-Reviews $j
             $j.decision = $null
@@ -1014,8 +1062,29 @@ try {
                 }
                 'build->review' {
                     if (-not (Test-Path (Join-Path (JobDir $j.id) "round-$($j.round)/build.md"))) { Fail "build->review refused: round-$($j.round)/build.md missing" }
-                    $j.reviews = [ordered]@{ security = 'running'; code = 'running'; ux = 'running'; ui = 'running' }
-                    Move-Job $j 'review' $by_
+                    # Build check 1, scope: the job's own changes (base work merged in excluded) against Scope: In.
+                    $globs = @((Read-ScopeIn @(Get-Content (Join-Path (JobDir $j.id) 'spec.md'))).Globs)
+                    $strays = @()
+                    if ($globs) {
+                        $wt = WorkDir $j
+                        if (-not (Test-Path (Join-Path $wt '.git'))) { Fail "build->review refused: $($j.id) has no work dir to scope-check" }
+                        $base = if ((Invoke-Git $wt rev-parse --verify --quiet refs/remotes/factory/base).Code -eq 0) { 'factory/base' } else { "origin/$(Base-Branch $j)" }
+                        $d = Invoke-Git $wt -c core.quotePath=false diff --name-only "$base...HEAD"
+                        if ($d.Code -ne 0) { Fail "build->review refused: cannot diff $base...HEAD: $($d.Out)" }
+                        $res = @($globs | ForEach-Object { Glob-Regex $_ })
+                        $strays = @($d.Out -split '\r?\n' | Where-Object { $_ } | Where-Object { $p = $_; -not ($res | Where-Object { $p -match $_ }) })
+                    }
+                    if ($strays) {
+                        $n = $strays.Count
+                        $detail = "$n path$(if ($n -ne 1) { 's' }) outside Scope: In: $(($strays | Select-Object -First 3) -join ', ')$(if ($n -gt 3) { ', ...' })"
+                        $why = "Paths outside the spec's Scope: In:`n" + (($strays | ForEach-Object { "- ``$_``" }) -join "`n")
+                        Move-Job $j (Escalation-Stage $j) $by_ 'out-of-scope' $detail $why
+                    } else {
+                        $j.reviews = [ordered]@{ security = 'running'; code = 'running'; ux = 'running'; ui = 'running' }
+                        Move-Job $j 'review' $by_
+                        if (-not $globs) { Add-Event ([ordered]@{ job = $j.id; kind = 'note'; detail = 'not scope-checked: the spec has no Scope: In globs' }) }
+                    }
+                    $j.stage
                 }
                 default {
                     if ($to -eq 'ready' -and $j.stage -in $Building -and $Reason -eq 'escalated') {

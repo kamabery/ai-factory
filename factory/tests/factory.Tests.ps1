@@ -584,6 +584,115 @@ Describe 'gate-check' {
     }
 }
 
+Describe 'scope check' {
+    BeforeEach {
+        # J-022's Scope: In, prose and inline backticks after the glob included.
+        $script:J022In = @(
+            '  - `.aspire/apphost.cs` (Keycloak `#:package`, `Auth__*` on api)'
+            '  - `.aspire/keycloak/**`'
+            '  - `IaC/auth.*.tf`'
+            '  - the generated lockfile, wherever npm puts it'
+        )
+        function New-ScopedJob([string[]]$in) {
+            $idea = F new-idea 'scoped' -Target $script:Repo
+            $p = Join-Path $TestDrive "spec-$([guid]::NewGuid().ToString('N')).md"
+            Set-Content $p ((Spec-Text 'Scoped') + "`n## Scope`n- In:`n$($in -join "`n")`n- Out: the API's controllers`n")
+            $id = F add-spec $idea $p
+            F approve $id | Out-Null
+            F set-stage $id build -By runner | Out-Null
+            F checkout $id | Out-Null
+            $id
+        }
+        function Commit-Paths([string]$id, [string[]]$paths) {
+            $wt = Work $id
+            foreach ($f in $paths) {
+                $full = Join-Path $wt $f
+                New-Item -ItemType Directory -Force (Split-Path $full -Parent) | Out-Null
+                Set-Content $full "work on $f"
+            }
+            git -C $wt add -A 2>&1 | Out-Null
+            git -C $wt -c user.email=f@t -c user.name=f commit -q -m "work for $id" 2>&1 | Out-Null
+        }
+        function To-Review([string]$id) { Write-Build $id; F set-stage $id review }
+    }
+
+    It 'moves to review when every path matches an In glob; ** crosses segments and prose sub-bullets are ignored' {
+        $id = New-ScopedJob $script:J022In
+        Commit-Paths $id '.aspire/apphost.cs', '.aspire/keycloak/realm/clients.json', 'IaC/auth.main.tf'
+        To-Review $id | Should -Be 'review'
+        (Job $id).stage | Should -Be 'review'
+    }
+
+    It 'a stray path moves a non-deployable job to ready, flagged out-of-scope with every path in why' {
+        $id = New-ScopedJob $script:J022In
+        # * stays within one segment, and the inline `Auth__*` after the glob is not a glob.
+        Commit-Paths $id '.aspire/apphost.cs', 'IaC/auth.x/y.tf', 'IaC/adopt.tf'
+        To-Review $id | Should -Be 'ready'
+        $j = Job $id
+        $j.flag.reason | Should -Be 'out-of-scope'
+        $j.flag.detail | Should -Be '2 paths outside Scope: In: IaC/adopt.tf, IaC/auth.x/y.tf'
+        $j.flag.why | Should -Match 'IaC/adopt\.tf'
+        $j.flag.why | Should -Match 'IaC/auth\.x/y\.tf'
+        $j.flag.why | Should -Not -Match 'apphost'
+    }
+
+    It 'a stray path moves a deployable job to blocked' {
+        Use-Deploys
+        try {
+            $id = New-ScopedJob $script:J022In
+            Commit-Paths $id 'IaC/adopt.tf'
+            To-Review $id | Should -Be 'blocked'
+            (Job $id).flag.reason | Should -Be 'out-of-scope'
+        } finally { Clear-Deploys }
+    }
+
+    It 'does not count base work merged into the branch' {
+        $id = New-ScopedJob $script:J022In
+        Push-ToMain 'base-only.txt' 'merged elsewhere'
+        F checkout $id | Out-Null
+        git -C (Work $id) -c user.email=f@t -c user.name=f merge -q --no-edit factory/base 2>&1 | Out-Null
+        Test-Path (Join-Path (Work $id) 'base-only.txt') | Should -BeTrue
+        Commit-Paths $id '.aspire/apphost.cs'
+        To-Review $id | Should -Be 'review'
+    }
+
+    It 'a spec with no In globs moves to review with a note that it was not scope-checked' {
+        $id = New-ScopedJob @()
+        Commit-Paths $id 'anything.txt'
+        To-Review $id | Should -Be 'review'
+        (Events | Where-Object { $_.kind -eq 'note' -and $_.job -eq $id }).detail | Should -Contain 'not scope-checked: the spec has no Scope: In globs'
+    }
+
+    It 'rework with Scope + appends the globs to the spec as (rework n) sub-bullets, and the next round accepts them' {
+        $id = New-ScopedJob $script:J022In
+        Commit-Paths $id 'IaC/adopt.tf', 'docs/auth.md'
+        To-Review $id | Out-Null
+        (Job $id).flag.reason | Should -Be 'out-of-scope'
+
+        F rework $id "Keep them.`nScope +: IaC/adopt.tf, ``docs/**``" | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        $spec = Get-Content (Join-Path (JobDir $id) 'spec.md')
+        $spec | Should -Contain '  - `IaC/adopt.tf` (rework 2)'
+        $spec | Should -Contain '  - `docs/**` (rework 2)'
+        # Inside Scope: In, before Out.
+        $spec.IndexOf('  - `docs/**` (rework 2)') | Should -BeLessThan $spec.IndexOf("- Out: the API's controllers")
+        (Events | Where-Object { $_.kind -eq 'note' -and $_.job -eq $id }).detail | Should -Contain 'scope widened (rework 2): IaC/adopt.tf, docs/**'
+
+        F set-stage $id build -By runner | Out-Null
+        To-Review $id | Should -Be 'review'
+    }
+
+    It 'rework with Scope + refuses a spec that has no Scope: In to widen' {
+        $id = New-ScopedJob @()
+        Commit-Paths $id 'x.txt'
+        To-Review $id | Out-Null
+        F set-stage $id ready -Reason escalated -Detail 'gave up' | Out-Null
+        F rework $id "Scope +: x/**" | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        (Job $id).stage | Should -Be 'ready'
+    }
+}
+
 Describe 'publish and merge' {
     It 'publish pushes the branch and opens one PR into main, and is idempotent' {
         $id = New-ApprovedJob 'Ship it'
@@ -1627,7 +1736,7 @@ Describe 'deploy' {
         Write-Reviews $id (All 'Verdict: PASS')
 
         F read-reviews $id | Should -Be 'approve'
-        (Events | Where-Object { $_.kind -eq 'note' -and $_.job -eq $id }).detail | Should -Match 'deploy skipped: bootstrap'
+        @((Events | Where-Object { $_.kind -eq 'note' -and $_.job -eq $id }).detail -match 'deploy skipped: bootstrap') | Should -HaveCount 1
     }
 
     It 'deploy on a bootstrap already in deploy moves it to approve, even with its attempts used up' {

@@ -40,7 +40,11 @@ id (the script assigns it).
   ``- ui-build: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build` ``
 - Every acceptance criterion is observable and names the test or command that proves it
   (a Gate command, a named test, a route to open).
-- **Scope** lists the files and areas the builder may touch, and what is out.
+- **Scope** lists every path the builder may touch under `- In:`, one sub-bullet each, starting with a
+  backticked repo-relative glob (`*` within one folder, `**` across folders), then optional prose; and
+  what is out under `- Out:`. The factory stops a build that touches any other path, so include the
+  generated outputs the change will regenerate (lockfiles, `contracts/api.openapi.json`,
+  `routeTree.gen.ts`) and the tests the ACs need.
 - **Risks** names the security, data, contract or UX risks the reviewers should look at first.
 - Respect the target's own `CLAUDE.md` rules, if it has one.
 - If the brief is too vague to spec (you cannot write a single observable AC), write **no** spec

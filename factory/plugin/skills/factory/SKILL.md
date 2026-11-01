@@ -63,7 +63,9 @@ Read the job's `round` from `F status -Json`. Then loop:
    Then run the **devops** agent in mode `author` with `<job>/spec.md`, `<job>/round-<round>/build.md`,
    the template `<templates>/deploy.md` and the output path `<job>/round-<round>/deploy.md`, so the
    reviewers see the infrastructure this round needs.
-2. `F set-stage <id> review`. If that is refused (no build.md), give up.
+2. `F set-stage <id> review`. If that is refused (no build.md), give up. Otherwise it prints the new
+   stage: `review` means continue; `ready` or `blocked` means a build check (a path outside the spec's
+   Scope: In) moved the job to the human. Stop.
 3. **Review.** Run the four reviewers **as four parallel Agent calls in ONE message**:
    `security-reviewer`, `code-reviewer`, `ux-reviewer`, `ui-reviewer`. Give each `<job>/spec.md`,
    `<job>/round-<round>/build.md`, the template `<templates>/review.md`, and its output path

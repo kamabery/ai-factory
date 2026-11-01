@@ -604,6 +604,28 @@ test.describe.serial('factory dashboard', () => {
     await expect.poll(() => calls.at(-1)).toEqual({ url: '/api/jobs/J-301/move', body: { to: 'approved', note: 'drop the raw colour' } });
   });
 
+  test('a blocked out-of-scope card says what that means and lists the paths', async ({ page }) => {
+    const at = new Date(Date.UTC(2026, 10, 1, 12, 0)).toISOString();
+    const jobs = [{
+      id: 'J-310', stage: 'blocked', round: 3, title: 'job J-310', target: 'sim/sandbox', createdAt: at, approvedAt: at, updatedAt: at,
+      history: [{ ts: at, from: 'build', to: 'blocked', by: 'orchestrator' }],
+      flag: { reason: 'out-of-scope', detail: '2 paths outside Scope: In: IaC/adopt.tf, docs/x.md',
+        why: "Paths outside the spec's Scope: In:\n- `IaC/adopt.tf`\n- `docs/x.md`" },
+    }];
+    await page.route('**/api/ideate/config', (r) => r.fulfill({ json: { enabled: false, deploys: true } }));
+    await page.route('**/state/board.json', (r) => r.fulfill({ body: JSON.stringify({ jobs, ideas: [] }) }));
+    await page.route('**/state/events.jsonl', (r) => r.fulfill({ body: '' }));
+
+    await page.goto('/');
+    const c = column(page, 'building').locator('[data-card="J-310"]');
+    await expect(c.locator('[data-flag]')).toHaveText('out-of-scope');
+    await expect(c.locator('[data-redeploy]')).toHaveCount(0);   // blocked from build: nothing to redeploy
+    await c.click();
+    const box = modal(page).locator('[data-flagbox]');
+    await expect(box).toContainText('Scope +:');
+    await expect(box.locator('li')).toHaveText(['IaC/adopt.tf', 'docs/x.md']);
+  });
+
   test('New idea can start from an unmerged job, Abandon asks once more, and stacked cards name their base', async ({ page }) => {
     // Rendering and requests only: serve.ps1's side is in serve.Tests.ps1.
     const j = (id: string, stage: string, extra = {}) => ({ id, stage, round: 1, title: `job ${id}`, target: sandbox, history: [], ...extra });
