@@ -2,8 +2,8 @@
 
 With deploys on, every job is deployed to a throwaway Azure environment between review and approve:
 the approver smoke-tests it, you QA it from Ready for review (**Launch**, **QA login**), and it is
-torn down when the job is merged, discarded or reworked, when you press **Tear down**, or after 24
-hours by HCP Terraform. Production is never deployed. The rules are in
+torn down when the job is merged or discarded, when you press **Tear down**, or after 24 hours by
+HCP Terraform. A rework keeps it, and the next round deploys over it. Production is never deployed. The rules are in
 [FACTORY-CONTRACT.md](FACTORY-CONTRACT.md#deploy); this is the one-time setup.
 
 Deploys are **off** until `.env` has `HCP_ORG`. Everything else keeps working without it.
@@ -23,7 +23,8 @@ Work through the sections in order: later values depend on earlier ones.
 | External tenant ID | `setup-azure.ps1 -ExternalTenantId` | the External tenant's **Overview** page | 2 |
 | `AZURE_SUBSCRIPTION_ID` | `.env`, `setup-azure.ps1 -SubscriptionId` | `az account list -o table` | 3 |
 | `AZURE_TENANT_ID`, `AZURE_GH_CLIENT_ID` | `.env` | written by `setup-azure.ps1` | 3 |
-| Variable set values (`TFC_*`, `ARM_*`, `entra_*`) | HCP variable set | printed by `setup-azure.ps1` | 3 → 4 |
+| Variable set values (`TFC_*`, `ARM_*`, `deployer_object_id`) | HCP variable set | printed by `setup-azure.ps1` | 3 → 4 |
+| `entra_external_*` (auth add-on only) | the target repo's `IaC/envs/*.tfvars` | printed by `setup-azure.ps1` | 4 |
 | `HCP_AZURE_VARSET` | `.env` | the `varset-...` id in the variable set's URL | 4 |
 | `GITHUB_TOKEN` (more permissions) | `.env` (unchanged) | edit the existing GitHub PAT | 5 |
 | `contact_email` | budget `terraform apply` | your email | 6 |
@@ -121,7 +122,7 @@ What it creates, and why:
 | Your tenant | Federated credential `hcp-terraform` on `factory-hcp-terraform` | Trusts tokens from `https://app.terraform.io` for your organization only. HCP's token subject is `organization:<org>:project:<p>:workspace:<w>:run_phase:<plan\|apply>`, and every preview gets a new workspace, so this is a *flexible* federated credential (Graph beta) matching `organization:<org>:project:*:workspace:*:run_phase:*` rather than one exact subject |
 | External tenant | User flow `preview-signin` (email + password, sign-up allowed) → `entra_external_user_flow_id` | The sign-in experience preview apps are attached to |
 | External tenant | App registration `factory-hcp-terraform`, its service principal and federated credential → `TFC_AZURE_RUN_CLIENT_ID_EXTERNAL` | A preview's Terraform run creates its app registration, test users and sign-in wiring in the External tenant, signing in the same way |
-| External tenant | Microsoft Graph **Application.ReadWrite.All**, **User.ReadWrite.All**, **EventListener.ReadWrite.All**, granted (admin consent) | Create the preview's app registration, its QA users, and attach the app to the user flow |
+| External tenant | Microsoft Graph **Application.ReadWrite.All**, **User.ReadWrite.All**, **EventListener.ReadWrite.All**, **DelegatedPermissionGrant.ReadWrite.All**, granted (admin consent) | Create the preview's app registration, its QA users, attach the app to the user flow, and admin-consent its delegated scopes (`azuread_service_principal_delegated_permission_grant`; without it the apply fails 403, J-022) |
 
 The GitHub Actions app has no federated credential yet, so it can't sign in from anywhere.
 `factory.ps1 deploy` adds one per target repo (`repo:<owner>/<name>:environment:preview`) under
@@ -160,7 +161,10 @@ projects* with none selected (the factory attaches it to each target's project).
 | `deployer_object_id` | terraform | printed: the GitHub Actions identity, which each environment's Key Vault lets read its secrets (the workflow's schema step) |
 | `TFC_AZURE_PROVIDER_AUTH_EXTERNAL` | env | `true` (auth add-on only) |
 | `TFC_AZURE_RUN_CLIENT_ID_EXTERNAL` | env | printed (auth add-on only) |
-| `entra_external_tenant_id` · `entra_external_subdomain` · `entra_external_user_flow_id` | terraform | printed (auth add-on only) |
+
+The three `entra_external_*` ids are not in the variable set. A target with the auth add-on commits
+them, as printed, in `IaC/envs/dev.tfvars`, `staging.tfvars` and `ephemeral.tfvars`. That is one
+source, and the workflow's `-var-file` would override the set anyway (J-022). They are not secrets.
 
 Save it. Its id is in the URL, `.../settings/varsets/varset-XXXXXXXX` → `HCP_AZURE_VARSET`. Or
 list them with the team token:

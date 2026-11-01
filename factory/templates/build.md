@@ -3,6 +3,10 @@
 Branch: factory/<job-id>
 Commits: <sha list>
 
+## Merge from base
+<`git merge --no-edit factory/base`: "already up to date", "clean", or each conflicted file and how
+both sides were kept.>
+
 ## What changed
 <Files and the reason for each.>
 

@@ -21,6 +21,7 @@ param(
     [string] $Agent,
     [string] $Target,
     [string] $Scaffold,
+    [string] $Base,
     [switch] $Failed,
     [switch] $Json,
     [switch] $Force,
@@ -254,6 +255,29 @@ function Get-Job([string] $id) {
     $j
 }
 
+# The job $j is stacked on (see "Stacked jobs" in the contract), or $null. A base purged from the
+# board was finished, so it counts as merged.
+function Base-Job($j) {
+    if (-not ($j.Contains('base') -and $j.base)) { return $null }
+    $Board.jobs | Where-Object { $_.id -eq $j.base } | Select-Object -First 1
+}
+
+# Where $j's branch starts and its PR points: the base's branch while the base is unmerged, else main.
+function Base-Branch($j) {
+    $b = Base-Job $j
+    if ($b -and $b.stage -ne 'done') { "factory/$($b.id)" } else { 'main' }
+}
+
+# Why job $id cannot be a base for work on target $t, or $null.
+function Test-Base([string] $t, [string] $id) {
+    $b = $Board.jobs | Where-Object { $_.id -eq $id } | Select-Object -First 1
+    if (-not $b) { return "no job $id" }
+    if ($b.target -ne $t) { return "$id is on $($b.target), not $t" }
+    if ($b.stage -in 'done', 'discarded') { return "$id is $($b.stage); start from main" }
+    if (-not ($b.Contains('pr') -and $b.pr)) { return "$id has no PR yet, so there is no branch to build on" }
+    $null
+}
+
 function Get-Idea([string] $id) {
     $i = $Board.ideas | Where-Object { $_.id -eq $id } | Select-Object -First 1
     if (-not $i) { Fail "no idea $id" }
@@ -293,6 +317,7 @@ function Add-Job($i, [string[]] $lines, [string] $source, [string] $kind) {
     $ts = Now
     $j = [ordered]@{
         id = $id; idea = $i.id; kind = $kind; title = $title; stage = 'backlog'; round = 1; branch = "factory/$id"
+        base = $(if ($i.Contains('base')) { $i.base } else { $null })
         target = (Read-SpecMeta $spec).repo; provider = $provider
         pr = $null; reviews = $null; decision = $null; gate = $null; flag = $null; merged = $null; approvedAt = $null
         costUsd = $null; durationMs = $null; createdAt = $ts; updatedAt = $ts; history = @()
@@ -422,7 +447,7 @@ function Ensure-GitHubRepo([string] $t) {
 }
 
 # Clones the job's target into its work dir (once) and checks out factory/<id>: the pushed branch
-# after a rework, otherwise a new one from origin/main.
+# after a rework, otherwise a new one from origin/main, or from its unmerged base's branch.
 function Ensure-Clone([string] $id) {
     $j = Get-Job $id
     $err = Test-Target $j.target
@@ -440,9 +465,12 @@ function Ensure-Clone([string] $id) {
     $current = (Invoke-Git $wt branch --show-current).Out
     if ($current -eq $branch) { return $null }
     if ((Invoke-Git $wt status --porcelain).Out) { return "work dir $wt has uncommitted changes on '$current'" }
+    $b = Base-Job $j
+    if ($b -and $b.stage -eq 'discarded') { return "$id is stacked on $($b.id), which was discarded" }
+    $start = Base-Branch $j
     $r = if ((Invoke-Git $wt rev-parse --verify --quiet "refs/remotes/origin/$branch").Code -eq 0) { Invoke-Git $wt checkout -q -B $branch "origin/$branch" }
-         elseif ((Invoke-Git $wt rev-parse --verify --quiet 'refs/remotes/origin/main').Code -eq 0) { Invoke-Git $wt checkout -q -b $branch origin/main }
-         else { return "$($j.target) has no main branch" }
+         elseif ((Invoke-Git $wt rev-parse --verify --quiet "refs/remotes/origin/$start").Code -eq 0) { Invoke-Git $wt checkout -q -b $branch "origin/$start" }
+         else { return "$($j.target) has no $start branch" }
     if ($r.Code -ne 0) { return "checkout $branch failed: $($r.Out)" }
     $null
 }
@@ -457,7 +485,7 @@ function Publish-Job($j) {
     if ($r.Code -ne 0) { return "error: push failed: $($r.Out)" }
     $pr = Get-OpenPr $j.target $branch
     if (-not $pr) {
-        $res = Invoke-GitHub POST "/repos/$($j.target)/pulls" @{ title = "$($j.id): $($j.title)"; head = $branch; base = 'main'
+        $res = Invoke-GitHub POST "/repos/$($j.target)/pulls" @{ title = "$($j.id): $($j.title)"; head = $branch; base = (Base-Branch $j)
             body = "Built by the factory from spec $($j.id). Merged when a human moves it to Done." }
         if ($res.Status -ne 201) { return "error: cannot open the PR: $(GhError $res)" }
         $pr = [ordered]@{ number = [int]$res.Body.number; url = $res.Body.html_url }
@@ -471,6 +499,35 @@ function Publish-Job($j) {
 function Gate-Commands($j) {
     if ($env:FACTORY_GATE_CMDS) { return @($env:FACTORY_GATE_CMDS | ConvertFrom-Json) }
     @((Read-SpecMeta (Join-Path (JobDir $j.id) 'spec.md')).gate)
+}
+
+# pwsh splits an unquoted native argument like -var-file=envs/ephemeral.tfvars at the dot (J-022), so
+# such a token is quoted. No cmdlet takes -name=value, so this only ever touches native arguments.
+function Quote-NativeArgs([string] $cmd) {
+    $cmd -replace '(?<=^|[\s;|(])(-[A-Za-z][\w-]*=[^\s"''`;|()]*\.[^\s"''`;|()]*)(?=$|[\s;|)])', '"$1"'
+}
+
+# Runs one gate command in $wt, as both gate and gate-check do; returns { Code, Out }.
+function Invoke-GateCommand($c, [string] $wt) {
+    # npm and vite write UTF-8; a runner started by serve.ps1 has a fresh console on the OEM codepage.
+    $enc = [Console]::OutputEncoding
+    [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+    Push-Location $wt
+    try {
+        $out = & pwsh -NoProfile -Command (Quote-NativeArgs $c.cmd) 2>&1
+        [pscustomobject]@{ Code = $LASTEXITCODE; Out = ($out | Out-String) }
+    } finally { Pop-Location; [Console]::OutputEncoding = $enc }
+}
+
+# Takes jobs/<id>/gate-check.lock, waiting up to FACTORY_GATE_CHECK_WAIT_MINUTES (default 20).
+# Returns the open stream (dispose it to release), or $null on timeout.
+function Enter-GateCheckLock([string] $path) {
+    $minutes = if ($env:FACTORY_GATE_CHECK_WAIT_MINUTES) { [double]$env:FACTORY_GATE_CHECK_WAIT_MINUTES } else { 20 }
+    $until = (Get-Date).AddMinutes($minutes)
+    while ($true) {
+        try { return [IO.File]::Open($path, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None) }
+        catch [IO.IOException], [UnauthorizedAccessException] { if ((Get-Date) -gt $until) { return $null }; Start-Sleep -Milliseconds 200 }
+    }
 }
 
 # Runs the gate in the work dir on factory/<id> and records exit codes and sha on the job.
@@ -488,23 +545,15 @@ function Invoke-Gate([string] $id) {
     Set-Content $log "# gate $($j.id) at $(Now)"
     $result = [ordered]@{}
     Exit-BoardLock
-    # npm and vite write UTF-8; a runner started by serve.ps1 has a fresh console on the OEM codepage.
-    $enc = [Console]::OutputEncoding
-    [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
     try {
     foreach ($c in $cmds) {
         Add-Content $log "`n## $($c.name): $($c.cmd)"
-        Push-Location $wt
-        try {
-            $out = & pwsh -NoProfile -Command $c.cmd 2>&1
-            $code = $LASTEXITCODE
-        } finally { Pop-Location }
-        Add-Content $log ($out | Out-String)
-        Add-Content $log "exit $code"
-        $result[$c.name] = $code
+        $r = Invoke-GateCommand $c $wt
+        Add-Content $log $r.Out
+        Add-Content $log "exit $($r.Code)"
+        $result[$c.name] = $r.Code
     }
     } finally {
-        [Console]::OutputEncoding = $enc
         Enter-BoardLock -1
         $script:Board = Load-Board
     }
@@ -528,6 +577,12 @@ function Gate-Green($j) {
 # After the PR merged as $sha: deletes factory/<id> on GitHub, records the merge and its paths, moves
 # the job to done, deletes the work dir, and releases a bootstrap's idea.
 function Complete-Merge($j, [string] $sha) {
+    # GitHub closes a PR whose base branch is deleted: point the stacked jobs' PRs at main first.
+    foreach ($k in @($Board.jobs | Where-Object { $_.Contains('base') -and $_.base -eq $j.id -and $_.stage -notin 'done', 'discarded' -and $_.Contains('pr') -and $_.pr })) {
+        $res = Invoke-GitHub PATCH "/repos/$($k.target)/pulls/$($k.pr.number)" @{ base = 'main' }
+        $detail = if ($res.Status -eq 200) { "PR #$($k.pr.number) retargeted to main: $($j.id) merged" } else { "PR #$($k.pr.number) not retargeted to main: $(GhError $res)" }
+        Add-Event ([ordered]@{ job = $k.id; kind = 'note'; detail = $detail })
+    }
     Invoke-GitHub DELETE "/repos/$($j.target)/git/refs/heads/factory/$($j.id)" | Out-Null
     $wt = WorkDir $j
     if (-not (Test-Path (Join-Path $wt '.git'))) { Ensure-Clone $j.id | Out-Null }
@@ -574,10 +629,15 @@ try {
     switch ($Command) {
 
         'new-idea' {
-            if (-not $Arg1) { Fail 'usage: new-idea <text> -Target <owner/name> [-Scaffold <json>]' }
+            if (-not $Arg1) { Fail 'usage: new-idea <text> -Target <owner/name> [-Scaffold <json>] [-Base <J-NNN>]' }
             $err = Test-Target $Target
             if ($err) { Fail "new-idea refused: $err" }
             $new = Test-NewTarget $Target 'new-idea'
+            if ($Base) {
+                if ($new) { Fail "base refused: '$Target' is a new repo" }
+                $err = Test-Base $Target $Base
+                if ($err) { Fail "base refused: $err" }
+            }
             $sc = $null
             if ($new) {
                 if (-not $Scaffold) { Fail "new-idea refused: '$Target' is a new repo, so it needs scaffold options" }
@@ -589,8 +649,8 @@ try {
             $id = Next-Id 'I' $Board.ideas
             $dir = Join-Path $Home_ "ideas/$id"
             New-Item -ItemType Directory -Force $dir | Out-Null
-            Set-Content (Join-Path $dir 'idea.md') @($Arg1, '', "Target: $Target")
-            $i = [ordered]@{ id = $id; text = $Arg1; target = $Target; scaffold = $sc; status = $status; jobs = @(); createdAt = Now }
+            Set-Content (Join-Path $dir 'idea.md') (@($Arg1, '', "Target: $Target") + @(if ($Base) { "Base: factory/$Base (unmerged; this idea builds on it)" }))
+            $i = [ordered]@{ id = $id; text = $Arg1; target = $Target; scaffold = $sc; base = $(if ($Base) { $Base } else { $null }); status = $status; jobs = @(); createdAt = Now }
             $Board.ideas = @($Board.ideas) + $i
             Save-Board $Board
             Add-Event ([ordered]@{ idea = $id; kind = 'idea'; detail = $status })
@@ -621,6 +681,14 @@ try {
             if ($Failed) { $i.reason = $Reason }
             Save-Board $Board
             Add-Event ([ordered]@{ idea = $i.id; kind = 'idea'; detail = $i.status })
+        }
+
+        'idea-abandon' {
+            $i = Get-Idea $Arg1
+            if ($i.status -notin 'waiting', 'drafting', 'failed') { Fail "idea-abandon refused: $($i.id) is $($i.status)" }
+            $i.status = 'abandoned'
+            Save-Board $Board
+            Add-Event ([ordered]@{ idea = $i.id; kind = 'idea'; detail = 'abandoned' })
         }
 
         'edit-spec' {
@@ -669,13 +737,15 @@ try {
             $j.decision = $null
             $j.approvedAt = Now
             if ($j.Contains('deploy') -and $j.deploy) { $j.deploy.attempts = 0 }
+            # The preview stays: the next deploy applies over it (a destroy here raced that apply, J-022).
             Move-Job $j 'approved' 'human'
-            Start-Destroy $j
         }
 
         'discard' {
             $j = Get-Job $Arg1
             Require-Stage $j 'backlog', 'ready' 'discard'
+            $kids = @($Board.jobs | Where-Object { $_.Contains('base') -and $_.base -eq $j.id -and $_.stage -notin 'done', 'discarded' } | ForEach-Object id)
+            if ($kids) { Fail "discard refused: $($kids -join ', ') stacked on $($j.id); discard them first, or merge $($j.id)" }
             Move-Job $j 'discarded' 'human'
             Remove-JobWork $j
             Start-Destroy $j
@@ -687,7 +757,7 @@ try {
             foreach ($j in $jobs) { Remove-WorkDir $j }
             $left = @($Board.jobs | Where-Object { $_.id -notin @($jobs | ForEach-Object id) })
             $kept = @($left | ForEach-Object id)
-            $ideas = @($Board.ideas | Where-Object { $_.status -in 'done', 'failed' -and -not (@($_.jobs) | Where-Object { $_ -in $kept }) })
+            $ideas = @($Board.ideas | Where-Object { $_.status -in 'done', 'failed', 'abandoned' -and -not (@($_.jobs) | Where-Object { $_ -in $kept }) })
             $gone = @($ideas | ForEach-Object id) + @($jobs | ForEach-Object id)
             if (-not $gone) { return }
             Update-Seq 'J' $Board.jobs | Out-Null
@@ -707,6 +777,8 @@ try {
             # The human may have merged the PR on GitHub already: that merge is the acceptance.
             $onGitHub = Get-GitHubMerge $j
             if ($onGitHub) { Complete-GitHubMerge $j $onGitHub; break }
+            $b = Base-Job $j
+            if ($b -and $b.stage -ne 'done') { Fail "merge refused: $($j.id) is stacked on $($b.id); merge $($b.id) first" }
             $err = Ensure-Clone $j.id
             if ($err) { Move-Job $j 'ready' 'human' 'merge-blocked' $err; Fail "merge blocked: $err" }
             $wt = WorkDir $j
@@ -729,6 +801,11 @@ try {
             }
             $url = Publish-Job $j
             if ($url -like 'error: *') { Move-Job $j 'ready' 'human' 'merge-blocked' $url.Substring(7); Fail "merge blocked: $($url.Substring(7))" }
+            # A stacked job's PR may still point at its base's branch (the base merged outside the factory).
+            if ($j.Contains('base') -and $j.base) {
+                $res = Invoke-GitHub PATCH "/repos/$($j.target)/pulls/$($j.pr.number)" @{ base = 'main' }
+                if ($res.Status -ne 200) { Move-Job $j 'ready' 'human' 'merge-blocked' (GhError $res); Fail "merge blocked: $(GhError $res)" }
+            }
             # sha pins the gated head: GitHub refuses the merge if the branch moved since.
             $res = Invoke-GitHub PUT "/repos/$($j.target)/pulls/$($j.pr.number)/merge" @{
                 merge_method = 'merge'; sha = $j.gate.sha; commit_title = "Merge factory/$($j.id): $($j.title)" }
@@ -756,7 +833,14 @@ try {
             $j = Get-Job $Arg1
             $err = Ensure-Clone $j.id
             if ($err) { Fail $err }
-            WorkDir $j
+            # factory/base is the job's base branch as it is now, for the builder to merge in: agents
+            # have no PAT to fetch with, and a branch cut before another job merged is stale (J-022).
+            $wt = WorkDir $j
+            $r = Invoke-GitAuth $wt fetch -q origin
+            if ($r.Code -ne 0) { Fail "checkout: fetch failed: $($r.Out)" }
+            $r = Invoke-Git $wt update-ref refs/remotes/factory/base "refs/remotes/origin/$(Base-Branch $j)"
+            if ($r.Code -ne 0) { Fail "checkout: cannot set factory/base: $($r.Out)" }
+            $wt
         }
 
         'publish' {
@@ -770,10 +854,14 @@ try {
         'clone-target' {
             $err = Test-Target $Arg1
             if ($err) { Fail "clone-target refused: $err" }
-            if (-not $Arg2 -or -not [IO.Path]::IsPathFullyQualified($Arg2)) { Fail 'usage: clone-target <owner/name> <absolute dir>' }
+            if (-not $Arg2 -or -not [IO.Path]::IsPathFullyQualified($Arg2)) { Fail 'usage: clone-target <owner/name> <absolute dir> [-Base <J-NNN>]' }
+            if ($Base) {
+                $err = Test-Base $Arg1 $Base
+                if ($err) { Fail "base refused: $err" }
+            }
             Remove-Item -LiteralPath $Arg2 -Recurse -Force -ErrorAction SilentlyContinue
             New-Item -ItemType Directory -Force (Split-Path $Arg2 -Parent) | Out-Null
-            $r = Invoke-GitAuth (Split-Path $Arg2 -Parent) clone -q --depth 1 --branch main (CloneUrl $Arg1) $Arg2
+            $r = Invoke-GitAuth (Split-Path $Arg2 -Parent) clone -q --depth 1 --branch $(if ($Base) { "factory/$Base" } else { 'main' }) (CloneUrl $Arg1) $Arg2
             if ($r.Code -ne 0) { Fail "clone of $Arg1 failed: $($r.Out)" }
             $Arg2
         }
@@ -985,6 +1073,54 @@ try {
             }
             else { Fail 'no decision line in decision.md' 2 }
             $j.stage
+        }
+
+        'gate-check' {
+            $j = Get-Job $Arg1
+            Require-Stage $j 'build', 'review', 'deploy', 'approve' 'gate-check'
+            $err = Ensure-Clone $j.id
+            if ($err) { Fail "gate-check refused: $err" }
+            $cmds = @(Gate-Commands $j)
+            if ($Arg2) { $cmds = @($cmds | Where-Object { $_.name -eq $Arg2 }) }
+            if (-not $cmds) { Fail "gate-check refused: $(if ($Arg2) { "no gate command named '$Arg2'" } else { 'no gate commands in the spec' })" }
+            $wt = WorkDir $j
+            $dir = JobDir $j.id
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            $cachePath = Join-Path $dir 'gate-check.json'
+            $lines = [Collections.Generic.List[string]]::new()
+            $first = 0
+            Exit-BoardLock
+            try {
+                $lock = Enter-GateCheckLock (Join-Path $dir 'gate-check.lock')
+                if (-not $lock) { Fail "gate-check refused: another gate-check held $($j.id)'s lock for too long" }
+                try {
+                    $sha = (Invoke-Git $wt rev-parse HEAD).Out
+                    $clean = -not (Invoke-Git $wt status --porcelain).Out
+                    $cache = if (Test-Path $cachePath) { Get-Content $cachePath -Raw | ConvertFrom-Json -AsHashtable } else { $null }
+                    if (-not $cache -or $cache.sha -ne $sha) { $cache = @{ sha = $sha; results = @{} } }
+                    $lines.Add("# gate-check $($j.id) at $(Now)")
+                    foreach ($c in $cmds) {
+                        $hit = if ($clean -and $cache.results.ContainsKey($c.name)) { $cache.results[$c.name] }
+                        $r = if ($hit) { [pscustomobject]@{ Code = [int]$hit.code; Out = $hit.out } } else { Invoke-GateCommand $c $wt }
+                        if (-not $hit -and $clean) { $cache.results[$c.name] = @{ code = $r.Code; out = $r.Out } }
+                        $lines.Add("`n## $($c.name): $($c.cmd)")
+                        $lines.Add($r.Out.TrimEnd())
+                        $lines.Add("exit $($r.Code)$(if ($hit) { " (cached at $($sha.Substring(0, [Math]::Min(7, $sha.Length))))" })")
+                        if ($r.Code -ne 0 -and $first -eq 0) { $first = $r.Code }
+                    }
+                    if ($clean) {
+                        $tmp = "$cachePath.$PID.tmp"
+                        [IO.File]::WriteAllText($tmp, ($cache | ConvertTo-Json -Depth 5))
+                        Replace-File $tmp $cachePath
+                    }
+                    Set-Content (Join-Path $dir 'gate-check.log') $lines
+                } finally { $lock.Dispose() }
+            } finally {
+                Enter-BoardLock -1
+                $script:Board = Load-Board
+            }
+            $lines
+            if ($first -ne 0) { exit $first }
         }
 
         'gate' {

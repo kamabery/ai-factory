@@ -279,13 +279,14 @@ async function getText(url) {
   return r.ok ? r.text() : '';
 }
 // The deploy canary (see "Canary" in the contract): a banner while one runs, or after one failed,
-// because deployable jobs wait in Approved until it passes.
+// because deployable jobs wait in Approved until it passes. Returns whether canary.json changed.
 function renderCanary(text) {
   const el = $('#canary');
   let c = null; try { c = text ? JSON.parse(text) : null; } catch { c = null; }
-  if (text === state.canaryText) return;
+  if (text === state.canaryText) return false;
   state.canaryText = text;
-  if (!c || (c.status !== 'failed' && c.status !== 'running')) { el.hidden = true; el.innerHTML = ''; return; }
+  state.canary = c;
+  if (!c || (c.status !== 'failed' && c.status !== 'running')) { el.hidden = true; el.innerHTML = ''; return true; }
   el.hidden = false;
   el.className = c.status === 'running' ? 'running' : '';
   el.innerHTML = c.status === 'running'
@@ -298,14 +299,19 @@ function renderCanary(text) {
     const r = await api('POST', '/api/canary', {});
     toast(r.message, !r.ok);
   });
+  return true;
 }
 
 async function poll() {
   try {
-    renderCanary(await getText('/state/canary.json'));
+    const canaryChanged = renderCanary(await getText('/state/canary.json'));
     const [b, e, ss] = await Promise.all([getText('/state/board.json'), getText('/state/events.jsonl'), state.config.enabled ? getText('/api/sessions') : '']);
     if (state.open?.kind === 'session') refreshSession();
-    if (b === state.boardText && e === state.eventsText && ss === state.sessionsText) { if (state.open && state.tab === 'output') refreshOutput(); return; }
+    if (b === state.boardText && e === state.eventsText && ss === state.sessionsText) {
+      if (canaryChanged && !dragging) renderBoard();   // Approved cards wait on the canary
+      if (state.open && state.tab === 'output') refreshOutput();
+      return;
+    }
     state.boardText = b; state.eventsText = e; state.sessionsText = ss;
     try { state.sessions = ss ? JSON.parse(ss) : []; } catch { state.sessions = []; }
     state.board = b ? JSON.parse(b) : { jobs: [], ideas: [] };
@@ -368,16 +374,33 @@ function elapsed(j) {
   return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
 }
 const leaf = (p) => String(p ?? '').split(/[\\/]/).filter(Boolean).pop() ?? '';
+// What an approved job waits on, by the rules `next` applies (see "Board columns" in the contract).
+const queueOrder = (a, b) => String(a.approvedAt ?? '').localeCompare(String(b.approvedAt ?? '')) || a.id.localeCompare(b.id);
+function waitReason(j) {
+  const building = state.board.jobs.find((x) => BUILDING.includes(x.stage));
+  if (building) return `waiting: ${building.id} is building`;
+  const c = state.canary;
+  if (c?.status === 'running') return 'waiting: deploy canary';
+  const held = (x) => c?.status === 'failed' && state.config.deploys && x.kind !== 'bootstrap';
+  if (held(j)) return 'held: deploy canary failed';
+  const ahead = state.board.jobs.filter((x) => x.stage === 'approved' && !held(x) && queueOrder(x, j) < 0).sort(queueOrder).pop();
+  return ahead ? `after ${ahead.id}` : 'next';
+}
 function jobCard(j) {
   const draggable = j.stage === 'backlog' || j.stage === 'ready';
   const reviews = j.reviews && ROLES.some((r) => j.reviews[r] && j.reviews[r] !== 'pending')
     ? ROLES.map((r) => `<span class="chip ${esc(j.reviews[r])}" data-review="${r}" title="${r}">${r}:${esc(j.reviews[r])}</span>`).join('') : '';
   const sub = BUILDING.includes(j.stage)
-    ? `<span class="sub">${j.stage} r${j.round}${j.stage === 'deploy' && j.deploy ? ` · ${j.deploy.attempts}/3` : ''}</span>` : '';
+    ? `<span class="sub">${j.stage} r${j.round}${j.stage === 'deploy' && j.deploy ? ` · ${j.deploy.attempts}/3` : ''}</span>`
+    : j.stage === 'approved' ? `<span class="sub" data-wait>${esc(waitReason(j))}</span>` : '';
   const flag = j.flag ? `<span class="flag" data-flag title="${esc(j.flag.detail)}">${esc(j.flag.reason)}</span>` : '';
   const cost = j.costUsd != null ? `<span data-cost>$${Number(j.costUsd).toFixed(2)}</span>` : '';
   const repo = j.target ? `<div class="repo" title="${esc(j.target)}">→ ${esc(leaf(j.target))}</div>` : '';
   const kind = j.kind === 'bootstrap' ? '<span class="chip kind" data-kind="bootstrap">bootstrap</span>' : '';
+  // Stacked on an unmerged job (see "Stacked jobs" in the contract): built on its branch, merged after it.
+  const baseJob = j.base ? state.board.jobs.find((x) => x.id === j.base) : null;
+  const stacked = baseJob && baseJob.stage !== 'done'
+    ? `<span class="chip kind" data-base title="built on ${esc(j.base)}'s unmerged branch; merges after it">on ${esc(j.base)}</span>` : '';
   // Toggleable before the job builds; afterwards shown only when it is not the default.
   const p = j.provider ?? 'subscription';
   const settable = j.stage === 'backlog' || j.stage === 'approved';
@@ -387,7 +410,7 @@ function jobCard(j) {
   return `<div class="card${state.open?.id === j.id ? ' selected' : ''}" data-card="${esc(j.id)}" data-stage="${esc(j.stage)}" draggable="${draggable}">
     <div class="top"><span>${esc(j.id)}</span><span>r${j.round} · ${elapsed(j)}</span></div>
     <div class="title">${esc(j.title)}</div>${repo}
-    <div class="meta">${kind}${provider}${pr}${sub}${flag}${reviews}${cost}</div>${previewBar(j)}</div>`;
+    <div class="meta">${kind}${stacked}${provider}${pr}${sub}${flag}${reviews}${cost}</div>${previewBar(j)}</div>`;
 }
 // The preview's state (up, or expired once its auto-destroy time has passed) and where to open it.
 function preview(j) {
@@ -419,12 +442,32 @@ async function tearDown(id) {
   const res = await api('POST', `/api/jobs/${encodeURIComponent(id)}/destroy`, {});
   toast(res.ok ? `${id}: ${res.message}` : res.message, !res.ok);
 }
+// Abandon on an Ideas card: the first click asks, a second within 4 s abandons (see "Ideas").
+function abandonBtn(key) {
+  const armed = state.armed === key;
+  return `<button type="button" class="chip action${armed ? ' danger' : ''}" data-abandon="${esc(key)}">${armed ? 'Abandon?' : 'Abandon'}</button>`;
+}
+async function abandon(key) {
+  clearTimeout(state.armTimer);
+  if (state.armed !== key) {
+    state.armed = key;
+    state.armTimer = setTimeout(() => { state.armed = null; renderBoard(); }, 4000);
+    renderBoard();
+    return;
+  }
+  state.armed = null;
+  const r = key.startsWith('S-') ? await api('POST', `/api/sessions/${key}/close`, { abandon: true }) : await api('POST', `/api/ideas/${key}/abandon`, {});
+  toast(r.ok ? `${key} abandoned` : r.message, !r.ok);
+  state.sessionsText = null; state.boardText = null;
+  poll();
+}
 function ideaCard(i) {
   return `<div class="card idea-card ${esc(i.status)}" data-idea="${esc(i.id)}">
     <div class="top"><span>${esc(i.id)}</span><span>${i.status === 'failed' ? 'failed' : i.status === 'waiting' ? `waiting for bootstrap ${esc(i.jobs?.[0] ?? '')}` : `spec it: <code>/factory:idea ${esc(i.id)}</code>`}</span></div>
     <div class="title">${esc(i.text)}</div>
     ${i.target ? `<div class="repo" title="${esc(i.target)}">→ ${esc(leaf(i.target))}</div>` : ''}
-    ${i.reason ? `<div class="meta">${esc(i.reason)}</div>` : ''}</div>`;
+    ${i.reason ? `<div class="meta">${esc(i.reason)}</div>` : ''}
+    <div class="meta">${i.base ? `<span class="chip kind">on ${esc(i.base)}</span>` : ''}${abandonBtn(i.id)}</div></div>`;
 }
 function sessionCard(x) {
   const what = x.status === 'running' ? '<span class="chip running">Claude is working</span>'
@@ -433,14 +476,14 @@ function sessionCard(x) {
     <div class="top"><span>${esc(x.id)}${x.idea ? ` · ${esc(x.idea)}` : ''}</span><span>${x.costUsd ? `$${Number(x.costUsd).toFixed(2)}` : ''}</span></div>
     <div class="title">${esc(x.text)}</div>
     ${x.target ? `<div class="repo" title="${esc(x.target)}">→ ${esc(leaf(x.target))}</div>` : ''}
-    <div class="meta">${what}${x.bootstrap ? `<span class="chip kind">bootstrap ${esc(x.bootstrap)}</span>` : ''}</div></div>`;
+    <div class="meta">${what}${x.bootstrap ? `<span class="chip kind">bootstrap ${esc(x.bootstrap)}</span>` : ''}${x.status !== 'running' ? abandonBtn(x.id) : ''}</div></div>`;
 }
 function renderBoard() {
   const before = new Map([...document.querySelectorAll('[data-card]')].map((el) => [el.dataset.card, el.getBoundingClientRect()]));
   $('#board').innerHTML = COLUMNS.map((c) => {
     const inSession = new Set(state.sessions.map((x) => x.idea).filter(Boolean));
     const items = c.key === 'ideas'
-      ? [...state.sessions.map(sessionCard), ...state.board.ideas.filter((i) => i.status !== 'done' && !inSession.has(i.id)).map(ideaCard)]
+      ? [...state.sessions.map(sessionCard), ...state.board.ideas.filter((i) => i.status !== 'done' && i.status !== 'abandoned' && !inSession.has(i.id)).map(ideaCard)]
       : state.board.jobs.filter((j) => c.stages.includes(j.stage)).map(jobCard);
     const clear = c.key === 'done' ? '<button id="purge-btn" type="button" title="Remove evaluated done and discarded cards, their folders and branches; unevaluated ones stay">Clear</button>'
       : c.key === 'ideas' && state.config.enabled ? '<button id="new-idea-btn" class="primary" type="button" title="Grill an idea with Claude, here">New idea</button>' : '';
@@ -513,6 +556,8 @@ document.addEventListener('click', (e) => {
   if (qa) { qaLogin(qa.closest('[data-card]').dataset.card); return; }
   const td = e.target.closest?.('[data-teardown]');
   if (td) { td.disabled = true; tearDown(td.closest('[data-card]').dataset.card); return; }
+  const ab = e.target.closest?.('[data-abandon]');
+  if (ab) { abandon(ab.dataset.abandon); return; }
   const pc = e.target.closest?.('[data-provider][data-toggle]');
   if (pc) { setProvider(pc.closest('[data-card]').dataset.card, pc.dataset.provider === 'openrouter' ? 'subscription' : 'openrouter'); return; }
   const c = e.target.closest?.('[data-card]');
@@ -620,10 +665,13 @@ function renderHead() {
   $('#copy-paths', h)?.addEventListener('click', async () => {
     try { await navigator.clipboard.writeText([...(m.added ?? []), ...(m.modified ?? [])].join('\n')); toast('Paths copied'); } catch { toast('Copy failed', true); }
   });
-  $('#rework-btn', h)?.addEventListener('click', async () => {
+  // Like merge: block a second click, and on success close so the card is seen going back to build.
+  $('#rework-btn', h)?.addEventListener('click', async (e) => {
     const note = $('#rework-note').value.trim();
     if (!note) { toast('A rework needs a note', true); return; }
-    await move(j.id, 'approved', note);
+    const b = e.currentTarget; b.disabled = true; b.textContent = 'Reworking…';
+    if (await move(j.id, 'approved', note)) closeModal();
+    else { b.disabled = false; b.textContent = 'Rework'; }
   });
 }
 
@@ -773,22 +821,36 @@ function renderNewSession(body) {
     <label for="s-target">Target repo</label>
     <div><select id="s-target">${options([])}</select> <span id="s-repos-note" style="color:var(--muted);font-size:12px">loading your repos…</span>
       <input id="s-other" autocomplete="off" hidden placeholder="${esc(state.config.owner || 'owner')}/todo-app"></div>
+    <label for="s-base" id="s-base-label" hidden>Base</label>
+    <div id="s-base-row" hidden><select id="s-base"></select> <span style="color:var(--muted);font-size:12px">An unmerged job: the session reads its branch, and the specs build on it.</span></div>
     <label for="s-text">The idea</label>
     <textarea id="s-text" rows="5" placeholder="What do you want built? A sentence is enough: Claude asks the rest."></textarea>
     <span></span><div class="actions"><button class="primary" id="s-start">Start</button>
       <span style="color:var(--muted);font-size:12px">An existing repo, or a new one that a bootstrap job creates and scaffolds.</span></div></div>`;
+  // Base: main, or an unmerged job on the target that has a PR (see "Stacked jobs" in the contract).
+  const target = () => $('#s-target').value === '+other' ? $('#s-other').value.trim() : $('#s-target').value;
+  const fillBase = () => {
+    const t = target();
+    const jobs = state.board.jobs.filter((j) => j.target === t && !['done', 'discarded'].includes(j.stage) && j.pr);
+    $('#s-base').innerHTML = '<option value="">main</option>'
+      + jobs.map((j) => `<option value="${esc(j.id)}">${esc(j.id)}: ${esc(j.title)} (unmerged, ${esc(j.stage)})</option>`).join('');
+    $('#s-base-label').hidden = $('#s-base-row').hidden = !jobs.length;
+  };
   api('GET', '/api/repos').then((r) => {
     if (!Array.isArray(r)) { $('#s-repos-note').textContent = r.message || 'could not list your repos'; return; }
     const sel = $('#s-target'), v = sel.value;
     sel.innerHTML = options(r); sel.value = v;
     $('#s-repos-note').textContent = '';
+    fillBase();
   });
-  $('#s-target').onchange = () => { $('#s-other').hidden = $('#s-target').value !== '+other'; };
+  $('#s-target').onchange = () => { $('#s-other').hidden = $('#s-target').value !== '+other'; fillBase(); };
+  $('#s-other').oninput = fillBase;
+  fillBase();
   $('#s-text').focus();
   $('#s-start').onclick = async (e) => {
     const b = e.currentTarget; b.disabled = true;
-    const v = $('#s-target').value, text = $('#s-text').value.trim();
-    const r = await api('POST', '/api/sessions', v === '+new' ? { new: true, text } : { target: v === '+other' ? $('#s-other').value.trim() : v, text });
+    const v = $('#s-target').value, text = $('#s-text').value.trim(), base = $('#s-base').value || undefined;
+    const r = await api('POST', '/api/sessions', v === '+new' ? { new: true, text } : { target: target(), text, base });
     if (!r.ok) { toast(r.message || 'refused', true); b.disabled = false; return; }
     state.sessionsText = null; poll();
     openModal('session', r.message);
@@ -799,7 +861,7 @@ function renderSessionHead(h, close) {
   const s = state.sess?.s;
   const canClose = s && s.status !== 'running' && s.status !== 'closed';
   h.innerHTML = `${close}<h3>${esc(s?.text ?? state.sess?.id)}</h3>
-    <div class="sub-meta">${esc(state.sess?.id)}${s?.idea ? ` · ${esc(s.idea)}` : ''} · ${esc(s?.status ?? '…')}${s?.target ? ` · target <code>${esc(s.target)}</code>${s.newTarget ? ' (new)' : ''}` : s ? ' · target pending' : ''}${s?.model ? ` · <code>${esc(s.model)}</code>` : ''} · <span data-cost>${money(s?.costUsd)}</span>
+    <div class="sub-meta">${esc(state.sess?.id)}${s?.idea ? ` · ${esc(s.idea)}` : ''} · ${esc(s?.status ?? '…')}${s?.target ? ` · target <code>${esc(s.target)}</code>${s.newTarget ? ' (new)' : ''}` : s ? ' · target pending' : ''}${s?.base ? ` · base <code>factory/${esc(s.base)}</code>` : ''}${s?.model ? ` · <code>${esc(s.model)}</code>` : ''} · <span data-cost>${money(s?.costUsd)}</span>
     ${canClose ? ' · <button type="button" id="s-close" class="danger" style="padding:1px 8px;font-size:12px">Close session</button>' : ''}</div>`;
   $('#s-close', h)?.addEventListener('click', async () => {
     const r = await sessApi('close', { failed: true, reason: 'closed in session before every spec was decided' });

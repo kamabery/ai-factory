@@ -312,11 +312,13 @@ function Merge-StubPr([string] $o, [string] $n, [int] $num, $body) {
     $head = (Invoke-StubGit $bare rev-parse "refs/heads/$($pr.head)").Out
     if ($body.sha -and $body.sha -ne $head) { return @{ status = 409; body = @{ message = 'Head branch was modified. Review and try the merge again.' } } }
     $tmp = Join-Path ([IO.Path]::GetTempPath()) "gh-stub-$([guid]::NewGuid().ToString('N'))"
+    # Into the PR's base branch, as GitHub does: main, or the branch a stacked PR points at.
+    $into = if ($pr.base) { $pr.base } else { 'main' }
     try {
-        Invoke-StubGit $GitBase clone -q $bare $tmp | Out-Null
+        Invoke-StubGit $GitBase clone -q --branch $into $bare $tmp | Out-Null
         $r = Invoke-StubGit $tmp merge --no-ff "origin/$($pr.head)" -m ($body.commit_title ?? "Merge pull request #$num")
         if ($r.Code -ne 0) { return @{ status = 405; body = @{ message = 'Pull Request is not mergeable' } } }
-        $r = Invoke-StubGit $tmp push -q origin HEAD:main
+        $r = Invoke-StubGit $tmp push -q origin "HEAD:$into"
         if ($r.Code -ne 0) { return @{ status = 500; body = @{ message = $r.Out } } }
         $sha = (Invoke-StubGit $tmp rev-parse HEAD).Out
     } finally { Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue }
@@ -366,7 +368,7 @@ function Handle($ctx, [string] $method, [string] $path, $body) {
         $q = [Web.HttpUtility]::ParseQueryString($ctx.Request.Url.Query)
         $headBranch = if ($q['head']) { ($q['head'] -split ':', 2)[-1] }
         $list = @(Prs $o $n | Where-Object { (-not $q['state'] -or $q['state'] -eq 'all' -or $_.state -eq $q['state']) -and (-not $headBranch -or $_.head -eq $headBranch) })
-        return @{ status = 200; body = @($list | ForEach-Object { @{ number = $_.number; html_url = $_.html_url; state = $_.state; head = @{ ref = $_.head } } }) }
+        return @{ status = 200; body = @($list | ForEach-Object { @{ number = $_.number; html_url = $_.html_url; state = $_.state; head = @{ ref = $_.head }; base = @{ ref = $_.base } } }) }
     }
     if ($method -eq 'POST' -and $rest -eq '/pulls') {
         if (-not (Invoke-StubGit $bare rev-parse --verify --quiet "refs/heads/$($body.head)").Out) { return @{ status = 422; body = @{ message = 'Validation Failed: head' } } }
@@ -382,15 +384,19 @@ function Handle($ctx, [string] $method, [string] $path, $body) {
         if (-not $pr) { return @{ status = 404; body = @{ message = 'Not Found' } } }
         $head = if ($pr.merged) { $pr.head_sha } else { (Invoke-StubGit $bare rev-parse --verify --quiet "refs/heads/$($pr.head)").Out }
         return @{ status = 200; body = @{ number = $pr.number; html_url = $pr.html_url; state = $pr.state; merged = [bool]$pr.merged
-                                          merge_commit_sha = $pr.merge_commit_sha; head = @{ ref = $pr.head; sha = $head } } }
+                                          merge_commit_sha = $pr.merge_commit_sha; head = @{ ref = $pr.head; sha = $head }; base = @{ ref = $pr.base } } }
     }
     if ($method -eq 'PATCH' -and $rest -match '^/pulls/(\d+)$') {
         $prs = Prs $o $n
         $pr = $prs | Where-Object { $_.number -eq [int]$Matches[1] } | Select-Object -First 1
         if (-not $pr) { return @{ status = 404; body = @{ message = 'Not Found' } } }
         if ($body.state) { $pr.state = $body.state }
+        if ($body.base) {
+            if (-not (Invoke-StubGit $bare rev-parse --verify --quiet "refs/heads/$($body.base)").Out) { return @{ status = 422; body = @{ message = 'Validation Failed: base' } } }
+            $pr.base = $body.base
+        }
         Save-Prs $o $n $prs
-        return @{ status = 200; body = @{ number = $pr.number; state = $pr.state } }
+        return @{ status = 200; body = @{ number = $pr.number; state = $pr.state; base = @{ ref = $pr.base } } }
     }
     if ($method -eq 'PUT' -and $rest -match '^/pulls/(\d+)/merge$') { return Merge-StubPr $o $n ([int]$Matches[1]) $body }
     if ($rest -match '^/(actions|environments)/') {
@@ -401,8 +407,13 @@ function Handle($ctx, [string] $method, [string] $path, $body) {
         return Handle-Actions $method $o $n $rest $body $ctx
     }
     if ($method -eq 'DELETE' -and $rest -match '^/git/refs/heads/(.+)$') {
-        $r = Invoke-StubGit $bare branch --delete --force $Matches[1]
+        $gone = $Matches[1]
+        $r = Invoke-StubGit $bare branch --delete --force $gone
         if ($r.Code -ne 0) { return @{ status = 422; body = @{ message = 'Reference does not exist' } } }
+        # As GitHub does: an open PR whose base branch is deleted is closed.
+        $prs = Prs $o $n
+        $closed = @($prs | Where-Object { $_.state -eq 'open' -and $_.base -eq $gone })
+        if ($closed) { foreach ($p in $closed) { $p.state = 'closed' }; Save-Prs $o $n $prs }
         return @{ status = 204 }
     }
     @{ status = 404; body = @{ message = 'Not Found' } }

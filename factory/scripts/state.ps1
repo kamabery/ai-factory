@@ -172,7 +172,8 @@ function Get-StateList([string] $Prefix = '', [switch] $Versions) {
         $r = Invoke-Blob GET '' $q
         if ($r.Status -ne 200) { throw (Blob-Error $r 'list') }
         $xml = [xml]([Text.Encoding]::UTF8.GetString($r.Bytes).TrimStart([char]0xFEFF))
-        foreach ($b in @($xml.EnumerationResults.Blobs.Blob)) {
+        # An empty <Blobs/> parses as a string, not an element, so .Blob would throw under strict mode.
+        foreach ($b in @($xml.SelectNodes('/EnumerationResults/Blobs/Blob'))) {
             if (-not $b) { continue }
             $p = $b.Properties
             $vid = if ($b['VersionId']) { $b.VersionId } else { $null }
@@ -282,7 +283,7 @@ function Stamp([string] $Path, [string] $ETag) {
 # Whether a relative path is synced by Push-State and Pull-State (board and events have their own).
 function Test-StateSynced([string] $Rel) {
     if ($Rel -in 'board.json', 'events.jsonl', 'headless-settings.json', '.sync.json') { return $false }
-    if ($Rel -like '*.tmp' -or $Rel -like '*.lock' -or $Rel -like 'events/*' -or $Rel -like 'locks/*') { return $false }
+    if ($Rel -like '*.tmp' -or $Rel -like '*.lock' -or $Rel -like 'events/*' -or $Rel -like 'locks/*' -or $Rel -like '.local/*') { return $false }
     $true
 }
 

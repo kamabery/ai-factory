@@ -11,7 +11,8 @@ endpoint (about $7.30/month each) and no always-on compute.
 
 **Security:**
 - Shared keys and SAS are off. Every call carries an Entra token, and only the principals you name
-  get Storage Blob Data Contributor, on the container only.
+  get Storage Blob Data Owner, on the container only (Owner because deleting a blob version,
+  which `prune` does, needs `deleteBlobVersion/action`; Contributor lacks it).
 - TLS 1.2 or later.
 - The firewall denies by default; `allow-ip` opens it to the machines that run the factory.
 - The bearer token is cached outside `FACTORY_HOME` (`%LOCALAPPDATA%\claude-factory`), so it is never

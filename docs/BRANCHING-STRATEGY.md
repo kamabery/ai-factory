@@ -3,6 +3,11 @@
 Status: **proposal**. Nothing here is in `FACTORY-CONTRACT.md` yet. It is adopted by editing the
 contract first, then the scripts, with Pester and Playwright seen red before green.
 
+One piece landed differently (J-022): gap 2 is narrowed by the builder, not an `integrate`
+command. `checkout` fetches and points `factory/base` at the base branch, and each round's builder
+starts with `git merge --no-edit factory/base` and resolves conflicts itself. A base that moves
+while a job sits in Ready is still caught only by a rework.
+
 **Goal: a card in Ready for review always merges clean.** The factory owns every git write and
 loops (integrate, resolve, gate) until the merge is a formality. A human drag to Done should never
 find a conflict, an ungated tree, or a stale base.
@@ -44,8 +49,8 @@ Agents read git. Every git **write** is a `factory.ps1` command, so each one can
 | `discard` / `purge` (exist) | `branch -D` | unchanged |
 
 The headless allowlist shrinks to read-only git (`status`, `diff`, `log`, `show`, `ls-files`, `grep`,
-`blame`, `rev-parse`, `merge-base`) plus the absolute `factory.ps1` path. `git add`, `git commit` and
-`git branch` move to the deny list. `builder.md` changes `git add -A && git commit` to `factory.ps1 commit`.
+`blame`, `rev-parse`, `merge-base`) plus the absolute `factory.ps1` path. `git add`, `git commit`,
+`git rm`, `git revert` and `git branch` move to the deny list. `builder.md` changes `git add -A && git commit` to `factory.ps1 commit`.
 
 ## The loop
 

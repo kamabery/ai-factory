@@ -42,7 +42,7 @@ Done and discarded cards stay until a human clears them ([Purge](#purge), the Do
 
 | Column | Stages | Who moves cards out |
 | --- | --- | --- |
-| Ideas | `idea` records with status `waiting`, `drafting` or `failed`, and open dashboard [idea sessions](#idea-sessions-dashboard) (not jobs) | the idea session |
+| Ideas | `idea` records with status `waiting`, `drafting` or `failed`, and open dashboard [idea sessions](#idea-sessions-dashboard) (not jobs) | the idea session, or the card's **Abandon** |
 | Backlog | `backlog` | human (drag to Approved, or discard) |
 | Approved | `approved` | runner |
 | Building | `build`, `review`, `deploy`, `approve`, `gate`, `blocked` | orchestrator / script; a `blocked` card: human (retry deploy, rework, or discard) |
@@ -53,6 +53,20 @@ Done and discarded cards stay until a human clears them ([Purge](#purge), the Do
 In Building, the card shows its sub-stage, its round and the reviewer chips; a `blocked` card also
 shows its flag and the **Retry deploy**, **Rework** and **Discard** buttons. Only Backlog,
 Approved, Ready for review and Done accept drops.
+
+An Approved card says what it is waiting on (`data-wait`), using the rules `next` applies (see
+[Canary](#canary)). The first rule that matches wins:
+1. `waiting: J-NNN is building` while a job is in Building, because jobs run one at a time.
+2. `waiting: deploy canary` while `canary.json` says `running`. The runner runs the canary itself,
+   so every approved job waits for it.
+3. `held: deploy canary failed` for a deployable job (deploys on and not a bootstrap) after a failed
+   canary.
+4. `after J-NNN` when an older approved job that is not held is ahead of it.
+5. `next` otherwise.
+
+The dashboard works this out from `board.json`, `canary.json` and `deploys` in
+`GET /api/ideate/config`. A pass recorded for an older fingerprint still reads `next`; the runner
+then starts a canary, and the card switches to rule 2.
 
 ## Targets
 
@@ -114,7 +128,8 @@ Agents may read it and never edit it. It is also a plugin (`aspire-starter`, its
 moves to `done` or `discarded`. It survives a rework, and if it is gone `checkout` clones again from
 the pushed branch. One job builds at a time across all targets. Idea sessions read a shallow clone of
 an existing target (`clone-target`) in `<work>\sessions\<S>` (dashboard) or
-`<work>\cli\<owner>-<name>` (`idea.ps1`), deleted when the session closes.
+`<work>\cli\<owner>-<name>` (`idea.ps1`), deleted when the session closes. A session with a
+[base](#stacked-jobs) reads `factory/<base>` instead of `main`.
 
 The spec carries the target and the gate, and the human can edit both in Backlog:
 
@@ -128,8 +143,28 @@ The spec carries the target and the gate, and the human can edit both in Backlog
 ```
 
 Gate lines are ``- <name>: `<command>` ``, where `<name>` is lower-case letters, digits or `-`. The
-commands run with `pwsh -Command` in the job's work directory. The human approves them along with the spec, and
+commands run with `pwsh -Command` in the job's work directory. An unquoted `-name=value` token with a
+dot in it is quoted first, because pwsh would split it at the dot (J-022's `-var-file=envs/ephemeral.tfvars`). The human approves them along with the spec, and
 no agent can edit `jobs/<id>/spec.md`.
+
+The spec's `## Scope` `- In:` line is followed by one sub-bullet per path the builder may touch,
+each starting with a backticked glob, repo-relative, with `/` separators, then optional prose:
+
+```
+## Scope
+- In:
+  - `.aspire/apphost.cs` (Keycloak resource, `Auth__*` on api)
+  - `.aspire/keycloak/**`
+  - `IaC/auth.*.tf`
+  - `src/ui/react/package-lock.json` (generated)
+- Out: any change to the API's controllers
+```
+
+`*` matches within one path segment and `**` across segments. These globs are what the
+[scope check](#build-checks) compares the diff with, so the spec-writer lists generated outputs
+(lockfiles, `contracts/api.openapi.json`, `routeTree.gen.ts`) where the change will regenerate them.
+A spec with no backticked sub-bullets under `- In:` (written before this rule) is not scope-checked,
+and `set-stage review` appends a `note` event saying so.
 
 A dependency install in a gate is guarded, so the gate does not reinstall on every run. For npm,
 that means `npm ci` runs only when `node_modules/.package-lock.json` (which npm writes at the end
@@ -192,11 +227,11 @@ An idea is not a job. The session:
 
 ```
 board.ideas[] = { "id": "I-001", "text": "...", "target": "kamabery/todo-app",
-                  "scaffold": null, "status": "waiting|drafting|done|failed", "jobs": ["J-004", "J-005"],
-                  "createdAt": "..." }
+                  "scaffold": null, "base": null, "status": "waiting|drafting|done|failed|abandoned",
+                  "jobs": ["J-004", "J-005"], "createdAt": "..." }
 ```
 
-- `factory.ps1 new-idea <text> -Target <path> [-Scaffold <json>]` validates the target and options
+- `factory.ps1 new-idea <text> -Target <path> [-Scaffold <json>] [-Base <J-NNN>]` validates the target and options
   (see [Targets](#targets)), allocates `I-NNN` and writes `ideas/I-NNN/idea.md` (the text, then a
   last line `Target: <path>`). For an existing repo it sets status `drafting`. For a new target it
   sets status `waiting`, creates the bootstrap job in `backlog` (`kind: "bootstrap"`, listed in the
@@ -207,8 +242,14 @@ board.ideas[] = { "id": "I-001", "text": "...", "target": "kamabery/todo-app",
 - `factory.ps1 add-spec <ideaId> <file>` allocates `J-NNN`, copies the file to `jobs/J-NNN/spec.md`,
   takes the title from the file's `# Spec:` heading, and creates the job in `backlog`. `add-spec`,
   `edit-spec` and `approve` set `job.target` from the spec's `Repo:` line.
+  `-Base` (an existing target only) records the job the idea builds on as `base`; see
+  [Stacked jobs](#stacked-jobs).
 - `factory.ps1 idea-done <ideaId> [-Failed -Reason <text>]` closes the idea. Ideas in `done`
   are no longer shown; ideas in `failed` stay in Ideas with the reason until a `purge`.
+- `factory.ps1 idea-abandon <ideaId>` sets an idea in `waiting`, `drafting` or `failed` to
+  `abandoned`: the human is not doing it. It is hidden like `done`, its files stay until a
+  `purge`, and jobs it already created are left where they are. It appends an `idea` event
+  `abandoned`.
 
 ## Idea sessions (dashboard)
 
@@ -267,20 +308,22 @@ recorded there. Nothing deletes a session directory, so `purge` keeps it.
 `pendingResults` holds the results of server tools that ran in the same assistant message as a UI
 tool. They are sent with the human's answer in one user message.
 
-**Session flow.** The human picks a target from their GitHub repos (`list-repos`) and describes the
-idea. `check-target` classifies the target, and the panel creates the session. Or the human picks
+**Session flow.** The human picks a target from their GitHub repos (`list-repos`), optionally a
+**base** (`main`, or an unmerged job on that target; see [Stacked jobs](#stacked-jobs)), and describes
+the idea. `check-target` classifies the target, and the panel creates the session. Or the human picks
 **Add new**: the session starts with no target (`target: null`, `newTarget: true`), and the model
 grills first, then names the repo in `propose_scaffold`. Confirming that form runs `check-target`
 on `<GITHUB_OWNER>/<repo>`, which must be `new`, and sets `target`; `scaffold` is stored without
-`repo`. For an existing target, `serve.ps1` runs `clone-target`
-into `<work>\sessions\<S>` and records it as `checkout`; **Write specs** clones again (the bootstrap
+`repo`. For an existing target, `serve.ps1` runs `clone-target` (with `-Base` when the session has
+one, recorded as `base` in `session.json`) into `<work>\sessions\<S>` and records it as `checkout`; **Write specs** clones again (the bootstrap
 has merged), and closing the session deletes the clone.
 
 1. The model grills (`ask_questions`) and, for a new target, calls `propose_scaffold`. The human
    confirms or edits the form.
 2. The model calls `submit_brief`. The panel shows it with **Confirm** and **Correct**. Correct
    sends the human's words back as the tool result.
-3. Confirm runs `new-idea` (with `-Scaffold` for a new target) and writes `ideas/<I>/brief.md`.
+3. Confirm runs `new-idea` (with `-Scaffold` for a new target, `-Base` for a session with a base)
+   and writes `ideas/<I>/brief.md`.
    - **Existing target:** the turn continues to the specs.
    - **New target:** the panel shows the bootstrap job's spec with Approve (the usual move
      endpoint) or leave it in Backlog. After the bootstrap merge, the idea is `drafting` and
@@ -299,7 +342,9 @@ has merged), and closing the session deletes the clone.
 | backlog | approved | human; `spec.md` has a valid `## Target` and at least one `## Gate` command. Sets `approvedAt` and `target` | |
 | backlog | discarded | human | |
 | approved | build | runner; no job is in `build`, `review`, `approve` or `gate`, and this is the oldest `approvedAt` | |
-| build | review | `round-<n>/build.md` exists | |
+| build | review | `round-<n>/build.md` exists and the [build checks](#build-checks) pass. In a [tweak round](#tweak-rounds) it also sets the reviewers the diff does not need to `skipped` | |
+| build | ready / blocked | `set-stage review` found a file outside the spec's Scope: In (`ready` if not deployable, else `blocked`) | `out-of-scope` |
+| build | ready / blocked | `set-stage review`: the job has `baseMoved` and build.md's `## Spec against base` says `Spec holds: no` | `spec-stale` |
 | review | build | all 4 verdicts in, at least one `CHANGES`, round < 2; round += 1, reviews reset to `pending` | |
 | review | ready | at least one `CHANGES` at round ≥ 2, and the job is not deployable | `max-rounds` |
 | review | blocked | at least one `CHANGES` at round ≥ 2, and the job is deployable | `max-rounds` |
@@ -324,14 +369,16 @@ has merged), and closing the session deletes the clone.
 | build / review / deploy / approve | ready | the job is not deployable (or is in `approve`, so its preview is up), and the orchestrator gives up or the runner's `claude` process ends with the job still here | `escalated` |
 | ready | done | human `merge`, or `sync-prs` after the human merged the PR on GitHub; see [Gate and merge](#gate-and-merge). Merges the PR (or records the GitHub merge) and deletes the work directory. A bootstrap job's merge moves its idea `waiting` → `drafting` and prints `released <ideaId>` | |
 | ready | ready | human `merge` refused: nothing to merge, uncommitted changes in the work directory, PR not mergeable / red gate | `merge-blocked` / `gate-failed` |
-| ready | approved | human `rework <id> <note>`; writes `jobs/<id>/rework-<n>.md`, round += 1, `deployFixes` back to 0, sets `approvedAt` | |
+| ready | approved | human `rework <id> <note> [-Tweak]`; writes `jobs/<id>/rework-<n>.md`, round += 1, `deployFixes` back to 0, sets `approvedAt`. A `Scope +:` line in the note widens the spec (see [Build checks](#build-checks)); `-Tweak` sets `tweak: true` (see [Tweak rounds](#tweak-rounds)) | |
 | ready | discarded | human; closes the PR, deletes branch `factory/<id>` on GitHub and the work directory | |
 
 `done` and `discarded` are terminal. `flag` is cleared on every move out of `ready` or `blocked`.
 
-`merge` (and `sync-prs`), `discard` and `rework` also tear down the job's preview when it has one
-that is not `down`: they start `factory.ps1 destroy <id>` detached and do not wait for it. A failed
-destroy is a `note` event, never a failed move, and HCP's auto-destroy timer is the backstop.
+`merge` (and `sync-prs`) and `discard` also tear down the job's preview when it has one that is
+not `down`: they start `factory.ps1 destroy <id>` detached and do not wait for it. A failed destroy
+is a `note` event, never a failed move, and HCP's auto-destroy timer is the backstop. `rework`
+leaves the preview up: the next round's `deploy` applies over it on the same workspace. A destroy
+there raced that apply, which then rebuilt from nothing behind it (J-022).
 
 ### Blocked
 
@@ -340,7 +387,7 @@ stays in the Building column, so Ready for review means "there is a live preview
 not counted as building: the runner takes the next Approved job while a job is blocked, and the
 blocked job keeps its work directory, its PR (the runner publishes it) and its preview, which HCP's
 auto-destroy timer removes after 24 hours. Its flag is one of `max-rounds`, `deploy-fix-rounds`,
-`deploy-failed`, `environment`, `github-permission` or `escalated`.
+`deploy-failed`, `environment`, `github-permission`, `out-of-scope`, `spec-stale` or `escalated`.
 
 The human has three ways out:
 
@@ -348,6 +395,91 @@ The human has three ways out:
   blocked from `build` or `review` never had a passing round to deploy.
 - **Rework** with a note: a new round, as from Ready for review.
 - **Discard**: closes the PR, deletes the branch and the work directory, and tears the preview down.
+
+A factory fault (a race in a script, a bad credential) is fixed in a human session and then
+retried with **Retry deploy**, never sent to the builder as a rework note. The builder can change
+only the target, so a note like J-022's round-3 "Fix raced condition" makes it "fix" the target
+(`IaC/adopt.tf`, three rounds and $6 to undo). The rework dialog says so above the note.
+
+### Build checks
+
+`set-stage <id> review` runs three deterministic checks after the builder and the devops author pass,
+in this order. The first that fails moves the job (see [Job transitions](#job-transitions)), and none
+of them is an agent's judgment.
+
+**1. Scope.** `git diff --name-only factory/base...HEAD` in the work directory (the job's own
+changes, with the base's merged work excluded) is compared with the spec's Scope: In globs
+([Targets](#targets)). Any path that matches none of them escalates the job with flag `out-of-scope`,
+detail `<n> paths outside Scope: In: <first path>, ...`, and `why` listing every path. The devops
+agent's `IaC/` and workflow edits are checked like the builder's: J-022's stray `IaC/adopt.tf` was
+in `IaC/`.
+
+A rework note widens the scope with one line, `Scope +: <glob>, <glob>`. `rework` appends each glob
+as an In sub-bullet to `jobs/<id>/spec.md`, followed by `(rework <n>)`, and appends a `note` event
+naming them. This is the only way `spec.md` changes after approval. The human's word is the
+authority, `factory.ps1` makes the write, and the spec keeps a record of every widening. From
+`blocked` with `out-of-scope`, the human reworks with `Scope +:` (keep the paths) or with a note
+asking the builder to remove them.
+
+**2. Base moved.** When a job merges (`merge`, or `sync-prs` recording a GitHub merge), every other
+job of the same idea that is not `done` or `discarded` gets
+`baseMoved: { "by": "<merged id>", "sha": "<merge commit>", "at": "..." }` and a `note` event. A
+Backlog card shows it ("base moved: J-021 merged"), so the human can edit the spec before approving.
+In the job's next build round, build.md must contain:
+
+```
+## Spec against base
+Spec holds: yes | no
+<why, and if no: the Scope + and AC changes the spec needs>
+```
+
+`set-stage review` exits 2 (the job does not move) if the section or its `Spec holds:` line is
+missing. On `yes` it clears `baseMoved`. On `no` it escalates with flag `spec-stale`, the section as
+`why`, and keeps `baseMoved`. The human then reworks with the proposed `Scope +:` and AC wording, or
+discards. A rework clears `baseMoved`, since the human has now decided against the new main.
+
+**3. Template provenance** (rounds after 1). A rework or deploy-fix round's fix to code that came
+from a template means the next scaffold carries the same bug (J-022's `identifier_uris` and
+`auth.ts` fixes came from the auth add-on, and its lessons said "None"). Each file changed this
+round (`git diff --name-only <roundStart>..HEAD`) is **template-sourced** when the commit that added
+it (`git log --diff-filter=A --format=%H -- <path>`, oldest) is either:
+- reachable from the target's bootstrap merge commit, which is the `merged.sha` of the idea's
+  `kind: bootstrap` job, from the board or else from `evals/<id>.json`, or
+- a commit whose subject starts with `scaffold:` or `addon:`. The builder and the bootstrap spec
+  make every `dotnet new` and `aspire-addon add` its own commit with that prefix.
+
+For each template-sourced path, build.md's `## Template gaps` section must name the path, either
+as a gap (Symptom / Cause / Fix applied here / Belongs in, as in deploy.md) or as
+`<path>: job-specific, <why>`. A path that is not named makes `set-stage review` exit 2 and print
+the missing paths, so the orchestrator sends the builder back once to add them. If the paths are
+still missing after that, it gives up. `factory.ps1 provenance <id>` prints the template-sourced
+paths of the round, so the builder can write the section before it hands on.
+
+### Tweak rounds
+
+A **tweak** is a rework the human marks as small (the rework dialog's **Tweak** checkbox,
+`rework -Tweak`). It sets `tweak: true` on the job for that round. The round then runs:
+
+1. The builder, test-first as always, with no devops author pass.
+2. `factory.ps1 tweak-check <id>`, which promotes the round to a full one (clears `tweak`, prints
+   `full: <why>`, appends a `note` event) when the round's diff (`<roundStart>..HEAD`):
+   - touches `IaC/**`, `.github/**`, `.aspire/**`, `contracts/**`, `**/Migrations/**`, or any path
+     whose name contains `auth`, or
+   - changes more than 10 files or 300 lines (`git diff --shortstat`).
+
+   Otherwise it prints `tweak`. On `full` the orchestrator runs the devops author pass and continues
+   as a normal round.
+3. `set-stage review`, with the build checks as above. For a tweak it sets every reviewer the diff
+   does not need to `skipped`: the ui and ux reviewers run when a path is under `src/ui/**`, and the
+   code reviewer when a path is outside it. The security reviewer never runs in a tweak, since its
+   paths promote the round. `read-reviews` counts `skipped` as `PASS`.
+4. `deploy` as usual, without the devops agent's operate pass: the orchestrator calls
+   `factory.ps1 deploy <id>` itself. A failed attempt falls back to the normal deploy loop with the
+   devops agent.
+5. The approver, then the gate, unchanged.
+
+`tweak` is cleared when the round leaves `build`, whatever path it took, so every round after it is
+a full one unless the human marks that one a tweak too.
 
 ### Evaluations
 
@@ -398,7 +530,7 @@ facts. The board records each one on its own. Only a human drag to Done merges.
 ### Purge
 
 `factory.ps1 purge` clears finished work off the board. It removes every job in `done` or
-`discarded` that has an evaluation (`evals/<id>.json`), and every idea in `done` or `failed` none of whose jobs is left. For each it deletes
+`discarded` that has an evaluation (`evals/<id>.json`), and every idea in `done`, `failed` or `abandoned` none of whose jobs is left. For each it deletes
 `jobs/<id>/` or `ideas/<id>/`, and for a job also a work directory still left at `<work>\jobs\<id>`
 (one that a locked file kept `merge` or `discard` from deleting). It appends one `note` event (`purged J-001, ...`) and
 prints the removed ids, one per line. Ideas in `waiting` or `drafting` and jobs in any other stage
@@ -415,7 +547,10 @@ scaffold does not need the same hand fix.
 `factory.ps1 lesson <id> [-File <path>]` writes `lessons/<id>.md` and `lessons/<id>.json`. Without
 `-File` it compiles them from the job, deterministically: the flag (reason, detail and `why`), and the
 `## Template gaps` section of every `round-*/deploy.md` that is not empty or "none". With nothing to
-say - no flag and no gaps - it writes nothing and prints `no lessons`. With `-File` (a human
+say - no flag and no gaps - it writes nothing and prints `no lessons`. It reads the
+`## Template gaps` section of every `round-*/build.md` the same way, so a builder's fix to
+template-sourced code (see [Build checks](#build-checks)) becomes a lesson; a `job-specific` line is
+not a gap. With `-File` (a human
 evaluation session) it appends that file's text under `## From the evaluation`. Either way it appends a
 `lesson` event whose `detail` is the number of template gaps.
 
@@ -460,6 +595,7 @@ session. A human marks one `applied` once the fix has merged. `purge` never touc
       deploy.md                the devops agent's report: what it deployed, fixes after review, template gaps
     decision.md
     gate.log
+    gate-check.log  gate-check.json  gate-check.lock   gate-check's last output, its cache by (sha, name), and its lock
     deploy-<a>.log             attempt a's GitHub job log and HCP run log, written when it failed
     run-<n>.jsonl              the claude -p stream-json output of each runner pass, written live
   evals/                       kept by purge (see Evaluations)
@@ -500,6 +636,7 @@ those lines and nothing else; if one is missing or malformed, the script treats 
       "stage": "review",
       "round": 1,
       "branch": "factory/J-001",
+      "base": null,
       "kind": "feature",
       "target": "kamabery/todo-app",
       "provider": "subscription",
@@ -520,8 +657,13 @@ those lines and nothing else; if one is missing or malformed, the script treats 
 }
 ```
 
-- `reviews.*` is one of `pending | running | PASS | CHANGES`, and it resets to `pending` whenever
-  a new round starts.
+- `reviews.*` is one of `pending | running | PASS | CHANGES | skipped`, and it resets to `pending` whenever
+  a new round starts. `skipped` is set only by `set-stage review` in a [tweak round](#tweak-rounds).
+- `roundStart` is the branch head when the current round's build began, recorded by `checkout`.
+  The provenance check and `tweak-check` diff from it.
+- `tweak` is `true` (or absent) for a rework the human marked as a tweak, until the round leaves `build`.
+- `baseMoved` is `null` (or absent) or `{ "by": "J-NNN", "sha": "...", "at": "..." }`: a job from
+  the same idea merged after this one was created (see [Build checks](#build-checks)).
 - `gate` is `null` until the gate runs, then `{ "build": 0, "test": 0, "ui": 0, "sha": "<branch head>", "at": "..." }`
   (process exit codes).
 - `flag` is `null` or `{ "reason": "<code from the table>", "detail": "<one line>" }`. Only a
@@ -542,6 +684,8 @@ those lines and nothing else; if one is missing or malformed, the script treats 
   the dashboard treats the preview as gone whatever `status` says. `destroy` and `qa-login` use
   `workspaceId`, so they need `HCP_TOKEN` but not `HCP_ORG`: a dashboard can tear down and log in to
   previews while its own deploys are off.
+- `base` is `null` (or absent), or the id of the unmerged job this one is stacked on, copied from its
+  idea by `add-spec`; see [Stacked jobs](#stacked-jobs).
 - `kind` is `feature` (from a spec-writer spec) or `bootstrap` (generated by `new-idea`); absent means `feature`.
 - `provider` is `subscription` or `openrouter` (see [Providers](#providers)); absent means `subscription`.
 - `costUsd` and `durationMs` are summed over every runner pass on the job.
@@ -608,7 +752,8 @@ suites on a blob stub (`factory/tests/fixtures/blob-stub.ps1`).
 | `locks/<name>` | — | empty blobs that only carry leases: `board`, `runner`, `canary`, `turn-<S-NNN>` |
 | `jobs/<id>/transcripts/agent-<agentId>.jsonl` | same | a subagent's transcript, copied in at its `agent-stop` |
 
-Never synced: `*.tmp`, `*.lock`, `headless-settings.json`, `.sync.json` (the cache's manifest:
+Never synced: `*.tmp`, `*.lock`, `headless-settings.json`, `.local/` (a machine's own files, such
+as a token cache that `FACTORY_LOCAL_DIR` put under the home), `.sync.json` (the cache's manifest:
 each synced path's length, mtime and ETag).
 
 **Locks.** In `azure`, each lock is also a 60 s lease on its `locks/` blob, taken alongside the
@@ -661,19 +806,20 @@ stderr and leaves the board unchanged.
 
 | Command | Used by |
 | --- | --- |
-| `new-idea <text> -Target <path> [-Scaffold <json>]` · `add-spec <ideaId> <file>` · `idea-done <ideaId> [-Failed -Reason]` | `/factory:idea`, serve.ps1 (idea sessions) |
-| `check-target <owner/name>` (prints `new` or `existing` from the GitHub API, or refuses as `new-idea` would) · `clone-target <owner/name> <dir>` (replaces `<dir>` with a `--depth 1` clone of `main`) | serve.ps1 (idea sessions), idea.ps1 |
+| `new-idea <text> -Target <path> [-Scaffold <json>] [-Base <J-NNN>]` · `add-spec <ideaId> <file>` · `idea-done <ideaId> [-Failed -Reason]` · `idea-abandon <ideaId>` | `/factory:idea`, serve.ps1 (idea sessions, **Abandon**) |
+| `check-target <owner/name>` (prints `new` or `existing` from the GitHub API, or refuses as `new-idea` would) · `clone-target <owner/name> <dir> [-Base <J-NNN>]` (replaces `<dir>` with a `--depth 1` clone of `main`, or of `factory/<base>`) | serve.ps1 (idea sessions), idea.ps1 |
 | `list-repos` (prints a JSON array of the token user's own repos, `owner/name`, newest push first, at most 100) | serve.ps1 (New idea) |
 | `edit-spec <id> -File <path>` (backlog only) · `set-provider <id> <subscription\|openrouter>` (backlog or approved) | serve.ps1 |
 | `approve <id>` | `/factory:idea` (on the human's yes), serve.ps1 (human drag) |
-| `rework <id> <note>` · `discard <id>` (both from `ready` or `blocked`) · `merge <id>` · `purge` | serve.ps1 (human drags, the blocked card's buttons, and **Clear**) |
+| `rework <id> <note> [-Tweak]` · `discard <id>` (both from `ready` or `blocked`) · `merge <id>` · `purge` | serve.ps1 (human drags, the blocked card's buttons, and **Clear**) |
+| `gate-check <id> [<name>]` (runs the spec's gate commands, or the one named, in the job's work directory exactly as `gate` does, and records nothing on the board; prints the output and exits with the first non-zero code; see [Gate and merge](#gate-and-merge)) · `provenance <id>` (prints this round's template-sourced paths) · `tweak-check <id>` (prints `tweak` or `full: <why>`) | the builder, the reviewers, the approver, `/factory run` |
 | `sync-prs` (moves each `ready` job whose PR was merged on GitHub to `done`; prints their ids) | serve.ps1 (PR sync) |
-| `next` (prints the next runnable approved id, or nothing; a deployable job is runnable only after a canary pass for the current fingerprint, and `next -NeedsCanary` prints `canary` when that is all that holds it back) · `checkout <id>` (creates the GitHub repo if needed, then clones or reuses `<work>\jobs\<id>` on `factory/<id>`; prints the work directory) · `publish <id>` (`ready` or `blocked`: pushes `factory/<id>` and opens the job's PR if it has none; prints the PR url) · `set-cost <id> <usd> <ms>` | runner.ps1 |
+| `next` (prints the next runnable approved id, or nothing; a deployable job is runnable only after a canary pass for the current fingerprint, and `next -NeedsCanary` prints `canary` when that is all that holds it back) · `checkout <id>` (creates the GitHub repo if needed, then clones or reuses `<work>\jobs\<id>` on `factory/<id>`, fetches, and points `factory/base` at the base branch; prints the work directory) · `publish <id>` (`ready` or `blocked`: pushes `factory/<id>` and opens the job's PR if it has none; prints the PR url) · `set-cost <id> <usd> <ms>` | runner.ps1 |
 | `set-stage <id> <to> [-By] [-Reason] [-Detail]` · `set-review <id> <role> <state>` · `read-reviews <id>` · `read-decision <id>` · `gate <id>` | `/factory run` |
 | `deploy <id>` (deploy only) · `deploy-log <id>` (prints the last failed attempt's log) · `deploy-fix <id> -File <diagnosis>` · `block <id> -Detail <line>` (both deploy only, after a failed attempt) | `/factory run`, the devops agent |
 | `redeploy <id>` (`blocked` from `deploy`, or `ready` from `deploy` before `blocked` existed: back to Approved with `resume: deploy` and a fresh attempt budget once the cause is fixed; the runner resumes it at deploy) | serve.ps1 (**Retry deploy**), a human |
 | `canary [-Force]` (see [Canary](#canary)) | runner.ps1 (before a deployable job), serve.ps1 (**Run canary**), a human |
-| `destroy <id>` (any stage; a no-op without a preview) · `qa-login <id>` (prints the preview's QA user and password) | serve.ps1 (**Tear down**, **QA login**), and `merge`/`discard`/`rework` |
+| `destroy <id>` (any stage; a no-op without a preview) · `qa-login <id>` (prints the preview's QA user and password) | serve.ps1 (**Tear down**, **QA login**), and `merge`/`discard` |
 | `event <json \| -Job -Idea -Kind -Agent>` | hook-event.ps1 |
 | `eval <id> -File <path>` | a human session evaluating a finished job (see [Evaluations](#evaluations)) |
 | `feedback <id> -File <path>` | serve.ps1 (the human's feedback on an evaluation) |
@@ -713,8 +859,12 @@ The devops agent runs twice per round: after the builder (author: `aspire-addon 
 `factory.ps1 deploy`, and on a failure `deploy-log` and a diagnosis; see [Deploy](#deploy)). It edits
 the target's `IaC/` and workflows, never this repo's, and never the app's source: a fault in the app
 goes back to the builder.
-Reviewers inspect the diff (`git diff main...HEAD`) and re-run the spec's Gate commands themselves.
-They treat `build.md`'s claims as claims, not as evidence.
+Reviewers inspect the diff (`git diff main...HEAD`) and re-run the spec's Gate commands themselves,
+through `factory.ps1 gate-check <id> [<name>]`, never by typing the command. They treat `build.md`'s
+claims as claims, not as evidence. The builder runs `gate-check` before it hands on. A gate command
+that the builder could not run, or that `gate-check` reports red, means the builder must not hand
+on: J-022's round-10 builder shipped a `terraform test` run it could not execute, and the gate
+failed it.
 
 ## Gate and merge
 
@@ -722,6 +872,19 @@ They treat `build.md`'s claims as claims, not as evidence.
 order (cloning it again first if it is gone). It writes the output to `gate.log` and records the exit
 codes and the branch head `sha`. The commands come from `$env:FACTORY_GATE_CMDS` if set, else from
 the spec's `## Gate`.
+
+**`factory.ps1 gate-check <id> [<name>]`** is the same run for agents, so the agents check exactly
+what the gate will check. The headless allowlist's prefix rules cannot match a compound gate command
+(`Set-Location IaC; terraform init ...; terraform test ...`), and the `factory.ps1` path rule
+already lets agents call it. It differs from `gate` in four ways:
+- It takes a job in `build`, `review`, `deploy` or `approve`.
+- It never changes `gate`, the stage or the flag, and appends no event.
+- It holds `jobs/<id>/gate-check.lock` while it runs, so the four parallel reviewers do not run
+  `dotnet build` in one work directory at once. A second caller waits for the lock, up to
+  `$env:FACTORY_GATE_CHECK_WAIT_MINUTES` (default 20).
+- It caches each command's exit code and output in `gate-check.json` by (head sha, name). A repeat
+  call on the same head prints the cached result, marked `(cached at <sha>)`, and does not re-run.
+  A dirty work tree is never cached.
 
 `factory.ps1 publish <id>` (job in `ready`) pushes `factory/<id>` from the work directory to the
 target and opens a pull request into `main` titled `<id>: <title>`, unless the job already has an
@@ -757,6 +920,30 @@ every `ready` job with a PR that GitHub reports merged, and prints each one's id
 
 `factory.ps1 discard <id>` closes the job's open PR, deletes `factory/<id>` on GitHub if it was
 pushed, and deletes the work directory.
+
+### Stacked jobs
+
+A job can build on another job's work before that work is merged: a fix found while reviewing a
+`ready` job, or a follow-up to it. The idea session's **base** names that job, and the idea's jobs
+are **stacked** on it (`base` on the idea and on each job).
+
+- **A base** is a job on the same target that is not `done` or `discarded` and has a PR. `new-idea
+  -Base` and `clone-target -Base` refuse anything else (`base refused: <why>`). A new target cannot
+  have one.
+- **`checkout`** starts a new `factory/<id>` from `origin/factory/<base>` while the base is unmerged,
+  and from `origin/main` once the base is `done` (its commits are in `main` by then).
+- **`publish`** opens the PR into `factory/<base>` while the base is unmerged, so the PR shows only
+  this job's diff; otherwise into `main`.
+- **`merge`** refuses while the base is not `done` (`merge refused: J-021 is stacked on J-020; merge
+  J-020 first`). If the PR still points at `factory/<base>`, it is retargeted to `main` first.
+- **Merging the base** (step 4 of `merge`, and a merge recorded from GitHub) retargets the open PR
+  of every job stacked on it to `main` before deleting `factory/<base>`, because GitHub closes a PR
+  whose base branch is deleted. Merges are merge commits, so the retargeted PR still shows only its
+  own diff.
+- **`discard`** refuses a job that has live stacked jobs (not `done` or `discarded`): discard those
+  first, or merge the base.
+- A rework of the base does not move a stacked job. It stays on the head it branched from, and a
+  conflict shows up as `merge-blocked` when it merges.
 
 ## Deploy
 
@@ -822,6 +1009,19 @@ anything but the one child process that needs it, never logged):
    and `deploy-<a>.log` ends with a `## Smoke` section: each url, its last status, how long it took,
    its `Server` header and the start of its body. (The templates map `/health` in every environment,
    not only in Development, and serve every route with and without the `/api` prefix.)
+7a. Sign-in smoke, when the workspace outputs `qa_user` and `qa_password` (the auth add-on's, the
+   ones `qa-login` reads) and there is a front end. `factory/scripts/signin-smoke.mjs` (Playwright,
+   headless Chromium) opens `<urls.frontend>`, clicks **Sign in**, completes the identity
+   provider's form as the QA user (Entra External ID: email, then password; Keycloak: username and
+   password), and passes when the browser is back on the front end's origin with the header showing
+   the user and `GET <urls.frontend>/api/auth/me` answering 200. The password is passed to the
+   child on stdin, never as an argument or in the log. Any error page on the way (an `AADSTS` code,
+   an `error=` on the redirect, a timeout of `$env:FACTORY_SIGNIN_SECONDS`, default 120) is a failed
+   attempt. `deploy-<a>.log` then ends with a `## Sign-in smoke` section: each step reached, the
+   final url without its query, the page's error text, and a screenshot path under `jobs/<id>/`.
+   The smoke runs on every apply, not only when auth changed: J-022's sign-in worked on the round-8
+   preview and broke on a later apply, which cleared the app's identifier URI. `$env:FACTORY_SIGNIN_CMD`
+   replaces the script in tests.
 8. Success: records `status: up`, the head `sha`, `appliedAt`, `destroyAt`, appends a `deploy`
    event, **moves the job to `approve`**, and prints the urls.
 9. Failure: writes `deploy-<a>.log` (the failed GitHub jobs' logs, then the workspace's latest HCP
@@ -850,8 +1050,8 @@ attempt back, writes `deploy-<a>.log` as usual, and moves the job to `blocked` w
 permission (GitHub requires their 2FA for it) and clicks **Retry deploy** (`redeploy <id>`), which
 queues the job in Approved to resume at `deploy`. The factory never grants itself permissions.
 
-Every new round starts with `attempts` back at 0. A rework tears the old preview down; a deploy-fix
-round leaves it, and the next `deploy` applies over it.
+Every new round starts with `attempts` back at 0. A rework or a deploy-fix round leaves the old
+preview up, and the next `deploy` applies over it.
 
 **`factory.ps1 destroy <id>`** queues a destroy run on the workspace (auto-applied), waits for it,
 safe-deletes the workspace, and records `status: down` and a `destroy` event. Without a `deploy`, or
@@ -927,7 +1127,7 @@ and a refused move snaps the card back and shows the message.
 | `PUT /api/jobs/<id>/spec` (text/markdown) | `edit-spec` | |
 | `POST /api/jobs/<id>/provider` `{ "provider": "openrouter" }` | `set-provider` | the card's provider chip (backlog and approved) toggles it |
 | `POST /api/jobs/<id>/move` `{ "to": "approved" }` from backlog | `approve` | starts the runner |
-| `POST /api/jobs/<id>/move` `{ "to": "approved", "note" }` from ready or blocked | `rework` | starts the runner |
+| `POST /api/jobs/<id>/move` `{ "to": "approved", "note", "tweak"? }` from ready or blocked | `rework [-Tweak]` | starts the runner. The rework dialog has a **Tweak** checkbox and the factory-fault hint (see [Blocked](#blocked)) |
 | `POST /api/jobs/<id>/move` `{ "to": "done" }` | `merge` | |
 | `POST /api/jobs/<id>/move` `{ "to": "discarded" }` | `discard` | |
 | `POST /api/jobs/<id>/redeploy` | `redeploy` | **Retry deploy** on a blocked card; starts the runner |
@@ -939,16 +1139,17 @@ and a refused move snaps the card back and shows the message.
 | `POST /api/lessons/<id>/mark` `{ status, session? }` | `lesson-mark` | |
 | `GET /api/evals` | (read-only) | every `evals/<id>.json`, newest job first; the markdown is at `/state/evals/<id>.md` |
 | `PUT /api/evals/<id>/feedback` (text/markdown) | `feedback` | the feedback is at `/state/evals/<id>.feedback.md` |
-| `GET /api/ideate/config` | (read-only) | `{ enabled, model, owner, templatesRepo }`; `enabled` means `.env` has an Anthropic key; `owner` is `GITHUB_OWNER`; `templatesRepo` is `FACTORY_TEMPLATES_REPO`; no key is ever returned |
+| `GET /api/ideate/config` | (read-only) | `{ enabled, model, owner, templatesRepo, deploys }`; `enabled` means `.env` has an Anthropic key; `owner` is `GITHUB_OWNER`; `templatesRepo` is `FACTORY_TEMPLATES_REPO`; `deploys` means `.env` has `HCP_ORG` (Approved cards' wait reasons); no key is ever returned |
 | `GET /api/sessions` | (read-only) | every session that is not `closed`: `{ id, target, text, status, idea, bootstrap, costUsd, newTarget }` |
 | `GET /api/repos` | `list-repos` | the JSON array, for the New idea picker |
-| `POST /api/sessions` `{ target, text }` or `{ new: true, text }` | `check-target` (not for `new`, which needs `GITHUB_OWNER`) | allocates `S-NNN`, writes `session.json` and the first message, starts a turn |
+| `POST /api/sessions` `{ target, text, base? }` or `{ new: true, text }` | `check-target` (not for `new`, which needs `GITHUB_OWNER`), then `clone-target [-Base]` | allocates `S-NNN`, writes `session.json` (with `base`) and the first message, which tells the model the clone is the base's unmerged branch, and starts a turn. The panel's **Base** list is `main` plus every job on the target that is not `done` or `discarded` and has a PR |
 | `POST /api/sessions/<S>/reply` `{ text, scaffold? }` | (session write); `check-target` when the session has no target | answers `pending` (or adds user text), stores `scaffold`, starts a turn; with no target, `scaffold.repo` sets it and must name a new repo; empty text with no pending retries a failed turn |
 | `POST /api/sessions/<S>/brief` | `new-idea`, then writes `brief.md` | existing target: answers `submit_brief` and starts the spec turn; new target: records the bootstrap job |
 | `POST /api/sessions/<S>/write-specs` | (session write) | after the bootstrap merge (the idea is `drafting`): starts the spec turn |
 | `POST /api/sessions/<S>/specs/<k>` `{ decision }` | `add-spec` (+ `approve`) | `approved` starts the runner; `rejected` calls nothing |
 | `PUT /api/sessions/<S>/specs/<k>` (text/markdown) | (session write) | the human's direct edit of `spec-<k>.md` |
-| `POST /api/sessions/<S>/close` `{ failed, reason? }` | `idea-done [-Failed -Reason]` (only once there is an idea) | the session becomes `closed`; the default reason is "every spec rejected in session" |
+| `POST /api/sessions/<S>/close` `{ failed, reason? }` or `{ abandon: true }` | `idea-done [-Failed -Reason]`, or `idea-abandon` (only once there is an idea) | the session becomes `closed`; the default reason is "every spec rejected in session". `abandon` is the session card's **Abandon**, refused while a turn is running |
+| `POST /api/ideas/<I>/abandon` | `idea-abandon` | **Abandon** on an idea card |
 
 Session reads use `/state/sessions/<S>/...`. An idea card opens its brief. A card for an open
 session, or for an idea that a session created, reopens the session panel. An idea card from the
@@ -980,15 +1181,20 @@ longer running. Otherwise it loops:
    `next` returns. If nothing comes back, it deletes the lock and exits.
 2. It calls `factory.ps1 set-stage <id> build -By runner`, then `factory.ps1 checkout <id>`, which
    creates the GitHub repo if needed and clones or reuses `<work>\jobs\<id>` on `factory/<id>` (the
-   pushed branch when the job is reworked, otherwise a new one from `origin/main`).
+   pushed branch when the job is reworked, otherwise a new one from `origin/main`). It then fetches
+   `origin` and points `refs/remotes/factory/base` at the job's base branch as it is now (`main`, or
+   an unmerged base job's branch), and records the branch head as `roundStart`. The builder's first step is `git merge --no-edit factory/base`,
+   resolving any conflicts and noting them in build.md, so a branch cut before other work merged
+   is reviewed, previewed and gated with that work in it (J-022).
 3. It sets `FACTORY_JOB=<id>`, `FACTORY_HOME=<this repo>\.factory-runs` and `FACTORY_REPO=<this repo>`,
    writes `<stateDir>/headless-settings.json`, and runs this in the job's work directory:
    `claude -p "/factory:factory run <id> <stateDir> <factory.ps1>" --plugin-dir <this repo>/factory/plugin --plugin-dir <template workspace> --settings <stateDir>/headless-settings.json --add-dir <stateDir> --output-format stream-json --verbose --permission-mode acceptEdits`
    (`claude-run.ps1` builds this command for both scripts).
    - `headless-settings.json` `permissions.allow` lets agents run the toolchain (`dotnet`, `npm`,
      `npx`, `node`, `aspire`, `aspire-addon`, `terraform init -backend=false`, `terraform validate`,
-     `terraform test`, `terraform fmt`, and `curl` for the approver's smoke test), git reads and commits, and read-only shell commands, in both the Bash and the
-     PowerShell tool; `deny` blocks `git push`, `merge`, `rebase`, `reset --hard`, switching to
+     `terraform test`, `terraform fmt`, and `curl` for the approver's smoke test), git reads and commits (`add`, `commit`, `rm`, `revert`), one merge (`git merge --no-edit factory/base`,
+     and `git merge --abort`), and read-only shell commands, in both the Bash and the
+     PowerShell tool; any other merge is unmatched and so refused, and `deny` blocks `git push`, `git merge main`/`origin…`, `rebase`, `reset --hard`, switching to
      `main` and `git worktree`, and reading the environment (`printenv`, `env`, and
      `Get-ChildItem`/`Get-Item`/`Get-Content` on `env:`), which holds an `openrouter` job's key. `additionalDirectories` makes `factory/templates` and the template
      workspace readable. The allowlist also holds the absolute

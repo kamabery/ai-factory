@@ -4,7 +4,7 @@ variable "subscription_id" {
 }
 
 variable "principal_ids" {
-  description = "Entra object ids that run the factory (you, later a managed identity): Storage Blob Data Contributor on the container, and Storage Account Contributor for allow-ip."
+  description = "Entra object ids that run the factory (you, later a managed identity): Storage Blob Data Owner on the container, and Storage Account Contributor for allow-ip."
   type        = list(string)
 }
 

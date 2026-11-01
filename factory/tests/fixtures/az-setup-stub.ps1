@@ -30,14 +30,14 @@ switch -Regex ($all) {
     '^ad sp list' { if ($full) { 'sp-' + ((Arg '--filter') -replace "^appId eq '(.*)'$", '$1') }; exit 0 }
     '^ad sp create' { 'sp-' + (Arg '--id'); exit 0 }
     '^ad sp show' {
-        '{"id":"graph-sp","roles":[{"id":"r-app","value":"Application.ReadWrite.All"},{"id":"r-user","value":"User.ReadWrite.All"},{"id":"r-ev","value":"EventListener.ReadWrite.All"}]}'
+        '{"id":"graph-sp","roles":[{"id":"r-app","value":"Application.ReadWrite.All"},{"id":"r-user","value":"User.ReadWrite.All"},{"id":"r-ev","value":"EventListener.ReadWrite.All"},{"id":"r-grant","value":"DelegatedPermissionGrant.ReadWrite.All"}]}'
         exit 0
     }
     '^role assignment list' { if ($full) { 'ra-1' }; exit 0 }
     '^role assignment create' { '{}'; exit 0 }
     '^rest --method GET .*federatedIdentityCredentials' { if ($full) { '{"value":[{"name":"hcp-terraform"}]}' } else { '{"value":[]}' }; exit 0 }
     '^rest --method GET .*appRoleAssignments' {
-        if ($full) { '{"value":[{"appRoleId":"r-app"},{"appRoleId":"r-user"},{"appRoleId":"r-ev"}]}' } else { '{"value":[]}' }; exit 0
+        if ($full) { '{"value":[{"appRoleId":"r-app"},{"appRoleId":"r-user"},{"appRoleId":"r-ev"},{"appRoleId":"r-grant"}]}' } else { '{"value":[]}' }; exit 0
     }
     '^rest --method GET .*authenticationEventsFlows' {
         if ($full) { '{"value":[{"displayName":"preview-signin","id":"flow-1"}]}' } else { '{"value":[]}' }; exit 0

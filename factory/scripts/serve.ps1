@@ -256,6 +256,7 @@ function Handle-Session($ctx, [string] $method, [string] $id, [string] $action, 
             $md = "$($s.pending.input.markdown)"
             $title = if ($md -match '(?m)^#\s*Brief:\s*(.+?)\s*$') { $Matches[1] } else { $s.text }
             $r = if ($s.newTarget) { Invoke-Factory new-idea $title -Target $s.target -Scaffold ($s.scaffold | ConvertTo-Json -Compress) }
+                 elseif ($s.base) { Invoke-Factory new-idea $title -Target $s.target -Base $s.base }
                  else { Invoke-Factory new-idea $title -Target $s.target }
             if (-not $r.Ok) { return Send-Result $ctx $r }
             $ids = $r.Message -split '\s+'
@@ -318,7 +319,8 @@ function Handle-Session($ctx, [string] $method, [string] $id, [string] $action, 
         'close' {
             $r = [pscustomobject]@{ Ok = $true; Message = 'closed' }
             if ($s.idea) {
-                $r = if ($req.failed) { Invoke-Factory idea-done $s.idea -Failed -Reason ($req.reason ?? 'every spec rejected in session') } else { Invoke-Factory idea-done $s.idea }
+                $r = if ($req.abandon) { Invoke-Factory idea-abandon $s.idea }
+                     elseif ($req.failed) { Invoke-Factory idea-done $s.idea -Failed -Reason ($req.reason ?? 'every spec rejected in session') } else { Invoke-Factory idea-done $s.idea }
                 if (-not $r.Ok) { return Send-Result $ctx $r }
             }
             $s.status = 'closed'
@@ -348,17 +350,22 @@ function New-Session($ctx) {
     $n = 0
     if (Test-Path $Sessions) { foreach ($d in Get-ChildItem $Sessions -Directory) { if ($d.Name -match '^S-(\d+)$') { $n = [Math]::Max($n, [int]$Matches[1]) } } }
     $id = 'S-{0:D3}' -f ($n + 1)
+    # A base: build on an unmerged job's branch (see "Stacked jobs" in the contract).
+    $base = if ("$($req.base)".Trim()) { "$($req.base)".Trim() } else { $null }
+    if ($base -and $new) { return Send-Result $ctx (Refuse 'base refused: a new repo has no branches to build on') }
     $checkout = $null
     if (-not $new) {
         $checkout = SessionClone $id
-        $r = Invoke-Factory clone-target "$($req.target)" $checkout
+        $r = if ($base) { Invoke-Factory clone-target "$($req.target)" $checkout -Base $base } else { Invoke-Factory clone-target "$($req.target)" $checkout }
         if (-not $r.Ok) { return Send-Result $ctx $r }
     }
     New-Item -ItemType Directory -Force (SessionDir $id) | Out-Null
+    $baseJob = if ($base) { (Read-Board).jobs | Where-Object id -eq $base | Select-Object -First 1 }
     $about = if (-not $req.target) { "This is a new target with no repo yet. Grill enough to know what it is, then call propose_scaffold, including repo: a short lower-case GitHub repo name. The owner is $owner. A bootstrap job will create the repo and scaffold it from template-projects." }
              elseif ($new) { 'This is a new target: the GitHub repo does not exist yet (or is empty), and a bootstrap job will scaffold it from template-projects. Call propose_scaffold.' }
+             elseif ($base) { "This is an existing git repo on GitHub, cloned for you at branch factory/$base, not main: the unmerged work of $base ($($baseJob.title)), which this idea builds on. main does not have that work yet, and the specs will be built on top of it. Read it with read_file, list_dir and grep." }
              else { 'This is an existing git repo on GitHub, cloned for you; read it with read_file, list_dir and grep.' }
-    $s = [ordered]@{ id = $id; target = $req.target; text = $req.text.Trim(); newTarget = $new; checkout = $checkout; status = 'idle'; error = $null
+    $s = [ordered]@{ id = $id; target = $req.target; text = $req.text.Trim(); newTarget = $new; base = $base; checkout = $checkout; status = 'idle'; error = $null
                      model = (Get-IdeaModel); costUsd = 0; scaffold = $null; idea = $null; bootstrap = $null
                      pending = $null; pendingResults = @(); specs = @(); createdAt = [DateTime]::UtcNow.ToString('o') }
     Add-Human $id 'idea' $s.text @{ target = $s.target; newTarget = $new }
@@ -496,7 +503,7 @@ function Handle($ctx) {
 
     if ($method -eq 'GET' -and $path -eq '/api/ideate/config') {
         return Send $ctx 200 (@{ enabled = [bool](Get-EnvValue 'ANTHROPIC_API_KEY'); model = (Get-IdeaModel); owner = (Get-EnvValue 'GITHUB_OWNER')
-                                 templatesRepo = (Get-EnvValue 'FACTORY_TEMPLATES_REPO') } | ConvertTo-Json -Compress)
+                                 templatesRepo = (Get-EnvValue 'FACTORY_TEMPLATES_REPO'); deploys = [bool](Get-EnvValue 'HCP_ORG') } | ConvertTo-Json -Compress)
     }
 
     if ($method -eq 'GET' -and $path -eq '/api/repos') {
@@ -539,6 +546,7 @@ function Handle($ctx) {
 
     if ($path -match '^/api/sessions/(S-\d+)/(reply|brief|write-specs|close)$' -and $method -eq 'POST') { return Handle-Session $ctx $method $Matches[1] $Matches[2] $null }
     if ($path -match '^/api/sessions/(S-\d+)/specs/(\d+)$' -and $method -in 'POST', 'PUT') { return Handle-Session $ctx $method $Matches[1] 'specs' $Matches[2] }
+    if ($path -match '^/api/ideas/(I-\d+)/abandon$' -and $method -eq 'POST') { return Send-Result $ctx (Invoke-Factory idea-abandon $Matches[1]) }
 
 
     if ($method -eq 'POST' -and $path -eq '/api/purge') {

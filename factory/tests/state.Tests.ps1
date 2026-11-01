@@ -85,6 +85,12 @@ Describe 'blobs' {
         @($all | Where-Object { -not $_.IsCurrent }).Name | Should -Be 'p/1'
         ($all | Where-Object { $_.Name -eq 'p/3' }).Length | Should -Be 1
     }
+
+    It 'a prefix that matches nothing lists nothing, and pulls nothing' {
+        $null = Write-StateBlob 'p/1' (Bytes '1')
+        @(Get-StateList -Prefix 'J-022').Count | Should -Be 0
+        Pull-State -Prefix 'J-022' | Should -Be 0
+    }
 }
 
 Describe 'leases' {
@@ -126,6 +132,7 @@ Describe 'push and pull' {
         Put $script:A 'board.json.123.tmp' 'tmp'
         Put $script:A 'runner.lock' '42'
         Put $script:A 'headless-settings.json' '{}'
+        Put $script:A '.local/storage-token.json' '{"token":"secret"}'
         Push-State | Should -Be 3
         Push-State | Should -Be 0
         (Blob-State).Blobs.Keys | Sort-Object | Should -Be @('ideas/I-001/idea.md', 'jobs/J-001/round-1/build.md', 'jobs/J-001/spec.md')

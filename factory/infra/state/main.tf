@@ -103,10 +103,12 @@ resource "azurerm_storage_container" "factory" {
   container_access_type = "private"
 }
 
+# Owner, not Contributor: only Owner has deleteBlobVersion/action, which prune needs to drop old
+# versions (Contributor gets 403 OperationNotAllowedOnAutomaticSnapshot).
 resource "azurerm_role_assignment" "blob_data" {
   for_each             = toset(var.principal_ids)
   scope                = azurerm_storage_container.factory.id
-  role_definition_name = "Storage Blob Data Contributor"
+  role_definition_name = "Storage Blob Data Owner"
   principal_id         = each.value
 }
 

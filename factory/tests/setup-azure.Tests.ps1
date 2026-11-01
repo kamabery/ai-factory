@@ -49,9 +49,16 @@ Describe 'setup-azure.ps1' {
         $out | Should -Contain 'TFC_AZURE_RUN_CLIENT_ID=app-factory-hcp-terraform'
         $out | Should -Contain 'ARM_SUBSCRIPTION_ID=sub-1'
         $out | Should -Contain 'ARM_TENANT_ID=tenant-main'
-        $out | Should -Contain 'entra_external_tenant_id=ext-1'
-        $out | Should -Contain 'entra_external_subdomain=extsub'
-        $out | Should -Contain 'entra_external_user_flow_id=flow-1'
+        $out | Should -Contain 'TFC_AZURE_RUN_CLIENT_ID_EXTERNAL=app-factory-hcp-terraform'
+    }
+
+    It 'prints the entra_* ids as tfvars lines for the target repo, not as variable set values' {
+        # J-022: the ids live in the target's IaC/envs/*.tfvars, one source; a -var-file overrides the set.
+        $out = Setup -SubscriptionId sub-1 -HcpOrg acme -ExternalTenantId ext-1 -ExternalSubdomain extsub
+        $out | Should -Contain 'entra_external_tenant_id    = "ext-1"'
+        $out | Should -Contain 'entra_external_subdomain    = "extsub"'
+        $out | Should -Contain 'entra_external_user_flow_id = "flow-1"'
+        $out -join "`n" | Should -Not -Match 'entra_external_\w+='
     }
 
     It 'registers the resource providers the templates deploy to, Microsoft.App among them' {
@@ -77,14 +84,14 @@ Describe 'setup-azure.ps1' {
         $flow | Should -HaveCount 1
         ($flow[0].body | ConvertFrom-Json).onAuthenticationMethodLoadStart.identityProviders.id | Should -Be 'EmailPassword-OAUTH'
         $grants = Matching '^rest --method POST .*servicePrincipals/sp-app-factory-hcp-terraform/appRoleAssignments'
-        $grants.ForEach({ ($_.body | ConvertFrom-Json).appRoleId }) | Should -Be @('r-app', 'r-user', 'r-ev')
+        $grants.ForEach({ ($_.body | ConvertFrom-Json).appRoleId }) | Should -Be @('r-app', 'r-user', 'r-ev', 'r-grant')
         $grants.ForEach({ ($_.body | ConvertFrom-Json).resourceId }) | Select-Object -Unique | Should -Be 'graph-sp'
         Matching '^rest --method POST .*federatedIdentityCredentials' | Should -HaveCount 2
     }
 
     It "reads the External subdomain from the tenant's initial domain when not passed" {
         $out = Setup -SubscriptionId sub-1 -HcpOrg acme -ExternalTenantId ext-1
-        $out | Should -Contain 'entra_external_subdomain=extinit'
+        $out | Should -Contain 'entra_external_subdomain    = "extinit"'
     }
 
     It 'leaves az on the subscription it started on' {
@@ -122,8 +129,8 @@ Describe 'setup-azure.ps1' {
         $b.sku.name | Should -Be 'Base'
         $b.properties.createTenantProperties.countryCode | Should -Be 'US'
         Matching '^login --tenant ext-new --allow-no-subscriptions' | Should -HaveCount 1
-        $out | Should -Contain 'entra_external_tenant_id=ext-new'
-        $out | Should -Contain 'entra_external_subdomain=newsub'
+        $out | Should -Contain 'entra_external_tenant_id    = "ext-new"'
+        $out | Should -Contain 'entra_external_subdomain    = "newsub"'
         Matching '^rest --method POST .*authenticationEventsFlows' | Should -HaveCount 1
     }
 
@@ -131,7 +138,7 @@ Describe 'setup-azure.ps1' {
         $env:FACTORY_AZ_STUB = 'full'
         $out = Setup -SubscriptionId sub-1 -HcpOrg acme -CreateExternalTenant newsub -ExternalResourceGroup rg-x
         Matching '^rest --method PUT' | Should -HaveCount 0
-        $out | Should -Contain 'entra_external_tenant_id=ext-new'
+        $out | Should -Contain 'entra_external_tenant_id    = "ext-new"'
     }
 
     It 'stops rather than write a blank tenant id into .env' {

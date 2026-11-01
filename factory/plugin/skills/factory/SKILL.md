@@ -26,6 +26,18 @@ Don't put `$VARIABLES` in commands: the permission check can't approve them in a
 that holds `factory.ps1` (for example `D:/code/claude-factory/factory/templates`). Pass agents
 **absolute** paths, including the template each one follows.
 
+Tell every agent, in its prompt: "Your working directory is already the job's clone. Run each shell
+command on its own, as written (for example `git diff main...HEAD`): no `cd`, no `git -C`, no `&&`,
+`;` or pipes. The headless allowlist matches a command's start, and anything else is denied without
+a prompt. Read files with the Read tool, not `cat`. If a command is denied, say so in your file."
+(J-022 round 5: three reviewers wrote `cd <clone> && git diff ... | tail` and `git -C <clone> diff`,
+were denied, and judged without the diff.)
+
+Give the builder, the reviewers and the approver the job id and the absolute path of `factory.ps1`
+too: they run the spec's gate commands only through `F gate-check <id> [<name>]`, which runs them
+exactly as `F gate` will, records nothing, caches by head sha, and lets one caller at a time into the
+work dir.
+
 The agents are this plugin's: `factory:builder`, `factory:security-reviewer`,
 `factory:code-reviewer`, `factory:ux-reviewer`, `factory:ui-reviewer`, `factory:devops`, `factory:approver`.
 

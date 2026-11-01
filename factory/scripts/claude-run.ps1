@@ -28,11 +28,15 @@ $AllowCommands = @(
     # the approver's smoke test of the preview. Never apply, plan or destroy: factory.ps1 deploys.
     'terraform init -backend=false*', 'terraform validate*', 'terraform test*', 'terraform fmt*', 'curl *',
     'git status*', 'git diff*', 'git log*', 'git show*', 'git add *', 'git commit *', 'git branch*', 'git rev-parse*', 'git ls-files*',
+    # Both only add a commit on the job branch; a rework may ask for a revert (J-022).
+    'git revert *', 'git rm *',
+    # The one merge allowed: the job's base into its branch. checkout points factory/base at it (J-022).
+    'git merge --no-edit factory/base*', 'git merge --abort*',
     'ls*', 'cat *', 'head *', 'tail *', 'wc *', 'grep *', 'echo *', 'pwd', 'cd *', 'which *',
     'Get-ChildItem*', 'Get-Content *', 'Select-String *', 'Test-Path *', 'Resolve-Path *', 'Get-Location', 'Set-Location *', 'Write-Output *'
 )
 # The environment holds an openrouter job's key, so reading it is denied too.
-$DenyCommands = @('git push*', 'git merge*', 'git rebase*', 'git reset --hard*', 'git checkout main*', 'git switch main*', 'git branch -D*', 'git worktree*',
+$DenyCommands = @('git push*', 'git merge main*', 'git merge origin*', 'git rebase*', 'git reset --hard*', 'git checkout main*', 'git switch main*', 'git branch -D*', 'git worktree*',
     'printenv*', 'env*', 'Get-ChildItem env:*', 'Get-Item env:*', 'Get-Content env:*')
 
 . (Join-Path $PSScriptRoot 'env-file.ps1')

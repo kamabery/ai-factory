@@ -232,6 +232,8 @@ test.describe.serial('factory dashboard', () => {
     await page.locator('#rework-note').fill('use the Input component from the design system');
     await page.locator('#rework-btn').click();
     await expect.poll(() => job('J-002').round).toBe(before + 1);
+    await expect(page.locator('#backdrop')).not.toHaveClass(/open/);
+    await expect(column(page, 'approved').locator('[data-card="J-002"]')).toBeVisible();
     const last = job('J-002').history.filter((h) => h.from === 'ready').at(-1);
     expect(last).toMatchObject({ to: 'approved', by: 'human' });
     expect(readFileSync(path.join(simDir, `jobs/J-002/rework-${before + 1}.md`), 'utf8')).toContain('Input component');
@@ -511,5 +513,102 @@ test.describe.serial('factory dashboard', () => {
     // A pass clears the banner.
     writeFileSync(file, JSON.stringify({ fingerprint: 'sha256:00', status: 'pass', error: null, log: 'canary-5.log', n: 5 }));
     await expect(banner).toBeHidden();
+  });
+
+  test('an Approved card says what it is waiting on', async ({ page, request }) => {
+    // The simulator runs with deploys off, and serve.ps1 says so.
+    expect((await (await request.get('/api/ideate/config')).json()).deploys).toBe(false);
+
+    // The rest is rendering: a board, a canary and deploys on, served by the test.
+    const at = (m: number) => new Date(Date.UTC(2026, 9, 26, 12, m)).toISOString();
+    const j = (id: string, stage: string, m: number, extra = {}) => ({
+      id, stage, round: 1, title: `job ${id}`, target: 'sim/sandbox', createdAt: at(m), approvedAt: at(m), updatedAt: at(m), history: [], ...extra,
+    });
+    let jobs = [j('J-201', 'approved', 1), j('J-202', 'approved', 2), j('J-203', 'approved', 3, { kind: 'bootstrap' })];
+    let canary: object = { fingerprint: 'sha256:01', status: 'running', error: null, log: 'canary-6.log', startedAt: at(0), n: 6 };
+    await page.route('**/api/ideate/config', (r) => r.fulfill({ json: { enabled: false, deploys: true } }));
+    await page.route('**/state/board.json', (r) => r.fulfill({ body: JSON.stringify({ jobs, ideas: [] }) }));
+    await page.route('**/state/events.jsonl', (r) => r.fulfill({ body: '' }));
+    await page.route('**/state/canary.json', (r) => r.fulfill({ body: JSON.stringify(canary) }));
+    const wait = (id: string) => card(page, id).locator('[data-wait]');
+
+    await page.goto('/');
+    for (const id of ['J-201', 'J-202', 'J-203']) await expect(wait(id)).toHaveText('waiting: deploy canary');
+
+    // Only canary.json changes: the cards follow it. A bootstrap never deploys, so it is not held.
+    canary = { ...canary, status: 'failed', error: 'boom', finishedAt: at(5) };
+    await expect(wait('J-201')).toHaveText('held: deploy canary failed');
+    await expect(wait('J-202')).toHaveText('held: deploy canary failed');
+    await expect(wait('J-203')).toHaveText('next');
+
+    canary = { ...canary, status: 'pass', error: null };
+    await expect(wait('J-201')).toHaveText('next');
+    await expect(wait('J-202')).toHaveText('after J-201');
+    await expect(wait('J-203')).toHaveText('after J-202');
+
+    jobs = [j('J-200', 'build', 0), ...jobs];
+    for (const id of ['J-201', 'J-202', 'J-203']) await expect(wait(id)).toHaveText('waiting: J-200 is building');
+    await expect(card(page, 'J-200').locator('[data-wait]')).toHaveCount(0);
+  });
+
+  test('New idea can start from an unmerged job, Abandon asks once more, and stacked cards name their base', async ({ page }) => {
+    // Rendering and requests only: serve.ps1's side is in serve.Tests.ps1.
+    const j = (id: string, stage: string, extra = {}) => ({ id, stage, round: 1, title: `job ${id}`, target: sandbox, history: [], ...extra });
+    const jobs = [
+      j('J-301', 'ready', { pr: { number: 9, url: 'https://github.example/pull/9' } }),
+      j('J-302', 'backlog'),
+      j('J-303', 'done', { pr: { number: 8, url: 'https://github.example/pull/8' } }),
+      j('J-304', 'backlog', { base: 'J-301' }),
+    ];
+    const ideas = [
+      { id: 'I-301', text: 'an idea nobody wants', target: sandbox, status: 'drafting', jobs: [] },
+      { id: 'I-302', text: 'already abandoned', target: sandbox, status: 'abandoned', jobs: [] },
+    ];
+    const posts: { url: string; body: Record<string, unknown> }[] = [];
+    await page.route('**/api/ideate/config', (r) => r.fulfill({ json: { enabled: true, owner: 'sim', deploys: false } }));
+    await page.route('**/state/board.json', (r) => r.fulfill({ body: JSON.stringify({ jobs, ideas }) }));
+    await page.route('**/state/events.jsonl', (r) => r.fulfill({ body: '' }));
+    await page.route('**/api/sessions', (r) => {
+      if (r.request().method() === 'GET') return r.fulfill({ json: [{ id: 'S-301', target: sandbox, text: 'move tag list to the main menu', status: 'idle', idea: null, costUsd: 0.1 }] });
+      posts.push({ url: r.request().url(), body: r.request().postDataJSON() });
+      return r.fulfill({ status: 409, json: { ok: false, message: 'stopped by the test' } });
+    });
+    for (const p of ['**/api/sessions/S-301/close', '**/api/ideas/I-301/abandon'])
+      await page.route(p, (r) => { posts.push({ url: r.request().url(), body: r.request().postDataJSON() }); return r.fulfill({ json: { ok: true, message: 'ok' } }); });
+
+    await page.goto('/');
+    await expect(card(page, 'J-304').locator('[data-base]')).toHaveText('on J-301');
+    await expect(card(page, 'J-301').locator('[data-base]')).toHaveCount(0);
+    await expect(column(page, 'ideas').locator('[data-idea="I-302"]')).toHaveCount(0);
+
+    // Base: main, plus each job on the target that is unmerged and has a PR.
+    await column(page, 'ideas').locator('#new-idea-btn').click();
+    await expect(modal(page).locator('#s-base')).toBeHidden();
+    await modal(page).locator('#s-target').selectOption(sandbox);
+    const base = modal(page).locator('#s-base');
+    await expect(base).toBeVisible();
+    await expect(base.locator('option')).toHaveCount(2);
+    await expect(base.locator('option').nth(0)).toHaveText('main');
+    await base.selectOption('J-301');
+    await modal(page).locator('#s-text').fill('move tag list to the main menu');
+    await modal(page).locator('#s-start').click();
+    await expect(page.locator('#toast')).toContainText('stopped by the test');
+    expect(posts.at(-1)!.body).toMatchObject({ target: sandbox, base: 'J-301' });
+    await page.keyboard.press('Escape');
+    await expect(modal(page)).toBeHidden();
+
+    // Abandon: the first click asks, the second abandons; neither opens the card.
+    for (const [sel, url, body] of [['[data-session="S-301"]', '/api/sessions/S-301/close', { abandon: true }], ['[data-idea="I-301"]', '/api/ideas/I-301/abandon', {}]] as const) {
+      const n = posts.length;
+      const btn = column(page, 'ideas').locator(`${sel} [data-abandon]`);
+      await btn.click();
+      await expect(btn).toHaveText('Abandon?');
+      expect(posts.length).toBe(n);
+      await btn.click();
+      await expect.poll(() => posts.length).toBe(n + 1);
+      expect(posts.at(-1)!.url).toContain(url);
+      expect(posts.at(-1)!.body).toMatchObject(body);
+      await expect(modal(page)).toBeHidden();
+    }
   });
 });

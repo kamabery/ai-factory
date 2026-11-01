@@ -284,7 +284,8 @@ if ($held) { $held.Dispose() }
             Set-FakeClaude
             Run-Runner | Out-Null
             $p = (Get-Content (Join-Path $env:FACTORY_HOME 'headless-settings.json') -Raw | ConvertFrom-Json).permissions
-            foreach ($rule in 'dotnet *', 'npm *', 'npx *', 'node *', 'aspire-addon *', 'git status*', 'ls*', 'cat *') {
+            # git revert and git rm only add a commit on the job branch (J-022's rework-4 was a revert).
+            foreach ($rule in 'dotnet *', 'npm *', 'npx *', 'node *', 'aspire-addon *', 'git status*', 'git revert *', 'git rm *', 'ls*', 'cat *') {
                 $p.allow | Should -Contain "Bash($rule)"
                 $p.allow | Should -Contain "PowerShell($rule)"
             }
@@ -295,7 +296,11 @@ if ($held) { $held.Dispose() }
             }
             @($p.allow | Where-Object { $_ -match "terraform (apply|plan|destroy)|terraform \*|\((az|gh) " }) | Should -BeNullOrEmpty
             $p.deny | Should -Contain 'Bash(git push*)'
-            $p.deny | Should -Contain 'Bash(git merge*)'
+            # The one merge an agent may run: the job's base into its branch (factory/base, set by checkout).
+            $p.allow | Should -Contain 'Bash(git merge --no-edit factory/base*)'
+            $p.allow | Should -Contain 'Bash(git merge --abort*)'
+            @($p.allow | Where-Object { $_ -match '\(git merge \*\)|\(git merge\*\)' }) | Should -BeNullOrEmpty
+            $p.deny | Should -Contain 'Bash(git merge main*)'
             $templates = (Join-Path (Split-Path $script:Scripts -Parent) 'templates') -replace '\\', '/'
             $p.additionalDirectories | Should -Contain $templates
             $workspace = ([IO.Path]::GetFullPath((Join-Path $script:Scripts '..\..\..\template-projects'))) -replace '\\', '/'

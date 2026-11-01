@@ -28,7 +28,8 @@ if (-not $SubscriptionId) { throw 'Pass -SubscriptionId, or set AZURE_SUBSCRIPTI
 if (-not $HcpOrg) { throw 'Pass -HcpOrg (the HCP Terraform organization the federated credentials trust)' }
 
 $GraphAppId = '00000003-0000-0000-c000-000000000000'
-$HcpGraphRoles = 'Application.ReadWrite.All', 'User.ReadWrite.All', 'EventListener.ReadWrite.All'
+# DelegatedPermissionGrant: the auth add-on admin-consents its SPA's scopes (J-022's apply was 403 without it).
+$HcpGraphRoles = 'Application.ReadWrite.All', 'User.ReadWrite.All', 'EventListener.ReadWrite.All', 'DelegatedPermissionGrant.ReadWrite.All'
 
 # az, or the script FACTORY_AZ_CMD names in its place. Returns stdout trimmed; throws on failure.
 # The executable is resolved explicitly: a bare `az` here would call this function.
@@ -241,14 +242,21 @@ try {
 
         $varset.TFC_AZURE_PROVIDER_AUTH_EXTERNAL = 'true'
         $varset.TFC_AZURE_RUN_CLIENT_ID_EXTERNAL = $ext.appId
-        $varset.entra_external_tenant_id = $ExternalTenantId
-        $varset.entra_external_subdomain = $ExternalSubdomain
-        $varset.entra_external_user_flow_id = $flowId
+        # Not the variable set: the target's tfvars are the one source (J-022), and a -var-file would
+        # override the set anyway.
+        $tfvars = [ordered]@{
+            entra_external_tenant_id = $ExternalTenantId; entra_external_subdomain = $ExternalSubdomain
+            entra_external_user_flow_id = $flowId
+        }
     }
 } finally {
     Az account set --subscription $original | Out-Null
 }
 
 Write-Host "`nWrote AZURE_GH_CLIENT_ID, AZURE_TENANT_ID and AZURE_SUBSCRIPTION_ID to $EnvFile."
-Write-Host 'HCP variable set (docs/DEPLOY.md section 4; deployer_object_id and entra_* are terraform variables, the rest env):'
+Write-Host 'HCP variable set (docs/DEPLOY.md section 4; deployer_object_id is a terraform variable, the rest env):'
 foreach ($k in $varset.Keys) { "$k=$($varset[$k])" }
+if ($tfvars) {
+    Write-Host "`nAuth add-on targets: put these in IaC/envs/{dev,staging,ephemeral}.tfvars (not secrets):"
+    foreach ($k in $tfvars.Keys) { '{0,-27} = "{1}"' -f $k, $tfvars[$k] }
+}

@@ -375,6 +375,78 @@ Describe 'serve.ps1 idea session on an existing repo' {
     }
 }
 
+Describe 'serve.ps1 idea session on an unmerged base' {
+    BeforeAll {
+        Start-Serve $script:EnvFile
+        $env:FACTORY_ENV_FILE = $script:EnvFile
+        $factory = Join-Path $script:Scripts 'factory.ps1'
+        function Fx { & pwsh -NoProfile -File $factory @args 2>$null }
+        $script:Target = New-Repo
+        # J-001: in ready with its PR open, the base the session builds on.
+        $spec = Join-Path $TestDrive "base-$([guid]::NewGuid().ToString('N').Substring(0, 8)).md"
+        Set-Content $spec (Spec-Md 'Tags' $script:Target)
+        $idea = Fx new-idea 'tags' -Target $script:Target
+        $script:BaseJob = Fx add-spec $idea $spec
+        Fx approve $script:BaseJob | Out-Null
+        $wt = Fx checkout $script:BaseJob
+        Set-Content (Join-Path $wt 'tags.txt') 'the tag list'
+        git -C $wt add -A 2>&1 | Out-Null
+        git -C $wt -c user.email=f@t -c user.name=f commit -q -m tags 2>&1 | Out-Null
+        Fx set-stage $script:BaseJob build -By runner | Out-Null
+        Fx set-stage $script:BaseJob ready -Reason escalated -Detail x | Out-Null
+        Fx publish $script:BaseJob | Out-Null
+        Set-Replies (Reply @((ToolUse 'q1' 'ask_questions' $script:Ask)) 'tool_use') `
+                    (Reply @((ToolUse 'b1' 'submit_brief' @{ markdown = "# Brief: Tags in the menu`n`n## Target`n- Repo: $script:Target" })) 'tool_use') `
+                    (Reply @((ToolUse 's1' 'submit_specs' @{ specs = @(@{ k = 1; markdown = (Spec-Md 'Menu' $script:Target) }) })) 'tool_use') `
+                    (Reply @((Text 'One spec.')))
+    }
+    AfterAll { Stop-Serve; Remove-Item Env:FACTORY_ENV_FILE -ErrorAction SilentlyContinue }
+
+    It 'refuses a base that is not an open job on the target, and creates no session' {
+        $r = Api POST '/api/sessions' @{ target = $script:Target; text = 'menu'; base = 'J-999' }
+        $r.Status | Should -Be 409
+        $r.Body.message | Should -Match 'base refused'
+        Test-Path (Join-Path $script:State 'sessions') | Should -BeFalse
+    }
+
+    It 'clones the base branch and tells the model it reads unmerged work' {
+        $r = Api POST '/api/sessions' @{ target = $script:Target; text = 'move tag list to the main menu'; base = $script:BaseJob }
+        $r.Status | Should -Be 200
+        Wait-Until { (Idle) -and (Session).pending } 'the first turn'
+        (Session).base | Should -Be $script:BaseJob
+        Get-Content (Join-Path (SessionClone) 'tags.txt') | Should -Be 'the tag list'
+        (Chat)[0].content[0].text | Should -Match "factory/$script:BaseJob"
+    }
+
+    It 'confirming the brief makes an idea on the base, and its approved spec is a job stacked on it' {
+        (Api POST '/api/sessions/S-001/reply' @{ text = 'Just me' }).Status | Should -Be 200
+        Wait-Until { (Idle) -and (Session).pending.name -eq 'submit_brief' } 'the brief'
+        $r = Api POST '/api/sessions/S-001/brief' $null
+        $r.Status | Should -Be 200
+        ((Board).ideas | Where-Object id -eq $r.Body.message).base | Should -Be $script:BaseJob
+        Wait-Until { (Idle) -and @((Session).specs).Count -eq 1 } 'the specs'
+        $job = (Api POST '/api/sessions/S-001/specs/1' @{ decision = 'backlog' }).Body.message
+        ((Board).jobs | Where-Object id -eq $job).base | Should -Be $script:BaseJob
+    }
+
+    It 'Abandon is refused while a turn runs, then closes the session and abandons its idea' {
+        $lock = Join-Path $script:State 'sessions/S-001/turn.lock'
+        Set-Content $lock $PID
+        try { (Api POST '/api/sessions/S-001/close' @{ abandon = $true }).Status | Should -Be 409 } finally { Remove-Item $lock }
+        (Api POST '/api/sessions/S-001/close' @{ abandon = $true }).Status | Should -Be 200
+        (Session).status | Should -Be 'closed'
+        ((Board).ideas | Where-Object id -eq (Session).idea).status | Should -Be 'abandoned'
+        @((Api GET '/api/sessions').Body).Count | Should -Be 0
+    }
+
+    It 'Abandon on an idea card abandons it through factory.ps1, and refuses one that is done' {
+        $i = Fx new-idea 'left over' -Target $script:Target
+        (Api POST "/api/ideas/$i/abandon" $null).Status | Should -Be 200
+        ((Board).ideas | Where-Object id -eq $i).status | Should -Be 'abandoned'
+        (Api POST "/api/ideas/$i/abandon" $null).Status | Should -Be 409
+    }
+}
+
 Describe 'serve.ps1 repo list and Add new' {
     BeforeAll {
         Start-Serve $script:EnvFile
@@ -394,8 +466,11 @@ Describe 'serve.ps1 repo list and Add new' {
 
     It 'Add new starts a session with no target, no clone and no check-target, and asks for a repo name' {
         # An earlier test's runner may still be publishing its PR (slower on the azure state backend);
-        # its requests are not this session's.
-        Wait-Until { -not (Get-CimInstance Win32_Process -Filter "Name='pwsh.exe'" | Where-Object CommandLine -match 'runner\.ps1') } 'earlier runners to finish'
+        # its requests are not this session's. Only this test's runner counts, not a live factory's.
+        Wait-Until {
+            $holder = (Get-Content (Join-Path $script:State 'runner.lock') -ErrorAction SilentlyContinue | Select-Object -First 1) -as [int]
+            -not ($holder -and (Get-Process -Id $holder -ErrorAction SilentlyContinue))
+        } 'earlier runners to finish'
         $before = @(Get-Content (Join-Path $script:GitBase 'requests.jsonl')).Count
         $r = Api POST '/api/sessions' @{ new = $true; text = 'a todo app' }
         $r.Status | Should -Be 200

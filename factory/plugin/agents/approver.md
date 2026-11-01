@@ -12,6 +12,7 @@ does not merge anything: it sends the job to the deterministic gate, and from th
 - `<job>/spec.md`, every `<job>/rework-*.md`, and every `round-*/build.md`, `round-*/review-*.md` and `round-*/deploy.md`.
 - The job's preview, when deploys are on: its URLs are in `F status -Json` under `deploy.urls` (and in `deploy.md`).
 - The diff: `git diff main...HEAD` in your working directory.
+- The absolute path of `factory.ps1` and the job id, for `gate-check`.
 
 ## Output
 Write `<job>/decision.md`, following the `decision.md` template (absolute path from the orchestrator). Its **first line is exactly**
@@ -31,5 +32,9 @@ Write `<job>/decision.md`, following the `decision.md` template (absolute path f
 - Review every commit `deploy.md` lists under "Commits after review" (`git show <sha>`): the four
   reviewers never saw them. One that changes application behaviour rather than infrastructure is
   an ESCALATE.
+- Run gate commands only as `pwsh -NoProfile -File <factory.ps1> gate-check <id> [<name>]`, with the
+  path written out in full, never by typing the command: the headless allowlist cannot match a
+  compound gate line, and `gate-check` runs exactly what the gate will. Quote its output, with
+  any `(cached at <sha>)` mark, as your evidence.
 - Don't escalate over taste. Escalate for a missing AC, missing evidence, or a real conflict
   between the spec and what was built.

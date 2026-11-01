@@ -448,6 +448,140 @@ Describe 'gate' {
         (Job $id).gate.ui | Should -Be 0
         Get-Content (Join-Path (JobDir $id) 'gate.log') -Encoding utf8 | Should -Contain $text
     }
+
+    It 'passes a native -name=value.ext argument whole, not split at the dot' {
+        # J-022: pwsh handed terraform `-var-file=envs/ephemeral` and `.tfvars` as two arguments.
+        $env:FACTORY_GATE_CMDS = ConvertTo-Json -Compress @(@{ name = 'iac'; cmd = 'cmd /c echo -var-file=envs/ephemeral.tfvars; cmd /c echo ''-q=a.b''' })
+        $id = New-ApprovedJob
+        Commit-OnBranch $id
+        Move-ToGate $id
+        F gate $id | Out-Null
+        $log = Get-Content (Join-Path (JobDir $id) 'gate.log')
+        $log | Should -Contain '-var-file=envs/ephemeral.tfvars'
+        $log | Should -Contain '-q=a.b'
+    }
+}
+
+Describe 'gate-check' {
+    BeforeEach {
+        # A command that appends a line to a file outside the work tree, so a run is countable and the
+        # tree stays clean.
+        $script:Runs = Join-Path $TestDrive "runs-$([guid]::NewGuid().ToString('N').Substring(0,8)).txt"
+        function Count-Cmd([string]$name, [int]$code = 0) { @{ name = $name; cmd = "Add-Content '$script:Runs' '$name'; 'ran $name'; exit $code" } }
+        function Runs { @(Get-Content $script:Runs -ErrorAction SilentlyContinue) }
+        function New-BuildingJob { $id = New-ApprovedJob; F set-stage $id build -By runner | Out-Null; Commit-OnBranch $id; $id }
+    }
+
+    It 'runs every command in the work dir, prints the output, and exits with the first non-zero code' {
+        $env:FACTORY_GATE_CMDS = ConvertTo-Json -Compress @(
+            @{ name = 'where'; cmd = '(Get-Location).Path' }
+            (Count-Cmd 'b' 3)
+            (Count-Cmd 'c' 5)
+        )
+        $id = New-BuildingJob
+        $out = F gate-check $id
+        $LASTEXITCODE | Should -Be 3
+        $out | Should -Contain (Resolve-Path (Work $id)).Path
+        $out | Should -Contain 'ran b'
+        $out | Should -Contain 'ran c'
+        Runs | Should -Be @('b', 'c')
+        Test-Path (Join-Path (JobDir $id) 'gate-check.log') | Should -BeTrue
+    }
+
+    It 'runs only the named command' {
+        $env:FACTORY_GATE_CMDS = ConvertTo-Json -Compress @((Count-Cmd 'a'), (Count-Cmd 'b' 2))
+        $id = New-BuildingJob
+        $out = F gate-check $id a
+        $LASTEXITCODE | Should -Be 0
+        $out | Should -Contain 'ran a'
+        Runs | Should -Be @('a')
+        F gate-check $id nope | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+    }
+
+    It 'passes a native -name=value.ext argument whole, as gate does' {
+        $env:FACTORY_GATE_CMDS = ConvertTo-Json -Compress @(@{ name = 'iac'; cmd = 'cmd /c echo -var-file=envs/ephemeral.tfvars' })
+        $id = New-BuildingJob
+        F gate-check $id | Should -Contain '-var-file=envs/ephemeral.tfvars'
+    }
+
+    It 'leaves the board gate, stage, flag and events.jsonl unchanged' {
+        $env:FACTORY_GATE_CMDS = ConvertTo-Json -Compress @((Count-Cmd 'a' 1))
+        $id = New-BuildingJob
+        Write-Build $id
+        F set-stage $id review | Out-Null
+        $before = Job $id
+        $events = @(Get-Content (Join-Path $env:FACTORY_HOME 'events.jsonl'))
+        F gate-check $id | Out-Null
+        $LASTEXITCODE | Should -Be 1
+        $after = Job $id
+        $after.stage | Should -Be 'review'
+        $after.gate | Should -Be $before.gate
+        $after.flag | Should -Be $before.flag
+        @(Get-Content (Join-Path $env:FACTORY_HOME 'events.jsonl')) | Should -Be $events
+    }
+
+    It 'refuses a job in <stage>' -ForEach @(
+        @{ stage = 'backlog' }, @{ stage = 'approved' }, @{ stage = 'ready' }, @{ stage = 'done' }
+    ) {
+        $env:FACTORY_GATE_CMDS = ConvertTo-Json -Compress @((Count-Cmd 'a'))
+        $id = if ($stage -eq 'backlog') { New-BacklogJob } else { New-ApprovedJob }
+        if ($stage -in 'ready', 'done') {
+            Commit-OnBranch $id
+            Move-ToGate $id
+            F gate $id | Out-Null
+            Remove-Item $script:Runs -ErrorAction SilentlyContinue
+        }
+        if ($stage -eq 'done') { F merge $id | Out-Null }
+        (Job $id).stage | Should -Be $stage
+        F gate-check $id | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        Runs | Should -BeNullOrEmpty
+    }
+
+    It 'returns the cached result on the same head sha without re-running' {
+        $env:FACTORY_GATE_CMDS = ConvertTo-Json -Compress @((Count-Cmd 'a'), (Count-Cmd 'b' 4))
+        $id = New-BuildingJob
+        F gate-check $id | Out-Null
+        $sha = (git -C (Work $id) rev-parse HEAD).Substring(0, 7)
+        $out = F gate-check $id
+        $LASTEXITCODE | Should -Be 4
+        $out | Should -Contain 'ran b'
+        ($out -join "`n") | Should -Match ([regex]::Escape("(cached at $sha)"))
+        Runs | Should -Be @('a', 'b')
+        # A new commit is a new head: it runs again.
+        Commit-OnBranch $id 'more.txt'
+        F gate-check $id a | Out-Null
+        Runs | Should -Be @('a', 'b', 'a')
+    }
+
+    It 'does not cache a dirty work tree' {
+        $env:FACTORY_GATE_CMDS = ConvertTo-Json -Compress @((Count-Cmd 'a'))
+        $id = New-BuildingJob
+        Set-Content (Join-Path (Work $id) 'uncommitted.txt') 'wip'
+        F gate-check $id | Out-Null
+        $out = F gate-check $id
+        ($out -join "`n") | Should -Not -Match 'cached at'
+        Runs | Should -Be @('a', 'a')
+    }
+
+    It 'runs two concurrent calls one after the other' {
+        $marks = Join-Path $TestDrive "marks-$([guid]::NewGuid().ToString('N').Substring(0,8)).txt"
+        $slow = { param($n) @{ name = $n; cmd = "Add-Content '$marks' ""start $n `$([DateTime]::UtcNow.Ticks)""; Start-Sleep -Seconds 2; Add-Content '$marks' ""end $n `$([DateTime]::UtcNow.Ticks)""" } }
+        $env:FACTORY_GATE_CMDS = ConvertTo-Json -Compress @((& $slow 'a'), (& $slow 'b'))
+        $id = New-BuildingJob
+        # Different names, so the second call cannot be served from the cache.
+        $jobs = 'a', 'b' | ForEach-Object { Start-Job -ArgumentList $script:Factory, $id, $_ { param($f, $id, $n) & $f gate-check $id $n 2>&1 | Out-Null; $LASTEXITCODE } }
+        $codes = $jobs | Wait-Job -Timeout 60 | Receive-Job
+        $jobs | Remove-Job -Force
+        $codes | Should -Be @(0, 0)
+        $m = @(Get-Content $marks | ForEach-Object { $k, $n, $t = $_ -split ' '; [pscustomobject]@{ kind = $k; name = $n; t = [long]$t } } | Sort-Object t)
+        $m.Count | Should -Be 4
+        $m[0].kind | Should -Be 'start'
+        $m[1].kind | Should -Be 'end'
+        $m[1].name | Should -Be $m[0].name
+        $m[2].kind | Should -Be 'start'
+    }
 }
 
 Describe 'publish and merge' {
@@ -697,6 +831,172 @@ Describe 'human moves from ready' {
     }
 }
 
+Describe 'stacked jobs' {
+    BeforeAll {
+        # A job in ready with its PR open: what a session can pick as a base.
+        function New-ReadyJob([string]$title = 'Base', [string]$file = 'base.txt') {
+            $id = New-ApprovedJob $title
+            Commit-OnBranch $id $file
+            Move-ToGate $id
+            F gate $id | Out-Null
+            F publish $id | Out-Null
+            $id
+        }
+        function New-StackedJob([string]$base, [string]$title = 'Fix') {
+            $idea = F new-idea "fix on $base" -Target $script:Repo -Base $base
+            F add-spec $idea (New-Spec $title)
+        }
+        function Pr([int]$n) { Invoke-RestMethod "http://localhost:$script:GhPort/repos/$script:Repo/pulls/$n" -Headers @{ Authorization = "Bearer $script:Token" } }
+    }
+
+    It 'new-idea -Base records the base, and add-spec copies it to the job' {
+        $base = New-ReadyJob
+        $idea = F new-idea 'tag list in the main menu' -Target $script:Repo -Base $base
+        $LASTEXITCODE | Should -Be 0
+        ((Board).ideas | Where-Object id -eq $idea).base | Should -Be $base
+        $id = F add-spec $idea (New-Spec 'Menu')
+        (Job $id).base | Should -Be $base
+    }
+
+    It 'new-idea -Base refuses a job that is unknown, unpublished, finished, or on another target' {
+        $ready = New-ReadyJob
+        $unpublished = New-BacklogJob 'No PR'
+        $other = "test/other-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+        New-Remote $other
+        $n = @((Board).ideas).Count
+        foreach ($b in 'J-999', $unpublished) {
+            F new-idea 'x' -Target $script:Repo -Base $b | Out-Null
+            $LASTEXITCODE | Should -Not -Be 0
+        }
+        F new-idea 'x' -Target $other -Base $ready | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        F merge $ready | Out-Null
+        F new-idea 'x' -Target $script:Repo -Base $ready | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        @((Board).ideas).Count | Should -Be $n
+    }
+
+    It 'clone-target -Base clones the base branch, and refuses a base that is not open on the target' {
+        $base = New-ReadyJob
+        $dir = Join-Path $TestDrive "sess-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+        F clone-target $script:Repo $dir -Base $base | Should -Be $dir
+        Test-Path (Join-Path $dir 'base.txt') | Should -BeTrue
+        F clone-target $script:Repo $dir -Base 'J-999' | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+    }
+
+    It 'checkout branches a stacked job from its base, and publish opens its PR into the base branch' {
+        $base = New-ReadyJob
+        $id = New-StackedJob $base
+        F approve $id | Out-Null
+        Commit-OnBranch $id 'fix.txt'
+        Test-Path (Join-Path (Work $id) 'base.txt') | Should -BeTrue
+        Move-ToGate $id
+        F gate $id | Out-Null
+        F publish $id | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        (Pr (Job $id).pr.number).base.ref | Should -Be "factory/$base"
+    }
+
+    It 'merge refuses a stacked job until its base is done; merging the base retargets its PR to main, and then it merges' {
+        $base = New-ReadyJob
+        $id = New-StackedJob $base
+        F approve $id | Out-Null
+        Commit-OnBranch $id 'fix.txt'
+        Move-ToGate $id
+        F gate $id | Out-Null
+        F publish $id | Out-Null
+
+        $mainHead = RGit rev-parse main
+        F merge $id | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        (Job $id).stage | Should -Be 'ready'
+        RGit rev-parse main | Should -Be $mainHead
+
+        F merge $base | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        $pr = Pr (Job $id).pr.number
+        $pr.state | Should -Be 'open'
+        $pr.base.ref | Should -Be 'main'
+
+        F merge $id | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        (Job $id).stage | Should -Be 'done'
+        RGit show main:fix.txt | Should -Be "work for $id"
+        (Job $id).merged.added | Should -Be @('fix.txt')
+    }
+
+    It 'a base merged on GitHub retargets its stacked PRs when sync-prs records it' {
+        $base = New-ReadyJob
+        $id = New-StackedJob $base
+        F approve $id | Out-Null
+        Commit-OnBranch $id 'fix.txt'
+        Move-ToGate $id
+        F gate $id | Out-Null
+        F publish $id | Out-Null
+        Merge-OnGitHub $base
+        F sync-prs | Should -Be $base
+        $pr = Pr (Job $id).pr.number
+        $pr.state | Should -Be 'open'
+        $pr.base.ref | Should -Be 'main'
+    }
+
+    It 'a stacked job checked out after its base merged starts from main, and its PR goes into main' {
+        $base = New-ReadyJob
+        $id = New-StackedJob $base
+        F merge $base | Out-Null
+        F approve $id | Out-Null
+        Commit-OnBranch $id 'fix.txt'
+        Test-Path (Join-Path (Work $id) 'base.txt') | Should -BeTrue
+        Move-ToGate $id
+        F gate $id | Out-Null
+        F publish $id | Out-Null
+        (Pr (Job $id).pr.number).base.ref | Should -Be 'main'
+    }
+
+    It 'discard refuses a base while a stacked job is live, and allows it once that job is discarded' {
+        $base = New-ReadyJob
+        $id = New-StackedJob $base
+        F discard $base | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        (Job $base).stage | Should -Be 'ready'
+
+        F discard $id | Out-Null
+        F discard $base | Out-Null
+        $LASTEXITCODE | Should -Be 0
+    }
+}
+
+Describe 'abandon' {
+    It 'idea-abandon hides a drafting, waiting or failed idea, leaves its jobs, and purge clears it' {
+        $a = F new-idea 'drafting one' -Target $script:Repo
+        $job = F add-spec $a (New-Spec 'Left alone')
+        $b = F new-idea 'failed one' -Target $script:Repo
+        F idea-done $b -Failed -Reason 'meh' | Out-Null
+        foreach ($i in $a, $b) {
+            F idea-abandon $i | Out-Null
+            $LASTEXITCODE | Should -Be 0
+            ((Board).ideas | Where-Object id -eq $i).status | Should -Be 'abandoned'
+        }
+        (Job $job).stage | Should -Be 'backlog'
+        (Events | Where-Object { $_.kind -eq 'idea' -and $_.idea -eq $a }).detail | Should -Contain 'abandoned'
+
+        F discard $job | Out-Null
+        Evaluate $job
+        $gone = F purge
+        $gone | Should -Contain $a
+        $gone | Should -Contain $b
+    }
+
+    It 'idea-abandon refuses a done or already abandoned idea' {
+        $a = F new-idea 'done one' -Target $script:Repo
+        F idea-done $a | Out-Null
+        F idea-abandon $a | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        ((Board).ideas | Where-Object id -eq $a).status | Should -Be 'done'
+    }
+}
+
 Describe 'purge' {
     It 'removes done and discarded jobs with their folders and branches, and keeps the rest' {
         $done = New-ApprovedJob 'D'
@@ -852,6 +1152,22 @@ Describe 'bookkeeping' {
         $wb | Should -Be (Work $b)
         git -C $wb branch --show-current | Should -Be "factory/$b"
         RGit branch --list 'factory/*' | Should -BeNullOrEmpty    # nothing is pushed by checkout
+    }
+
+    It 'checkout fetches and points factory/base at the base branch as it is now, so the builder can merge it' {
+        # J-022: J-021 merged into main after J-022's branch was cut, and nothing brought it in.
+        $a = New-ApprovedJob 'A'
+        $wa = F checkout $a
+        $seed = Join-Path $TestDrive "seed-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+        git clone -q (Bare) $seed 2>&1 | Out-Null
+        Set-Content (Join-Path $seed 'later.txt') 'merged after the branch was cut'
+        git -C $seed add -A 2>&1 | Out-Null
+        git -C $seed -c user.email=f@t -c user.name=f commit -q -m 'later on main' 2>&1 | Out-Null
+        git -C $seed push -q origin main 2>&1 | Out-Null
+
+        F checkout $a | Should -Be $wa
+        git -C $wa rev-parse factory/base | Should -Be (RGit rev-parse main)
+        git -C $wa branch --show-current | Should -Be "factory/$a"
     }
 
     It 'status -Json prints the board' {
@@ -1707,16 +2023,20 @@ Describe 'deploy' {
         Wait-Preview $id 'down'
     }
 
-    It 'a rework tears the preview down and starts the next round with no attempts used' {
+    It 'a rework leaves the preview up and starts the next round with no attempts used' {
+        # J-022: a detached destroy raced the next round's apply on the same workspace, which then
+        # rebuilt from nothing behind it. The next deploy applies over the preview instead.
         $id = New-ApprovedJob
         Move-ToDeploy $id
-        Commit-Change $id 'deploy-fail.txt' 'boom'
-        1..3 | ForEach-Object { F deploy $id | Out-Null }
+        F deploy $id | Out-Null
+        F set-stage $id ready -Reason escalated -Detail 'needs a human' | Out-Null
 
         F rework $id 'fix the probe' | Out-Null
         (Job $id).stage | Should -Be 'approved'
         (Job $id).deploy.attempts | Should -Be 0
-        Wait-Preview $id 'down'
+        Start-Sleep -Seconds 3
+        (Job $id).deploy.status | Should -Be 'up'
+        @(Events | Where-Object { $_.job -eq $id -and $_.kind -eq 'destroy' }) | Should -HaveCount 0
     }
 
     It 'escalation from deploy is allowed, as from every Building stage' {
