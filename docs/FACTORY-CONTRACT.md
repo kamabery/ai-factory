@@ -1083,6 +1083,11 @@ one before any real job paid for it.)
 and `FACTORY_CANARY_SCAFFOLD` (scaffold options as in [Targets](#targets); default
 `{"name":"canary","resource":"Item","db":"postgres","ui":"react","events":false,"auth":true}`, so
 every canary runs the sign-in smoke, deploy step 7a, against a real Entra External ID sign-in).
+A scaffold with auth also needs `FACTORY_ENTRA_TENANT_ID`, `FACTORY_ENTRA_SUBDOMAIN` and
+`FACTORY_ENTRA_USER_FLOW_ID` in `.env` (as `setup-azure.ps1` prints them): the canary appends them to
+its scaffold's `IaC/envs/ephemeral.tfvars` as the `entra_external_*` variables, which a target
+commits itself, and refuses before anything deploys when one is missing (canary 15 failed its
+apply, and then its destroy, without them).
 
 **Fingerprint.** A SHA-256 over what the deploy path depends on: `deploy.ps1`, `hcp.ps1` and
 `github.ps1`; the template workspace's `IaC/` and `base-project/.github/workflows/deploy.yml`; the

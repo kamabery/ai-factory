@@ -33,7 +33,9 @@ BeforeEach {
     $env:FACTORY_WORK = Join-Path $TestDrive "work-$([guid]::NewGuid().ToString('N').Substring(0,8))"
     Use-Deploys
     $envFile = Join-Path $TestDrive "canary-$([guid]::NewGuid().ToString('N').Substring(0,8)).env"
-    Set-Content $envFile ((Get-Content $script:DeployEnvFile) + "FACTORY_CANARY_REPO=$script:CanaryRepo")
+    Set-Content $envFile ((Get-Content $script:DeployEnvFile) + "FACTORY_CANARY_REPO=$script:CanaryRepo" +
+        'FACTORY_ENTRA_TENANT_ID=00000000-0000-0000-0000-0000000000e1' + 'FACTORY_ENTRA_SUBDOMAIN=testpreviews' +
+        'FACTORY_ENTRA_USER_FLOW_ID=00000000-0000-0000-0000-0000000000f1')
     $env:FACTORY_ENV_FILE = $envFile
 
     # The template workspace the fingerprint reads.
@@ -47,6 +49,7 @@ BeforeEach {
     $env:FACTORY_CANARY_SCAFFOLD_CMD = Join-Path $TestDrive 'scaffold.ps1'
     Set-Content $env:FACTORY_CANARY_SCAFFOLD_CMD @(
         'Set-Content README.md "canary scaffold"'
+        'New-Item -ItemType Directory -Force IaC/envs | Out-Null; Set-Content IaC/envs/ephemeral.tfvars ''project_name = "canary"'''
         'if ($env:CANARY_DEPLOY_FAIL) { Set-Content deploy-fail.txt $env:CANARY_DEPLOY_FAIL }'
     )
     $env:FACTORY_SMOKE_SECONDS = '0'
@@ -136,6 +139,23 @@ Describe 'canary' {
         $cmds = Get-Content (Join-Path $env:FACTORY_HOME 'scaffold-args.txt')
         $cmds | Should -Contain 'aspire-addon add ui-react'
         $cmds | Should -Contain 'aspire-addon add auth'
+    }
+
+    It 'writes the Entra External ID ids from .env into the scaffold''s ephemeral.tfvars (canary 15)' {
+        F canary | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        $tfvars = git -C (Bare $script:CanaryRepo) show main:IaC/envs/ephemeral.tfvars
+        $tfvars | Should -Contain 'project_name = "canary"'
+        $tfvars | Should -Contain 'entra_external_tenant_id    = "00000000-0000-0000-0000-0000000000e1"'
+        $tfvars | Should -Contain 'entra_external_subdomain    = "testpreviews"'
+        $tfvars | Should -Contain 'entra_external_user_flow_id = "00000000-0000-0000-0000-0000000000f1"'
+    }
+
+    It 'refuses a scaffold with auth when .env lacks the Entra ids, before anything deploys' {
+        Set-Content $env:FACTORY_ENV_FILE ((Get-Content $script:DeployEnvFile) + "FACTORY_CANARY_REPO=$script:CanaryRepo")
+        F canary | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        @(CanaryRuns).Count | Should -Be 0
     }
 
     It 'with a QA user on j000 (a scaffold with auth), a failed sign-in smoke fails the canary, and it still tears down' {

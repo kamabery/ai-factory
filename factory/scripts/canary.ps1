@@ -30,6 +30,16 @@ function Canary-Options {
     }
     $err = Test-Scaffold $sc
     if ($err) { Fail "canary refused: FACTORY_CANARY_SCAFFOLD: $err" }
+    # Sign-in needs the Entra External ID ids in the scaffold's tfvars (a target commits them; the
+    # canary is a fresh scaffold every run, canary 15). setup-azure.ps1 prints them.
+    if ($sc.Contains('auth') -and $sc.auth) {
+        $ids = [ordered]@{ entra_external_tenant_id = $v['FACTORY_ENTRA_TENANT_ID']; entra_external_subdomain = $v['FACTORY_ENTRA_SUBDOMAIN']
+            entra_external_user_flow_id = $v['FACTORY_ENTRA_USER_FLOW_ID'] }
+        if (@($ids.Values | Where-Object { -not $_ }).Count) {
+            Fail 'canary refused: the canary scaffold has auth, and .env lacks FACTORY_ENTRA_TENANT_ID, FACTORY_ENTRA_SUBDOMAIN or FACTORY_ENTRA_USER_FLOW_ID (setup-azure.ps1 prints them)'
+        }
+        $sc.entra = $ids
+    }
     $sc
 }
 
@@ -95,6 +105,13 @@ function Publish-CanaryScaffold([string] $repo, $sc, [string] $dir, $rec, $log) 
     foreach ($c in $cmds) {
         $r = Invoke-In $dir $c
         if ($r.Code -ne 0) { $log.Add("## Scaffold`n$($c -join ' ')`n$($r.Out)"); return "scaffold: $($c[-1]) exited $($r.Code)" }
+    }
+    if ($sc.Contains('entra')) {
+        $tfvars = Join-Path $dir 'IaC/envs/ephemeral.tfvars'
+        if (-not (Test-Path $tfvars)) { return 'scaffold: no IaC/envs/ephemeral.tfvars to put the Entra ids in' }
+        $lines = @(Get-Content $tfvars | Where-Object { $_ -notmatch '^\s*entra_external_(tenant_id|subdomain|user_flow_id)\s*=' })
+        $w = ($sc.entra.Keys | Measure-Object -Property Length -Maximum).Maximum
+        Set-Content $tfvars ($lines + @($sc.entra.Keys | ForEach-Object { "$($_.PadRight($w)) = `"$($sc.entra[$_])`"" }))
     }
     Invoke-Git $dir init -q -b main | Out-Null
     Invoke-Git $dir add -A | Out-Null

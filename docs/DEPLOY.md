@@ -165,6 +165,9 @@ projects* with none selected (the factory attaches it to each target's project).
 The three `entra_external_*` ids are not in the variable set. A target with the auth add-on commits
 them, as printed, in `IaC/envs/dev.tfvars`, `staging.tfvars` and `ephemeral.tfvars`. That is one
 source, and the workflow's `-var-file` would override the set anyway (J-022). They are not secrets.
+The canary scaffolds with auth, so put the same three in the factory's `.env` as
+`FACTORY_ENTRA_TENANT_ID`, `FACTORY_ENTRA_SUBDOMAIN` and `FACTORY_ENTRA_USER_FLOW_ID`; it writes
+them into its scaffold's `ephemeral.tfvars`.
 
 Save it. Its id is in the URL, `.../settings/varsets/varset-XXXXXXXX` → `HCP_AZURE_VARSET`. Or
 list them with the team token:
