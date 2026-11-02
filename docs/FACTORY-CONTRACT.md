@@ -443,8 +443,9 @@ from a template means the next scaffold carries the same bug (J-022's `identifie
 `auth.ts` fixes came from the auth add-on, and its lessons said "None"). Each file changed this
 round (`git diff --name-only <roundStart>..HEAD`) is **template-sourced** when the commit that added
 it (`git log --diff-filter=A --format=%H -- <path>`, oldest) is either:
-- reachable from the target's bootstrap merge commit, which is the `merged.sha` of the idea's
-  `kind: bootstrap` job, from the board or else from `evals/<id>.json`, or
+- reachable from the target's bootstrap merge commit, which is the `merged.sha` of the
+  `kind: bootstrap` job with the same target (later jobs usually come from other ideas), from the
+  board or else from `evals/<id>.json`, or
 - a commit whose subject starts with `scaffold:` or `addon:`. The builder and the bootstrap spec
   make every `dotnet new` and `aspire-addon add` its own commit with that prefix.
 
@@ -454,6 +455,12 @@ as a gap (Symptom / Cause / Fix applied here / Belongs in, as in deploy.md) or a
 the missing paths, so the orchestrator sends the builder back once to add them. If the paths are
 still missing after that, it gives up. `factory.ps1 provenance <id>` prints the template-sourced
 paths of the round, so the builder can write the section before it hands on.
+
+"Changed this round" means the round's own commits: `git log --no-merges --name-only
+<roundStart>..HEAD --not factory/base`, so work from the base branch that the builder merged in is
+not counted. With no bootstrap merge on record for the target (a repo the factory did not
+bootstrap), only `scaffold:` and `addon:` commits count, and `provenance` says so on stderr. A job
+with no `roundStart` (built before it existed) is not checked, and a `note` event says so.
 
 ### Tweak rounds
 

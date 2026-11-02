@@ -66,8 +66,8 @@ Read the job's `round` from `F status -Json`. Then loop:
    the template `<templates>/deploy.md` and the output path `<job>/round-<round>/deploy.md`, so the
    reviewers see the infrastructure this round needs.
 2. `F set-stage <id> review`. If it exits 2 because build.md has no `## Spec against base` (the base
-   moved), run the builder once more to add only that section, then run `F set-stage <id> review`
-   once more. Any other refusal (no build.md), give up. Otherwise it prints the new stage: `review`
+   moved), or because its `## Template gaps` leaves out template-sourced paths (it names them), run
+   the builder once more to add only that section, then run `F set-stage <id> review` once more. Any other refusal (no build.md), give up. Otherwise it prints the new stage: `review`
    means continue; `ready` or `blocked` means a build check (a path outside the spec's Scope: In, or
    a spec that no longer holds since a sibling merged) moved the job to the human. Stop.
 3. **Review.** Run the four reviewers **as four parallel Agent calls in ONE message**:

@@ -118,6 +118,12 @@ job with `baseMoved`. The chip shows on any card with `baseMoved`, not only Back
 
 ## Phase 4 — template provenance and lessons from build.md
 
+**Done 2026-11-02.** The assumption held: J-018, todoapp-two's bootstrap, is still on the board with
+`merged.sha` `8df0096`. The bootstrap is found by target, not by idea, since later jobs come from
+other ideas. `roundStart` was in the contract but never recorded; `checkout` now records it on a
+build round's first checkout, and every move into build clears it. A round's paths are its own
+commits (`--no-merges ... --not factory/base`), so base work the builder merged in is not counted.
+
 1. Tests:
    - `checkout` records `roundStart` (= HEAD after the checkout, before the build).
    - `provenance` lists a path changed since `roundStart` whose adding commit is reachable from

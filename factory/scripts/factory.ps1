@@ -373,6 +373,8 @@ function Move-Job($j, [string] $to, [string] $by, [string] $reason = $null, [str
     $j.updatedAt = $ts
     $j.flag = if ($reason) { [ordered]@{ reason = $reason; detail = $detail } } else { $null }
     if ($reason -and $why) { $j.flag.why = $why }
+    # Every move into build starts a round; checkout records the new round's start.
+    if ($to -eq 'build' -and $j['roundStart']) { $j.roundStart = $null }
     $j.history = @($j.history) + [ordered]@{ ts = $ts; from = $from; to = $to; by = $by }
     Save-Board $Board
     $e = [ordered]@{ job = $j.id; kind = 'stage'; from = $from; to = $to; by = $by }
@@ -652,6 +654,34 @@ function Complete-Merge($j, [string] $sha) {
     }
 }
 
+# Build check 3: the paths this round's own commits changed (base work merged in excluded) whose
+# adding commit came from a template - reachable from the target's bootstrap merge, or a
+# `scaffold:` / `addon:` commit. Returns { Paths, Note }; Paths is $null when the round has no start.
+function Get-Provenance($j) {
+    $wt = WorkDir $j
+    if (-not $j['roundStart'] -or -not (Test-Path (Join-Path $wt '.git'))) { return @{ Paths = $null; Note = "no round start recorded for $($j.id)" } }
+    $boot = @($Board.jobs | Where-Object { $_['kind'] -eq 'bootstrap' -and $_.target -eq $j.target -and $_['merged'] } | ForEach-Object { $_.merged.sha })
+    if (-not $boot) {
+        # A purged bootstrap job leaves its merge sha in its eval.
+        $boot = @(Get-ChildItem (Join-Path $Home_ 'evals') -Filter 'J-*.json' -File -ErrorAction SilentlyContinue | ForEach-Object {
+            try { Get-Content $_.FullName -Raw | ConvertFrom-Json -AsHashtable } catch { } } |
+            Where-Object { $_ -and $_['kind'] -eq 'bootstrap' -and $_['target'] -eq $j.target -and $_['merged'] } | ForEach-Object { $_['merged'] })
+    }
+    $note = if (-not $boot) { "no bootstrap merge on record for $($j.target): only scaffold: and addon: commits count as template-sourced" }
+    # `--not <base>`, not `^<base>`: the caret does not survive the trip through Invoke-Git intact.
+    $excl = if ((Invoke-Git $wt rev-parse --verify --quiet refs/remotes/factory/base).Code -eq 0) { @('--not', 'refs/remotes/factory/base') } else { @() }
+    $changed = (Invoke-Git $wt -c core.quotePath=false log --no-merges --format= --name-only "$($j.roundStart)..HEAD" @excl).Out -split '\r?\n' |
+        Where-Object { $_ } | Sort-Object -Unique
+    $paths = foreach ($p in $changed) {
+        $add = ((Invoke-Git $wt log --diff-filter=A --format=%H '--' $p).Out -split '\r?\n' | Where-Object { $_ } | Select-Object -Last 1)
+        if (-not $add) { continue }
+        $subject = (Invoke-Git $wt log -1 --format=%s $add).Out
+        $fromBoot = $boot | Where-Object { (Invoke-Git $wt merge-base --is-ancestor $add $_).Code -eq 0 }
+        if ($subject -match '^(scaffold|addon):' -or $fromBoot) { $p }
+    }
+    @{ Paths = @($paths); Note = $note }
+}
+
 # The job's PR as GitHub returns it when the human has merged it there, else $null.
 function Get-GitHubMerge($j) {
     if (-not $j.pr) { return $null }
@@ -901,6 +931,11 @@ try {
             if ($r.Code -ne 0) { Fail "checkout: fetch failed: $($r.Out)" }
             $r = Invoke-Git $wt update-ref refs/remotes/factory/base "refs/remotes/origin/$(Base-Branch $j)"
             if ($r.Code -ne 0) { Fail "checkout: cannot set factory/base: $($r.Out)" }
+            # The round's start, for the provenance check: the first checkout of a build round only.
+            if ($j.stage -eq 'build' -and -not $j['roundStart']) {
+                $j.roundStart = (Invoke-Git $wt rev-parse HEAD).Out
+                Save-Board $Board
+            }
             $wt
         }
 
@@ -1091,6 +1126,17 @@ try {
                         if (-not $holds) { Fail "build->review refused: $($j.id)'s base moved ($($j.baseMoved.by) merged), and round-$($j.round)/build.md has no '## Spec against base' with a 'Spec holds: yes|no' line" 2 }
                         if ($holds -eq 'yes') { $j.baseMoved = $null } else { $stale = "## Spec against base`n$section".TrimEnd() }
                     }
+                    # Build check 3, template provenance (rounds after 1): build.md's Template gaps names each path.
+                    if (-not $strays -and -not $stale -and [int]$j.round -gt 1) {
+                        $prov = Get-Provenance $j
+                        if ($null -eq $prov.Paths) {
+                            Add-Event ([ordered]@{ job = $j.id; kind = 'note'; detail = "not provenance-checked: $($prov.Note)" })
+                        } else {
+                            $gaps = "$(Read-Section (Join-Path (JobDir $j.id) "round-$($j.round)/build.md") 'Template gaps')"
+                            $unnamed = @($prov.Paths | Where-Object { -not $gaps.Contains($_) })
+                            if ($unnamed) { Fail "build->review refused: round $($j.round) changed template-sourced paths that build.md's '## Template gaps' does not name (as a gap, or '<path>: job-specific, <why>'): $($unnamed -join ', ')" 2 }
+                        }
+                    }
                     if ($strays) {
                         $n = $strays.Count
                         $detail = "$n path$(if ($n -ne 1) { 's' }) outside Scope: In: $(($strays | Select-Object -First 3) -join ', ')$(if ($n -gt 3) { ', ...' })"
@@ -1171,6 +1217,13 @@ try {
             }
             else { Fail 'no decision line in decision.md' 2 }
             $j.stage
+        }
+
+        'provenance' {
+            $j = Get-Job $Arg1
+            $p = Get-Provenance $j
+            if ($p.Note) { [Console]::Error.WriteLine("factory: note: $($p.Note)") }
+            $p.Paths
         }
 
         'gate-check' {
@@ -1337,6 +1390,10 @@ try {
             foreach ($d in Get-ChildItem (JobDir $j.id) -Directory -Filter 'round-*' -ErrorAction SilentlyContinue | Sort-Object { [int]($_.Name -replace '\D', '') }) {
                 $g = Read-Section (Join-Path $d.FullName 'deploy.md') 'Template gaps'
                 if ($g -and $g -notmatch '^(?i)none\.?$') { $gaps += [pscustomobject]@{ round = $d.Name; text = $g } }
+                # The builder's too, without the paths it judged job-specific (Build checks, template provenance).
+                $g = Read-Section (Join-Path $d.FullName 'build.md') 'Template gaps'
+                if ($g) { $g = (($g -split "`n") | Where-Object { $_ -notmatch '^- [^\s]+: job-specific\b' }) -join "`n" }
+                if ($g -and $g.Trim() -and $g.Trim() -notmatch '^(?i)none\.?$') { $gaps += [pscustomobject]@{ round = "$($d.Name), build"; text = $g.Trim() } }
             }
             $count = 0
             foreach ($g in $gaps) { $count += @($g.text -split "`n" | Where-Object { $_ -match '^- ' }).Count }

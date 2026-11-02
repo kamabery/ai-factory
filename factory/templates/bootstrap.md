@@ -13,7 +13,9 @@ resource `{{resource}}`, data store `{{db}}`, events `{{events}}`, front end `{{
 `{{auth}}`. Do not
 interview anyone and do not install the template pack or `aspire-addon`; if either is missing, give
 up and say so. **Skip Phase 5** (graphify) and list it as a follow-up in build.md. The template
-workspace is read-only.
+workspace is read-only. Commit each `dotnet new` and each `aspire-addon add` on its own, with a
+subject starting `scaffold: ` or `addon: ` (for example `addon: auth`), so later jobs can tell
+template code from the app's own.
 
 ## Target
 - Repo: {{target}}

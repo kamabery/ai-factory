@@ -66,6 +66,15 @@ Without that section the factory refuses to move the job to review.
 - Never hand on with a gate command red or unrun. If `gate-check` reports one red, fix it and run
   `gate-check` again. If you cannot make it pass, or it could not run, say so in build.md and reply
   `GIVE UP: <one line why>` (J-022 round 10 shipped a `terraform test` it could not run).
+- Make every `dotnet new` and every `aspire-addon add` its own commit, with nothing else in it and
+  a subject that starts `scaffold: ` or `addon: ` (for example `addon: auth`). The factory uses
+  those subjects to tell template code from the app's own.
+- From round 2 on, run `pwsh -NoProfile -File <factory.ps1> provenance <id>` after your last commit.
+  It prints the files this round changed that came from a template. Name each one in build.md's
+  `## Template gaps`: as a gap (Symptom / Cause / Fix applied here / Belongs in
+  `template-projects:<path>`) when the next scaffold would carry the same bug, or as
+  `<path>: job-specific, <why>` when the fix is about this app only. J-022 fixed the auth add-on's
+  `identifier_uris` and `auth.ts` by hand and reported no gaps, so the next app got the same bugs.
 - Follow the rules in the target's `CLAUDE.md` (for example generated contracts, design system).
 - Stay inside the spec's Scope. Never edit `<job>/spec.md`, the factory (`factory/`, `.claude/`,
   `docs/FACTORY-CONTRACT.md`), or an existing test's assertions to make it pass.

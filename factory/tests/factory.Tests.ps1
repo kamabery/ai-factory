@@ -810,6 +810,172 @@ Describe 'base moved' {
     }
 }
 
+Describe 'template provenance' {
+    BeforeEach {
+        function Commit-Files([string]$id, [hashtable]$files, [string]$subject) {
+            $wt = Work $id
+            foreach ($f in $files.Keys) {
+                $full = Join-Path $wt $f
+                New-Item -ItemType Directory -Force (Split-Path $full -Parent) | Out-Null
+                Set-Content $full $files[$f]
+            }
+            git -C $wt add -A 2>&1 | Out-Null
+            git -C $wt -c user.email=f@t -c user.name=f commit -q -m $subject 2>&1 | Out-Null
+        }
+        # A target bootstrapped by the factory: J-boot merged with src/auth.ts and app.slnx from the scaffold.
+        function New-Bootstrapped {
+            $t = "test/prov-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+            $idea, $boot = (F new-idea 'a todo app' -Target $t -Scaffold '{"name":"todo","resource":"Todo","db":"sqlite","ui":"none","events":false}') -split ' '
+            F approve $boot | Out-Null
+            F checkout $boot | Out-Null
+            Commit-Files $boot @{ 'app.slnx' = '<Solution />'; 'src/auth.ts' = 'export const auth = 1' } 'scaffold: dotnet new aspire-base'
+            Move-ToGate $boot
+            F gate $boot | Out-Null
+            F merge $boot | Out-Null
+            @{ Target = $t; Idea = $idea; Boot = $boot }
+        }
+        # A feature job on $target at round 2: round 1 added feature.txt and an add-on's files.
+        function Round-Two([string]$target, [string]$idea) {
+            $id = F add-spec $idea (New-Spec 'Feature' $target)
+            F approve $id | Out-Null
+            F set-stage $id build -By runner | Out-Null
+            F checkout $id | Out-Null
+            Commit-Files $id @{ 'feature.txt' = 'v1' } "$($id): feature"
+            Commit-Files $id @{ 'src/addon/handler.cs' = 'class H {}' } 'addon: auth'
+            Write-Build $id
+            F set-stage $id review | Out-Null
+            Write-Reviews $id (All 'Verdict: CHANGES')
+            F read-reviews $id | Out-Null
+            F checkout $id | Out-Null
+            $id
+        }
+        function Touch-All([string]$id) {
+            Commit-Files $id @{ 'feature.txt' = 'v2'; 'src/auth.ts' = 'export const auth = 2'; 'src/addon/handler.cs' = 'class H { }' } "$($id): round 2 fixes"
+        }
+        function Build-Gaps([string]$id, [string]$gaps) {
+            $dir = Join-Path (JobDir $id) "round-$((Job $id).round)"
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            Set-Content (Join-Path $dir 'build.md') "# Build: $id`n$(if ($gaps) { "`n## Template gaps`n$gaps`n" })"
+        }
+        # A child process: factory.ps1 writes its messages with [Console]::Error, which 2>&1 cannot catch in-process.
+        function FErr { pwsh -NoProfile -File $script:Factory @args 2>&1 | ForEach-Object { "$_" } }
+    }
+
+    It 'checkout records roundStart once per round, and a move into build clears it' {
+        $id = New-ApprovedJob
+        F set-stage $id build -By runner | Out-Null
+        F checkout $id | Out-Null
+        $start = git -C (Work $id) rev-parse HEAD
+        (Job $id).roundStart | Should -Be $start
+        Commit-OnBranch $id
+        (Job $id).roundStart | Should -Be $start        # a second checkout in the same round keeps it
+        Write-Build $id
+        F set-stage $id review | Out-Null
+        Write-Reviews $id (All 'Verdict: CHANGES')
+        F read-reviews $id | Out-Null
+        (Job $id).roundStart | Should -BeNullOrEmpty
+        F checkout $id | Out-Null
+        (Job $id).roundStart | Should -Be (git -C (Work $id) rev-parse HEAD)
+    }
+
+    It 'provenance lists this round''s paths from the bootstrap merge or an addon: commit, not ordinary ones' {
+        $b = New-Bootstrapped
+        $id = Round-Two $b.Target $b.Idea
+        Touch-All $id
+        $out = @(F provenance $id)
+        $LASTEXITCODE | Should -Be 0
+        $out | Should -Be @('src/addon/handler.cs', 'src/auth.ts')
+    }
+
+    It 'provenance counts only the round''s own commits, not base work merged in' {
+        $b = New-Bootstrapped
+        $id = Round-Two $b.Target $b.Idea
+        # Another change to a scaffold file lands on main and is merged into the branch this round.
+        $c = Join-Path $TestDrive "other-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+        git clone -q (Bare $b.Target) $c 2>&1 | Out-Null
+        Set-Content (Join-Path $c 'app.slnx') '<Solution Name="x" />'
+        git -C $c add -A 2>&1 | Out-Null
+        git -C $c -c user.email=o@t -c user.name=o commit -q -m 'other: app.slnx' 2>&1 | Out-Null
+        git -C $c push -q origin main 2>&1 | Out-Null
+        F checkout $id | Out-Null
+        git -C (Work $id) -c user.email=f@t -c user.name=f merge -q --no-edit factory/base 2>&1 | Out-Null
+        Commit-Files $id @{ 'feature.txt' = 'v2' } "$($id): round 2"
+        @(F provenance $id) | Should -BeNullOrEmpty
+    }
+
+    It 'takes the bootstrap''s merge sha from evals/ once the bootstrap job is purged' {
+        $b = New-Bootstrapped
+        Evaluate @($b.Boot)
+        F purge | Out-Null
+        (Board).jobs | Where-Object id -eq $b.Boot | Should -BeNullOrEmpty
+        $idea = F new-idea 'more' -Target $b.Target
+        $id = Round-Two $b.Target $idea
+        Touch-All $id
+        @(F provenance $id) | Should -Contain 'src/auth.ts'
+    }
+
+    It 'with no bootstrap on record, says so and still counts addon: commits' {
+        $idea = F new-idea 'on an existing repo' -Target $script:Repo
+        $id = Round-Two $script:Repo $idea
+        Commit-Files $id @{ 'README.md' = 'changed'; 'src/addon/handler.cs' = 'class H { }' } "$($id): round 2"
+        $out = FErr provenance $id
+        $out | Should -Contain 'src/addon/handler.cs'
+        $out | Should -Not -Contain 'README.md'
+        ($out -join "`n") | Should -Match "no bootstrap merge on record for $([regex]::Escape($script:Repo))"
+    }
+
+    It 'set-stage review in round 2 exits 2 and names each template-sourced path build.md''s Template gaps leaves out' {
+        $b = New-Bootstrapped
+        $id = Round-Two $b.Target $b.Idea
+        Touch-All $id
+        Build-Gaps $id ''
+        $out = (FErr set-stage $id review) -join "`n"
+        $LASTEXITCODE | Should -Be 2
+        $out | Should -Match 'src/auth\.ts'
+        $out | Should -Match 'src/addon/handler\.cs'
+        (Job $id).stage | Should -Be 'build'
+
+        Build-Gaps $id "- Symptom: sign-in swallowed errors / Cause: src/auth.ts voids the redirect / Fix applied here: catch it / Belongs in ``template-projects:addons/auth/src/auth.ts``"
+        $out = (FErr set-stage $id review) -join "`n"
+        $LASTEXITCODE | Should -Be 2
+        $out | Should -Match 'src/addon/handler\.cs'
+        $out | Should -Not -Match 'src/auth\.ts'
+
+        Build-Gaps $id "- Symptom: x / Cause: src/auth.ts / Fix applied here: y / Belongs in ``template-projects:addons/auth/src/auth.ts```n- src/addon/handler.cs: job-specific, this app's own handler"
+        F set-stage $id review | Should -Be 'review'
+    }
+
+    It 'round 1 is not provenance-checked' {
+        $b = New-Bootstrapped
+        $id = F add-spec $b.Idea (New-Spec 'First' $b.Target)
+        F approve $id | Out-Null
+        F set-stage $id build -By runner | Out-Null
+        F checkout $id | Out-Null
+        Commit-Files $id @{ 'src/auth.ts' = 'changed in round 1' } "$($id): round 1"
+        Build-Gaps $id ''
+        F set-stage $id review | Should -Be 'review'
+    }
+
+    It 'lesson compiles build.md template gaps and skips job-specific lines and None' {
+        $id = New-ApprovedJob 'Sign-in'
+        Move-ToReview $id
+        Build-Gaps $id "- Symptom: AADSTS500011 / Cause: identifier_uris cleared / Fix applied here: ignore_changes / Belongs in ``template-projects:addons/auth/IaC/auth.entra-external.tf```n- src/app.cs: job-specific, the app's own route"
+        F set-stage $id ready -Reason escalated -Detail 'stop' | Out-Null
+        F lesson $id | Out-Null
+        $l = Get-Content (Join-Path $env:FACTORY_HOME "lessons/$id.json") -Raw | ConvertFrom-Json -AsHashtable
+        $l.templateGaps | Should -Be 1
+        $md = Get-Content (Join-Path $env:FACTORY_HOME "lessons/$id.md") -Raw
+        $md | Should -Match 'AADSTS500011'
+        $md | Should -Not -Match 'job-specific'
+
+        $id2 = New-ApprovedJob 'Quiet'
+        Move-ToGate $id2
+        Build-Gaps $id2 'None.'
+        F gate $id2 | Out-Null
+        F lesson $id2 | Should -Be 'no lessons'
+    }
+}
+
 Describe 'publish and merge' {
     It 'publish pushes the branch and opens one PR into main, and is idempotent' {
         $id = New-ApprovedJob 'Ship it'
