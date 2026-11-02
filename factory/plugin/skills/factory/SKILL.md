@@ -59,13 +59,17 @@ Read the job's `round` from `F status -Json`. Then loop:
 
 1. **Build.** Run the **builder** agent with: `<job>/spec.md`; `<job>/rework-<round>.md` if it exists;
    `<job>/round-<round-1>/review-*.md` if round > 1; the template `<templates>/build.md`; the output
-   path `<job>/round-<round>/build.md`; the job id. If the builder replies `GIVE UP`, give up with its reason.
+   path `<job>/round-<round>/build.md`; the job id. If `F status -Json` shows the job with a
+   `baseMoved` (`{ by, sha }`), also tell the builder "base moved: <by> merged at <sha>", so it writes
+   build.md's `## Spec against base`. If the builder replies `GIVE UP`, give up with its reason.
    Then run the **devops** agent in mode `author` with `<job>/spec.md`, `<job>/round-<round>/build.md`,
    the template `<templates>/deploy.md` and the output path `<job>/round-<round>/deploy.md`, so the
    reviewers see the infrastructure this round needs.
-2. `F set-stage <id> review`. If that is refused (no build.md), give up. Otherwise it prints the new
-   stage: `review` means continue; `ready` or `blocked` means a build check (a path outside the spec's
-   Scope: In) moved the job to the human. Stop.
+2. `F set-stage <id> review`. If it exits 2 because build.md has no `## Spec against base` (the base
+   moved), run the builder once more to add only that section, then run `F set-stage <id> review`
+   once more. Any other refusal (no build.md), give up. Otherwise it prints the new stage: `review`
+   means continue; `ready` or `blocked` means a build check (a path outside the spec's Scope: In, or
+   a spec that no longer holds since a sibling merged) moved the job to the human. Stop.
 3. **Review.** Run the four reviewers **as four parallel Agent calls in ONE message**:
    `security-reviewer`, `code-reviewer`, `ux-reviewer`, `ui-reviewer`. Give each `<job>/spec.md`,
    `<job>/round-<round>/build.md`, the template `<templates>/review.md`, and its output path

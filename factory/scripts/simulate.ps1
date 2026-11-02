@@ -151,7 +151,10 @@ function Sim-Build([string] $id) {
     git -C $wt -c user.email=sim@factory -c user.name=simulator commit -q -m "$($id): round $round" 2>&1 | Out-Null
     $dir = Join-Path $StateDir "jobs/$id/round-$round"
     New-Item -ItemType Directory -Force $dir | Out-Null
-    Set-Content (Join-Path $dir 'build.md') "# Build: $id — round $round`n`nBranch: factory/$id`n`n## Evidence`n- simulated → exit 0"
+    # A sibling merged since this job was specced: the builder must say whether the spec still holds.
+    $moved = ((F-Must status -Json | ConvertFrom-Json).jobs | Where-Object id -eq $id).baseMoved
+    $against = if ($moved) { "`n`n## Spec against base`nSpec holds: yes`n$($moved.by) touched none of this spec's paths." } else { '' }
+    Set-Content (Join-Path $dir 'build.md') "# Build: $id — round $round`n`nBranch: factory/$id$against`n`n## Evidence`n- simulated → exit 0"
     Tick 3
     Ev $id agent-stop builder
     F-Must set-stage $id review | Out-Null

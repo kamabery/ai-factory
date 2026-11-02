@@ -633,6 +633,13 @@ function Complete-Merge($j, [string] $sha) {
     $j.merged = [ordered]@{ sha = $sha; repo = $j.target; pr = $j.pr.url; added = $added; modified = $modified }
     Move-Job $j 'done' 'human'
     Add-Event ([ordered]@{ job = $j.id; kind = 'merge'; detail = $sha })
+    # Build check 2: the open siblings of the same idea were specced against the old main (J-022).
+    $sibs = @(if ($j.idea) { $Board.jobs | Where-Object { $_.id -ne $j.id -and $_['idea'] -eq $j.idea -and $_.stage -notin 'done', 'discarded' } })
+    foreach ($k in $sibs) { $k.baseMoved = [ordered]@{ by = $j.id; sha = $sha; at = Now } }
+    if ($sibs) {
+        Save-Board $Board
+        foreach ($k in $sibs) { Add-Event ([ordered]@{ job = $k.id; kind = 'note'; detail = "base moved: $($j.id) merged" }) }
+    }
     Remove-WorkDir $j
     Start-Destroy $j
     # A merged bootstrap releases its idea for a /factory:idea session.
@@ -788,6 +795,8 @@ try {
             Reset-Reviews $j
             $j.decision = $null
             $j.approvedAt = Now
+            # The human has now decided against the new main.
+            if ($j['baseMoved']) { $j.baseMoved = $null }
             if ($j.Contains('deploy') -and $j.deploy) { $j.deploy.attempts = 0 }
             # The preview stays: the next deploy applies over it (a destroy here raced that apply, J-022).
             Move-Job $j 'approved' 'human'
@@ -1074,11 +1083,21 @@ try {
                         $res = @($globs | ForEach-Object { Glob-Regex $_ })
                         $strays = @($d.Out -split '\r?\n' | Where-Object { $_ } | Where-Object { $p = $_; -not ($res | Where-Object { $p -match $_ }) })
                     }
+                    # Build check 2, base moved: build.md must say whether the spec holds against the new main.
+                    $stale = $null
+                    if (-not $strays -and $j['baseMoved']) {
+                        $section = Read-Section (Join-Path (JobDir $j.id) "round-$($j.round)/build.md") 'Spec against base'
+                        $holds = if ($section -match '(?m)^\s*Spec holds:\s*(yes|no)\b') { $Matches[1] }
+                        if (-not $holds) { Fail "build->review refused: $($j.id)'s base moved ($($j.baseMoved.by) merged), and round-$($j.round)/build.md has no '## Spec against base' with a 'Spec holds: yes|no' line" 2 }
+                        if ($holds -eq 'yes') { $j.baseMoved = $null } else { $stale = "## Spec against base`n$section".TrimEnd() }
+                    }
                     if ($strays) {
                         $n = $strays.Count
                         $detail = "$n path$(if ($n -ne 1) { 's' }) outside Scope: In: $(($strays | Select-Object -First 3) -join ', ')$(if ($n -gt 3) { ', ...' })"
                         $why = "Paths outside the spec's Scope: In:`n" + (($strays | ForEach-Object { "- ``$_``" }) -join "`n")
                         Move-Job $j (Escalation-Stage $j) $by_ 'out-of-scope' $detail $why
+                    } elseif ($stale) {
+                        Move-Job $j (Escalation-Stage $j) $by_ 'spec-stale' "the spec does not hold since $($j.baseMoved.by) merged" $stale
                     } else {
                         $j.reviews = [ordered]@{ security = 'running'; code = 'running'; ux = 'running'; ui = 'running' }
                         Move-Job $j 'review' $by_

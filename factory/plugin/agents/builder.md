@@ -36,6 +36,21 @@ written; no other merge is allowed.
 
 The merged result is what the reviewers, the preview and the gate judge, so run the gate after it.
 
+## When the base moved
+If the orchestrator says the job's base moved ("base moved: J-NNN merged at <sha>"), a sibling job
+of the same idea merged after this spec was written, so the spec may no longer fit main (J-022's
+spec still said "Out: any React change" after J-021 added the screen it had to change). After the
+merge from base, and before you build, read the spec against what that job changed
+(`git show --stat <sha>`, then the files that overlap the spec). Then fill in build.md's
+`## Spec against base` section, whose second line is exactly `Spec holds: yes` or `Spec holds: no`:
+- **yes**: the spec still fits. Say why in a line or two, and build as usual.
+- **no**: the merged work changed something the spec depends on, or the spec now needs a path
+  outside its Scope: In. Say what, and write the `Scope +: <glob>, ...` line and the AC wording the
+  spec would need. Don't build around it: commit nothing new, and hand on. The factory stops the
+  job as `spec-stale` for the human to decide, and you must not edit `spec.md` yourself.
+
+Without that section the factory refuses to move the job to review.
+
 ## Output
 1. Source changes on the current branch, **committed** (`git add -A && git commit -m "<id>: …"`).
    The gate and the merge use the branch head; uncommitted work does not exist.

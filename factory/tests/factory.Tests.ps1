@@ -693,6 +693,123 @@ Describe 'scope check' {
     }
 }
 
+Describe 'base moved' {
+    BeforeEach {
+        # J-A of one idea taken to ready (gate green, PR open); its siblings are added by each test.
+        function New-Sibling([string]$idea, [string]$title) { F add-spec $idea (New-Spec $title) }
+        function Ready-First {
+            $script:Idea = F new-idea 'two parts' -Target $script:Repo
+            $a = New-Sibling $script:Idea 'Part A'
+            F approve $a | Out-Null
+            Commit-OnBranch $a
+            Move-ToGate $a
+            F gate $a | Out-Null
+            F publish $a | Out-Null
+            $a
+        }
+        # A sibling taken to build after J-A merged, so it carries baseMoved.
+        function Stale-Sibling {
+            $a = Ready-First
+            $b = New-Sibling $script:Idea 'Part B'
+            F approve $b | Out-Null
+            F merge $a | Out-Null
+            F set-stage $b build -By runner | Out-Null
+            Commit-OnBranch $b 'b.txt'
+            $b
+        }
+        function Build-With([string]$id, [string]$section) {
+            $dir = Join-Path (JobDir $id) "round-$((Job $id).round)"
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            Set-Content (Join-Path $dir 'build.md') "# Build: $id`n`n## What changed`n- b.txt`n$section"
+        }
+    }
+
+    It 'merge marks every open sibling of the same idea, and no finished one or other idea''s job' {
+        $a = Ready-First
+        $backlog = New-Sibling $script:Idea 'Backlog sibling'
+        $approved = New-Sibling $script:Idea 'Approved sibling'
+        F approve $approved | Out-Null
+        $building = New-Sibling $script:Idea 'Building sibling'
+        F approve $building | Out-Null
+        $gone = New-Sibling $script:Idea 'Discarded sibling'
+        F discard $gone | Out-Null
+        $other = New-BacklogJob 'Another idea'
+        # Building is the oldest approved after J-A, so let it through the queue.
+        F set-stage $approved build -By runner | Out-Null
+
+        F merge $a | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        $sha = (Job $a).merged.sha
+        foreach ($id in $backlog, $approved, $building) {
+            $m = (Job $id).baseMoved
+            $m.by | Should -Be $a
+            $m.sha | Should -Be $sha
+            $m.at | Should -Not -BeNullOrEmpty
+            (Events | Where-Object { $_.kind -eq 'note' -and $_.job -eq $id }).detail | Should -Contain "base moved: $a merged"
+        }
+        (Job $gone).baseMoved | Should -BeNullOrEmpty
+        (Job $other).baseMoved | Should -BeNullOrEmpty
+        (Job $a).baseMoved | Should -BeNullOrEmpty
+    }
+
+    It 'a merge on GitHub, recorded by sync-prs, marks the open siblings too' {
+        $a = Ready-First
+        $b = New-Sibling $script:Idea 'Part B'
+        Merge-OnGitHub $a
+        F sync-prs | Out-Null
+        (Job $a).stage | Should -Be 'done'
+        (Job $b).baseMoved.by | Should -Be $a
+        (Job $b).baseMoved.sha | Should -Be (Job $a).merged.sha
+    }
+
+    It 'set-stage review refuses with exit 2 when build.md has no Spec against base, and the job stays in build' {
+        $b = Stale-Sibling
+        Build-With $b ''
+        F set-stage $b review | Out-Null
+        $LASTEXITCODE | Should -Be 2
+        (Job $b).stage | Should -Be 'build'
+
+        Build-With $b "`n## Spec against base`nIt still fits.`n"
+        F set-stage $b review | Out-Null
+        $LASTEXITCODE | Should -Be 2
+        (Job $b).stage | Should -Be 'build'
+    }
+
+    It 'Spec holds: yes moves to review and clears baseMoved' {
+        $b = Stale-Sibling
+        Build-With $b "`n## Spec against base`nSpec holds: yes`nPart A touched only feature.txt.`n"
+        F set-stage $b review | Should -Be 'review'
+        (Job $b).baseMoved | Should -BeNullOrEmpty
+    }
+
+    It 'Spec holds: no escalates spec-stale with the section as why, and keeps baseMoved' {
+        $b = Stale-Sibling
+        $section = "## Spec against base`nSpec holds: no`nPart A renamed the page this spec edits.`nScope +: src/pages/renamed/**"
+        Build-With $b "`n$section`n"
+        F set-stage $b review | Should -Be 'ready'
+        $j = Job $b
+        $j.flag.reason | Should -Be 'spec-stale'
+        $j.flag.why | Should -Match 'Spec holds: no'
+        $j.flag.why | Should -Match 'Scope \+: src/pages/renamed/\*\*'
+        $j.baseMoved.by | Should -Not -BeNullOrEmpty
+    }
+
+    It 'a job without baseMoved needs no Spec against base' {
+        $id = New-ApprovedJob
+        Move-ToReview $id
+        (Job $id).stage | Should -Be 'review'
+    }
+
+    It 'rework clears baseMoved' {
+        $b = Stale-Sibling
+        Build-With $b "`n## Spec against base`nSpec holds: no`nIt does not.`n"
+        F set-stage $b review | Out-Null
+        F rework $b 'Build it against the new page.' | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        (Job $b).baseMoved | Should -BeNullOrEmpty
+    }
+}
+
 Describe 'publish and merge' {
     It 'publish pushes the branch and opens one PR into main, and is idempotent' {
         $id = New-ApprovedJob 'Ship it'
@@ -2081,13 +2198,16 @@ Describe 'deploy' {
         # run succeeded 7 minutes after the job escalated. Resuming dispatched a second, needless run.
         $id = New-ApprovedJob
         Move-ToDeploy $id
-        function Runs { $(try { @((DeployState).runs.Values | Where-Object { $_.head_branch -eq "factory/$id" -and $_.repo -eq $script:Repo }) } catch { @() }) }
+        # The stub writes deploy-state.json at its first dispatch; until then there are no runs.
+        function Runs { $ErrorActionPreference = 'Stop'; $(try { @((DeployState).runs.Values | Where-Object { $_.head_branch -eq "factory/$id" -and $_.repo -eq $script:Repo }) } catch { @() }) }
         $slow = Join-Path $script:GitBase "$script:Repo.slow"
         Set-Content $slow ''
         $p = Start-Process pwsh -ArgumentList '-NoProfile', '-File', $script:Factory, 'deploy', $id -PassThru -WindowStyle Hidden
         $deadline = (Get-Date).AddSeconds(60)
         while (-not @(Runs).Count -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 200 }
         Stop-Process -Id $p.Id -Force
+        # Dead before the run can finish: a still-dying deploy would otherwise poll it and record the result.
+        $p.WaitForExit(30000) | Out-Null
         Remove-Item $slow
         $run = @(Runs)[0]
         # Nobody is waiting on it: one look at the run completes it, as GitHub would have meanwhile.

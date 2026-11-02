@@ -262,7 +262,8 @@ const FLAG_MEANS = {
   'merge-blocked': 'the merge was refused.',
   'deploy-failed': 'the preview did not deploy in three attempts; deploy-<n>.log has the GitHub and HCP logs, and the preview is left up for you to look at.',
   'out-of-scope': 'the build changed the paths below, which match none of the Scope: In globs in the spec, so it stopped before review. Rework with a line "Scope +: <glob>, <glob>" to keep them (the spec is widened), or with a note asking the builder to remove them.',
-  'github-permission': 'GitHub refused the deploy because the GitHub PAT lacks the permission named below. Add it on GitHub, then run factory.ps1 redeploy <id>; no deploy attempt was used.',
+  'spec-stale': 'a job from the same idea merged after this spec was written, and the builder found the spec no longer holds against main (its reasons are below). Rework with its proposed "Scope +: <glob>" line and AC wording, or discard.',
+  'github-permission':'GitHub refused the deploy because the GitHub PAT lacks the permission named below. Add it on GitHub, then run factory.ps1 redeploy <id>; no deploy attempt was used.',
 };
 const md = (text) =>window.marked ? marked.parse(text ?? '') : `<pre>${esc(text)}</pre>`;
 
@@ -404,6 +405,9 @@ function jobCard(j) {
   const baseJob = j.base ? state.board.jobs.find((x) => x.id === j.base) : null;
   const stacked = baseJob && baseJob.stage !== 'done'
     ? `<span class="chip kind" data-base title="built on ${esc(j.base)}'s unmerged branch; merges after it">on ${esc(j.base)}</span>` : '';
+  // A sibling of the same idea merged since this was specced (see "Build checks" in the contract).
+  const moved = j.baseMoved?.by
+    ? `<span class="chip kind" data-base-moved title="${esc(j.baseMoved.by)} merged after this spec was written; check the spec still fits main">base moved: ${esc(j.baseMoved.by)} merged</span>` : '';
   // Toggleable before the job builds; afterwards shown only when it is not the default.
   const p = j.provider ?? 'subscription';
   const settable = j.stage === 'backlog' || j.stage === 'approved';
@@ -413,7 +417,7 @@ function jobCard(j) {
   return `<div class="card${state.open?.id === j.id ? ' selected' : ''}" data-card="${esc(j.id)}" data-stage="${esc(j.stage)}" draggable="${draggable}">
     <div class="top"><span>${esc(j.id)}</span><span>r${j.round} · ${elapsed(j)}</span></div>
     <div class="title">${esc(j.title)}</div>${repo}
-    <div class="meta">${kind}${stacked}${provider}${pr}${sub}${flag}${reviews}${cost}</div>${previewBar(j)}${blockedBar(j)}</div>`;
+    <div class="meta">${kind}${stacked}${moved}${provider}${pr}${sub}${flag}${reviews}${cost}</div>${previewBar(j)}${blockedBar(j)}</div>`;
 }
 // A blocked card's ways out (see "Blocked" in the contract): Retry deploy, Rework (opens the note), Discard.
 function blockedBar(j) {

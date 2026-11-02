@@ -626,6 +626,37 @@ test.describe.serial('factory dashboard', () => {
     await expect(box.locator('li')).toHaveText(['IaC/adopt.tf', 'docs/x.md']);
   });
 
+  test('a sibling merged: cards say base moved, and a spec-stale card says what to do', async ({ page }) => {
+    const at = new Date(Date.UTC(2026, 10, 2, 12, 0)).toISOString();
+    const moved = { by: 'J-320', sha: 'abc1234', at };
+    const j = (id: string, stage: string, extra = {}) => ({ id, stage, round: 1, title: `job ${id}`, target: 'sim/sandbox',
+      createdAt: at, approvedAt: at, updatedAt: at, history: [], ...extra });
+    const jobs = [
+      j('J-320', 'done'),
+      j('J-321', 'backlog', { baseMoved: moved }),
+      j('J-322', 'approved', { baseMoved: moved }),
+      j('J-323', 'ready', { baseMoved: moved, history: [{ ts: at, from: 'build', to: 'ready', by: 'orchestrator' }],
+        flag: { reason: 'spec-stale', detail: 'the spec does not hold since J-320 merged',
+          why: '## Spec against base\nSpec holds: no\nJ-320 renamed the page.\nScope +: src/pages/renamed/**' } }),
+      j('J-324', 'backlog'),
+    ];
+    await page.route('**/api/ideate/config', (r) => r.fulfill({ json: { enabled: false, deploys: false } }));
+    await page.route('**/state/board.json', (r) => r.fulfill({ body: JSON.stringify({ jobs, ideas: [] }) }));
+    await page.route('**/state/events.jsonl', (r) => r.fulfill({ body: '' }));
+
+    await page.goto('/');
+    for (const id of ['J-321', 'J-322', 'J-323']) {
+      await expect(page.locator(`[data-card="${id}"] [data-base-moved]`)).toHaveText('base moved: J-320 merged');
+    }
+    await expect(page.locator('[data-card="J-324"] [data-base-moved]')).toHaveCount(0);
+    const c = page.locator('[data-card="J-323"]');
+    await expect(c.locator('[data-flag]')).toHaveText('spec-stale');
+    await c.click();
+    const box = modal(page).locator('[data-flagbox]');
+    await expect(box).toContainText('merged after this spec was written');
+    await expect(box).toContainText('Scope +: src/pages/renamed/**');
+  });
+
   test('New idea can start from an unmerged job, Abandon asks once more, and stacked cards name their base', async ({ page }) => {
     // Rendering and requests only: serve.ps1's side is in serve.Tests.ps1.
     const j = (id: string, stage: string, extra = {}) => ({ id, stage, round: 1, title: `job ${id}`, target: sandbox, history: [], ...extra });

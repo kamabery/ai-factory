@@ -7,6 +7,13 @@ Commits: <sha list>
 <`git merge --no-edit factory/base`: "already up to date", "clean", or each conflicted file and how
 both sides were kept.>
 
+## Spec against base
+<!-- Only when the orchestrator says the job's base moved (a sibling job merged). Otherwise delete
+     this section. The second line must be exactly `Spec holds: yes` or `Spec holds: no`. -->
+Spec holds: <yes | no>
+<Why, from what the merged job changed. If no: the `Scope +: <glob>, ...` line and the AC wording
+the spec needs, for the human to rework with.>
+
 ## What changed
 <Files and the reason for each.>
 

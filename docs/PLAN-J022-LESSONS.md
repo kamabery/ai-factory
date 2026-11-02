@@ -96,6 +96,9 @@ Also in the contract since before this plan, and not in code:
 
 ## Phase 3 — base moved (it would have turned round 6 from a surprise into a decision)
 
+**Done 2026-11-02.** `simulate.ps1` writes its own build.md, so it now writes `Spec holds: yes` for a
+job with `baseMoved`. The chip shows on any card with `baseMoved`, not only Backlog, Approved and Ready.
+
 1. Tests:
    - `merge` of J-A sets `baseMoved` on each open job of the same idea (backlog, approved, building,
      ready and blocked) and appends a note, but not on `done` or `discarded` jobs or other ideas'
