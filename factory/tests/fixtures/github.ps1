@@ -47,9 +47,12 @@ function Use-Deploys {
     $env:FACTORY_AZ_CMD = $stub
     $env:FACTORY_TOOL_LOG = Join-Path $TestDrive "tools-$([guid]::NewGuid().ToString('N').Substring(0,8)).jsonl"
     $env:FACTORY_DEPLOY_POLL_SECONDS = '0'
+    # Every stub workspace has QA outputs and a front end, so every deploy runs the sign-in smoke.
+    $env:FACTORY_SIGNIN_CMD = Join-Path $PSScriptRoot 'signin-stub.ps1'
 }
 
 function Clear-Deploys {
+    Remove-Item Env:FACTORY_SIGNIN_CMD, Env:FACTORY_SIGNIN_EXIT, Env:FACTORY_SIGNIN_LOG -ErrorAction SilentlyContinue
     Remove-Item Env:FACTORY_GH_CMD, Env:FACTORY_AZ_CMD, Env:FACTORY_TOOL_LOG, Env:FACTORY_DEPLOY_POLL_SECONDS,
         Env:FACTORY_TEMPLATES, Env:FACTORY_CANARY_SCAFFOLD_CMD, Env:FACTORY_SMOKE_SECONDS, Env:CANARY_DEPLOY_FAIL -ErrorAction SilentlyContinue
 }

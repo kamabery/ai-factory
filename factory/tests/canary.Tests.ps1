@@ -128,6 +128,38 @@ Describe 'canary' {
         (Events | Where-Object { $_.kind -eq 'canary' }).detail | Should -Be 'failed: Error: exec: "az": executable file not found in $PATH'
     }
 
+    It 'scaffolds with sign-in by default, so every canary proves the sign-in smoke' {
+        # The stub is handed the commands a real canary runs.
+        Add-Content $env:FACTORY_CANARY_SCAFFOLD_CMD 'Set-Content (Join-Path $env:FACTORY_HOME "scaffold-args.txt") ($args -join "`n")'
+        F canary | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        $cmds = Get-Content (Join-Path $env:FACTORY_HOME 'scaffold-args.txt')
+        $cmds | Should -Contain 'aspire-addon add ui-react'
+        $cmds | Should -Contain 'aspire-addon add auth'
+    }
+
+    It 'with a QA user on j000 (a scaffold with auth), a failed sign-in smoke fails the canary, and it still tears down' {
+        $env:FACTORY_SIGNIN_LOG = Join-Path $TestDrive "signin-$([guid]::NewGuid().ToString('N').Substring(0,8)).jsonl"
+        $env:FACTORY_SIGNIN_EXIT = '1'
+        F canary | Out-Null
+        $LASTEXITCODE | Should -Be 1
+        (Canary).error | Should -Match 'AADSTS500011'
+        $log = Get-Content (Join-Path $env:FACTORY_HOME 'canary-1.log') -Raw
+        $log | Should -Match '## Sign-in smoke'
+        $log | Should -Not -Match 'pw-j000'
+        ((Get-Content $env:FACTORY_SIGNIN_LOG | ConvertFrom-Json).args -join ' ') | Should -Match '/j000/web'
+        (CanaryWorkspace).deleted | Should -BeTrue
+    }
+
+    It 'without a QA user on j000, the canary passes with no sign-in smoke' {
+        $env:FACTORY_SIGNIN_LOG = Join-Path $TestDrive "signin-$([guid]::NewGuid().ToString('N').Substring(0,8)).jsonl"
+        $o, $n = $script:CanaryRepo -split '/'
+        Set-Content (Join-Path $script:GitBase "$o/$n.noauth") ''
+        F canary | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        Test-Path $env:FACTORY_SIGNIN_LOG | Should -BeFalse
+    }
+
     It 'an API whose /health is not 200 fails the smoke check' {
         $o, $n = $script:CanaryRepo -split '/'
         Set-Content (Join-Path $script:GitBase "$o/$n.unhealthy") ''

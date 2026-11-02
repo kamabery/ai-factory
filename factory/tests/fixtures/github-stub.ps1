@@ -132,6 +132,8 @@ function Dispatch-Run([string] $o, [string] $n, $body) {
             qa_user = @{ value = "qa-$envName@$n.test"; sensitive = $false }
             qa_password = @{ value = "pw-$envName"; sensitive = $true }
         }
+        # <owner>/<name>.noauth: a target without the auth add-on, so no QA user to sign in as.
+        if (Test-Path (Join-Path $GitBase "$o/$n.noauth")) { $s.outputs[$ws.id].Remove('qa_user'); $s.outputs[$ws.id].Remove('qa_password') }
     }
     Save-DeployState $s
     @{ status = 204 }

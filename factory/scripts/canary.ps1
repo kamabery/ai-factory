@@ -25,7 +25,8 @@ function Canary-Repo {
 function Canary-Options {
     $v = Read-EnvFile (EnvFilePath)
     $sc = if ($v['FACTORY_CANARY_SCAFFOLD']) { $v['FACTORY_CANARY_SCAFFOLD'] | ConvertFrom-Json -AsHashtable } else {
-        [ordered]@{ name = 'canary'; resource = 'Item'; db = 'postgres'; ui = 'react'; events = $false }
+        # auth: every canary proves deploy step 7a, the sign-in smoke, end to end.
+        [ordered]@{ name = 'canary'; resource = 'Item'; db = 'postgres'; ui = 'react'; events = $false; auth = $true }
     }
     $err = Test-Scaffold $sc
     if ($err) { Fail "canary refused: FACTORY_CANARY_SCAFFOLD: $err" }
@@ -88,7 +89,8 @@ function Publish-CanaryScaffold([string] $repo, $sc, [string] $dir, $rec, $log) 
     Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force $dir | Out-Null
     $cmds = [Collections.Generic.List[string[]]]::new()
-    if ($env:FACTORY_CANARY_SCAFFOLD_CMD) { $cmds.Add(@('-File', $env:FACTORY_CANARY_SCAFFOLD_CMD)) }
+    # The stub (tests) is handed the commands it stands in for, as arguments.
+    if ($env:FACTORY_CANARY_SCAFFOLD_CMD) { $cmds.Add(@('-File', $env:FACTORY_CANARY_SCAFFOLD_CMD) + @(Scaffold-Commands $sc)) }
     else { foreach ($c in Scaffold-Commands $sc) { $cmds.Add(@('-Command', $c)) } }
     foreach ($c in $cmds) {
         $r = Invoke-In $dir $c
@@ -128,11 +130,17 @@ function Invoke-CanaryRun([string] $repo, $sc, $rec, $log) {
                     $log.Add("## GitHub`n$(Get-RunLog $cj $run)`n`n## HCP`n$(Get-HcpRunLog $wsId)")
                     $err = First-Error ($log -join "`n")
                 } else {
-                    $outs = Get-HcpOutputs $wsId
+                    $outs = Get-HcpOutputs $wsId @('qa_password')
                     $rec.urls = Preview-Urls $outs
                     $smoke = [Collections.Generic.List[string]]::new()
                     $err = Invoke-Smoke $rec.urls $smoke
                     $log.Add("## Smoke`n$($smoke -join "`n")")
+                    # Step 7a, when the canary scaffold has sign-in (a QA user on j000).
+                    if (-not $err) {
+                        $signin = [Collections.Generic.List[string]]::new()
+                        $err = Invoke-SigninSmoke $outs $rec.urls (Join-Path $Home_ 'canary-signin') $signin
+                        if ($signin.Count) { $log.Add("## Sign-in smoke`n$(if ($err) { "Error: $err`n" })$($signin -join "`n")") }
+                    }
                 }
             } catch {
                 $hcp = if ($wsId) { try { "`n`n## HCP`n$(Get-HcpRunLog $wsId)" } catch { '' } } else { '' }

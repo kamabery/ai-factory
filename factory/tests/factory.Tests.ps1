@@ -2001,6 +2001,55 @@ Describe 'deploy' {
     BeforeEach { Use-Deploys }
     AfterEach { Clear-Deploys }
 
+    Context 'sign-in smoke' {
+        BeforeEach {
+            $env:FACTORY_SIGNIN_LOG = Join-Path $TestDrive "signin-$([guid]::NewGuid().ToString('N').Substring(0,8)).jsonl"
+            function SigninCalls { if (Test-Path $env:FACTORY_SIGNIN_LOG) { Get-Content $env:FACTORY_SIGNIN_LOG | ForEach-Object { $_ | ConvertFrom-Json -AsHashtable } } }
+        }
+
+        It 'signs in as the QA user on the front end, the password on stdin only, and the job goes on to approve' {
+            $id = New-ApprovedJob
+            Move-ToDeploy $id
+            F deploy $id | Out-Null
+            $LASTEXITCODE | Should -Be 0
+            (Job $id).stage | Should -Be 'approve'
+            $env_ = (Job $id).deploy.env
+            $calls = @(SigninCalls)
+            $calls.Count | Should -Be 1
+            $a = $calls[0].args -join ' '
+            $a | Should -Match ([regex]::Escape("--url https://stapp-$(RepoName)-react-$env_.test"))
+            $a | Should -Match ([regex]::Escape("--user qa-$env_@$(RepoName).test"))
+            $a | Should -Not -Match "pw-$env_"
+            $calls[0].stdin | Should -Be "pw-$env_"
+        }
+
+        It 'a failed sign-in is a failed attempt: the log ends with the smoke, never the password, and the job stays in deploy' {
+            $env:FACTORY_SIGNIN_EXIT = '1'
+            $id = New-ApprovedJob
+            Move-ToDeploy $id
+            F deploy $id | Out-Null
+            $LASTEXITCODE | Should -Not -Be 0
+            $j = Job $id
+            $j.stage | Should -Be 'deploy'
+            $j.deploy.status | Should -Be 'failed'
+            $log = Get-Content (Join-Path (JobDir $id) 'deploy-1.log') -Raw
+            $log | Should -Match '## Sign-in smoke'
+            $log | Should -Match 'AADSTS500011'
+            $log | Should -Not -Match "pw-$($j.deploy.env)"
+            (Events | Where-Object { $_.kind -eq 'deploy' -and $_.job -eq $id }).detail | Should -Match 'AADSTS500011'
+        }
+
+        It 'is skipped when the preview has no QA user' {
+            Set-Content (Join-Path $script:GitBase "$script:Repo.noauth") ''
+            $id = New-ApprovedJob
+            Move-ToDeploy $id
+            F deploy $id | Out-Null
+            $LASTEXITCODE | Should -Be 0
+            (Job $id).stage | Should -Be 'approve'
+            @(SigninCalls).Count | Should -Be 0
+        }
+    }
+
     It 'with no HCP_ORG, all-PASS reviews go straight to approve and a note says deploys are off' {
         $env:FACTORY_ENV_FILE = $script:EnvFile
         $id = New-ApprovedJob

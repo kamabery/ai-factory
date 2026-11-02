@@ -149,9 +149,11 @@ function Invoke-Deploy($j, [switch] $Resume) {
             $run = Invoke-DeployRun $j $d.env -sha $result.sha -Resume:$Resume
             $result.run = $run.html_url
             if ($run.conclusion -eq 'success') {
-                $outs = Get-HcpOutputs $wsId
+                $outs = Get-HcpOutputs $wsId @('qa_password')
                 $result.urls = Preview-Urls $outs
-                $result.ok = $true
+                $signin = [Collections.Generic.List[string]]::new()
+                $err = Invoke-SigninSmoke $outs $result.urls (Join-Path (JobDir $j.id) 'signin') $signin
+                if ($err) { $result.log = "## Sign-in smoke`nError: $err`n$($signin -join "`n")" } else { $result.ok = $true }
             } else {
                 $result.log = "## GitHub`n$(Get-RunLog $j $run)`n`n## HCP`n$(Get-HcpRunLog $wsId)"
             }
@@ -167,6 +169,25 @@ function Invoke-Deploy($j, [switch] $Resume) {
 }
 
 function Smoke-Seconds { if ($env:FACTORY_SMOKE_SECONDS) { [int]$env:FACTORY_SMOKE_SECONDS } else { 300 } }
+function Signin-Seconds { if ($env:FACTORY_SIGNIN_SECONDS) { [int]$env:FACTORY_SIGNIN_SECONDS } else { 120 } }
+
+# Deploy step 7a: signs in on the front end as the preview's QA user (signin-smoke.mjs, or
+# FACTORY_SIGNIN_CMD in tests), the password on stdin only. Runs only when the outputs have both QA
+# values and there is a front end. Returns $null (passed, or nothing to sign in as) or the failure;
+# $lines gets the smoke's steps, never the password.
+function Invoke-SigninSmoke($outs, $urls, [string] $shots, [Collections.Generic.List[string]] $lines) {
+    $user, $pw = $outs['qa_user'], $outs['qa_password']
+    if (-not $user -or -not $pw -or -not $urls -or -not $urls.frontend) { return $null }
+    New-Item -ItemType Directory -Force $shots | Out-Null
+    $a = @('--url', $urls.frontend, '--user', $user, '--shots', $shots, '--seconds', "$(Signin-Seconds)")
+    $out = if ($env:FACTORY_SIGNIN_CMD) { $pw | & pwsh -NoProfile -File $env:FACTORY_SIGNIN_CMD @a 2>&1 }
+           else { $pw | & node (Join-Path $PSScriptRoot 'signin-smoke.mjs') @a 2>&1 }
+    $code = $LASTEXITCODE
+    foreach ($l in @($out | ForEach-Object { "$_".Replace($pw, '***') })) { $lines.Add($l) }
+    if ($code -eq 0) { return $null }
+    $why = $lines | Where-Object { $_ -match '^error: ' } | Select-Object -First 1
+    "sign-in smoke: $(if ($why) { $why -replace '^error: ', '' } else { "exited $code" })"
+}
 
 # GETs <api>/health and the front end until each answers 200, retrying every 10 s while a fresh
 # container starts. Adds one line per url to $lines; returns $null, or the first failure.

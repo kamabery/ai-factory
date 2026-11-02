@@ -1026,7 +1026,8 @@ anything but the one child process that needs it, never logged):
    headless Chromium) opens `<urls.frontend>`, clicks **Sign in**, completes the identity
    provider's form as the QA user (Entra External ID: email, then password; Keycloak: username and
    password), and passes when the browser is back on the front end's origin with the header showing
-   the user and `GET <urls.frontend>/api/auth/me` answering 200. The password is passed to the
+   **Sign out** and the app's own `GET /api/me` (which it sends with the access token; `/api/me` is
+   `[SignInRequired]`, so a request without one answers 401) answering 200. The password is passed to the
    child on stdin, never as an argument or in the log. Any error page on the way (an `AADSTS` code,
    an `error=` on the redirect, a timeout of `$env:FACTORY_SIGNIN_SECONDS`, default 120) is a failed
    attempt. `deploy-<a>.log` then ends with a `## Sign-in smoke` section: each step reached, the
@@ -1080,7 +1081,8 @@ one before any real job paid for it.)
 
 **Settings** (`.env`): `FACTORY_CANARY_REPO` (`owner/name`; default `<GITHUB_OWNER>/factory-canary`)
 and `FACTORY_CANARY_SCAFFOLD` (scaffold options as in [Targets](#targets); default
-`{"name":"canary","resource":"Item","db":"postgres","ui":"react","events":false}`).
+`{"name":"canary","resource":"Item","db":"postgres","ui":"react","events":false,"auth":true}`, so
+every canary runs the sign-in smoke, deploy step 7a, against a real Entra External ID sign-in).
 
 **Fingerprint.** A SHA-256 over what the deploy path depends on: `deploy.ps1`, `hcp.ps1` and
 `github.ps1`; the template workspace's `IaC/` and `base-project/.github/workflows/deploy.yml`; the
