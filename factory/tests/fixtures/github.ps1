@@ -63,7 +63,10 @@ function Clear-Deploys {
 function Use-Canary {
     $script:CanaryRepo = "test/canary-$([guid]::NewGuid().ToString('N').Substring(0,8))"
     $envFile = Join-Path $TestDrive "canary-$([guid]::NewGuid().ToString('N').Substring(0,8)).env"
-    Set-Content $envFile ((Get-Content $env:FACTORY_ENV_FILE) + "FACTORY_CANARY_REPO=$script:CanaryRepo")
+    # The canary scaffolds with auth by default and refuses without the External ID ids (3fd3ee1).
+    Set-Content $envFile ((Get-Content $env:FACTORY_ENV_FILE) + "FACTORY_CANARY_REPO=$script:CanaryRepo" +
+        'FACTORY_ENTRA_TENANT_ID=00000000-0000-0000-0000-0000000000e1' + 'FACTORY_ENTRA_SUBDOMAIN=testpreviews' +
+        'FACTORY_ENTRA_USER_FLOW_ID=00000000-0000-0000-0000-0000000000f1')
     $env:FACTORY_ENV_FILE = $envFile
     $env:FACTORY_TEMPLATES = Join-Path $TestDrive "templates-$([guid]::NewGuid().ToString('N').Substring(0,8))"
     New-Item -ItemType Directory -Force "$env:FACTORY_TEMPLATES/IaC", "$env:FACTORY_TEMPLATES/base-project/.github/workflows", "$env:FACTORY_TEMPLATES/artifacts/nupkg" | Out-Null
@@ -73,6 +76,7 @@ function Use-Canary {
     $env:FACTORY_CANARY_SCAFFOLD_CMD = Join-Path $TestDrive 'canary-scaffold.ps1'
     Set-Content $env:FACTORY_CANARY_SCAFFOLD_CMD @(
         'Set-Content README.md "canary scaffold"'
+        'New-Item -ItemType Directory -Force IaC/envs | Out-Null; Set-Content IaC/envs/ephemeral.tfvars ''project_name = "canary"'''
         'if ($env:CANARY_DEPLOY_FAIL) { Set-Content deploy-fail.txt $env:CANARY_DEPLOY_FAIL }'
     )
     $env:FACTORY_SMOKE_SECONDS = '0'
