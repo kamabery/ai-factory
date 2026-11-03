@@ -24,6 +24,28 @@ J-024  job                             one spec, one branch, one PR, one preview
   └── lessons/J-024                     what it taught the templates, if it went bad
 ```
 
+From idea to evaluation, for one job:
+
+```mermaid
+flowchart TD
+    A["New idea (dashboard)<br/>session S-NNN"] --> B["Grill: questions<br/>until nothing is assumed"]
+    B --> C{"Human confirms<br/>the brief?"}
+    C -- "correct it" --> B
+    C -- yes --> D["Idea I-NNN created<br/>brief.md saved"]
+    D --> E["Spec-writer drafts<br/>spec-1 .. spec-N"]
+    E --> F{"Human decides<br/>each spec"}
+    F -- reject --> X["never reaches the board"]
+    F -- defer --> G["Job J-NNN in Backlog"]
+    F -- approve --> H["Job J-NNN in Approved"]
+    G -- "human drags" --> H
+    H -- "runner picks it up" --> I["Building: build → review<br/>→ deploy j&lt;NNN&gt; → approve → gate"]
+    I -- "rework / failed deploy:<br/>next round" --> I
+    I -- "green gate" --> J["Ready for review<br/>live preview, PR open"]
+    J -- "rework note" --> H
+    J -- "human drags to Done,<br/>or merges the PR" --> K["Done: PR merged,<br/>clone deleted"]
+    K --> L["Evaluation<br/>evals/J-NNN.md: good / mixed / poor"]
+```
+
 One session makes at most one idea. One idea makes 1 to 5 jobs (plus a bootstrap job for a new
 repo). A job belongs to exactly one idea. Everything a job leaves behind is keyed by its `J-` id.
 
