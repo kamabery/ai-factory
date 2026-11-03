@@ -146,6 +146,26 @@ commits (`--no-merges ... --not factory/base`), so base work the builder merged 
 
 ## Phase 5 — the post-apply sign-in smoke (it would have caught AADSTS500011 before UAT)
 
+**Built 2026-11-02 (`ced8298`, `3fd3ee1`); live proof still open.** Step 1 found the contract wrong:
+the endpoint is `GET /api/me`, `[SignInRequired]`, so the smoke watches the app's own call (with its
+token) rather than calling it. The script passed against a local fake IdP (ok, AADSTS, /api/me 401).
+The live auth canary did not reach the smoke:
+- Canary 15: a fresh scaffold has no `entra_external_*` ids (a target commits them). Fixed: the
+  canary takes them from `.env` (`FACTORY_ENTRA_*`) and refuses without them.
+- Canary 16: the template auth add-on's `msgraph_resource_action.user_flow_link` raced the new app
+  registration ("The application id ... is invalid", AADB2C, 400 for 11 min). J-023's preview did
+  the same link fine, and the template still lacks J-022's auth fixes. **Template lessons:** give
+  `user_flow_link` a `depends_on` on the service principal and the identifier URI; apply J-022's
+  auth lessons; the add-on's precondition and the deploy-app skill say "HCP project's variable set",
+  but the ids belong in the target's tfvars (`docs/DEPLOY.md`).
+- Both canaries' destroys failed too (15: the same Entra error; 16: the Container Apps environment's
+  delete timed out). Leftovers were checked live each time.
+- Kurt's call: `.env` sets `FACTORY_CANARY_SCAFFOLD` to the no-auth scaffold so deploys are unblocked
+  (canary 17), and the smoke is proven on the next todoapp-two preview. The code default stays
+  `auth: true`; remove the `.env` line once the template is fixed. The break test (clear a preview's
+  identifier URI) is approved, on a preview only.
+- Not built here, found on the way: job deploys never ran step 7's HTTP smoke; only the canary does.
+
 1. **Verify first, before writing tests.** Read the live state, not the stubs, per the
    read-live-state rule:
    - Does the React auth seam expose `GET /api/auth/me`, or something else that answers 200 only
