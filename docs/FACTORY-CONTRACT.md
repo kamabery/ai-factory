@@ -1032,6 +1032,8 @@ anything but the one child process that needs it, never logged):
    an `error=` on the redirect, a timeout of `$env:FACTORY_SIGNIN_SECONDS`, default 120) is a failed
    attempt. `deploy-<a>.log` then ends with a `## Sign-in smoke` section: each step reached, the
    final url without its query, the page's error text, and a screenshot path under `jobs/<id>/`.
+   A pass leaves evidence too: `jobs/<id>/signin/smoke-<a>.log` holds the steps (never the
+   password), and the smoke saves a screenshot of the signed-in page under `jobs/<id>/signin/`.
    The smoke runs on every apply, not only when auth changed: J-022's sign-in worked on the round-8
    preview and broke on a later apply, which cleared the app's identifier URI. `$env:FACTORY_SIGNIN_CMD`
    replaces the script in tests.

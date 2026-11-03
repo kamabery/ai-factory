@@ -2023,6 +2023,19 @@ Describe 'deploy' {
             $calls[0].stdin | Should -Be "pw-$env_"
         }
 
+        It 'a passed sign-in leaves its steps in signin/smoke-N.log, never the password' {
+            $id = New-ApprovedJob
+            Move-ToDeploy $id
+            F deploy $id | Out-Null
+            $LASTEXITCODE | Should -Be 0
+            $f = Join-Path (JobDir $id) 'signin/smoke-1.log'
+            Test-Path $f | Should -BeTrue
+            $log = Get-Content $f -Raw
+            $log | Should -Match 'signed in: Sign out is showing'
+            $log | Should -Match '/api/me answered 200'
+            $log | Should -Not -Match "pw-$((Job $id).deploy.env)"
+        }
+
         It 'a failed sign-in is a failed attempt: the log ends with the smoke, never the password, and the job stays in deploy' {
             $env:FACTORY_SIGNIN_EXIT = '1'
             $id = New-ApprovedJob

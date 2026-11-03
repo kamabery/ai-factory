@@ -133,6 +133,12 @@ try {
     await sleep(500)
   }
   step('/api/me answered 200')
+  try {
+    mkdirSync(shots, { recursive: true })
+    const shot = join(shots, `signed-in-${Date.now()}.png`)
+    await page.screenshot({ path: shot, fullPage: true })
+    console.log(`screenshot: ${shot}`)
+  } catch {}
   await browser.close()
   process.exit(0)
 } catch (e) {

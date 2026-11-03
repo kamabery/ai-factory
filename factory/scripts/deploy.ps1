@@ -152,7 +152,10 @@ function Invoke-Deploy($j, [switch] $Resume) {
                 $outs = Get-HcpOutputs $wsId @('qa_password')
                 $result.urls = Preview-Urls $outs
                 $signin = [Collections.Generic.List[string]]::new()
-                $err = Invoke-SigninSmoke $outs $result.urls (Join-Path (JobDir $j.id) 'signin') $signin
+                $shots = Join-Path (JobDir $j.id) 'signin'
+                $err = Invoke-SigninSmoke $outs $result.urls $shots $signin
+                # A pass leaves evidence too (J-024's first live smoke left none).
+                if ($signin.Count) { Set-Content (Join-Path $shots "smoke-$($j.deploy.attempts).log") $signin }
                 if ($err) { $result.log = "## Sign-in smoke`nError: $err`n$($signin -join "`n")" } else { $result.ok = $true }
             } else {
                 $result.log = "## GitHub`n$(Get-RunLog $j $run)`n`n## HCP`n$(Get-HcpRunLog $wsId)"
