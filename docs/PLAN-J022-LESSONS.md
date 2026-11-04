@@ -146,7 +146,24 @@ commits (`--no-merges ... --not factory/base`), so base work the builder merged 
 
 ## Phase 5 — the post-apply sign-in smoke (it would have caught AADSTS500011 before UAT)
 
-**Built 2026-11-02 (`ced8298`, `3fd3ee1`); live proof still open.** Step 1 found the contract wrong:
+**Done 2026-11-04: built (`ced8298`, `3fd3ee1`, `d314526`) and proven live on J-025's preview.**
+- J-024 (2026-11-03) was the first job deploy to run the smoke. It passed and left nothing to show,
+  so `d314526` keeps the steps in `jobs/<id>/signin/smoke-<a>.log` and a signed-in screenshot.
+- J-025's deploy: smoke passed, log and screenshot present (QA j025 signed in, `/api/me` 200).
+- Break tests on the j025 preview, each restored and read back:
+  - Identifier URI cleared: the smoke still **passed**, correctly. Since J-022 the app requests
+    `<client id>/access`, so sign-in no longer depends on the URI. This break cannot fail on a
+    target that has J-022's fix.
+  - SPA redirect URI removed: the smoke **failed** with `AADSTS500113: No reply address is
+    registered`, with url, page text and screenshot. This is the live red.
+  - Just after the restore it failed again (`AADSTS9002326`, cross-origin redemption needs the
+    SPA client type) while Entra replicated; it passed about 90 s later. **Open, for Phase 7:**
+    the smoke fails at once on any AADSTS, so replication lag right after a fresh apply could fail a
+    good deploy. Consider a short retry on AADSTS in the first minutes, or a settle delay.
+- Canary 18 (no-auth scaffold from `.env`) passed 2026-11-03; the template's auth add-on still needs
+  canaries 15/16's fixes before the canary goes back to `auth: true`.
+
+History: step 1 found the contract wrong:
 the endpoint is `GET /api/me`, `[SignInRequired]`, so the smoke watches the app's own call (with its
 token) rather than calling it. The script passed against a local fake IdP (ok, AADSTS, /api/me 401).
 The live auth canary did not reach the smoke:
