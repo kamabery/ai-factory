@@ -1391,11 +1391,12 @@ try {
             $gaps = @()
             foreach ($d in Get-ChildItem (JobDir $j.id) -Directory -Filter 'round-*' -ErrorAction SilentlyContinue | Sort-Object { [int]($_.Name -replace '\D', '') }) {
                 $g = Read-Section (Join-Path $d.FullName 'deploy.md') 'Template gaps'
-                if ($g -and $g -notmatch '^(?i)none\.?$') { $gaps += [pscustomobject]@{ round = $d.Name; text = $g } }
+                # "None", written bare or as a bullet ("- None."), is no gap.
+                if ($g -and $g.Trim() -notmatch '^(?i)(-\s*)?none\.?$') { $gaps += [pscustomobject]@{ round = $d.Name; text = $g } }
                 # The builder's too, without the paths it judged job-specific (Build checks, template provenance).
                 $g = Read-Section (Join-Path $d.FullName 'build.md') 'Template gaps'
                 if ($g) { $g = (($g -split "`n") | Where-Object { $_ -notmatch '^- [^\s]+: job-specific\b' }) -join "`n" }
-                if ($g -and $g.Trim() -and $g.Trim() -notmatch '^(?i)none\.?$') { $gaps += [pscustomobject]@{ round = "$($d.Name), build"; text = $g.Trim() } }
+                if ($g -and $g.Trim() -and $g.Trim() -notmatch '^(?i)(-\s*)?none\.?$') { $gaps += [pscustomobject]@{ round = "$($d.Name), build"; text = $g.Trim() } }
             }
             $count = 0
             foreach ($g in $gaps) { $count += @($g.text -split "`n" | Where-Object { $_ -match '^- ' }).Count }

@@ -2695,6 +2695,16 @@ Describe 'lessons' {
         Test-Path (Join-Path $env:FACTORY_HOME "lessons/$id.json") | Should -BeFalse
     }
 
+    It 'a bulleted "- None." in deploy.md or build.md is no template gap (J-024 to J-026 counted one)' {
+        $id = New-ApprovedJob
+        Move-ToGate $id
+        Write-DeployReport $id 1 '- None.'
+        Set-Content (Join-Path (JobDir $id) 'round-1/build.md') "# Build: $id`n`n## Template gaps`n- none`n"
+        F gate $id | Out-Null
+
+        F lesson $id | Should -Be 'no lessons'
+    }
+
     It 'compiles the flag and every template gap from the rounds'' deploy reports' {
         $id = New-ApprovedJob 'Search'
         Move-ToReview $id
