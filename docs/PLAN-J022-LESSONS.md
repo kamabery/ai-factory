@@ -225,6 +225,24 @@ The tweak path saves ~2-3 min and ~$0.30 per polish round. A front-end-only depl
 ~16 min. It is a template change in `template-projects`, proven on a todoapp-two preview. Steps 2-4
 below are deferred.
 
+**Front-end-only deploy done 2026-11-05.**
+- **Factory side (`5813a47`).** `factory.ps1 deploy` passes `since = deploy.sha` only when three
+  things hold: the preview is `up`, the attempt before didn't fail, and the branch's `deploy.yml`
+  declares `since`.
+- **todoapp-two side (J-026, PR #9, merged as 1d5a34f).** The workflow decides the path with
+  `.github/scripts/front-end-only.sh`. The gate tests that script with 23 cases.
+- **Proven live on `j026`.** A dispatch with `since` set to the applied head took **1 min 23 s**,
+  against ~10 min for a full redeploy. Both applies, the images, the firewall and the schema were
+  skipped, and the sign-in smoke passed afterwards.
+- **Not yet proven live:**
+  - a non-empty `src/ui/` diff (the live case was an empty diff);
+  - the factory sending `since` itself on a rework round.
+
+  The next todoapp-two rework proves both.
+- **Template port.** `.factory-runs/lessons/J-026.md` holds it, plus `.gitattributes` with
+  `*.sh text eol=lf`. It waits for `template-projects`' `feature/hcp-ephemeral-deploy` branch to
+  be sorted out.
+
 1. **Measure first.** Get round 7's per-stage time from `events.jsonl` and its token cost from
    `run-11.jsonl` (`modelUsage`). Then split the deploy's ~10 min into the agent's operate pass and
    `factory.ps1 deploy` itself (the GitHub run and the HCP apply). If the apply dominates, skipping
@@ -278,7 +296,6 @@ not on the app.
 
 - Whether reviewers should also flag out-of-scope paths. The decision was deterministic only.
 - Whether the canary scaffold gets `auth: true` by default (Phase 5, step 4).
-- The front-end-only deploy (Phase 6, step 1). It is a template change.
 - The tweak limits (10 files / 300 lines) and the promote globs are first guesses. Revisit them
   after a few real tweaks.
 
