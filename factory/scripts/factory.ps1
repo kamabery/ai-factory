@@ -988,12 +988,14 @@ try {
             # Still applying: the last attempt's process died before it recorded a result (J-019: the
             # devops agent's shell call ended at 20 minutes). This resumes that attempt, not a new one.
             $resume = $d.status -eq 'applying'
+            # The live preview's applied head; a failed or half-applied preview gets a full deploy.
+            $since = if ($d.status -eq 'up' -and $d.sha) { "$($d.sha)" } else { '' }
             if (-not $resume -and [int]$d.attempts -ge 3) { Fail "deploy refused: $($j.id) has used its 3 attempts" }
             if (-not $resume) { $d.attempts = [int]$d.attempts + 1 }
             $d.status = 'applying'
             Save-Board $Board
             $attempt = $d.attempts
-            $res = Invoke-Deploy $j -Resume:$resume
+            $res = Invoke-Deploy $j -Resume:$resume -Since $since
             $j = Get-Job $Arg1
             $d = $j.deploy
             $d.sha = $res.sha

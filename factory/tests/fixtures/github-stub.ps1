@@ -102,13 +102,19 @@ function Dispatch-Run([string] $o, [string] $n, $body) {
     $bare = Bare $o $n
     $sha = (Invoke-StubGit $bare rev-parse --verify --quiet "refs/heads/$($body.ref)").Out
     if (-not $sha) { return @{ status = 422; body = @{ message = "No ref found for: $($body.ref)" } } }
+    # Like GitHub: an input the branch's deploy.yml does not declare is refused (environment is
+    # always declared; the stub's branches carry no workflow file unless a test commits one).
+    $wf = (Invoke-StubGit $bare show "$($sha):.github/workflows/deploy.yml").Out
+    $extra = @($body.inputs.Keys | Where-Object { $_ -ne 'environment' -and "$wf" -notmatch "(?m)^\s+$($_):" })
+    if ($extra) { return @{ status = 422; body = @{ message = "Unexpected inputs provided: [$($extra -join ', ')]" } } }
     $fail = (Invoke-StubGit $bare show "$($sha):deploy-fail.txt")
     $s = Deploy-State
     $id = Next-Id $s
     $envName = $body.inputs.environment
     $conclusion = if ($fail.Code -eq 0) { 'failure' } else { 'success' }
     $s.runs["$id"] = [ordered]@{ id = $id; repo = "$o/$n"; head_branch = $body.ref; head_sha = $sha; event = 'workflow_dispatch'
-        status = 'completed'; conclusion = $conclusion; environment = $envName; html_url = "https://github.test/$o/$n/actions/runs/$id" }
+        status = 'completed'; conclusion = $conclusion; environment = $envName; html_url = "https://github.test/$o/$n/actions/runs/$id"
+        inputs = $body.inputs }
     # <owner>/<name>.slow: the run stays in_progress until the file is gone (a real one takes ~60 minutes).
     if (Test-Path (Join-Path $GitBase "$o/$n.slow")) { $s.runs["$id"].status = 'in_progress'; $s.runs["$id"].conclusion = $null; $s.runs["$id"].final = $conclusion }
     $ws = Ws-ByName $s "$n-$envName"

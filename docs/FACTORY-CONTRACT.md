@@ -1010,6 +1010,11 @@ anything but the one child process that needs it, never logged):
 5. Dispatches `.github/workflows/deploy.yml` on `factory/<id>` with `environment = j<NNN>`, finds
    that run, and polls it until it completes or the timeout passes. A run on that branch for the
    same head sha that has not completed is polled instead, and nothing is dispatched.
+   When the preview was `up` before this attempt and the branch's `deploy.yml` declares a `since`
+   input, the dispatch also passes `since = <deploy.sha>`, the head that preview was applied at.
+   The workflow uses it to deploy only the front end when nothing outside `src/ui/` changed since
+   then (Phase 6, J-022 lessons plan). Otherwise `since` is not sent: GitHub refuses a dispatch
+   with an input the workflow does not declare.
 6. Applied: reads the workspace's outputs - `react_url` or `blazor_web_url` as `urls.frontend`,
    `api_url` as `urls.api`, and as `urls.health` the address a browser reaches `/health` by:
    `<react_url>/api/health` when there is a React front end, else `<api_url>/health`. React's Static

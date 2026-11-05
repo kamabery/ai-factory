@@ -89,7 +89,7 @@ function Prepare-GitHub($j) {
 # still going (its deploy's process died, J-019) is waited on instead of dispatching another. With
 # -Resume (the board still says applying), the newest run of $sha counts even if it has finished:
 # it finished after the process waiting on it died (J-023).
-function Invoke-DeployRun($j, [string] $envName, [string] $branch = "factory/$($j.id)", [string] $sha = '', [switch] $Resume) {
+function Invoke-DeployRun($j, [string] $envName, [string] $branch = "factory/$($j.id)", [string] $sha = '', [switch] $Resume, [string] $Since = '') {
     $t = $j.target
     $runsPath = "/repos/$t/actions/runs?branch=$([uri]::EscapeDataString($branch))&event=workflow_dispatch"
     $runs = @((Invoke-GitHub GET $runsPath).Body.workflow_runs | Where-Object { $_ })
@@ -97,7 +97,9 @@ function Invoke-DeployRun($j, [string] $envName, [string] $branch = "factory/$($
     if (-not $run) {
         $before = $runs | ForEach-Object { [long]$_.id } | Measure-Object -Maximum
         $last = if ($before.Count) { [long]$before.Maximum } else { 0 }
-        $r = Invoke-GitHub POST "/repos/$t/actions/workflows/deploy.yml/dispatches" @{ ref = $branch; inputs = @{ environment = $envName } }
+        $inputs = @{ environment = $envName }
+        if ($Since) { $inputs.since = $Since }
+        $r = Invoke-GitHub POST "/repos/$t/actions/workflows/deploy.yml/dispatches" @{ ref = $branch; inputs = $inputs }
         if ($r.Status -ne 204) { throw "cannot dispatch deploy.yml: $(GhError $r)" }
     }
     $deadline = Deploy-Deadline
@@ -126,7 +128,7 @@ function Get-RunLog($j, $run) {
 }
 
 # The whole attempt, lock released. Returns { ok, sha, run, urls, destroyAt, log }.
-function Invoke-Deploy($j, [switch] $Resume) {
+function Invoke-Deploy($j, [switch] $Resume, [string] $Since = '') {
     $d = $j.deploy
     $result = [ordered]@{ ok = $false; sha = $null; run = $null; urls = $null; destroyAt = $null; workspaceId = $null; log = '' }
     $wt = WorkDir $j
@@ -146,7 +148,11 @@ function Invoke-Deploy($j, [switch] $Resume) {
             $result.destroyAt = (Get-Date).ToUniversalTime().AddHours(24).ToString('yyyy-MM-ddTHH:mm:ssZ')
             $wsId = Ensure-HcpWorkspace $d.workspace $project $result.destroyAt
             $result.workspaceId = $wsId
-            $run = Invoke-DeployRun $j $d.env -sha $result.sha -Resume:$Resume
+            # since: the head the live preview was applied at, so a front-end-only change can skip
+            # Terraform. Only when the branch's workflow declares it; GitHub refuses unknown inputs.
+            $wf = Join-Path $wt '.github/workflows/deploy.yml'
+            $since = if ($Since -and (Test-Path $wf) -and ((Get-Content $wf -Raw) -match '(?m)^\s+since:')) { $Since } else { '' }
+            $run = Invoke-DeployRun $j $d.env -sha $result.sha -Resume:$Resume -Since $since
             $result.run = $run.html_url
             if ($run.conclusion -eq 'success') {
                 $outs = Get-HcpOutputs $wsId @('qa_password')

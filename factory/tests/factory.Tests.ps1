@@ -2523,6 +2523,59 @@ Describe 'deploy' {
         @(Events | Where-Object { $_.job -eq $id -and $_.kind -eq 'destroy' }) | Should -HaveCount 0
     }
 
+    Context 'since (front-end-only deploys)' {
+        BeforeAll {
+            # Deploys the job, reworks it, and deploys round 2 over the live preview. Returns the
+            # round-1 applied sha and the inputs of each dispatched run, oldest first.
+            function Deploy-Twice([string]$id, [switch]$DeclareSince) {
+                Move-ToDeploy $id
+                if ($DeclareSince) {
+                    New-Item -ItemType Directory -Force (Join-Path (Work $id) '.github/workflows') | Out-Null
+                    Commit-Change $id '.github/workflows/deploy.yml' "on:`n  workflow_dispatch:`n    inputs:`n      environment:`n      since:`n"
+                }
+                F deploy $id | Out-Null
+                $LASTEXITCODE | Should -Be 0
+                $sha1 = (Job $id).deploy.sha
+                F set-stage $id ready -Reason escalated -Detail 'polish' | Out-Null
+                F rework $id 'tweak the copy' | Out-Null
+                Move-ToDeploy $id
+                F deploy $id | Out-Null
+                $LASTEXITCODE | Should -Be 0
+                $runs = @((DeployState).runs.Values | Where-Object { $_.head_branch -eq "factory/$id" -and $_.repo -eq $script:Repo } | Sort-Object { [long]$_.id })
+                @{ sha1 = $sha1; inputs = @($runs | ForEach-Object { $_.inputs }) }
+            }
+        }
+
+        It 'a redeploy over a live preview passes since = the head it was applied at, when deploy.yml declares since' {
+            $id = New-ApprovedJob
+            $r = Deploy-Twice $id -DeclareSince
+            $r.inputs | Should -HaveCount 2
+            $r.inputs[0].Contains('since') | Should -BeFalse
+            $r.inputs[1].since | Should -Be $r.sha1
+        }
+
+        It 'sends no since when deploy.yml does not declare it, so GitHub does not refuse the dispatch' {
+            $id = New-ApprovedJob
+            $r = Deploy-Twice $id
+            $r.inputs | Should -HaveCount 2
+            $r.inputs[1].Contains('since') | Should -BeFalse
+        }
+
+        It 'sends no since after a failed attempt: the preview may be half applied' {
+            $id = New-ApprovedJob
+            Move-ToDeploy $id
+            New-Item -ItemType Directory -Force (Join-Path (Work $id) '.github/workflows') | Out-Null
+            Commit-Change $id '.github/workflows/deploy.yml' "on:`n  workflow_dispatch:`n    inputs:`n      environment:`n      since:`n"
+            Commit-Change $id 'deploy-fail.txt' 'boom'
+            F deploy $id | Out-Null
+            Commit-Change $id 'deploy-fail.txt' -Remove
+            F deploy $id | Out-Null
+            $LASTEXITCODE | Should -Be 0
+            $runs = @((DeployState).runs.Values | Where-Object { $_.head_branch -eq "factory/$id" -and $_.repo -eq $script:Repo } | Sort-Object { [long]$_.id })
+            $runs[-1].inputs.Contains('since') | Should -BeFalse
+        }
+    }
+
     It 'escalation from deploy is allowed, as from every Building stage, and parks the job in blocked' {
         $id = New-ApprovedJob
         Move-ToDeploy $id
