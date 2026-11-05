@@ -274,6 +274,48 @@ not on the app.
 
 1. **Measure first.** Read J-023's HCP apply log for per-resource create times, and the canary
    logs for the apply/smoke/destroy split. Decide what to share from those numbers, not guesses.
+
+   **Measured 2026-11-05.** Source: J-023's `todoapp-two-j023` workspace (Postgres; J-026's was
+   already deleted) and canaries 18 and 19.
+
+   **Fresh preview, about 31 min end to end.** The two applies take about 20 min wall time; the
+   rest is images, firewall and schema.
+   - Apply 1 (registry and database), 10 min:
+     - Postgres flexible server 304 s;
+     - Key Vault 145 s;
+     - Postgres `azure_services` firewall rule 78 s;
+     - everything else is 23 s or less (RG, ACR, role assignments, the database).
+   - Apply 2, 9.5 min:
+     - **Container Apps environment 465 s**;
+     - Log Analytics 44 s;
+     - the AcrPull role 35 s;
+     - everything else is 23 s or less, including the container app (18 s), the SWA (15 s) and
+       all the Entra and Graph resources (each 13 s or less).
+
+   **Destroy, 26 min.** The Container Apps environment's delete took **1493 s (25 min)**.
+   Postgres took 63 s and everything else 24 s or less.
+
+   **Canary, about 61 min.** Canary 19:
+   - started 12:37;
+   - deploy run 12:37:32 to 13:07:31 (30 min);
+   - smoke seconds;
+   - pass recorded at 13:38 after the destroy (30 min).
+
+   Canary 18 had the same split (36.5 + 28.5 min).
+
+   **So:**
+   - Passing the canary before its destroy halves it (~61 to ~31 min).
+   - The Container Apps environment alone is ~8 min of create and ~25 min of destroy.
+   - The Postgres server, its firewall rule and Key Vault add ~9 min of create.
+   - Sharing those three plus the environment would bring a fresh preview close to the ~10 min
+     re-apply, and the destroy to a few minutes.
+   - The Entra and Graph resources are cheap (13 s or less each) and can stay per preview.
+
+   **Leak found:** J-023's destroy errored on 11-02 and nothing retried it.
+   - The error was a redirect-URI delete that 404ed because the Entra app was already gone.
+   - The board still says `up`, and `rg-todoapp-j023` still holds its SWA.
+   - Step 2 should make the `destroyAt` sweep retry a failed destroy, and tolerate a 404 on an
+     already-deleted Entra object.
 2. **Factory side** (this repo, red then green as usual):
    - The canary records its pass once the smoke passes, and the destroy runs after; the `destroyAt`
      sweep catches a destroy that fails. Roughly halves the canary.
