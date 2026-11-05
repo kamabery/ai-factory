@@ -214,6 +214,17 @@ The live auth canary did not reach the smoke:
 
 Last, because it is the largest change and the least certain gain.
 
+**Measured 2026-11-04; Kurt chose the front-end-only deploy instead of the tweak path (deferred).**
+Over 15 deploys (J-022 to J-025) the devops agent adds about 1 min. The GitHub run is the rest:
+- Redeploy over a live preview: ~10 min. tf apply (registry/db) 1.1, images 2.4, db firewall
+  open+close 2.1, schema 0.5, tf apply 2.2, publish front end 1.0.
+- Fresh preview: ~31 min, with the two tf applies at 11.5 + 12.4. That part belongs to Phase 7.
+- About $2 a round, ~75% Opus (orchestrator, builder). The four reviewers cost < $0.50.
+The tweak path saves ~2-3 min and ~$0.30 per polish round. A front-end-only deploy (when only
+`src/ui/**` changed: skip Terraform, images, firewall and schema; publish the front end) saves ~8 of
+~16 min. It is a template change in `template-projects`, proven on a todoapp-two preview. Steps 2-4
+below are deferred.
+
 1. **Measure first.** Get round 7's per-stage time from `events.jsonl` and its token cost from
    `run-11.jsonl` (`modelUsage`). Then split the deploy's ~10 min into the agent's operate pass and
    `factory.ps1 deploy` itself (the GitHub run and the HCP apply). If the apply dominates, skipping
