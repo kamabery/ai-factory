@@ -185,8 +185,8 @@ pwsh factory/scripts/setup-platform.ps1     # after section 3; re-running is saf
 ```
 
 `j<NNN>` previews share one Container Apps environment, Log Analytics workspace, Key Vault and Postgres
-server in `rg-factory-platform`, so a fresh preview takes about 14 minutes rather than 31, and a destroy
-a couple of minutes rather than 26 (estimates; see `docs/PLAN-J022-LESSONS.md`, Phase 7).
+server in `rg-factory-platform`, so a fresh preview takes about 13 to 16 minutes rather than 31, and a destroy
+about 4 rather than 26 (measured on canaries 22 and 25; see `docs/PLAN-J022-LESSONS.md`, Phase 7).
 
 **Cost: about $18 a month**, nearly all of it the B1ms Postgres server with 32 GB ($14.02 + $4.16,
 `centralus` list prices, 2026-11-06). The environment has no fixed charge on the Consumption plan and

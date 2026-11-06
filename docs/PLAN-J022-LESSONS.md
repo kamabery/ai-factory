@@ -349,11 +349,22 @@ not on the app.
      firewall for the schema step, and each deploy drops the `preview_*` roles that own no database.
    - Container app names must be unique within the shared environment, so they carry the preview id.
    - dev, staging and existing scaffolds keep their own stacks: no platform set means a full stack.
-   **Status 2026-11-06:** built and tested offline, not yet live. The template is `24980dc` on
-   `feature/hcp-ephemeral-deploy`; the platform is `factory/scripts/setup-platform.ps1` (`az`, not
-   Terraform: it belongs to the subscription). Next: run that script, run a canary on the platform,
-   and measure against the estimates. The canary now runs on the platform; `canary -Full` builds the
-   whole stack.
+   **Status 2026-11-06: live.** The platform is `factory/scripts/setup-platform.ps1` (`az`, not
+   Terraform: it belongs to the subscription), and it took 16 min to create. Measured:
+
+   | | Before | On the platform | `-Full` |
+   | --- | --- | --- | --- |
+   | Deploy and smoke | ~30 min | 16.2 min (canary 22), 12.6 with sign-in (canary 25) | 38.2 min (canary 23) |
+   | Destroy | 26 to 30 min | 3.8 and 4.3 min | 29.3 min |
+   | Canary, start to finish | ~61 min | 17 to 20 min | ~68 min |
+
+   The estimates were about 14 min and 2 min. `-Full` took longer than the ~31 min it replaced; one
+   run, so that may be variance. After canary 25 the platform held no apps, preview databases,
+   secrets (other than the admin password) or soft-deleted secrets.
+
+   Found live, and fixed: Azure's `public` schema belongs to `azure_pg_admin`, so a database's owner
+   needs an explicit grant (canary 21, 42501); and `user_flow_link` raced the new app (canary 24,
+   AADB2C), so it now retries. With those and J-022's fixes, canaries are back to `auth: true`.
 
    **Step 2 status:** done, with one change. The two canary levels became the platform canary and
    `-Full`; a `j000` kept up is not built, because it would cost about $14 a month to save about 4
