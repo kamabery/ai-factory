@@ -323,18 +323,33 @@ not on the app.
      the full create-and-destroy canary stays for template IaC, `deploy.yml` and add-on changes.
 3. **Template side** (`template-projects`, so a template job or lesson, not this repo, and it
    overlaps the deferred AVM migration): split the IaC into a long-lived platform stack and a thin
-   per-preview stack. Shared candidates, all cheap idle: the Container Apps environment
-   (Consumption, ~$0 idle), a Basic registry (~$5/month), Log Analytics + App Insights (pay per GB),
-   Key Vault Standard, the managed identity and its role assignments, the Entra External ID app
-   (a redirect URI per preview), and the storage account (a file share per preview). The aim is
-   a fresh preview at or under the re-apply time.
-4. **Trade-off to accept:** previews share logs, the vault and environment limits, and a fresh
-   preview no longer proves a from-scratch create. The full canary keeps proving that.
+   per-preview stack.
+
+   **Decided 2026-11-06 (Kurt), from step 1's numbers and `centralus` list prices:**
+   - Shared: the Container Apps environment (no fixed charge in the docs), Log Analytics (first
+     5 GB free, then $2.76/GB), Key Vault Standard (~$0) and the Postgres flexible server
+     (B1ms + 32 GB, ~$18.18/month).
+   - Per preview: the registry (23 s or less to create; ~$5/month if shared), App Insights, the
+     storage account, the managed identity and its role assignments, the Entra External ID app.
+   - The aim: a fresh preview of about 14 min, down from ~31 (up to 1036 s saved), and a destroy
+     of a couple of minutes, down from 26. Both are estimates until measured.
+
+   Check the first bill: the price list has a $0.10/hour "Environment Management Hour" meter
+   (~$73/month) that the billing docs don't name or apply to a Consumption-only environment.
+
+   What the split has to solve:
+   - Database names per preview (`database-postgres` hardcodes `appdb` and `eventstore`).
+   - Secret names per preview in the shared vault, and soft-delete on destroy (`j000` reuses its
+     names on every canary).
+   - Previews read the shared server's admin login from the connection string, so any preview can
+     reach any other's database unless each gets its own role.
+4. **Trade-off to accept:** previews share logs, the vault, the Postgres server (1 vCore, 2 GiB) and
+   environment limits, and a fresh preview no longer proves a from-scratch create. The full canary
+   keeps proving that.
 
 ## Not decided (ask before doing)
 
-- Phase 7: which resources to share (after step 1's measurements), and whether a canary may pass
-  before its destroy finishes.
+- Phase 7: whether a canary may pass before its destroy finishes.
 
 - Whether reviewers should also flag out-of-scope paths. The decision was deterministic only.
 - Whether the canary scaffold gets `auth: true` by default (Phase 5, step 4).
