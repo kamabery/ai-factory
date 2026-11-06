@@ -604,6 +604,59 @@ test.describe.serial('factory dashboard', () => {
     await expect.poll(() => calls.at(-1)).toEqual({ url: '/api/jobs/J-301/move', body: { to: 'approved', note: 'drop the raw colour' } });
   });
 
+  test('Approve closes the modal at once, spins on the card until it lands, and cannot be sent twice', async ({ page }) => {
+    const at = new Date(Date.UTC(2026, 10, 1, 12, 0)).toISOString();
+    const j = (id: string) => ({ id, stage: 'backlog', round: 0, title: `job ${id}`, target: 'sim/sandbox', createdAt: at, updatedAt: at, history: [] });
+    const jobs = [j('J-330'), j('J-331')];
+    await page.route('**/api/ideate/config', (r) => r.fulfill({ json: { enabled: false, deploys: true } }));
+    await page.route('**/state/board.json', (r) => r.fulfill({ body: JSON.stringify({ jobs, ideas: [] }) }));
+    await page.route('**/state/events.jsonl', (r) => r.fulfill({ body: '' }));
+    // factory.ps1 approve is slow: each call waits here until the test answers it.
+    const calls: string[] = [];
+    const answers: ((ok: boolean) => void)[] = [];
+    await page.route(/\/api\/jobs\/J-33\d\/move$/, async (r) => {
+      const id = new URL(r.request().url()).pathname.split('/')[3];
+      calls.push(id);
+      const ok = await new Promise<boolean>((resolve) => answers.push(resolve));
+      if (ok) jobs.find((x) => x.id === id)!.stage = 'approved';
+      await r.fulfill({ json: ok ? { ok: true, message: 'ok' } : { ok: false, message: 'approve refused: no spec' } });
+    });
+
+    await page.goto('/');
+    const c = card(page, 'J-330');
+    await c.click();
+    await page.locator('#approve-btn').dblclick();
+
+    // The modal is gone while the request is still in flight, and the card says it is moving.
+    await expect(page.locator('#backdrop')).not.toHaveClass(/open/);
+    await expect(c.locator('[data-moving] .spinner')).toBeVisible();
+    await expect(c).toHaveAttribute('draggable', 'false');
+    await expect(column(page, 'backlog').locator('[data-card="J-330"]')).toBeVisible();
+
+    // Reopened meanwhile, the modal offers no second approve.
+    await c.click();
+    await expect(page.locator('#approve-btn')).toBeDisabled();
+    await expect(page.locator('#approve-btn .spinner')).toBeVisible();
+    await expect(page.locator('#discard-btn')).toBeDisabled();
+    await modal(page).locator('button.close').click();
+    expect(calls).toEqual(['J-330']);
+
+    answers.shift()!(true);
+    await expect(column(page, 'approved').locator('[data-card="J-330"]')).toBeVisible();
+    await expect(c.locator('[data-moving]')).toHaveCount(0);
+
+    // A refusal stops the spinner, leaves the card in Backlog draggable, and says why.
+    const r = card(page, 'J-331');
+    await r.click();
+    await page.locator('#approve-btn').click();
+    await expect(r.locator('[data-moving] .spinner')).toBeVisible();
+    await expect.poll(() => answers.length).toBe(1);
+    answers.shift()!(false);
+    await expect(r.locator('[data-moving]')).toHaveCount(0);
+    await expect(column(page, 'backlog').locator('[data-card="J-331"]')).toHaveAttribute('draggable', 'true');
+    await expect(page.locator('#toast')).toContainText('approve refused: no spec');
+  });
+
   test('a blocked out-of-scope card says what that means and lists the paths', async ({ page }) => {
     const at = new Date(Date.UTC(2026, 10, 1, 12, 0)).toISOString();
     const jobs = [{

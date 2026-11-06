@@ -256,6 +256,7 @@ Set-Content $deployEnv ((Get-Content $plainEnv) + @('HCP_ORG=sim-org', 'HCP_TOKE
 $toolStub = Join-Path $repoRoot 'factory/tests/fixtures/tool-stub.ps1'
 $env:FACTORY_ENV_FILE = $deployEnv
 $env:FACTORY_GH_CMD = $toolStub; $env:FACTORY_AZ_CMD = $toolStub
+$env:FACTORY_SIGNIN_CMD = Join-Path $repoRoot 'factory/tests/fixtures/signin-stub.ps1'
 $env:FACTORY_TOOL_LOG = Join-Path $StateDir 'tools.jsonl'; $env:FACTORY_DEPLOY_POLL_SECONDS = '0'
 try {
     Sim-Start $p[0]; Sim-Build $p[0]; Sim-Review $p[0] @{}
@@ -279,7 +280,7 @@ try {
     F publish $p[0] | Out-Null
 } finally {
     $env:FACTORY_ENV_FILE = $plainEnv
-    Remove-Item Env:FACTORY_GH_CMD, Env:FACTORY_AZ_CMD, Env:FACTORY_TOOL_LOG, Env:FACTORY_DEPLOY_POLL_SECONDS -ErrorAction SilentlyContinue
+    Remove-Item Env:FACTORY_GH_CMD, Env:FACTORY_AZ_CMD, Env:FACTORY_SIGNIN_CMD, Env:FACTORY_TOOL_LOG, Env:FACTORY_DEPLOY_POLL_SECONDS -ErrorAction SilentlyContinue
 }
 
 # Lessons, as the runner compiles them when a pass leaves a job in Ready for review.

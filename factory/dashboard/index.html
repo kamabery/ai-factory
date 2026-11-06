@@ -82,6 +82,8 @@
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   button.danger { color: var(--warn); }
   button:disabled { opacity: .5; cursor: default; }
+  .spinner { display: inline-block; width: 1em; height: 1em; margin-right: 5px; vertical-align: -.15em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
   #pipeline { display: flex; align-items: center; gap: 6px; padding: 10px 16px; overflow-x: auto; border-bottom: 1px solid var(--border); background: var(--panel); }
   .node { position: relative; border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px; white-space: nowrap; background: var(--panel-2); color: var(--muted); }
@@ -242,6 +244,7 @@ const state = {
   sess: null,            // the open idea session: { id, s, chat, streamText, texts, actKey }
   open: null,            // { kind: 'job' | 'idea' | 'session' | 'new-session', id }
   tab: 'spec', files: [], specText: null, specDirty: false, viewerFile: null, viewerText: null, outputKey: '',
+  moving: new Set(),     // job ids with a move to Approved in flight; kept here because a poll re-renders the buttons
 };
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -391,7 +394,9 @@ function waitReason(j) {
   return ahead ? `after ${ahead.id}` : 'next';
 }
 function jobCard(j) {
-  const draggable = j.stage === 'backlog' || j.stage === 'ready';
+  const isMoving = state.moving.has(j.id);
+  const draggable = (j.stage === 'backlog' || j.stage === 'ready') && !isMoving;
+  const moving = isMoving ? '<span class="sub" data-moving><span class="spinner"></span>Moving…</span>' : '';
   const reviews = j.reviews && ROLES.some((r) => j.reviews[r] && j.reviews[r] !== 'pending')
     ? ROLES.map((r) => `<span class="chip ${esc(j.reviews[r])}" data-review="${r}" title="${r}">${r}:${esc(j.reviews[r])}</span>`).join('') : '';
   const sub = BUILDING.includes(j.stage) || j.stage === 'blocked'
@@ -417,7 +422,7 @@ function jobCard(j) {
   return `<div class="card${state.open?.id === j.id ? ' selected' : ''}" data-card="${esc(j.id)}" data-stage="${esc(j.stage)}" draggable="${draggable}">
     <div class="top"><span>${esc(j.id)}</span><span>r${j.round} · ${elapsed(j)}</span></div>
     <div class="title">${esc(j.title)}</div>${repo}
-    <div class="meta">${kind}${stacked}${moved}${provider}${pr}${sub}${flag}${reviews}${cost}</div>${previewBar(j)}${blockedBar(j)}</div>`;
+    <div class="meta">${moving}${kind}${stacked}${moved}${provider}${pr}${sub}${flag}${reviews}${cost}</div>${previewBar(j)}${blockedBar(j)}</div>`;
 }
 // A blocked card's ways out (see "Blocked" in the contract): Retry deploy, Rework (opens the note), Discard.
 function blockedBar(j) {
@@ -554,8 +559,16 @@ document.addEventListener('drop', async (e) => {
 });
 
 async function move(id, to, note) {
+  if (to === 'approved') {
+    if (state.moving.has(id)) return false;   // already on its way; a second request would be refused
+    state.moving.add(id);
+    renderBoard();
+  }
   if (to === 'done') toast(`${id}: merging…`);
-  const res = await api('POST', `/api/jobs/${id}/move`, note ? { to, note } : { to });
+  let res;
+  try { res = await api('POST', `/api/jobs/${id}/move`, note ? { to, note } : { to }); }
+  catch (err) { res = { ok: false, message: `${id}: ${err.message}` }; }
+  if (to === 'approved') state.moving.delete(id);
   if (res.ok) toast(`${id} → ${to === 'discarded' ? 'discarded' : COLUMNS.find((c) => c.key === to)?.label ?? to}`);
   else toast(res.message || 'refused', true);
   state.boardText = '';
@@ -573,6 +586,7 @@ async function setProvider(id, provider) {
 // --- modal ---------------------------------------------------------------------------------
 document.addEventListener('click', (e) => {
   if (e.target.closest('#modal')) return;
+  if (e.detail > 1) return;   // the rest of a double-click on Approve lands on whatever the closed modal uncovered
   if (e.target.id === 'backdrop') { closeModal(); return; }
   if (e.target.closest?.('a[data-pr]')) return;   // the card's PR link opens GitHub, not the modal
   if (e.target.closest?.('a[data-launch]')) return;   // Launch opens the preview, not the modal
@@ -661,7 +675,9 @@ function renderHead() {
   const flag = j.flag ? `<div class="flagbox" data-flagbox><b>${esc(j.flag.reason)}</b>${FLAG_MEANS[j.flag.reason] ? `: ${FLAG_MEANS[j.flag.reason]}` : ''}
     ${j.flag.why ? `<div class="md">${md(j.flag.why)}</div>` : `<div>${esc(j.flag.detail)}</div>`}</div>` : '';
   let actions = '';
-  if (j.stage === 'backlog') actions = `<button class="primary" id="approve-btn">Approve</button><button class="danger" id="discard-btn">Discard</button>`;
+  if (j.stage === 'backlog') actions = state.moving.has(j.id)
+    ? `<button class="primary" id="approve-btn" disabled><span class="spinner"></span>Approving…</button><button class="danger" id="discard-btn" disabled>Discard</button>`
+    : `<button class="primary" id="approve-btn">Approve</button><button class="danger" id="discard-btn">Discard</button>`;
   const live = j.deploy?.status ? preview(j) : null;
   const previewBtn = live?.live && live.url ? `<a class="button" id="preview-btn" href="${esc(live.url)}" target="_blank" rel="noopener">Open preview</a>` : '';
   if (j.stage === 'ready') actions = `${previewBtn}${j.pr?.url ? `<a class="button" id="pr-btn" href="${esc(j.pr.url)}" target="_blank" rel="noopener">Open PR #${esc(j.pr.number)}</a>` : ''}<button class="primary" id="merge-btn">Merge (Done)</button><button class="danger" id="discard-btn">Discard</button>`;
@@ -683,9 +699,11 @@ function renderHead() {
     ${rework}`;
   if (reworkFocus) { const n = $('#rework-note', h); n.focus(); n.setSelectionRange(...reworkFocus); }
 
-  $('#approve-btn', h)?.addEventListener('click', async () => {
+  // factory.ps1 approve takes seconds: close at once, and the card spins until it lands (see move).
+  $('#approve-btn', h)?.addEventListener('click', () => {
     if (state.specDirty) { toast('Save the spec first', true); return; }
-    await move(j.id, 'approved');
+    closeModal();
+    move(j.id, 'approved');
   });
   // A merge may run the whole gate first (minutes): block a second click, and on success get out of
   // the way so the card can be seen landing in Done. On a refusal the modal stays, showing the flag.
