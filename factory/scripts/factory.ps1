@@ -25,6 +25,7 @@ param(
     [switch] $Failed,
     [switch] $Json,
     [switch] $Force,
+    [switch] $Full,
     [switch] $NeedsCanary
 )
 
@@ -917,7 +918,7 @@ try {
         }
 
         'canary' {
-            Invoke-Canary ([bool]$Force)
+            Invoke-Canary ([bool]$Force) ([bool]$Full)
         }
 
         'checkout' {

@@ -275,6 +275,9 @@ function Handle-Hcp([string] $method, [string] $path, $body, $ctx) {
         # <GitBase>/destroy-hangs: the run stays applying until the file goes, as a Container Apps environment's delete does.
         } elseif ($destroy -and (Test-Path (Join-Path $GitBase 'destroy-hangs'))) {
             $s.hcpRuns[$rid].status = 'applying'
+        # <GitBase>/destroy-nothing: the workspace is already empty, so HCP has nothing to apply (J-025).
+        } elseif ($destroy -and (Test-Path (Join-Path $GitBase 'destroy-nothing'))) {
+            $s.hcpRuns[$rid].status = 'planned_and_finished'
         } elseif ($destroy) { $s.outputs.Remove($wsId) }
         Save-DeployState $s
         return @{ status = 201; body = @{ data = (Hcp-Run $s.hcpRuns[$rid]) } }
@@ -298,7 +301,16 @@ function Handle-Hcp([string] $method, [string] $path, $body, $ctx) {
         $vars = if (Test-Path $f) { @(Get-Content $f -Raw | ConvertFrom-Json) } else {
             @(@{ key = 'TFC_AZURE_PROVIDER_AUTH'; value = 'true'; category = 'env'; sensitive = $false }
               @{ key = 'TFC_AZURE_RUN_CLIENT_ID'; value = 'run-client'; category = 'env'; sensitive = $false }) }
-        return @{ status = 200; body = @{ data = @($vars | ForEach-Object { @{ type = 'vars'; attributes = $_ } }) } }
+        return @{ status = 200; body = @{ data = @($vars | ForEach-Object { @{ id = "var-$($_.key)"; type = 'vars'; attributes = $_ } }) } }
+    }
+    # A new variable, or a change to one, kept in <GitBase>/varset-vars.json.
+    if ($method -in 'POST', 'PATCH' -and $path -match '^/api/v2/varsets/([^/]+)/relationships/vars') {
+        $f = Join-Path $GitBase 'varset-vars.json'
+        $have = @(if (Test-Path $f) { Get-Content $f -Raw | ConvertFrom-Json })
+        $a = $body.data.attributes
+        $vars = @($have | Where-Object { $_.key -ne $a.key }) + @([pscustomobject]@{ key = $a.key; value = $a.value; category = $a.category; hcl = [bool]$a.hcl; sensitive = [bool]$a.sensitive })
+        Set-Content $f (ConvertTo-Json -InputObject @($vars) -Depth 5)
+        return @{ status = $(if ($method -eq 'POST') { 201 } else { 200 }); body = @{ data = @{ id = "var-$($a.key)"; type = 'vars'; attributes = $a } } }
     }
     if ($method -eq 'POST' -and $path -match '^/api/v2/workspaces/([^/]+)/actions/safe-delete$') {
         $ws = Ws-ById $s $Matches[1]

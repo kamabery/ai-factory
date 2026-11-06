@@ -95,7 +95,7 @@ function Invoke-In([string] $dir, [string[]] $pwshArgs) {
 }
 
 # Scaffolds into $dir and force-pushes it to the canary repo's main. Returns $null or an error.
-function Publish-CanaryScaffold([string] $repo, $sc, [string] $dir, $rec, $log) {
+function Publish-CanaryScaffold([string] $repo, $sc, [string] $dir, $rec, $log, [bool] $full) {
     Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force $dir | Out-Null
     $cmds = [Collections.Generic.List[string[]]]::new()
@@ -113,6 +113,12 @@ function Publish-CanaryScaffold([string] $repo, $sc, [string] $dir, $rec, $log) 
         $w = ($sc.entra.Keys | Measure-Object -Property Length -Maximum).Maximum
         Set-Content $tfvars ($lines + @($sc.entra.Keys | ForEach-Object { "$($_.PadRight($w)) = `"$($sc.entra[$_])`"" }))
     }
+    # The whole stack, off the shared platform: the only thing that proves a from-scratch create.
+    if ($full) {
+        $tfvars = Join-Path $dir 'IaC/envs/ephemeral.tfvars'
+        if (-not (Test-Path $tfvars)) { return 'scaffold: no IaC/envs/ephemeral.tfvars to set use_platform in' }
+        Add-Content $tfvars 'use_platform = false'
+    }
     Invoke-Git $dir init -q -b main | Out-Null
     Invoke-Git $dir add -A | Out-Null
     $commit = Invoke-Git $dir -c user.name=factory -c user.email=factory@localhost commit -q -m 'canary scaffold'
@@ -129,13 +135,13 @@ function Publish-CanaryScaffold([string] $repo, $sc, [string] $dir, $rec, $log) 
 
 # The run, lock released: scaffold, deploy j000 from main, smoke. Returns $null or the first error;
 # $log collects the sections of canary-<n>.log. The teardown comes after the result (Invoke-CanaryTeardown).
-function Invoke-CanaryRun([string] $repo, $sc, $rec, $log) {
+function Invoke-CanaryRun([string] $repo, $sc, $rec, $log, [bool] $full) {
     $dir = Join-Path (WorkRoot) 'canary'
     $name = ($repo -split '/', 2)[1]
     $err = $null
     $wsId = $null
     try {
-        $err = Publish-CanaryScaffold $repo $sc $dir $rec $log
+        $err = Publish-CanaryScaffold $repo $sc $dir $rec $log $full
         if (-not $err) {
             try {
                 $cj = [ordered]@{ id = 'canary'; target = $repo }
@@ -233,11 +239,11 @@ function Invoke-CanaryTeardown {
     }
 }
 
-function Invoke-Canary([bool] $force) {
+function Invoke-Canary([bool] $force, [bool] $full = $false) {
     if (-not (Deploys-On)) { Fail 'canary refused: deploys are off (no HCP_ORG in .env)' }
     $fp = Canary-Fingerprint
     $last = Get-Canary
-    if (-not $force -and $last -and $last.fingerprint -eq $fp -and $last.status -eq 'pass') { return 'canary: up to date' }
+    if (-not $force -and -not $full -and $last -and $last.fingerprint -eq $fp -and $last.status -eq 'pass') { return 'canary: up to date' }
     Wait-CanaryTeardown
     $last = Get-Canary
     if (-not (Lock-Canary)) { Fail 'canary refused: another canary is running (canary.lock)' }
@@ -256,11 +262,11 @@ function Invoke-Canary([bool] $force) {
         $sc = Canary-Options
         $n = 1 + $(if ($last) { [int]$last.n } else { 0 })
         $rec = [ordered]@{ fingerprint = $fp; status = 'running'; error = $null; repo = $repo; sha = $null; urls = $null
-            log = "canary-$n.log"; startedAt = (Now); finishedAt = $null; n = $n }
+            log = "canary-$n.log"; startedAt = (Now); finishedAt = $null; n = $n; full = $full }
         Save-Canary $rec
         $log = [Collections.Generic.List[string]]::new()
         Exit-BoardLock
-        try { $err = Invoke-CanaryRun $repo $sc $rec $log }
+        try { $err = Invoke-CanaryRun $repo $sc $rec $log $full }
         finally { Enter-BoardLock -1 }
 
         Set-Content (Join-Path $Home_ $rec.log) ($log -join "`n`n")

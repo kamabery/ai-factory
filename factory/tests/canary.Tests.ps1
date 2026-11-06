@@ -206,6 +206,22 @@ Describe 'canary' {
         $tfvars | Should -Contain 'entra_external_user_flow_id = "00000000-0000-0000-0000-0000000000f1"'
     }
 
+    It 'runs on the shared platform by default, as a real job''s preview does' {
+        F canary | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        git -C (Bare $script:CanaryRepo) show main:IaC/envs/ephemeral.tfvars | Should -Not -Contain 'use_platform = false'
+        (Canary).full | Should -BeFalse
+    }
+
+    It '-Full builds the whole stack, which is what still proves a from-scratch create, and runs even when up to date' {
+        F canary | Out-Null
+        F canary -Full | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        CanaryRuns | Should -HaveCount 2
+        git -C (Bare $script:CanaryRepo) show main:IaC/envs/ephemeral.tfvars | Should -Contain 'use_platform = false'
+        (Canary).full | Should -BeTrue
+    }
+
     It 'refuses a scaffold with auth when .env lacks the Entra ids, before anything deploys' {
         Set-Content $env:FACTORY_ENV_FILE ((Get-Content $script:DeployEnvFile) + "FACTORY_CANARY_REPO=$script:CanaryRepo")
         F canary | Out-Null

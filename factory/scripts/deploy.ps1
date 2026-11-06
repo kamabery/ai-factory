@@ -293,7 +293,8 @@ function Remove-Preview([string] $wsId) {
         if ($_.Exception.Message -notmatch 'Configuration version is missing') { throw }
         $status = 'applied'
     }
-    if ($status -ne 'applied') { return Destroy-Failure $wsId $status }
+    # planned_and_finished: the workspace was already empty, so HCP had nothing to apply (J-025).
+    if ($status -notin 'applied', 'planned_and_finished') { return Destroy-Failure $wsId $status }
     Remove-HcpWorkspace $wsId (Poll-Seconds)
     $null
 }

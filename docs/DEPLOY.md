@@ -178,6 +178,44 @@ $h = @{ Authorization = "Bearer <HCP_TOKEN>" }
   ForEach-Object { "$($_.id)  $($_.attributes.name)" }
 ```
 
+## The shared platform (`setup-platform.ps1`)
+
+```powershell
+pwsh factory/scripts/setup-platform.ps1     # after section 3; re-running is safe
+```
+
+`j<NNN>` previews share one Container Apps environment, Log Analytics workspace, Key Vault and Postgres
+server in `rg-factory-platform`, so a fresh preview takes about 14 minutes rather than 31, and a destroy
+a couple of minutes rather than 26 (estimates; see `docs/PLAN-J022-LESSONS.md`, Phase 7).
+
+**Cost: about $18 a month**, nearly all of it the B1ms Postgres server with 32 GB ($14.02 + $4.16,
+`centralus` list prices, 2026-11-06). The environment has no fixed charge on the Consumption plan and
+the vault costs pennies. Log Analytics stops ingesting at 0.2 GB a day, near its free 5 GB a month,
+because one noisy preview now spends for all of them. The price list also has a $0.10/hour "Environment
+Management Hour" meter (about $73 a month) that the billing docs do not name or apply here; check the
+first bill for it.
+
+**What is not in Terraform, and why:**
+
+| What | Done by | Why not HCP Terraform |
+| --- | --- | --- |
+| The platform itself | `setup-platform.ps1` (`az`) | It belongs to the subscription, not to one scaffold; it is set up once and nothing else needs its state |
+| Each preview's Postgres login | `deploy.yml` (`psql`, from the GitHub runner) | HCP's runners sit outside Azure and the firewall keeps them out; the runner has already been let in for the schema step |
+| Dropping that login | the next `deploy.yml` run | A destroy runs in HCP too, so each deploy drops the `preview_*` roles whose databases have gone. A stale role owns nothing, and its database is already gone |
+
+**What previews share:**
+- Logs, and the environment's limits.
+- One server of 1 vCore and 2 GiB. A preview has its own databases and login, and `PUBLIC` is revoked on
+  them, so it cannot reach another's.
+- One vault. An app's identity is granted only its own secrets. The workflow's identity can read every
+  secret, including `postgres-admin-password`, because it creates the logins.
+
+A fresh preview no longer proves a from-scratch create; `factory.ps1 canary -Full` does. dev, staging, a
+preview in another region and scaffolds made before this keep a full stack of their own.
+
+To remove the platform: `az group delete -n rg-factory-platform`, then delete the `platform` variable from
+the HCP variable set. Previews go back to full stacks.
+
 ## 5. GitHub PAT
 
 The deploy stage pushes workflows, creates each target's `preview` environment and its variables,

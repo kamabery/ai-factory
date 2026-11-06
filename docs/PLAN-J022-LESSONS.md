@@ -342,19 +342,26 @@ not on the app.
    - Secret names per preview in the shared vault, and soft-delete on destroy (`j000` reuses its
      names on every canary).
    - Each preview gets its own Postgres role, so none can reach another's database. HCP's runners
-     are outside Azure and can't get through the server's firewall, so this is done with
-     `az postgres flexible-server execute`, not Terraform (Kurt, 2026-11-06: not everything has to
-     run through HCP; use az where it is the better path, and document it). `destroy` drops the
-     role the same way, so none are left behind.
+     are outside Azure and can't get through the server's firewall, so this is not in Terraform
+     (Kurt, 2026-11-06: not everything has to run through HCP; use az where it is the better path,
+     and document it). `deploy.yml` does it with `psql` from the GitHub runner, already through the
+     firewall for the schema step, and each deploy drops the `preview_*` roles that own no database.
    - Container app names must be unique within the shared environment, so they carry the preview id.
    - dev, staging and existing scaffolds keep their own stacks: no platform set means a full stack.
+   **Status 2026-11-06:** built and tested offline, not yet live. The template is `24980dc` on
+   `feature/hcp-ephemeral-deploy`; the platform is `factory/scripts/setup-platform.ps1` (`az`, not
+   Terraform: it belongs to the subscription). Next: run that script, run a canary on the platform,
+   and measure against the estimates. The canary now runs on the platform; `canary -Full` builds the
+   whole stack.
+
+   **Step 2 status:** done, with one change. The two canary levels became the platform canary and
+   `-Full`; a `j000` kept up is not built, because it would cost about $14 a month to save about 4
+   minutes on a deploy-script change.
 4. **Trade-off to accept:** previews share logs, the vault, the Postgres server (1 vCore, 2 GiB) and
    environment limits, and a fresh preview no longer proves a from-scratch create. The full canary
    keeps proving that.
 
 ## Not decided (ask before doing)
-
-- Phase 7: whether a canary may pass before its destroy finishes.
 
 - Whether reviewers should also flag out-of-scope paths. The decision was deterministic only.
 - Whether the canary scaffold gets `auth: true` by default (Phase 5, step 4).

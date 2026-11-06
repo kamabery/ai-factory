@@ -2508,7 +2508,7 @@ Describe 'deploy' {
             }
         }
         AfterEach {
-            foreach ($f in 'destroy-fails', 'destroy-hangs', 'destroy-no-config', 'safe-delete-busy') {
+            foreach ($f in 'destroy-fails', 'destroy-hangs', 'destroy-no-config', 'destroy-nothing', 'safe-delete-busy') {
                 Remove-Item (Join-Path $script:GitBase $f) -ErrorAction SilentlyContinue
             }
         }
@@ -2603,6 +2603,19 @@ Describe 'deploy' {
             F destroy $id | Out-Null
             $LASTEXITCODE | Should -Be 0
             (Job $id).deploy.status | Should -Be 'down'
+            (HcpWorkspace "$(RepoName)-$((Job $id).deploy.env)").deleted | Should -BeTrue
+        }
+
+        It 'destroy takes planned_and_finished as nothing left to destroy (J-025, on the retry after its 409)' {
+            $id = New-ApprovedJob
+            Move-ToDeploy $id
+            F deploy $id | Out-Null
+            Set-Content (Join-Path $script:GitBase 'destroy-nothing') ''
+
+            F destroy $id | Out-Null
+            $LASTEXITCODE | Should -Be 0
+            (Job $id).deploy.status | Should -Be 'down'
+            (Job $id).deploy.destroyError | Should -BeNullOrEmpty
             (HcpWorkspace "$(RepoName)-$((Job $id).deploy.env)").deleted | Should -BeTrue
         }
 

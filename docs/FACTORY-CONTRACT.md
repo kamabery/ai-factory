@@ -1122,7 +1122,13 @@ settings; and
 the HCP variable set's variables (key, category, and the value unless it is sensitive). A changed
 sensitive value does not change the fingerprint; rotate one and run the canary by hand.
 
-**`factory.ps1 canary [-Force]`** - one run at a time (`canary.lock`, as `runner.lock`):
+A canary runs on the [shared platform](DEPLOY.md#the-shared-platform), as a real job's preview does.
+**`-Full`** adds `use_platform = false` to the scaffold's `ephemeral.tfvars`, so it builds the whole
+stack. That is the only thing that still proves a from-scratch create, which dev and staging rely on.
+Run it by hand after changing template IaC. It takes about 61 minutes (31 before its result), runs
+even when up to date, and records `full: true`. If it fails, deployable jobs wait as for any canary.
+
+**`factory.ps1 canary [-Force] [-Full]`** - one run at a time (`canary.lock`, as `runner.lock`):
 
 1. Computes the fingerprint. Without `-Force`, when `canary.json` already records a pass for it,
    prints `canary: up to date` and exits 0. Otherwise it waits for the last canary's teardown, which
@@ -1151,7 +1157,7 @@ retries it.
 ```json
 { "fingerprint": "sha256:...", "status": "running" | "pass" | "failed", "error": null | "<first error line>",
   "repo": "kamabery/factory-canary", "sha": "<scaffold commit>", "urls": { "frontend": "...", "api": "...", "health": "..." },
-  "log": "canary-3.log", "startedAt": "...", "finishedAt": "...", "n": 3,
+  "log": "canary-3.log", "startedAt": "...", "finishedAt": "...", "n": 3, "full": false,
   "teardown": { "status": "destroying" | "down" | "failed", "error": null | "<first error line>", "startedAt": "...", "failures": 0 } }
 ```
 
