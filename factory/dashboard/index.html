@@ -263,7 +263,9 @@ const FLAG_MEANS = {
   'max-rounds': 'reviewers still asked for changes after the last build round.',
   'gate-failed': 'a gate command exited non-zero; gate.log has the output.',
   'merge-blocked': 'the merge was refused.',
-  'deploy-failed': 'the preview did not deploy in three attempts; deploy-<n>.log has the GitHub and HCP logs, and the preview is left up for you to look at.',
+  environment: 'the devops agent judged the environment or the factory at fault, which cannot be fixed by an agent. Fix the cause, then Retry deploy.',
+  'deploy-fix-rounds': 'two deploy-fix rounds did not get the change deployed; the diagnosis is below. Rework it, or discard it.',
+  'deploy-failed': 'the preview did not deploy in five attempts; deploy-<n>.log has the GitHub and HCP logs, and the preview is left up for you to look at.',
   'out-of-scope': 'the build changed the paths below, which match none of the Scope: In globs in the spec, so it stopped before review. Rework with a line "Scope +: <glob>, <glob>" to keep them (the spec is widened), or with a note asking the builder to remove them.',
   'spec-stale': 'a job from the same idea merged after this spec was written, and the builder found the spec no longer holds against main (its reasons are below). Rework with its proposed "Scope +: <glob>" line and AC wording, or discard.',
   'github-permission':'GitHub refused the deploy because the GitHub PAT lacks the permission named below. Add it on GitHub, then run factory.ps1 redeploy <id>; no deploy attempt was used.',
@@ -404,7 +406,7 @@ function jobCard(j) {
   const reviews = j.reviews && ROLES.some((r) => j.reviews[r] && j.reviews[r] !== 'pending')
     ? ROLES.map((r) => `<span class="chip ${esc(j.reviews[r])}" data-review="${r}" title="${r}">${r}:${esc(j.reviews[r])}</span>`).join('') : '';
   const sub = BUILDING.includes(j.stage) || j.stage === 'blocked'
-    ? `<span class="sub">${j.stage} r${j.round}${j.stage === 'deploy' && j.deploy ? ` · ${j.deploy.attempts}/3` : ''}</span>`
+    ? `<span class="sub">${j.stage} r${j.round}${j.stage === 'deploy' && j.deploy ? ` · ${j.deploy.attempts}/5` : ''}</span>`
     : j.stage === 'approved' ? `<span class="sub" data-wait>${esc(waitReason(j))}</span>` : '';
   const flag = j.flag ? `<span class="flag" data-flag title="${esc(j.flag.detail)}">${esc(j.flag.reason)}</span>` : '';
   const cost = j.costUsd != null ? `<span data-cost>$${Number(j.costUsd).toFixed(2)}</span>` : '';

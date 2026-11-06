@@ -67,9 +67,10 @@ The contract has described `blocked` since fa212ec, but no code had it: every es
 - Dashboard: blocked cards in Building with their flag, PR, **Retry deploy** (from deploy only),
   **Rework** and **Discard**, on the card and in the modal.
 
-## Phase 1c — the rest of the deploy contract that is not built (not started; ask first)
+## Phase 1c — the rest of the deploy contract (done 2026-11-06; not yet exercised by a real job)
 
-Also in the contract since before this plan, and not in code:
+Also the 10-minute shell limit, raised with `BASH_MAX_TIMEOUT_MS` in the headless settings. In the
+contract since before this plan, and not in code until now:
 - five deploy attempts a round (the code allows three),
 - `factory.ps1 deploy-fix <id> -File <diagnosis>`, `deployFixes` and the `deploy-fix-rounds` flag,
 - `factory.ps1 block <id> -Detail <line>` and the `environment` flag.

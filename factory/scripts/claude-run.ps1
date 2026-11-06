@@ -61,6 +61,8 @@ function Write-HeadlessSettings([string] $stateDir) {
     $factory = $FactoryPs1 -replace '\\', '/'
     $both = { param($cmds) foreach ($c in $cmds) { "Bash($c)"; "PowerShell($c)" } }
     $settings = [ordered]@{
+        # A deploy can take an hour, and a shell call is cut off at 10 minutes by default (J-023).
+        env = [ordered]@{ BASH_MAX_TIMEOUT_MS = '5400000' }
         permissions = [ordered]@{
             allow = @(& $both $AllowCommands) + @("Bash(pwsh -NoProfile -File $factory *)", "PowerShell(pwsh -NoProfile -File $factory *)")
             additionalDirectories = @(((Join-Path $FactoryRoot 'factory/templates') -replace '\\', '/'), ($TemplatesRoot -replace '\\', '/'))

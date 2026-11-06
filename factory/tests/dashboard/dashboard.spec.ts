@@ -515,6 +515,34 @@ test.describe.serial('factory dashboard', () => {
     await expect(banner).toBeHidden();
   });
 
+  test('a job in deploy counts its attempts out of five, and the new blocked flags say what they mean', async ({ page }) => {
+    await page.route('**/state/board.json', async (r) => {
+      const b = board();
+      const set = (id: string, patch: object) => Object.assign(b.jobs.find((j: Job) => j.id === id), patch);
+      set('J-008', { stage: 'deploy', flag: null });
+      b.jobs.find((j: Job) => j.id === 'J-008').deploy.attempts = 2;
+      await r.fulfill({ body: JSON.stringify(b) });
+    });
+    await page.goto('/');
+    await expect(page.locator('[data-card="J-008"]')).toContainText('2/5');
+    await page.unroute('**/state/board.json');
+
+    for (const [reason, says] of [['environment', 'cannot be fixed by an agent'], ['deploy-fix-rounds', 'two deploy-fix rounds']]) {
+      await page.route('**/state/board.json', async (r) => {
+        const b = board();
+        Object.assign(b.jobs.find((j: Job) => j.id === 'J-008'), {
+          stage: 'blocked', flag: { reason, detail: 'detail line' },
+          history: [{ ts: '2026-11-06T17:00:00Z', from: 'deploy', to: 'blocked', by: 'orchestrator' }],
+        });
+        await r.fulfill({ body: JSON.stringify(b) });
+      });
+      await page.goto('/');
+      await page.locator('[data-card="J-008"]').click();
+      await expect(modal(page).locator('[data-flagbox]')).toContainText(says);
+      await page.unroute('**/state/board.json');
+    }
+  });
+
   test('a canary that passed but could not be torn down says so, and does not say jobs are waiting', async ({ page }) => {
     await page.route('**/state/canary.json', (r) => r.fulfill({ body: JSON.stringify({
       fingerprint: 'sha256:00', status: 'pass', error: null, log: 'canary-6.log', n: 6,

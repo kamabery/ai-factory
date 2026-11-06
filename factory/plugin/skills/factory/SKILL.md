@@ -57,7 +57,7 @@ branch `factory/<id>` checked out, and `FACTORY_JOB=<id>`. Check them with `F st
 
 Read the job's `round` from `F status -Json`. Then loop:
 
-1. **Build.** Run the **builder** agent with: `<job>/spec.md`; `<job>/rework-<round>.md` if it exists;
+1. **Build.** Run the **builder** agent with: `<job>/spec.md`; `<job>/rework-<round>.md` if it exists; `<job>/deploy-fix-<round>.md` if it exists;
    `<job>/round-<round-1>/review-*.md` if round > 1; the template `<templates>/build.md`; the output
    path `<job>/round-<round>/build.md`; the job id. If `F status -Json` shows the job with a
    `baseMoved` (`{ by, sha }`), also tell the builder "base moved: <by> merged at <sha>", so it writes
@@ -85,8 +85,9 @@ Read the job's `round` from `F status -Json`. Then loop:
    `<job>/round-<round>/build.md`, the template `<templates>/deploy.md`, the output path
    `<job>/round-<round>/deploy.md`, the job id and the absolute path of `factory.ps1`. It runs
    `F deploy <id>` itself, as often as the script allows. Afterwards read the stage from
-   `F status -Json`: `approve` means continue; `ready` (`deploy-failed` or `github-permission`) means stop; still `deploy`
-   means the agent stopped early - give up with its reason.
+   `F status -Json`: `approve` means continue; `build` means the agent judged the change at fault and
+   started a new round (`F deploy-fix`), so go back to step 1; `blocked` or `ready` means stop, the job
+   is with the human; still `deploy` means the agent stopped early - give up with its reason.
 6. **Approve.** Run the **approver** agent with every file under `<job>/`, the template
    `<templates>/decision.md`, and the output path `<job>/decision.md`. Then `F read-decision <id>`:
    `gate` means continue; `ready` (ESCALATE) means stop. Exit code 2: re-run the approver once, then give up.

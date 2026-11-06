@@ -34,6 +34,8 @@ Set-StrictMode -Version 3
 
 $Roles = 'security', 'code', 'ux', 'ui'
 $Building = 'build', 'review', 'deploy', 'approve', 'gate'
+$MaxDeployAttempts = 5
+$MaxDeployFixes = 2
 $EventKinds = 'idea', 'stage', 'agent-start', 'agent-stop', 'gate', 'merge', 'cost', 'note', 'eval', 'feedback', 'deploy', 'destroy', 'lesson', 'canary'
 $Providers = 'subscription', 'openrouter'
 
@@ -418,6 +420,12 @@ function Is-Deployable($j) { (Deploys-On) -and -not (Is-Bootstrap $j) }
 
 # Where a job the factory gives up on waits for a human (see "Blocked" in the contract): a deployable
 # job that never reached a passing preview parks in blocked; one in approve or gate has its preview up.
+# deploy-fix and block need a failed attempt, so an agent cannot skip the deploy.
+function Require-FailedDeploy($j, [string] $command) {
+    Require-Stage $j 'deploy' $command
+    if (-not $j['deploy'] -or $j.deploy.status -ne 'failed') { Fail "$command refused: $($j.id) has no failed deploy attempt" }
+}
+
 function Escalation-Stage($j) { if ((Is-Deployable $j) -and $j.stage -in 'build', 'review', 'deploy') { 'blocked' } else { 'ready' } }
 
 # Whether the runner may take $j: it heads the queue, or `next` chose it past jobs held for a canary.
@@ -829,6 +837,7 @@ try {
             # The human has now decided against the new main.
             if ($j['baseMoved']) { $j.baseMoved = $null }
             if ($j.Contains('deploy') -and $j.deploy) { $j.deploy.attempts = 0 }
+            $j.deployFixes = 0
             # The preview stays: the next deploy applies over it (a destroy here raced that apply, J-022).
             Move-Job $j 'approved' 'human'
         }
@@ -991,7 +1000,7 @@ try {
             $resume = $d.status -eq 'applying'
             # The live preview's applied head; a failed or half-applied preview gets a full deploy.
             $since = if ($d.status -eq 'up' -and $d.sha) { "$($d.sha)" } else { '' }
-            if (-not $resume -and [int]$d.attempts -ge 3) { Fail "deploy refused: $($j.id) has used its 3 attempts" }
+            if (-not $resume -and [int]$d.attempts -ge $MaxDeployAttempts) { Fail "deploy refused: $($j.id) has used its $MaxDeployAttempts attempts" }
             if (-not $resume) { $d.attempts = [int]$d.attempts + 1 }
             $d.status = 'applying'
             Save-Board $Board
@@ -1025,9 +1034,37 @@ try {
                     Move-Job $j (Escalation-Stage $j) 'orchestrator' 'github-permission' (PatNeeds $Matches[1])
                     Fail "deploy refused by GitHub: $(PatNeeds $Matches[1]); then run: factory.ps1 redeploy $($j.id)"
                 }
-                if ($attempt -ge 3) { Move-Job $j (Escalation-Stage $j) 'orchestrator' 'deploy-failed' $first }
+                if ($attempt -ge $MaxDeployAttempts) { Move-Job $j (Escalation-Stage $j) 'orchestrator' 'deploy-failed' $first }
                 Fail "deploy attempt $attempt failed: $first; see deploy-$attempt.log (factory.ps1 deploy-log $($j.id))"
             }
+        }
+
+        'deploy-fix' {
+            # The devops agent judged the change at fault: back to the builder, with its diagnosis.
+            $j = Get-Job $Arg1
+            Require-FailedDeploy $j 'deploy-fix'
+            if (-not $File -or -not (Test-Path $File)) { Fail "deploy-fix refused: diagnosis file not found: $File" }
+            if ([int]$j['deployFixes'] -ge $MaxDeployFixes) {
+                Move-Job $j (Escalation-Stage $j) 'orchestrator' 'deploy-fix-rounds' (Read-FirstLine $File)
+                $j.stage
+                break
+            }
+            $j.round = [int]$j.round + 1
+            Copy-Item $File (Join-Path (JobDir $j.id) "deploy-fix-$($j.round).md") -Force
+            $j.deployFixes = [int]$j['deployFixes'] + 1
+            Reset-Reviews $j
+            $j.deploy.attempts = 0
+            Move-Job $j 'build' 'orchestrator'
+            $j.stage
+        }
+
+        'block' {
+            # The devops agent judged the environment or the factory at fault: no agent can fix that.
+            $j = Get-Job $Arg1
+            Require-FailedDeploy $j 'block'
+            if (-not $Detail) { Fail 'usage: block <id> -Detail <one line>' }
+            Move-Job $j (Escalation-Stage $j) 'orchestrator' 'environment' $Detail
+            $j.stage
         }
 
         'redeploy' {

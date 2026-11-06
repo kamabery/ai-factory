@@ -26,7 +26,7 @@ you changed and its `## Template gaps`.
 
 ## Operate (the deploy stage)
 1. `pwsh -NoProfile -File <factory.ps1> deploy <id>`, with the path written out in full, and the
-   longest timeout your shell allows: a full apply takes about an hour. If the call is cut off
+   longest timeout your shell allows (a Bash `timeout` of 5400000): a full apply takes about an hour. If the call is cut off
    before it exits, run the same command again - it resumes the attempt in flight, waits on its
    GitHub run, and is not counted again. Exit 0 means
    the job has moved to approve. If it printed `skipped:` (a bootstrap: no preview until it merges),
@@ -35,9 +35,17 @@ you changed and its `## Template gaps`.
 2. Exit 1 saying `deploy refused by GitHub: the GitHub PAT needs <permission>`: stop. The code is
    not at fault; the job is already with the human, who must add the permission. Never try to work
    around it.
-3. Any other exit 1: `pwsh -NoProfile -File <factory.ps1> deploy-log <id>`. Find the first real error, fix
-   it on the branch, commit, and run `deploy` again. The script counts attempts; after the third
-   failure it hands the job to the human, and a further `deploy` is refused - then stop.
+3. Any other exit 1: `pwsh -NoProfile -File <factory.ps1> deploy-log <id>`. Find the first real error,
+   decide whose fault it is, and act. The script counts attempts; after the fifth failure it hands
+   the job to the human, and a further `deploy` is refused - then stop.
+   - **Infrastructure** (Terraform, the workflow, a module input, an image build step): fix `IaC/` or
+     `.github/workflows/`, commit, and run `deploy` again.
+   - **The change** (a migration that fails, an API that crashes on start, a `/health` that is not
+     200): write `<job>/round-<n>/deploy-fix.md` with the error, the evidence and what the builder
+     should change, run `<factory.ps1> deploy-fix <id> -File <that file>`, and finish. The job goes back
+     to the builder as a new round, and two of those per rework are all it gets.
+   - **The environment** (a federated credential, a quota, a region outage, a factory bug): run
+     `<factory.ps1> block <id> -Detail "<one line>"` and finish. No agent can fix these.
 4. Any other refusal: stop and say why.
 
 Append to `deploy.md`: each attempt and its result, every commit you made after the reviewers

@@ -2295,9 +2295,9 @@ Describe 'deploy' {
     It 'redeploy after the attempts ran out gives the job a fresh budget, and the deploy goes through' {
         $id = New-ApprovedJob
         Move-ToDeploy $id
-        # As J-019: three attempts spent on factory and template bugs, not on the change.
+        # As J-019: its attempts spent on factory and template bugs, not on the change.
         Commit-Change $id 'deploy-fail.txt' 'exec: "az": executable file not found in $PATH'
-        1..3 | ForEach-Object { F deploy $id 2>$null | Out-Null }
+        1..5 | ForEach-Object { F deploy $id 2>$null | Out-Null }
         (Job $id).flag.reason | Should -Be 'deploy-failed'
 
         Commit-Change $id 'deploy-fail.txt' -Remove
@@ -2387,22 +2387,22 @@ Describe 'deploy' {
         (Job $id).deploy.status | Should -Be 'up'
     }
 
-    It 'the third failed attempt moves the job to blocked flagged deploy-failed, and a fourth is refused' {
+    It 'the fifth failed attempt moves the job to blocked flagged deploy-failed, and a sixth is refused' {
         $id = New-ApprovedJob
         Move-ToDeploy $id
         Commit-Change $id 'deploy-fail.txt' 'boom'
-        1..3 | ForEach-Object { F deploy $id | Out-Null }
+        1..5 | ForEach-Object { F deploy $id | Out-Null }
 
         $j = Job $id
         $j.stage | Should -Be 'blocked'
         $j.flag.reason | Should -Be 'deploy-failed'
         $j.flag.detail | Should -Match 'boom'
-        $j.deploy.attempts | Should -Be 3
-        Test-Path (Join-Path (JobDir $id) 'deploy-3.log') | Should -BeTrue
+        $j.deploy.attempts | Should -Be 5
+        Test-Path (Join-Path (JobDir $id) 'deploy-5.log') | Should -BeTrue
 
         F deploy $id | Out-Null
         $LASTEXITCODE | Should -Not -Be 0
-        (Job $id).deploy.attempts | Should -Be 3
+        (Job $id).deploy.attempts | Should -Be 5
     }
 
     It 'destroy runs a destroy, deletes the workspace and records down; again it is a no-op' {
@@ -2489,6 +2489,136 @@ Describe 'deploy' {
             Should -Be 'failed: destroy run ended errored: Error: deleting Resource Group "rg-x": the Resource Group still contains Resources.'
     }
 
+    Context 'the deploy loop' {
+        BeforeEach {
+            # A job in deploy whose last attempt failed.
+            function New-FailedDeploy {
+                $id = New-ApprovedJob
+                Move-ToDeploy $id
+                Commit-Change $id 'deploy-fail.txt' 'boom'
+                F deploy $id | Out-Null
+                (Job $id).deploy.status | Should -Be 'failed'
+                $id
+            }
+            function Diagnosis {
+                $p = Join-Path $TestDrive "diagnosis-$([guid]::NewGuid().ToString('N')).md"
+                Set-Content $p "The migration fails: column already exists.`nThe builder should drop the duplicate."
+                $p
+            }
+        }
+
+        It 'deploy-fix sends the job back to build as a new round, with the diagnosis, reviews pending and no attempts used' {
+            $id = New-FailedDeploy
+            F deploy-fix $id -File (Diagnosis) | Out-Null
+            $LASTEXITCODE | Should -Be 0
+
+            $j = Job $id
+            $j.stage | Should -Be 'build'
+            $j.round | Should -Be 2
+            $j.deployFixes | Should -Be 1
+            $j.deploy.attempts | Should -Be 0
+            $j.reviews.code | Should -Be 'pending'
+            Get-Content (Join-Path (JobDir $id) 'deploy-fix-2.md') -Raw | Should -Match 'column already exists'
+        }
+
+        It 'the third deploy-fix blocks the job with deploy-fix-rounds, and it does not start a round' {
+            $id = New-FailedDeploy
+            foreach ($n in 2, 3) {
+                F deploy-fix $id -File (Diagnosis) | Out-Null
+                (Job $id).round | Should -Be $n
+                Write-Build $id
+                F set-stage $id review | Out-Null
+                Write-Reviews $id (All 'Verdict: PASS')
+                F read-reviews $id | Out-Null
+                F deploy $id | Out-Null
+            }
+            F deploy-fix $id -File (Diagnosis) | Out-Null
+            $LASTEXITCODE | Should -Be 0
+            $j = Job $id
+            $j.stage | Should -Be 'blocked'
+            $j.flag.reason | Should -Be 'deploy-fix-rounds'
+            $j.round | Should -Be 3
+            $j.deployFixes | Should -Be 2
+        }
+
+        It 'a CHANGES verdict in a deploy-fix round blocks the job with max-rounds, like a rework round' {
+            $id = New-FailedDeploy
+            F deploy-fix $id -File (Diagnosis) | Out-Null
+            Write-Build $id
+            F set-stage $id review | Out-Null
+            Write-Reviews $id (All 'Verdict: CHANGES')
+            F read-reviews $id | Out-Null
+            (Job $id).stage | Should -Be 'blocked'
+            (Job $id).flag.reason | Should -Be 'max-rounds'
+        }
+
+        It 'a rework resets deployFixes' {
+            $id = New-FailedDeploy
+            F deploy-fix $id -File (Diagnosis) | Out-Null
+            Write-Build $id
+            F set-stage $id review | Out-Null
+            Write-Reviews $id (All 'Verdict: CHANGES')
+            F read-reviews $id | Out-Null
+            F rework $id 'do it differently' | Out-Null
+            (Job $id).deployFixes | Should -Be 0
+        }
+
+        It 'deploy-fix and block are refused unless the last attempt failed, so an agent cannot skip the deploy' {
+            $id = New-ApprovedJob
+            Move-ToDeploy $id
+            F deploy-fix $id -File (Diagnosis) | Out-Null
+            $LASTEXITCODE | Should -Not -Be 0
+            F block $id -Detail 'a quota' | Out-Null
+            $LASTEXITCODE | Should -Not -Be 0
+            (Job $id).stage | Should -Be 'deploy'
+            (Job $id).round | Should -Be 1
+        }
+
+        It 'deploy-fix and block are refused outside deploy' {
+            $id = New-ApprovedJob
+            F deploy-fix $id -File (Diagnosis) | Out-Null
+            $LASTEXITCODE | Should -Not -Be 0
+            F block $id -Detail 'a quota' | Out-Null
+            $LASTEXITCODE | Should -Not -Be 0
+            (Job $id).stage | Should -Be 'approved'
+        }
+
+        It 'deploy-fix needs a diagnosis, and block needs a reason' {
+            $id = New-FailedDeploy
+            F deploy-fix $id -File 'no-such-file.md' | Out-Null
+            $LASTEXITCODE | Should -Not -Be 0
+            F block $id | Out-Null
+            $LASTEXITCODE | Should -Not -Be 0
+            (Job $id).stage | Should -Be 'deploy'
+        }
+
+        It 'block parks the job with environment and the reason; redeploy then keeps its round and deployFixes' {
+            $id = New-FailedDeploy
+            F deploy-fix $id -File (Diagnosis) | Out-Null
+            Write-Build $id
+            F set-stage $id review | Out-Null
+            Write-Reviews $id (All 'Verdict: PASS')
+            F read-reviews $id | Out-Null
+            F deploy $id | Out-Null
+
+            F block $id -Detail 'the region is out of B1ms capacity' | Out-Null
+            $LASTEXITCODE | Should -Be 0
+            $j = Job $id
+            $j.stage | Should -Be 'blocked'
+            $j.flag.reason | Should -Be 'environment'
+            $j.flag.detail | Should -Be 'the region is out of B1ms capacity'
+
+            F redeploy $id | Out-Null
+            $LASTEXITCODE | Should -Be 0
+            $j = Job $id
+            $j.stage | Should -Be 'approved'
+            $j.resume | Should -Be 'deploy'
+            $j.round | Should -Be 2
+            $j.deployFixes | Should -Be 1
+            $j.deploy.attempts | Should -Be 0
+        }
+    }
+
     Context 'preview teardown' {
         BeforeEach {
             # A discarded job whose destroy has failed, its preview left standing, and HCP still failing it.
@@ -2496,7 +2626,7 @@ Describe 'deploy' {
                 $id = New-ApprovedJob
                 Move-ToDeploy $id
                 Commit-Change $id 'deploy-fail.txt' 'boom'
-                1..3 | ForEach-Object { F deploy $id | Out-Null }
+                1..5 | ForEach-Object { F deploy $id | Out-Null }
                 Set-Content (Join-Path $script:GitBase 'destroy-fails') ''
                 F discard $id | Out-Null
                 $deadline = (Get-Date).AddSeconds(30)
@@ -2672,7 +2802,7 @@ Describe 'deploy' {
         $id = New-ApprovedJob
         Move-ToDeploy $id
         Commit-Change $id 'deploy-fail.txt' 'boom'
-        1..3 | ForEach-Object { F deploy $id | Out-Null }
+        1..5 | ForEach-Object { F deploy $id | Out-Null }
 
         F discard $id | Out-Null
         Wait-Preview $id 'down'

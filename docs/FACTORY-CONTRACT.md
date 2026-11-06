@@ -1054,6 +1054,11 @@ anything but the one child process that needs it, never logged):
    appends a `deploy` event, and exits 1 - or, when that was attempt 5, moves the job to `blocked`
    with flag `deploy-failed`. The preview is left up either way, for diagnosis.
 
+**The shell limit.** A deploy can run for up to an hour, and Claude Code cuts a shell call off at 10
+minutes by default (J-023). The runner's headless settings raise that with `BASH_MAX_TIMEOUT_MS` (90
+minutes), and the devops agent asks for it. A call that is cut off anyway is resumed by running `deploy`
+again, as step 1 says.
+
 **The deploy loop.** After every failed attempt the devops agent reads `deploy-log` and diagnoses
 the first real error as one of three, and acts:
 

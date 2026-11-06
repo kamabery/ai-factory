@@ -13,6 +13,8 @@ the factory pushes it, never you.
 - `<job>/spec.md`: what to build. The human approved this text, so it is the requirement.
 - `<job>/rework-<n>.md`, if it exists for this round: the human's rework note. Where it conflicts
   with the spec, the note wins.
+- `<job>/deploy-fix-<n>.md`, if it exists for this round: the devops agent's diagnosis of why the last
+  round would not deploy. Fix what it names; the deploy has to pass this time.
 - `<job>/round-<n-1>/review-*.md`, from round 2 on: the previous round's reviews. Address every
   finding in a `Verdict: CHANGES` review.
 - The absolute path of `factory.ps1`, for `gate-check`.

@@ -279,6 +279,15 @@ if ($held) { $held.Dispose() }
             $settings.permissions.deny | Should -Contain "Read(/$envFile)"
         }
 
+        It 'lets a shell call outlast a deploy, whose deadline is 60 minutes' {
+            # The default limit of 10 minutes killed the deploy call on every fresh preview (J-023).
+            New-ApprovedJob 'A' | Out-Null
+            Set-FakeClaude
+            Run-Runner | Out-Null
+            $settings = Get-Content (Join-Path $env:FACTORY_HOME 'headless-settings.json') -Raw | ConvertFrom-Json
+            [int]$settings.env.BASH_MAX_TIMEOUT_MS | Should -BeGreaterThan 3600000
+        }
+
         It 'lets agents run the toolchain and read-only shell commands in either shell, and read the templates' {
             New-ApprovedJob 'A' | Out-Null
             Set-FakeClaude
