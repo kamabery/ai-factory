@@ -121,6 +121,14 @@ function Get-HcpVarsetVars {
     @((Invoke-Hcp GET "/varsets/$($c.varset)/relationships/vars").data | ForEach-Object { $_.attributes })
 }
 
-function Remove-HcpWorkspace([string] $workspaceId) {
-    Invoke-Hcp POST "/workspaces/$workspaceId/actions/safe-delete" | Out-Null
+# HCP answers 409 while it processes the state a destroy just wrote (J-025), so that is waited out.
+function Remove-HcpWorkspace([string] $workspaceId, [int] $pollSeconds = 15) {
+    $deadline = (Get-Date).AddMinutes(5)
+    while ($true) {
+        try { Invoke-Hcp POST "/workspaces/$workspaceId/actions/safe-delete" | Out-Null; return }
+        catch {
+            if ($_.Exception.Message -notmatch '^HCP 409 ' -or (Get-Date) -gt $deadline) { throw }
+            Start-Sleep -Seconds $pollSeconds
+        }
+    }
 }

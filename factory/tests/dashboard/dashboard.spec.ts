@@ -515,6 +515,39 @@ test.describe.serial('factory dashboard', () => {
     await expect(banner).toBeHidden();
   });
 
+  test('a canary that passed but could not be torn down says so, and does not say jobs are waiting', async ({ page }) => {
+    await page.route('**/state/canary.json', (r) => r.fulfill({ body: JSON.stringify({
+      fingerprint: 'sha256:00', status: 'pass', error: null, log: 'canary-6.log', n: 6,
+      teardown: { status: 'failed', error: 'destroy run ended errored: 404', startedAt: '2026-11-06T17:00:00Z', failures: 2 },
+    }) }));
+    await page.goto('/');
+    const banner = page.locator('#canary');
+    await expect(banner).toBeVisible();
+    await expect(banner).toContainText('could not be torn down');
+    await expect(banner).toContainText('destroy run ended errored: 404');
+    await expect(banner).not.toContainText('Deployable jobs are waiting');
+    await expect(banner.locator('a[data-canary-log]')).toHaveAttribute('href', '/state/canary-6.log');
+  });
+
+  test('a preview whose destroy failed says so on its card, and offers Tear down even past its timer', async ({ page }) => {
+    await page.route('**/state/board.json', async (r) => {
+      const b = board();
+      Object.assign(b.jobs.find((j: Job) => j.id === 'J-008').deploy, {
+        status: 'up', destroyAt: '2020-01-01T00:00:00Z', destroyFailures: 2,
+        destroyError: 'destroy run ended errored: Error: deleting Application Redirect URIs',
+      });
+      await r.fulfill({ body: JSON.stringify(b) });
+    });
+    await page.goto('/');
+    const c = column(page, 'ready').locator('[data-card="J-008"]');
+    const chip = c.locator('[data-preview]');
+    await expect(chip).toHaveText('preview: destroy failed');
+    await expect(chip).toHaveClass(/failed/);
+    await expect(chip).toHaveAttribute('title', /deleting Application Redirect URIs/);
+    await expect(c.locator('[data-teardown]')).toBeVisible();
+    await expect(c.locator('a[data-launch]')).toHaveCount(0);
+  });
+
   test('an Approved card says what it is waiting on', async ({ page, request }) => {
     // The simulator runs with deploys off, and serve.ps1 says so.
     expect((await (await request.get('/api/ideate/config')).json()).deploys).toBe(false);

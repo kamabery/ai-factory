@@ -442,8 +442,41 @@ if ($held) { $held.Dispose() }
     }
 
     Context 'canary' {
-        BeforeEach { Use-Deploys; Use-Canary }
-        AfterEach { Clear-Deploys }
+        BeforeEach {
+            Use-Deploys; Use-Canary
+            # The teardown is detached and lands after the canary has exited: waits until it ends and returns its record.
+            function Wait-CanaryTeardown {
+                $file = Join-Path $env:FACTORY_HOME 'canary.json'
+                $deadline = (Get-Date).AddSeconds(45)
+                while ($true) {
+                    $t = (Get-Content $file -Raw | ConvertFrom-Json).teardown
+                    if ($t.status -ne 'destroying' -and -not (Test-Path (Join-Path $env:FACTORY_HOME 'canary.lock'))) { return $t }
+                    if ((Get-Date) -gt $deadline) { throw "the canary's teardown never finished" }
+                    Start-Sleep -Milliseconds 300
+                }
+            }
+        }
+        AfterEach {
+            Remove-Item (Join-Path $script:GitBase 'destroy-fails') -ErrorAction SilentlyContinue
+            if (Test-Path (Join-Path $env:FACTORY_HOME 'canary.json')) { Wait-CanaryTeardown | Out-Null }
+            Clear-Deploys
+        }
+
+        It 'sweeps when it drains: a canary whose teardown failed is torn down again' {
+            Set-Content (Join-Path $script:GitBase 'destroy-fails') ''
+            F canary | Out-Null
+            (Wait-CanaryTeardown).status | Should -Be 'failed'
+            Remove-Item (Join-Path $script:GitBase 'destroy-fails')
+
+            Run-Runner | Out-Null
+
+            Get-Content (Join-Path $env:FACTORY_HOME 'runner.log') -Raw | Should -Match 'sweep started: canary'
+            $deadline = (Get-Date).AddSeconds(30)
+            while ((Get-Content (Join-Path $env:FACTORY_HOME 'canary.json') -Raw | ConvertFrom-Json).teardown.status -ne 'down') {
+                if ((Get-Date) -gt $deadline) { throw 'the sweep never took the canary down' }
+                Start-Sleep -Milliseconds 300
+            }
+        }
 
         It 'runs the canary before the first deployable job, then takes it' {
             $id = New-ApprovedJob 'A'

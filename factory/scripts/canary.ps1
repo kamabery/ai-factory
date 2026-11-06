@@ -127,8 +127,8 @@ function Publish-CanaryScaffold([string] $repo, $sc, [string] $dir, $rec, $log) 
     $null
 }
 
-# The whole run, lock released: scaffold, deploy j000 from main, smoke, destroy. Returns $null or
-# the first error; $log collects the sections of canary-<n>.log.
+# The run, lock released: scaffold, deploy j000 from main, smoke. Returns $null or the first error;
+# $log collects the sections of canary-<n>.log. The teardown comes after the result (Invoke-CanaryTeardown).
 function Invoke-CanaryRun([string] $repo, $sc, $rec, $log) {
     $dir = Join-Path (WorkRoot) 'canary'
     $name = ($repo -split '/', 2)[1]
@@ -166,20 +166,71 @@ function Invoke-CanaryRun([string] $repo, $sc, $rec, $log) {
             }
         }
     } finally {
-        # Pass or fail: a canary is never left standing, and a teardown that fails fails the canary.
-        if (-not $wsId) { $wsId = try { Get-HcpWorkspaceId "$name-j000" } catch { $null } }
-        if ($wsId) {
-            $down = try {
-                $status = Invoke-HcpDestroy $wsId (Poll-Seconds) (Deploy-Deadline)
-                if ($status -ne 'applied') { Destroy-Failure $wsId $status }
-                else { Remove-HcpWorkspace $wsId; if (Get-HcpWorkspaceId "$name-j000") { "workspace $name-j000 is still there" } }
-            } catch { $_.Exception.Message }
-            $log.Add("## Destroy`n$(if ($down) { "Error: $down" } else { "workspace $name-j000 destroyed and deleted" })")
-            if ($down -and -not $err) { $err = "destroy: $down" }
-        }
         Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
     }
     $err
+}
+
+# Holds a new canary until the last one's teardown lets go of j000. Called with the board lock; it
+# gives that up while waiting, because the teardown needs it to record its result.
+function Wait-CanaryTeardown {
+    while ($true) {
+        $c = Get-Canary
+        $t = if ($c) { $c['teardown'] }
+        if (-not $t -or $t.status -ne 'destroying' -or -not (Destroy-Running $t.startedAt)) { return }
+        Exit-BoardLock
+        try { Start-Sleep -Seconds ([Math]::Max(1, (Poll-Seconds))) } finally { Enter-BoardLock -1 }
+    }
+}
+
+# factory.ps1 canary-destroy: j000 down, pass or fail, and the outcome under `teardown` in canary.json.
+# A teardown that fails does not fail the canary; sweep retries it.
+function Invoke-CanaryTeardown {
+    $until = (Get-Date).AddSeconds(30)
+    while (-not (Lock-Canary)) {
+        if ((Get-Date) -gt $until) { Fail 'canary-destroy refused: another canary is running (canary.lock)' }
+        Start-Sleep -Seconds 1
+    }
+    $lease = $null; $keeper = $null
+    try {
+        if (State-IsAzure) {
+            $lease = Enter-StateLease 'canary' 0
+            if (-not $lease) { Fail 'canary-destroy refused: another canary is running on another machine (locks/canary)' }
+            $keeper = Start-StateLeaseKeeper 'canary' $lease
+        }
+        $rec = Get-Canary
+        if (-not $rec) { return }
+        $t = if ($rec['teardown']) { $rec.teardown } else { [ordered]@{ status = 'destroying'; error = $null; startedAt = $null; failures = 0 } }
+        $t.status = 'destroying'
+        $t.startedAt = Now
+        $rec.teardown = $t
+        Save-Canary $rec
+
+        $name = ($rec.repo -split '/', 2)[1]
+        Exit-BoardLock
+        try {
+            $down = try {
+                $wsId = Get-HcpWorkspaceId "$name-j000"
+                $gone = if ($wsId) { Remove-Preview $wsId }
+                if ($gone) { $gone } elseif ($wsId -and (Get-HcpWorkspaceId "$name-j000")) { "workspace $name-j000 is still there" }
+            } catch { $_.Exception.Message }
+        } finally { Enter-BoardLock -1 }
+
+        $rec = Get-Canary
+        $t = $rec.teardown
+        $t.status = if ($down) { 'failed' } else { 'down' }
+        $t.error = if ($down) { "$down" }
+        $t.failures = if ($down) { [int]$t.failures + 1 } else { 0 }
+        Save-Canary $rec
+        if ($rec.log) {
+            Add-Content (Join-Path $Home_ $rec.log) "`n`n## Destroy`n$(if ($down) { "Error: $down" } else { "workspace $name-j000 destroyed and deleted" })"
+        }
+        Add-Event ([ordered]@{ job = 'canary'; kind = 'destroy'; detail = $(if ($down) { "failed: $down" } else { 'down' }) })
+        $t.status
+    } finally {
+        if ($lease) { Stop-StateLeaseKeeper $keeper; try { Exit-StateLease 'canary' $lease } catch { } }
+        Remove-Item (Join-Path $Home_ 'canary.lock') -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Invoke-Canary([bool] $force) {
@@ -187,6 +238,8 @@ function Invoke-Canary([bool] $force) {
     $fp = Canary-Fingerprint
     $last = Get-Canary
     if (-not $force -and $last -and $last.fingerprint -eq $fp -and $last.status -eq 'pass') { return 'canary: up to date' }
+    Wait-CanaryTeardown
+    $last = Get-Canary
     if (-not (Lock-Canary)) { Fail 'canary refused: another canary is running (canary.lock)' }
     # In azure, also the lease on locks/canary: one canary across machines (see "State backends").
     $canaryLease = $null; $canaryKeeper = $null
@@ -214,12 +267,15 @@ function Invoke-Canary([bool] $force) {
         $rec.status = if ($err) { 'failed' } else { 'pass' }
         $rec.error = $err
         $rec.finishedAt = Now
+        $rec.teardown = [ordered]@{ status = 'destroying'; error = $null; startedAt = (Now); failures = 0 }
         Save-Canary $rec
         Add-Event ([ordered]@{ kind = 'canary'; detail = $(if ($err) { "failed: $err" } else { 'pass' }) })
     } finally {
         if ($canaryLease) { Stop-StateLeaseKeeper $canaryKeeper; try { Exit-StateLease 'canary' $canaryLease } catch { } }
         Remove-Item (Join-Path $Home_ 'canary.lock') -Force -ErrorAction SilentlyContinue
     }
+    # Pass or fail, j000 comes down, and nothing waits for it: a destroy takes as long as the deploy.
+    Start-FactoryDetached @('canary-destroy')
     if ($err) { Fail "canary failed: $err; see $($rec.log)" }
     "canary: pass ($($rec.urls.api))"
 }

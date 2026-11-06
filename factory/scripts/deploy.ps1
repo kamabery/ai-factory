@@ -3,6 +3,9 @@
 # HCP, the way Invoke-Gate does, so callers must re-fetch the job afterwards.
 
 function Poll-Seconds { if ($env:FACTORY_DEPLOY_POLL_SECONDS) { [int]$env:FACTORY_DEPLOY_POLL_SECONDS } else { 15 } }
+function Signin-Retry-Seconds { if ($env:FACTORY_SIGNIN_RETRY_SECONDS) { [int]$env:FACTORY_SIGNIN_RETRY_SECONDS } else { 30 } }
+# A destroy started longer ago than this has died: Deploy-Deadline gives one 60 minutes.
+function Destroy-Stale-Minutes { if ($null -ne $env:FACTORY_DESTROY_STALE_MINUTES) { [int]$env:FACTORY_DESTROY_STALE_MINUTES } else { 90 } }
 function Deploy-Deadline { (Get-Date).AddMinutes($(if ($env:FACTORY_DEPLOY_TIMEOUT_MINUTES) { [int]$env:FACTORY_DEPLOY_TIMEOUT_MINUTES } else { 60 })) }
 
 function Preview-Env([string] $id) { 'j' + ($id -replace '\D', '') }
@@ -189,12 +192,19 @@ function Invoke-SigninSmoke($outs, $urls, [string] $shots, [Collections.Generic.
     if (-not $user -or -not $pw -or -not $urls -or -not $urls.frontend) { return $null }
     New-Item -ItemType Directory -Force $shots | Out-Null
     $a = @('--url', $urls.frontend, '--user', $user, '--shots', $shots, '--seconds', "$(Signin-Seconds)")
-    $out = if ($env:FACTORY_SIGNIN_CMD) { $pw | & pwsh -NoProfile -File $env:FACTORY_SIGNIN_CMD @a 2>&1 }
-           else { $pw | & node (Join-Path $PSScriptRoot 'signin-smoke.mjs') @a 2>&1 }
-    $code = $LASTEXITCODE
-    foreach ($l in @($out | ForEach-Object { "$_".Replace($pw, '***') })) { $lines.Add($l) }
-    if ($code -eq 0) { return $null }
-    $why = $lines | Where-Object { $_ -match '^error: ' } | Select-Object -First 1
+    for ($try = 1; ; $try++) {
+        $out = if ($env:FACTORY_SIGNIN_CMD) { $pw | & pwsh -NoProfile -File $env:FACTORY_SIGNIN_CMD @a 2>&1 }
+               else { $pw | & node (Join-Path $PSScriptRoot 'signin-smoke.mjs') @a 2>&1 }
+        $code = $LASTEXITCODE
+        foreach ($l in @($out | ForEach-Object { "$_".Replace($pw, '***') })) { $lines.Add($l) }
+        if ($code -eq 0) { return $null }
+        $why = $lines | Where-Object { $_ -match '^error: ' } | Select-Object -Last 1
+        # Entra still replicating a new app's SPA client type (J-025: about 90 s).
+        if ("$why" -notmatch 'AADSTS9002326' -or $try -ge 5) { break }
+        $wait = Signin-Retry-Seconds
+        $lines.Add("step: try $try hit Entra replication; retrying in $wait s")
+        Start-Sleep -Seconds $wait
+    }
     "sign-in smoke: $(if ($why) { $why -replace '^error: ', '' } else { "exited $code" })"
 }
 
@@ -248,8 +258,24 @@ function First-Error([string] $log) {
 # Starts `factory.ps1 destroy <id>` detached when the job has a preview that is not already gone.
 function Start-Destroy($j) {
     if (-not $j.Contains('deploy') -or -not $j.deploy -or $j.deploy.status -in 'down', 'destroying', $null) { return }
-    $a = '-NoProfile', '-File', (Join-Path $PSScriptRoot 'factory.ps1'), 'destroy', $j.id
+    Start-FactoryDetached 'destroy', $j.id
+}
+
+function Start-FactoryDetached([string[]] $argv) {
+    $a = @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'factory.ps1')) + $argv
     if ($IsWindows) { Start-Process pwsh -ArgumentList $a -WindowStyle Hidden | Out-Null } else { Start-Process pwsh -ArgumentList $a | Out-Null }
+}
+
+# True while a destroy that started at $startedAt may still be running.
+function Destroy-Running($startedAt) {
+    if (-not $startedAt) { return $false }
+    [datetime]::Parse("$startedAt").ToUniversalTime().AddMinutes((Destroy-Stale-Minutes)) -gt (Get-Date).ToUniversalTime()
+}
+
+# Whether sweep should start a destroy for a preview in this state (see "Deploy" in the contract).
+function Sweep-Due($status, $startedAt, $failures) {
+    if ($status -in 'down', $null -or [int]$failures -ge 5) { return $false }
+    -not ($status -eq 'destroying' -and (Destroy-Running $startedAt))
 }
 
 # A destroy run that did not apply, with Terraform's own first error from its log when there is one
@@ -259,6 +285,19 @@ function Destroy-Failure([string] $wsId, [string] $status) {
     "destroy run ended $status$(if ($why) { ": $why" })"
 }
 
+# Destroys a workspace's resources, then the workspace. Returns $null or an error; may throw.
+function Remove-Preview([string] $wsId) {
+    try { $status = Invoke-HcpDestroy $wsId (Poll-Seconds) (Deploy-Deadline) }
+    catch {
+        # No apply ever reached this workspace (J-018), so it has nothing to destroy.
+        if ($_.Exception.Message -notmatch 'Configuration version is missing') { throw }
+        $status = 'applied'
+    }
+    if ($status -ne 'applied') { return Destroy-Failure $wsId $status }
+    Remove-HcpWorkspace $wsId (Poll-Seconds)
+    $null
+}
+
 # Destroys the preview's resources and its workspace, lock released. Returns $null or an error.
 function Invoke-Destroy($j) {
     $name = $j.deploy.workspace
@@ -266,12 +305,7 @@ function Invoke-Destroy($j) {
     Exit-BoardLock
     try {
         $wsId = if ($known) { $known } else { Get-HcpWorkspaceId $name }
-        if ($wsId) {
-            $status = Invoke-HcpDestroy $wsId (Poll-Seconds) (Deploy-Deadline)
-            if ($status -ne 'applied') { return Destroy-Failure $wsId $status }
-            Remove-HcpWorkspace $wsId
-        }
-        $null
+        if ($wsId) { Remove-Preview $wsId } else { $null }
     } catch {
         $_.Exception.Message
     } finally {

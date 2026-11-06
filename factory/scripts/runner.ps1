@@ -85,7 +85,13 @@ try {
             Log $(if ($c.Code -eq 0) { 'canary pass' } else { "canary failed: $($c.Err -replace '^factory: canary failed: ', '')" })
             continue
         }
-        if (-not $id) { $how = 'drained'; break }
+        if (-not $id) {
+            $how = 'drained'
+            # Previews that outlived their work; a failure here must not read as a failed drain.
+            $sw = F-Child sweep
+            if ($sw.Code -ne 0) { Log "sweep failed: $($sw.Err)" } elseif ($sw.Out) { Log "sweep started: $($sw.Out -replace "`r?`n", ' ')" }
+            break
+        }
 
         # A redeployed job resumes at deploy; everything else starts at build.
         $resume = (Get-StatusJob $id).PSObject.Properties['resume']

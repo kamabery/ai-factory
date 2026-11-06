@@ -591,6 +591,8 @@ for ($try = 1; ; $try++) {
 }
 Set-Content $ServeLock "$PID`nhttp://localhost:$Port/"
 Write-Host "factory dashboard on http://localhost:$Port/  (state: $StateDir)"
+# Previews that outlived their work, in case nothing has drained the runner since (see "Deploy" in the contract).
+Start-Detached 'factory.ps1' @('sweep')
 try {
     while ($listener.IsListening) {
         $task = $listener.GetContextAsync()

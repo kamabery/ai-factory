@@ -341,8 +341,13 @@ not on the app.
    - Database names per preview (`database-postgres` hardcodes `appdb` and `eventstore`).
    - Secret names per preview in the shared vault, and soft-delete on destroy (`j000` reuses its
      names on every canary).
-   - Previews read the shared server's admin login from the connection string, so any preview can
-     reach any other's database unless each gets its own role.
+   - Each preview gets its own Postgres role, so none can reach another's database. HCP's runners
+     are outside Azure and can't get through the server's firewall, so this is done with
+     `az postgres flexible-server execute`, not Terraform (Kurt, 2026-11-06: not everything has to
+     run through HCP; use az where it is the better path, and document it). `destroy` drops the
+     role the same way, so none are left behind.
+   - Container app names must be unique within the shared environment, so they carry the preview id.
+   - dev, staging and existing scaffolds keep their own stacks: no platform set means a full stack.
 4. **Trade-off to accept:** previews share logs, the vault, the Postgres server (1 vCore, 2 GiB) and
    environment limits, and a fresh preview no longer proves a from-scratch create. The full canary
    keeps proving that.

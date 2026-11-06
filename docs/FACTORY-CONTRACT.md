@@ -376,7 +376,9 @@ has merged), and closing the session deletes the clone.
 
 `merge` (and `sync-prs`) and `discard` also tear down the job's preview when it has one that is
 not `down`: they start `factory.ps1 destroy <id>` detached and do not wait for it. A failed destroy
-is a `note` event, never a failed move, and HCP's auto-destroy timer is the backstop. `rework`
+is never a failed move: it is recorded on the job, shown on its card, and retried by
+`factory.ps1 sweep` (see [Deploy](#deploy)). HCP's auto-destroy timer fires once, so it is no
+backstop for a run that errors. `rework`
 leaves the preview up: the next round's `deploy` applies over it on the same workspace. A destroy
 there raced that apply, which then rebuilt from nothing behind it (J-022).
 
@@ -689,7 +691,7 @@ those lines and nothing else; if one is missing or malformed, the script treats 
 - `resume` is absent (or `null`) except on an Approved job queued by `redeploy`, where it is `"deploy"`:
   the runner moves that job to `deploy` instead of `build`, and clears it.
 - `deploy` is `null` (or absent) until the first `deploy`, then
-  `{ "env": "j001", "workspace": "<repo>-j001", "workspaceId": "ws-...", "status": "applying|up|failed|destroying|down", "attempts": 1, "sha": "<deployed head>", "run": "<GitHub run url>", "urls": { "frontend": "...", "api": "...", "health": "..." }, "appliedAt": "...", "destroyAt": "..." }`.
+  `{ "env": "j001", "workspace": "<repo>-j001", "workspaceId": "ws-...", "status": "applying|up|failed|destroying|down", "attempts": 1, "sha": "<deployed head>", "run": "<GitHub run url>", "urls": { "frontend": "...", "api": "...", "health": "..." }, "appliedAt": "...", "destroyAt": "...", "destroyStartedAt": "...", "destroyError": null, "destroyFailures": 0 }`. The last three exist once a destroy has started; a successful destroy clears the error and the count.
   `urls.frontend` is null for an API-only target. `destroyAt` is HCP's auto-destroy time; after it
   the dashboard treats the preview as gone whatever `status` says. `destroy` and `qa-login` use
   `workspaceId`, so they need `HCP_TOKEN` but not `HCP_ORG`: a dashboard can tear down and log in to
@@ -830,6 +832,7 @@ stderr and leaves the board unchanged.
 | `redeploy <id>` (`blocked` from `deploy`, or `ready` from `deploy` before `blocked` existed: back to Approved with `resume: deploy` and a fresh attempt budget once the cause is fixed; the runner resumes it at deploy) | serve.ps1 (**Retry deploy**), a human |
 | `canary [-Force]` (see [Canary](#canary)) | runner.ps1 (before a deployable job), serve.ps1 (**Run canary**), a human |
 | `destroy <id>` (any stage; a no-op without a preview) · `qa-login <id>` (prints the preview's QA user and password) | serve.ps1 (**Tear down**, **QA login**), and `merge`/`discard` |
+| `sweep` · `canary-destroy` (see [Deploy](#deploy) and [Canary](#canary)) | serve.ps1 at startup and runner.ps1 when it drains; `canary` and `sweep` start `canary-destroy` |
 | `event <json \| -Job -Idea -Kind -Agent>` | hook-event.ps1 |
 | `eval <id> -File <path>` | a human session evaluating a finished job (see [Evaluations](#evaluations)) |
 | `feedback <id> -File <path>` | serve.ps1 (the human's feedback on an evaluation) |
@@ -1033,9 +1036,11 @@ anything but the one child process that needs it, never logged):
    password), and passes when the browser is back on the front end's origin with the header showing
    **Sign out** and the app's own `GET /api/me` (which it sends with the access token; `/api/me` is
    `[SignInRequired]`, so a request without one answers 401) answering 200. The password is passed to the
-   child on stdin, never as an argument or in the log. Any error page on the way (an `AADSTS` code,
+   child on stdin, never as an argument or in the log. `AADSTS9002326` is Entra still replicating a
+   new app's SPA client type, which took about 90 s on J-025, so the whole smoke is retried, up to five
+   tries, `$env:FACTORY_SIGNIN_RETRY_SECONDS` apart (default 30). Any other error page on the way (an `AADSTS` code,
    an `error=` on the redirect, a timeout of `$env:FACTORY_SIGNIN_SECONDS`, default 120) is a failed
-   attempt. `deploy-<a>.log` then ends with a `## Sign-in smoke` section: each step reached, the
+   attempt, as are five of those. `deploy-<a>.log` then ends with a `## Sign-in smoke` section: each step reached, the
    final url without its query, the page's error text, and a screenshot path under `jobs/<id>/`.
    A pass leaves evidence too: `jobs/<id>/signin/smoke-<a>.log` holds the steps (never the
    password), and the smoke saves a screenshot of the signed-in page under `jobs/<id>/signin/`.
@@ -1076,12 +1081,26 @@ preview up, and the next `deploy` applies over it.
 **`factory.ps1 destroy <id>`** queues a destroy run on the workspace (auto-applied), waits for it,
 safe-deletes the workspace, and records `status: down` and a `destroy` event. Without a `deploy`, or
 when it is already `down`, it does nothing. It never moves the job.
+- HCP answers a safe-delete `409` while it processes the state a destroy just wrote (J-025); that is
+  retried for up to 5 minutes.
+- A workspace no apply ever reached answers the destroy run `422 Configuration version is missing`
+  (J-018). It has nothing to destroy, so the workspace is simply deleted.
+- A failure puts `status` back as it was (or `failed`, when it was `destroying`), records
+  `destroyError`, adds one to `destroyFailures`, and appends a `destroy` event.
+
+**`factory.ps1 sweep`** reconciles the previews that outlived their work. It starts a detached
+`destroy` for each job in `done` or `discarded` whose preview is not `down`, and a detached
+`canary-destroy` for a canary whose teardown failed. It skips anything on its fifth failure, which
+waits for the human, and a destroy that started less than 90 minutes ago, which may still be running.
+It prints what it started and does nothing with deploys off. `serve.ps1` runs it at startup and the
+runner when it drains. Non-terminal jobs are left alone: their next round applies over the preview,
+and a destroy there is the J-022 race.
 
 ### Canary
 
 The deploy path is tested against stubs, and stubs encode our assumptions about GitHub, Azure and
 HCP. The **canary** tests the real thing: it deploys a fresh scaffold of the current templates
-end to end, then tears it down. Deployable jobs wait until a canary has passed for the current
+end to end, records the result, then tears it down. Deployable jobs wait until a canary has passed for the current
 inputs. (J-019 used up all three of its attempts on three bugs - an OIDC subject format, a
 credential that already existed, provider auth in the template - and a canary would have found each
 one before any real job paid for it.)
@@ -1106,7 +1125,8 @@ sensitive value does not change the fingerprint; rotate one and run the canary b
 **`factory.ps1 canary [-Force]`** - one run at a time (`canary.lock`, as `runner.lock`):
 
 1. Computes the fingerprint. Without `-Force`, when `canary.json` already records a pass for it,
-   prints `canary: up to date` and exits 0.
+   prints `canary: up to date` and exits 0. Otherwise it waits for the last canary's teardown, which
+   still holds `j000`; a teardown that started over 90 minutes ago is taken to have died.
 2. Scaffolds into `<work>\canary` (emptied first): `dotnet new aspire-base -n <name> -o .
    --dbProvider <db> --resource <resource>`, then `aspire-addon add ui-<ui>` (and `add auth` when
    the options say so) - the commands a bootstrap job runs, with no agent.
@@ -1115,16 +1135,24 @@ sensitive value does not change the fingerprint; rotate one and run the canary b
 4. Deploys it as environment `j000` (workspace `<repo name>-j000`) through the same steps as
    `deploy` 3-7 - GitHub and Azure preparation, HCP, dispatch, outputs, smoke check - with the
    dispatch on `main`.
-5. Destroys it as `destroy` does, pass or fail, then confirms the workspace is gone. A canary that
-   cannot be torn down has failed: discarding a job relies on the same teardown.
-6. Writes `canary.json` and `canary-<n>.log` (the same sections as `deploy-<a>.log`, plus
-   `## Destroy`), appends a `canary` event (`pass` or `failed: <first error line>`), and exits 0 on
-   a pass, 1 otherwise. The work directory is deleted either way.
+5. Writes `canary.json` and `canary-<n>.log` (the same sections as `deploy-<a>.log`), appends a
+   `canary` event (`pass` or `failed: <first error line>`), and deletes the work directory. A passing
+   canary has proved the deploy, and a destroy takes as long again, so nothing waits for it.
+6. Releases `canary.lock`, starts `factory.ps1 canary-destroy` detached, and exits 0 on a pass, 1
+   otherwise.
+
+**`factory.ps1 canary-destroy`** takes `canary.lock`, destroys `j000` as `destroy` does, pass or fail,
+and confirms the workspace is gone. It appends `## Destroy` to the log, records the outcome under
+`teardown`, and appends a `destroy` event with `job: "canary"`. A teardown that fails **does not** fail
+the canary: the deploy path it tested is proven. It still matters, since discarding a job relies on
+the same teardown and `j000` is left standing, so the dashboard shows it in the banner and `sweep`
+retries it.
 
 ```json
 { "fingerprint": "sha256:...", "status": "running" | "pass" | "failed", "error": null | "<first error line>",
   "repo": "kamabery/factory-canary", "sha": "<scaffold commit>", "urls": { "frontend": "...", "api": "...", "health": "..." },
-  "log": "canary-3.log", "startedAt": "...", "finishedAt": "...", "n": 3 }
+  "log": "canary-3.log", "startedAt": "...", "finishedAt": "...", "n": 3,
+  "teardown": { "status": "destroying" | "down" | "failed", "error": null | "<first error line>", "startedAt": "...", "failures": 0 } }
 ```
 
 **The gate.** `next` does not return a deployable job unless `canary.json` records a pass for the

@@ -2050,6 +2050,34 @@ Describe 'deploy' {
             $log | Should -Match 'AADSTS500011'
             $log | Should -Not -Match "pw-$($j.deploy.env)"
             (Events | Where-Object { $_.kind -eq 'deploy' -and $_.job -eq $id }).detail | Should -Match 'AADSTS500011'
+            @(SigninCalls).Count | Should -Be 1
+        }
+
+        It 'retries AADSTS9002326 while the new Entra app replicates, and the job goes on to approve' {
+            # J-025: the smoke failed on it, and passed about 90 s later.
+            $env:FACTORY_SIGNIN_LAG = '2'
+            $env:FACTORY_SIGNIN_RETRY_SECONDS = '0'
+            try {
+                $id = New-ApprovedJob
+                Move-ToDeploy $id
+                F deploy $id | Out-Null
+                $LASTEXITCODE | Should -Be 0
+                @(SigninCalls).Count | Should -Be 3
+                (Job $id).stage | Should -Be 'approve'
+            } finally { Remove-Item Env:FACTORY_SIGNIN_LAG, Env:FACTORY_SIGNIN_RETRY_SECONDS }
+        }
+
+        It 'gives up on AADSTS9002326 after five tries, as a failed attempt' {
+            $env:FACTORY_SIGNIN_LAG = '99'
+            $env:FACTORY_SIGNIN_RETRY_SECONDS = '0'
+            try {
+                $id = New-ApprovedJob
+                Move-ToDeploy $id
+                F deploy $id | Out-Null
+                $LASTEXITCODE | Should -Not -Be 0
+                @(SigninCalls).Count | Should -Be 5
+                (Job $id).deploy.status | Should -Be 'failed'
+            } finally { Remove-Item Env:FACTORY_SIGNIN_LAG, Env:FACTORY_SIGNIN_RETRY_SECONDS }
         }
 
         It 'is skipped when the preview has no QA user' {
@@ -2459,6 +2487,136 @@ Describe 'deploy' {
         $LASTEXITCODE | Should -Not -Be 0
         (Events | Where-Object { $_.kind -eq 'destroy' -and $_.job -eq $id }).detail |
             Should -Be 'failed: destroy run ended errored: Error: deleting Resource Group "rg-x": the Resource Group still contains Resources.'
+    }
+
+    Context 'preview teardown' {
+        BeforeEach {
+            # A discarded job whose destroy has failed, its preview left standing, and HCP still failing it.
+            function New-FailedTeardown {
+                $id = New-ApprovedJob
+                Move-ToDeploy $id
+                Commit-Change $id 'deploy-fail.txt' 'boom'
+                1..3 | ForEach-Object { F deploy $id | Out-Null }
+                Set-Content (Join-Path $script:GitBase 'destroy-fails') ''
+                F discard $id | Out-Null
+                $deadline = (Get-Date).AddSeconds(30)
+                while (-not (Job $id).deploy['destroyFailures']) {
+                    if ((Get-Date) -gt $deadline) { throw "the destroy of $id never failed" }
+                    Start-Sleep -Milliseconds 300
+                }
+                $id
+            }
+        }
+        AfterEach {
+            foreach ($f in 'destroy-fails', 'destroy-hangs', 'destroy-no-config', 'safe-delete-busy') {
+                Remove-Item (Join-Path $script:GitBase $f) -ErrorAction SilentlyContinue
+            }
+        }
+
+        It 'a failed destroy is recorded on the job, and a later one clears it' {
+            $id = New-FailedTeardown
+            $d = (Job $id).deploy
+            $d.status | Should -Be 'failed'
+            $d.destroyFailures | Should -Be 1
+            $d.destroyError | Should -Match 'still contains Resources'
+
+            Remove-Item (Join-Path $script:GitBase 'destroy-fails')
+            F destroy $id | Out-Null
+            $LASTEXITCODE | Should -Be 0
+            $d = (Job $id).deploy
+            $d.status | Should -Be 'down'
+            $d.destroyFailures | Should -Be 0
+            $d.destroyError | Should -BeNullOrEmpty
+        }
+
+        It 'sweep retries a failed destroy of a finished job' {
+            $id = New-FailedTeardown
+            Remove-Item (Join-Path $script:GitBase 'destroy-fails')
+
+            F sweep | Should -Be $id
+            $LASTEXITCODE | Should -Be 0
+            Wait-Preview $id 'down'
+            (Job $id).stage | Should -Be 'discarded'
+            (HcpWorkspace "$(RepoName)-$((Job $id).deploy.env)").deleted | Should -BeTrue
+        }
+
+        It 'sweep leaves the preview of a job still in progress alone' {
+            # Its next round applies over the preview; a destroy here is the J-022 race.
+            $id = New-ApprovedJob
+            Move-ToDeploy $id
+            F deploy $id | Out-Null
+            (Job $id).stage | Should -Be 'approve'
+
+            F sweep | Should -BeNullOrEmpty
+            $LASTEXITCODE | Should -Be 0
+            (Job $id).deploy.status | Should -Be 'up'
+        }
+
+        It 'sweep stops at the fifth failure, which waits for the human' {
+            $id = New-FailedTeardown
+            1..4 | ForEach-Object { F destroy $id | Out-Null }
+            (Job $id).deploy.destroyFailures | Should -Be 5
+
+            F sweep | Should -BeNullOrEmpty
+            $LASTEXITCODE | Should -Be 0
+        }
+
+        It 'sweep skips a destroy that may still be running, and takes over one that has died' {
+            $id = New-FailedTeardown
+            Remove-Item (Join-Path $script:GitBase 'destroy-fails')
+            $env:FACTORY_DEPLOY_POLL_SECONDS = '1'   # at 0, polling a run that hangs runs the machine out of ports
+            Set-Content (Join-Path $script:GitBase 'destroy-hangs') ''
+            $p = Start-Process pwsh -ArgumentList '-NoProfile', '-File', $script:Factory, 'destroy', $id -PassThru -WindowStyle Hidden
+            Wait-Preview $id 'destroying'
+            F sweep | Should -BeNullOrEmpty
+
+            Stop-Process -Id $p.Id -Force
+            $p.WaitForExit(30000) | Out-Null
+            Remove-Item (Join-Path $script:GitBase 'destroy-hangs')
+            $env:FACTORY_DESTROY_STALE_MINUTES = '0'
+            try { F sweep | Should -Be $id } finally { Remove-Item Env:FACTORY_DESTROY_STALE_MINUTES }
+            Wait-Preview $id 'down'
+        }
+
+        It 'serve.ps1 sweeps at startup' {
+            $id = New-FailedTeardown
+            Remove-Item (Join-Path $script:GitBase 'destroy-fails')
+            $l = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0); $l.Start(); $port = $l.LocalEndpoint.Port; $l.Stop()
+            $serve = Start-Process pwsh -ArgumentList '-NoProfile', '-File', (Join-Path (Split-Path $script:Factory) 'serve.ps1'), '-Port', $port,
+                '-StateDir', $env:FACTORY_HOME, '-EnvFile', $env:FACTORY_ENV_FILE -PassThru -WindowStyle Hidden
+            try { Wait-Preview $id 'down' }
+            finally { Stop-Process -Id $serve.Id -Force -ErrorAction SilentlyContinue; $serve.WaitForExit(10000) | Out-Null }
+        }
+
+        It 'sweep does nothing with deploys off' {
+            $env:FACTORY_ENV_FILE = $script:EnvFile
+            F sweep | Should -BeNullOrEmpty
+            $LASTEXITCODE | Should -Be 0
+        }
+
+        It 'destroy waits out the 409 HCP answers while it processes the state (J-025)' {
+            $id = New-ApprovedJob
+            Move-ToDeploy $id
+            F deploy $id | Out-Null
+            Set-Content (Join-Path $script:GitBase 'safe-delete-busy') '2'
+
+            F destroy $id | Out-Null
+            $LASTEXITCODE | Should -Be 0
+            (Job $id).deploy.status | Should -Be 'down'
+            (HcpWorkspace "$(RepoName)-$((Job $id).deploy.env)").deleted | Should -BeTrue
+        }
+
+        It 'destroy deletes a workspace no apply ever reached (J-018: Configuration version is missing)' {
+            $id = New-ApprovedJob
+            Move-ToDeploy $id
+            F deploy $id | Out-Null
+            Set-Content (Join-Path $script:GitBase 'destroy-no-config') ''
+
+            F destroy $id | Out-Null
+            $LASTEXITCODE | Should -Be 0
+            (Job $id).deploy.status | Should -Be 'down'
+            (HcpWorkspace "$(RepoName)-$((Job $id).deploy.env)").deleted | Should -BeTrue
+        }
     }
 
     It 'destroy is a no-op for a job that never deployed' {

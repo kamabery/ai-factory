@@ -12,6 +12,16 @@ BeforeAll {
     function CanaryName { ($script:CanaryRepo -split '/')[1] }
     function CanaryRuns { @((DeployState).runs.Values | Where-Object { $_.repo -eq $script:CanaryRepo }) }
     function CanaryWorkspace { (DeployState).workspaces.Values | Where-Object { $_.name -eq "$(CanaryName)-j000" } | Select-Object -First 1 }
+    # The teardown is detached and lands after the canary has exited: waits until it ends and returns its record.
+    function Wait-Teardown {
+        $deadline = (Get-Date).AddSeconds(45)
+        while ($true) {
+            $t = (Canary).teardown
+            if ($t -and $t.status -ne 'destroying' -and -not (Test-Path (Join-Path $env:FACTORY_HOME 'canary.lock'))) { return $t }
+            if ((Get-Date) -gt $deadline) { throw "the canary's teardown never finished: $($t | ConvertTo-Json -Compress)" }
+            Start-Sleep -Milliseconds 300
+        }
+    }
     function New-ApprovedJob([hashtable] $extra = @{}) {
         $idea = F new-idea 'idea' -Target $script:Repo
         $p = Join-Path $TestDrive "spec-$([guid]::NewGuid().ToString('N')).md"
@@ -56,6 +66,9 @@ BeforeEach {
 }
 
 AfterEach {
+    foreach ($f in 'destroy-fails', 'destroy-hangs') { Remove-Item (Join-Path $script:GitBase $f) -ErrorAction SilentlyContinue }
+    # A detached teardown must not outlive the state and stubs it writes to.
+    if ((Test-Path (Join-Path $env:FACTORY_HOME 'canary.json')) -and (Canary).Contains('teardown')) { Wait-Teardown | Out-Null }
     Clear-Deploys
     Remove-Item Env:FACTORY_HOME, Env:FACTORY_WORK, Env:FACTORY_ENV_FILE, Env:FACTORY_TEMPLATES, Env:FACTORY_CANARY_SCAFFOLD_CMD,
         Env:FACTORY_SMOKE_SECONDS, Env:CANARY_DEPLOY_FAIL -ErrorAction SilentlyContinue
@@ -80,9 +93,50 @@ Describe 'canary' {
         $run = CanaryRuns | Select-Object -First 1
         $run.head_branch | Should -Be 'main'
         $run.environment | Should -Be 'j000'
-        (CanaryWorkspace).deleted | Should -BeTrue
         (Events | Where-Object { $_.kind -eq 'canary' }).detail | Should -Be 'pass'
         Test-Path (Join-Path $env:FACTORY_WORK 'canary') | Should -BeFalse
+
+        (Wait-Teardown).status | Should -Be 'down'
+        (CanaryWorkspace).deleted | Should -BeTrue
+        (Events | Where-Object { $_.kind -eq 'destroy' -and $_.job -eq 'canary' }).detail | Should -Be 'down'
+        Get-Content (Join-Path $env:FACTORY_HOME 'canary-1.log') -Raw | Should -Match '## Destroy'
+    }
+
+    It 'records the pass and exits without waiting for the teardown, which takes as long again' {
+        $env:FACTORY_DEPLOY_POLL_SECONDS = '1'   # at 0, polling a run that hangs runs the machine out of ports
+        Set-Content (Join-Path $script:GitBase 'destroy-hangs') ''
+        F canary | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        (Canary).status | Should -Be 'pass'
+        (Canary).teardown.status | Should -Be 'destroying'
+        (CanaryWorkspace).deleted | Should -BeFalse
+
+        Remove-Item (Join-Path $script:GitBase 'destroy-hangs')
+        (Wait-Teardown).status | Should -Be 'down'
+        (Canary).status | Should -Be 'pass'
+    }
+
+    It 'a job is released by the pass while the teardown still runs' {
+        $id = New-ApprovedJob
+        $env:FACTORY_DEPLOY_POLL_SECONDS = '1'
+        Set-Content (Join-Path $script:GitBase 'destroy-hangs') ''
+        F canary | Out-Null
+        F next | Should -Be $id
+    }
+
+    It 'a new canary waits for the last one''s teardown, which still holds j000' {
+        $env:FACTORY_DEPLOY_POLL_SECONDS = '1'
+        Set-Content (Join-Path $script:GitBase 'destroy-hangs') ''
+        F canary | Out-Null
+        $p = Start-Process pwsh -ArgumentList '-NoProfile', '-File', $script:Factory, 'canary', '-Force' -PassThru -WindowStyle Hidden
+        Start-Sleep -Seconds 4
+        CanaryRuns | Should -HaveCount 1
+
+        Remove-Item (Join-Path $script:GitBase 'destroy-hangs')
+        $p.WaitForExit(60000) | Should -BeTrue
+        $p.ExitCode | Should -Be 0
+        CanaryRuns | Should -HaveCount 2
+        (Canary).n | Should -Be 2
     }
 
     It 'is up to date while the fingerprint has a pass, and -Force runs it again' {
@@ -127,6 +181,7 @@ Describe 'canary' {
         $c.error | Should -Be 'Error: exec: "az": executable file not found in $PATH'
         $c.log | Should -Be 'canary-1.log'
         Get-Content (Join-Path $env:FACTORY_HOME 'canary-1.log') -Raw | Should -Match '## GitHub'
+        (Wait-Teardown).status | Should -Be 'down'
         (CanaryWorkspace).deleted | Should -BeTrue
         (Events | Where-Object { $_.kind -eq 'canary' }).detail | Should -Be 'failed: Error: exec: "az": executable file not found in $PATH'
     }
@@ -168,6 +223,7 @@ Describe 'canary' {
         $log | Should -Match '## Sign-in smoke'
         $log | Should -Not -Match 'pw-j000'
         ((Get-Content $env:FACTORY_SIGNIN_LOG | ConvertFrom-Json).args -join ' ') | Should -Match '/j000/web'
+        (Wait-Teardown).status | Should -Be 'down'
         (CanaryWorkspace).deleted | Should -BeTrue
     }
 
@@ -189,17 +245,30 @@ Describe 'canary' {
         Get-Content (Join-Path $env:FACTORY_HOME 'canary-1.log') -Raw | Should -Match '## Smoke'
         # canary-7: an empty-bodied 400 from /health; the Server header says whether the ingress or the app sent it.
         Get-Content (Join-Path $env:FACTORY_HOME 'canary-1.log') -Raw | Should -Match '/j000/web/api/health answered 503 in \d+s, server: \S+'
+        (Wait-Teardown).status | Should -Be 'down'
         (CanaryWorkspace).deleted | Should -BeTrue
     }
 
-    It 'a destroy that errors fails the canary with HCP''s own error, and keeps the workspace' {
+    It 'a teardown that errors keeps the pass, records HCP''s own error, and keeps the workspace for sweep to retry' {
         # canary-8: the log said only "destroy run ended errored"; the reason was in HCP's apply log.
         Set-Content (Join-Path $script:GitBase 'destroy-fails') ''
-        try { F canary | Out-Null } finally { Remove-Item (Join-Path $script:GitBase 'destroy-fails') }
-        $LASTEXITCODE | Should -Be 1
-        (Canary).error | Should -Be 'destroy: destroy run ended errored: Error: deleting Resource Group "rg-x": the Resource Group still contains Resources.'
+        F canary | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        $t = Wait-Teardown
+        (Canary).status | Should -Be 'pass'
+        $t.status | Should -Be 'failed'
+        $t.failures | Should -Be 1
+        $t.error | Should -Be 'destroy run ended errored: Error: deleting Resource Group "rg-x": the Resource Group still contains Resources.'
         Get-Content (Join-Path $env:FACTORY_HOME 'canary-1.log') -Raw | Should -Match '(?s)## Destroy.*still contains Resources'
         (CanaryWorkspace).deleted | Should -BeFalse
+
+        Remove-Item (Join-Path $script:GitBase 'destroy-fails')
+        F sweep | Should -Be 'canary'
+        $deadline = (Get-Date).AddSeconds(30)
+        while ((Canary).teardown.status -ne 'down' -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 300 }
+        (Wait-Teardown).status | Should -Be 'down'
+        (Wait-Teardown).failures | Should -Be 0
+        (CanaryWorkspace).deleted | Should -BeTrue
     }
 
     It 'refuses while another canary holds canary.lock' {
@@ -229,6 +298,7 @@ Describe 'canary on azure' {
         F canary | Out-Null
         $LASTEXITCODE | Should -Be 0
         (Canary).status | Should -Be 'pass'
+        Wait-Teardown | Out-Null
         (Blob-State).Blobs['locks/canary'].leased | Should -BeFalse
         Blob-Text 'canary.json' | Should -Match '"pass"'
     }

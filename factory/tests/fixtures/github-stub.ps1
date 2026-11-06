@@ -261,13 +261,20 @@ function Handle-Hcp([string] $method, [string] $path, $body, $ctx) {
     if ($method -eq 'POST' -and $path -eq '/api/v2/runs') {
         $wsId = $body.data.relationships.workspace.data.id
         if (-not (Ws-ById $s $wsId)) { return @{ status = 404; body = @{} } }
-        $rid = "run-$(Next-Id $s)"
         $destroy = [bool]$body.data.attributes.'is-destroy'
+        # <GitBase>/destroy-no-config: a workspace no apply ever reached (J-018).
+        if ($destroy -and (Test-Path (Join-Path $GitBase 'destroy-no-config'))) {
+            return @{ status = 422; body = @{ errors = @(@{ status = '422'; title = 'invalid'; detail = 'Configuration version is missing' }) } }
+        }
+        $rid = "run-$(Next-Id $s)"
         $s.hcpRuns[$rid] = [ordered]@{ id = $rid; ws = $wsId; status = 'applied'; isDestroy = $destroy }
         # <GitBase>/destroy-fails: a destroy errors as Azure's late-added alert rule made canary-8's.
         if ($destroy -and (Test-Path (Join-Path $GitBase 'destroy-fails'))) {
             $s.hcpRuns[$rid].status = 'errored'
             $s.logs["apply-$rid"] = 'Error: deleting Resource Group "rg-x": the Resource Group still contains Resources.'
+        # <GitBase>/destroy-hangs: the run stays applying until the file goes, as a Container Apps environment's delete does.
+        } elseif ($destroy -and (Test-Path (Join-Path $GitBase 'destroy-hangs'))) {
+            $s.hcpRuns[$rid].status = 'applying'
         } elseif ($destroy) { $s.outputs.Remove($wsId) }
         Save-DeployState $s
         return @{ status = 201; body = @{ data = (Hcp-Run $s.hcpRuns[$rid]) } }
@@ -275,6 +282,11 @@ function Handle-Hcp([string] $method, [string] $path, $body, $ctx) {
     if ($method -eq 'GET' -and $path -match '^/api/v2/runs/([^/]+)$') {
         $r = $s.hcpRuns[$Matches[1]]
         if (-not $r) { return @{ status = 404; body = @{} } }
+        if ($r.status -eq 'applying' -and -not (Test-Path (Join-Path $GitBase 'destroy-hangs'))) {
+            $r.status = 'applied'
+            $s.outputs.Remove($r.ws)
+            Save-DeployState $s
+        }
         return @{ status = 200; body = @{ data = (Hcp-Run $r) } }
     }
     if ($method -eq 'GET' -and $path -match '^/api/v2/(plans|applies)/((plan|apply)-(.+))$') {
@@ -291,6 +303,16 @@ function Handle-Hcp([string] $method, [string] $path, $body, $ctx) {
     if ($method -eq 'POST' -and $path -match '^/api/v2/workspaces/([^/]+)/actions/safe-delete$') {
         $ws = Ws-ById $s $Matches[1]
         if (-not $ws) { return @{ status = 404; body = @{} } }
+        # <GitBase>/safe-delete-busy holds how many more calls answer 409, as HCP does while it
+        # processes the state a destroy just wrote (J-025).
+        $busy = Join-Path $GitBase 'safe-delete-busy'
+        if (Test-Path $busy) {
+            $left = [int](Get-Content $busy -Raw)
+            if ($left -gt 0) {
+                Set-Content $busy ($left - 1)
+                return @{ status = 409; body = @{ errors = @(@{ status = '409'; title = 'conflict'; detail = 'Latest workspace state is being processed to discover resources, please try again later' }) } }
+            }
+        }
         $ws.deleted = $true
         Save-DeployState $s
         return @{ status = 204 }

@@ -293,11 +293,15 @@ function renderCanary(text) {
   if (text === state.canaryText) return false;
   state.canaryText = text;
   state.canary = c;
-  if (!c || (c.status !== 'failed' && c.status !== 'running')) { el.hidden = true; el.innerHTML = ''; return true; }
+  const stuck = c?.status === 'pass' && c.teardown?.status === 'failed';
+  if (!c || (c.status !== 'failed' && c.status !== 'running' && !stuck)) { el.hidden = true; el.innerHTML = ''; return true; }
   el.hidden = false;
   el.className = c.status === 'running' ? 'running' : '';
   el.innerHTML = c.status === 'running'
     ? `<span class="why">Deploy canary running (since ${esc(new Date(c.startedAt).toLocaleTimeString())}): deployable jobs wait for it.</span>`
+    : stuck
+    ? `<span class="why"><strong>The deploy canary passed, but j000 could not be torn down</strong> (${esc(c.teardown.failures)} of 5 tries). <code>${esc(c.teardown.error)}</code></span>
+       <a data-canary-log href="/state/${esc(c.log)}" target="_blank" rel="noopener">Log</a>`
     : `<span class="why"><strong>Deployable jobs are waiting:</strong> the deploy canary failed. <code>${esc(c.error)}</code></span>
        <a data-canary-log href="/state/${esc(c.log)}" target="_blank" rel="noopener">Log</a>
        <button type="button" data-run-canary>Run canary</button>`;
@@ -444,19 +448,22 @@ function openRework(id) {
 // The preview's state (up, or expired once its auto-destroy time has passed) and where to open it.
 function preview(j) {
   const d = j.deploy;
+  const url = d.urls?.frontend ?? (d.urls?.api ? `${d.urls.api}/openapi/v1.json` : null);
+  // A failed destroy outranks the timer: what it left behind is still there, and still billing.
+  if (d.destroyError && d.status !== 'destroying' && d.status !== 'down') return { status: 'failed', label: 'destroy failed', url, live: false };
   const expired = d.status === 'up' && d.destroyAt && Date.parse(d.destroyAt) < Date.now();
   const status = expired ? 'expired' : d.status;
-  const url = d.urls?.frontend ?? (d.urls?.api ? `${d.urls.api}/openapi/v1.json` : null);
-  return { status, url, live: status === 'up' };
+  return { status, label: status, url, live: status === 'up' };
 }
 
 // The job's ephemeral preview: its state, and Launch / QA login / Tear down while it is up.
 function previewBar(j) {
   const d = j.deploy;
   if (!d || !d.status) return '';
-  const { status, url, live } = preview(j);
-  const title = d.destroyAt ? ` title="auto-destroys ${esc(new Date(d.destroyAt).toLocaleString())}"` : '';
-  return `<div class="meta" data-preview-bar><span class="chip preview ${esc(status)}" data-preview${title}>preview: ${esc(status)}</span>`
+  const { status, label, url, live } = preview(j);
+  const title = label === 'destroy failed' ? ` title="${esc(d.destroyError)}"`
+    : d.destroyAt ? ` title="auto-destroys ${esc(new Date(d.destroyAt).toLocaleString())}"` : '';
+  return `<div class="meta" data-preview-bar><span class="chip preview ${esc(status)}" data-preview${title}>preview: ${esc(label)}</span>`
     + (live && url ? `<a class="chip action" data-launch href="${esc(url)}" target="_blank" rel="noopener" draggable="false">Launch</a>` : '')
     + (live ? '<button type="button" class="chip action" data-qa>QA login</button>' : '')
     + (live || status === 'failed' ? '<button type="button" class="chip action" data-teardown>Tear down</button>' : '')

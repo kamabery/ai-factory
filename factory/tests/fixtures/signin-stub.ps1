@@ -10,6 +10,11 @@ if ($env:FACTORY_SIGNIN_LOG) {
 $code = if ($env:FACTORY_SIGNIN_EXIT) { [int]$env:FACTORY_SIGNIN_EXIT } else { 0 }
 'step: opened the front end'
 'step: clicked Sign in'
+# FACTORY_SIGNIN_LAG: the first N calls fail as a fresh Entra app does until it replicates (J-025).
+if ($env:FACTORY_SIGNIN_LAG -and @(Get-Content $env:FACTORY_SIGNIN_LOG).Count -le [int]$env:FACTORY_SIGNIN_LAG) {
+    'error: AADSTS9002326: Cross-origin token redemption is permitted only for the Single-Page Application client-type.'
+    exit 1
+}
 if ($code -ne 0) {
     'step: identity provider answered with an error'
     'url: https://example.ciamlogin.com/oauth2/v2.0/authorize'

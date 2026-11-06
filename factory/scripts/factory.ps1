@@ -1061,22 +1061,48 @@ try {
         'destroy' {
             $j = Get-Job $Arg1
             if (-not $j.Contains('deploy') -or -not $j.deploy -or $j.deploy.status -in 'down', $null) { "no preview for $($j.id)"; break }
-            $before = $j.deploy.status
+            # A destroy that died left 'destroying'; what it had reached is unknown, so not 'up'.
+            $before = if ($j.deploy.status -eq 'destroying') { 'failed' } else { $j.deploy.status }
             $j.deploy.status = 'destroying'
+            $j.deploy.destroyStartedAt = Now
             Save-Board $Board
             $err = Invoke-Destroy $j
             $j = Get-Job $Arg1
             if ($err) {
                 $j.deploy.status = $before
+                $j.deploy.destroyError = "$err"
+                $j.deploy.destroyFailures = [int]$j.deploy['destroyFailures'] + 1
                 Save-Board $Board
                 Add-Event ([ordered]@{ job = $j.id; kind = 'destroy'; detail = "failed: $err" })
                 Fail "destroy failed: $err"
             }
             $j.deploy.status = 'down'
             $j.deploy.urls = $null
+            $j.deploy.destroyError = $null
+            $j.deploy.destroyFailures = 0
             Save-Board $Board
             Add-Event ([ordered]@{ job = $j.id; kind = 'destroy'; detail = 'down' })
             'down'
+        }
+
+        'sweep' {
+            # Previews that outlived their work; see "Deploy" in the contract.
+            if (-not (Deploys-On)) { break }
+            foreach ($j in @($Board.jobs | Where-Object { $_.stage -in 'done', 'discarded' -and $_.Contains('deploy') -and $_.deploy })) {
+                if (Sweep-Due $j.deploy.status $j.deploy['destroyStartedAt'] $j.deploy['destroyFailures']) {
+                    $j.id
+                    Start-FactoryDetached 'destroy', $j.id
+                }
+            }
+            $c = Get-Canary
+            if ($c -and $c['teardown'] -and (Sweep-Due $c.teardown.status $c.teardown.startedAt $c.teardown.failures)) {
+                'canary'
+                Start-FactoryDetached @('canary-destroy')
+            }
+        }
+
+        'canary-destroy' {
+            Invoke-CanaryTeardown
         }
 
         'qa-login' {
