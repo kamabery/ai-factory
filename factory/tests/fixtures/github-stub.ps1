@@ -25,9 +25,9 @@
   under /api/v2 from the same process, so the two agree: projects, varset attachment, workspaces,
   current-state-version-outputs, state-version-outputs, runs (a destroy run applies at once and
   clears the outputs), plans and applies with a log-read-url under /hcp-log/, safe-delete, and a
-  variable set's variables (<GitBase>/varset-vars.json, else two fixed ones). A j000 preview (the
-  canary's) gets urls under /preview/<o>/<n>/j000/ that this stub serves: web/api/health answers 200
-  Healthy, or 503 while <owner>/<name>.unhealthy exists, api/health answers 401 and web 200.
+  variable set's variables (<GitBase>/varset-vars.json, else two fixed ones). A preview gets urls
+  under /preview/<o>/<n>/<env>/ that this stub serves: web/api/health answers 200 Healthy, or 503
+  while <owner>/<name>.unhealthy exists, api/health answers 401 and web 200.
 #>
 param(
     [Parameter(Mandatory)] [int] $Port,
@@ -129,9 +129,9 @@ function Dispatch-Run([string] $o, [string] $n, $body) {
         $rid = "run-$(Next-Id $s)"
         $s.hcpRuns[$rid] = [ordered]@{ id = $rid; ws = $ws.id; status = 'applied'; isDestroy = $false }
         $s.logs["plan-$rid"] = 'Plan: 21 to add, 0 to change, 0 to destroy.'
-        # The canary's j000 smoke-checks its urls, so they point back at this stub (see /preview below).
-        $api = if ($envName -eq 'j000') { "http://localhost:$Port/preview/$o/$n/j000/api" } else { "https://ca-$n-api.$envName.test" }
-        $web = if ($envName -eq 'j000') { "http://localhost:$Port/preview/$o/$n/j000/web" } else { "https://stapp-$n-react-$envName.test" }
+        # Every deploy smoke-checks its urls, so they point back at this stub (see /preview below).
+        $api = "http://localhost:$Port/preview/$o/$n/$envName/api"
+        $web = "http://localhost:$Port/preview/$o/$n/$envName/web"
         $s.outputs[$ws.id] = [ordered]@{
             api_url = @{ value = $api; sensitive = $false }
             react_url = @{ value = $web; sensitive = $false }

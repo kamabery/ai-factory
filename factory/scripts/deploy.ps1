@@ -160,12 +160,20 @@ function Invoke-Deploy($j, [switch] $Resume, [string] $Since = '') {
             if ($run.conclusion -eq 'success') {
                 $outs = Get-HcpOutputs $wsId @('qa_password')
                 $result.urls = Preview-Urls $outs
-                $signin = [Collections.Generic.List[string]]::new()
-                $shots = Join-Path (JobDir $j.id) 'signin'
-                $err = Invoke-SigninSmoke $outs $result.urls $shots $signin
-                # A pass leaves evidence too (J-024's first live smoke left none).
-                if ($signin.Count) { Set-Content (Join-Path $shots "smoke-$($j.deploy.attempts).log") $signin }
-                if ($err) { $result.log = "## Sign-in smoke`nError: $err`n$($signin -join "`n")" } else { $result.ok = $true }
+                # Step 7. J-026's /api/health was never probed: job deploys ran only the sign-in.
+                $smoke = [Collections.Generic.List[string]]::new()
+                $err = Invoke-Smoke $result.urls $smoke
+                if ($err) {
+                    $result.log = "## Smoke`nError: $err`n$($smoke -join "`n")"
+                } else {
+                    Set-Content (Join-Path (JobDir $j.id) "smoke-$($j.deploy.attempts).log") $smoke
+                    $signin = [Collections.Generic.List[string]]::new()
+                    $shots = Join-Path (JobDir $j.id) 'signin'
+                    $err = Invoke-SigninSmoke $outs $result.urls $shots $signin
+                    # A pass leaves evidence too (J-024's first live smoke left none).
+                    if ($signin.Count) { Set-Content (Join-Path $shots "smoke-$($j.deploy.attempts).log") $signin }
+                    if ($err) { $result.log = "## Sign-in smoke`nError: $err`n$($signin -join "`n")" } else { $result.ok = $true }
+                }
             } else {
                 $result.log = "## GitHub`n$(Get-RunLog $j $run)`n`n## HCP`n$(Get-HcpRunLog $wsId)"
             }
@@ -243,16 +251,54 @@ function Invoke-Smoke($urls, [Collections.Generic.List[string]] $lines) {
 # The first line that reads like an error, for the event and the flag.
 # GitHub prints each step's script in cyan (ESC[36;1m) before running it, so an `echo "::error::..."`
 # there is source, not an error. An action's `##[error]` or Terraform's `Error:` is the real thing;
-# the closing "Process completed with exit code" says only that something failed.
+# the closing "Process completed with exit code" says only that something failed, so the cause is in
+# the output of the step it closes. A Terraform warning is not an error, whatever words it uses
+# (canary 21 quoted one instead of its 42501), and a Terraform line can need the rest of its box.
 function First-Error([string] $log) {
-    $lines = @($log -split "`n" | Where-Object { $_ -notmatch '\x1b\[36;1m' } | ForEach-Object {
-            ($_ -replace '\x1b\[[0-9;]*m', '' -replace '^\d{4}-\d\d-\d\dT[\d:.]+Z\s?', '' -replace '^[│╷╵\s]+', '').Trim()
-        })
+    $boxed = [Collections.Generic.List[string]]::new()
+    $inWarning = $false
+    foreach ($raw in $log -split "`n") {
+        if ($raw -match '\x1b\[(36;1|33)m') { continue }
+        $l = ($raw -replace '\x1b\[[0-9;]*m', '' -replace '^\d{4}-\d\d-\d\dT[\d:.]+Z\s?', '').TrimEnd()
+        # HCP's structured log: only its errors count, and they read as Terraform's own do.
+        if ($l -match '^\{"@level"') {
+            if ($l -notmatch '^\{"@level":"error"') { continue }
+            $l = try { ($l | ConvertFrom-Json).'@message' } catch { continue }
+        }
+        if ($l -match '^│\s*Warning: ') { $inWarning = $true }
+        if (-not $inWarning) { $boxed.Add($l) }
+        if ($l -match '^\s*╵') { $inWarning = $false }
+    }
+    $lines = @($boxed | ForEach-Object { ($_ -replace '^[│╷╵\s]+', '').Trim() })
     $generic = '^##\[error\]Process completed with exit code'
-    $line = $lines | Where-Object { ($_ -match '^##\[error\]' -and $_ -notmatch $generic) -or $_ -match '^Error: ' } | Select-Object -First 1
-    if (-not $line) { $line = $lines | Where-Object { $_ -match '(?i)\berror\b' -and $_ -notmatch $generic } | Select-Object -First 1 }
+    $at = 0..($lines.Count - 1) | Where-Object { ($lines[$_] -match '^##\[error\]' -and $lines[$_] -notmatch $generic) -or $lines[$_] -match '^Error: ' } | Select-Object -First 1
+    if ($null -ne $at) {
+        if ($boxed[$at] -match '^\s*│') { return Terraform-Error $boxed $at }
+        return $lines[$at] -replace '^##\[error\]', ''
+    }
+    $exit = 0..($lines.Count - 1) | Where-Object { $lines[$_] -match $generic } | Select-Object -First 1
+    if ($exit) {
+        $group = 0..($exit - 1) | Where-Object { $lines[$_] -match '^##\[(end)?group\]' } | Select-Object -Last 1
+        $step = @($lines[$(if ($null -ne $group) { $group + 1 } else { 0 })..($exit - 1)])
+        $line = $step | Where-Object { $_ -match '(?i)exception|\berror\b|\bfatal\b|\bdenied\b' } | Select-Object -First 1
+        if (-not $line -and $null -ne $group) { $line = $step | Where-Object { $_ } | Select-Object -Last 1 }
+        if ($line) { return "$line" }
+    }
+    $line = $lines | Where-Object { $_ -match '(?i)\berror\b' -and $_ -notmatch $generic } | Select-Object -First 1
     if (-not $line) { $line = $lines | Where-Object { $_ } | Select-Object -Last 1 }
     "$line" -replace '^##\[error\]', ''
+}
+
+# A Terraform error box as one line: the summary, which azurerm wraps, and the response when the
+# provider left it further down the box (canary 24's summary was only "Failed to execute action").
+function Terraform-Error($boxed, [int] $at) {
+    $box = @($boxed[$at..($boxed.Count - 1)] | ForEach-Object -Begin { $open = $true } -Process {
+            if ($open -and $_ -match '^\s*│') { ($_ -replace '^\s*│', '').Trim() } else { $open = $false }
+        })
+    $blank = 0..($box.Count - 1) | Where-Object { -not $box[$_] } | Select-Object -First 1
+    $summary = @($box[0..($(if ($blank) { $blank } else { $box.Count }) - 1)] | Where-Object { $_ }) -join ' '
+    $detail = @($box | Where-Object { $_ -match '^(RESPONSE \d|ERROR CODE: |Message: )' })
+    if ($detail) { "$($summary.TrimEnd(':')): $($detail -join '; ')" } else { $summary }
 }
 
 # Starts `factory.ps1 destroy <id>` detached when the job has a preview that is not already gone.

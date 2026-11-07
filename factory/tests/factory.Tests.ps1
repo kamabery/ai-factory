@@ -2001,6 +2001,34 @@ Describe 'deploy' {
     BeforeEach { Use-Deploys }
     AfterEach { Clear-Deploys }
 
+    Context 'HTTP smoke' {
+        AfterEach { Remove-Item (Join-Path $script:GitBase "$script:Repo.unhealthy") -ErrorAction SilentlyContinue }
+
+        It 'a /health that never answers 200 is a failed attempt: it says so, skips the sign-in, and the job stays in deploy' {
+            $env:FACTORY_SIGNIN_LOG = Join-Path $TestDrive "signin-$([guid]::NewGuid().ToString('N').Substring(0,8)).jsonl"
+            $id = New-ApprovedJob
+            Move-ToDeploy $id
+            Set-Content (Join-Path $script:GitBase "$script:Repo.unhealthy") ''
+            F deploy $id | Out-Null
+            $LASTEXITCODE | Should -Be 1
+            $j = Job $id
+            $j.stage | Should -Be 'deploy'
+            $j.deploy.status | Should -Be 'failed'
+            Get-Content (Join-Path (JobDir $id) 'deploy-1.log') -Raw | Should -Match '## Smoke[\s\S]*answered 503'
+            (Events | Where-Object { $_.kind -eq 'deploy' -and $_.job -eq $id }).detail | Should -Match 'failed \(attempt 1\): Error: smoke: .*/web/api/health answered 503'
+            Test-Path $env:FACTORY_SIGNIN_LOG | Should -BeFalse
+        }
+
+        It 'a pass leaves its results in smoke-N.log, and the job goes on to approve' {
+            $id = New-ApprovedJob
+            Move-ToDeploy $id
+            F deploy $id | Out-Null
+            $LASTEXITCODE | Should -Be 0
+            (Job $id).stage | Should -Be 'approve'
+            Get-Content (Join-Path (JobDir $id) 'smoke-1.log') -Raw | Should -Match '/web/api/health answered 200'
+        }
+    }
+
     Context 'sign-in smoke' {
         BeforeEach {
             $env:FACTORY_SIGNIN_LOG = Join-Path $TestDrive "signin-$([guid]::NewGuid().ToString('N').Substring(0,8)).jsonl"
@@ -2017,7 +2045,7 @@ Describe 'deploy' {
             $calls = @(SigninCalls)
             $calls.Count | Should -Be 1
             $a = $calls[0].args -join ' '
-            $a | Should -Match ([regex]::Escape("--url https://stapp-$(RepoName)-react-$env_.test"))
+            $a | Should -Match "--url http\S*/preview/$script:Repo/$env_/web"
             $a | Should -Match ([regex]::Escape("--user qa-$env_@$(RepoName).test"))
             $a | Should -Not -Match "pw-$env_"
             $calls[0].stdin | Should -Be "pw-$env_"
@@ -2147,7 +2175,7 @@ Describe 'deploy' {
 
         $out = F deploy $id
         $LASTEXITCODE | Should -Be 0
-        ($out -join "`n") | Should -Match 'https://stapp-'
+        ($out -join "`n") | Should -Match "frontend: http\S*/preview/$script:Repo/j001/web"
 
         $j = Job $id
         $j.stage | Should -Be 'approve'
@@ -2156,12 +2184,12 @@ Describe 'deploy' {
         $j.deploy.workspace | Should -Be "$(RepoName)-j001"
         $j.deploy.workspaceId | Should -Be (HcpWorkspace "$(RepoName)-j001").id
         $j.deploy.attempts | Should -Be 1
-        $j.deploy.urls.frontend | Should -Be "https://stapp-$(RepoName)-react-j001.test"
-        $j.deploy.urls.api | Should -Be "https://ca-$(RepoName)-api.j001.test"
-        $j.deploy.urls.health | Should -Be "https://stapp-$(RepoName)-react-j001.test/api/health"
+        $j.deploy.urls.frontend | Should -Match "/preview/$script:Repo/j001/web$"
+        $j.deploy.urls.api | Should -Match "/preview/$script:Repo/j001/api$"
+        $j.deploy.urls.health | Should -Match "/preview/$script:Repo/j001/web/api/health$"
         $j.deploy.sha | Should -Be (git -C (Work $id) rev-parse HEAD)
         $j.deploy.destroyAt | Should -Not -BeNullOrEmpty
-        (Events | Where-Object { $_.kind -eq 'deploy' -and $_.job -eq $id }).detail | Should -Be "up https://stapp-$(RepoName)-react-j001.test"
+        (Events | Where-Object { $_.kind -eq 'deploy' -and $_.job -eq $id }).detail | Should -Match "^up http.*/preview/$script:Repo/j001/web$"
     }
 
     It 'prepares HCP: the repo project with the Azure varset, idle dev and staging, and the preview workspace on a 24 hour timer' {
@@ -3090,6 +3118,74 @@ Describe 'First-Error' {
             '2026-10-24T13:24:02.1060520Z ##[error]Login failed with Error: The process ''/usr/bin/az'' failed with exit code 1.'
         ) -join "`n"
         First-Error $log | Should -Be "AADSTS700213: No matching federated identity record found for presented assertion subject 'repo:o@1/n@2:environment:preview'."
+    }
+
+    It 'ignores the word error in a Terraform warning, and finds the failing step''s own output (canary 21)' {
+        $log = @(
+            "2026-11-06T21:32:25.8579910Z $e[33m│$e[0m $e[0mexceptional situations such as recovering from errors or mistakes, or when"
+            "2026-11-06T21:32:25.8580584Z $e[33m│$e[0m $e[0mTerraform specifically suggests to use it as part of an error message."
+            "2026-11-06T21:37:43.4937425Z $e[36;1mpsql -v ON_ERROR_STOP=1 -q -v role=`"`$DB_ROLE`"$e[0m"
+            '2026-11-06T21:38:03.0000000Z ##[group]Run dotnet ef database update'
+            '2026-11-06T21:38:03.8921342Z Npgsql.PostgresException (0x80004005): 42501: permission denied for schema public'
+            '2026-11-06T21:38:03.9295807Z     Severity: ERROR'
+            '2026-11-06T21:38:03.9441792Z 42501: permission denied for schema public'
+            '2026-11-06T21:38:03.9442112Z '
+            '2026-11-06T21:38:03.9442298Z POSITION: 28'
+            '2026-11-06T21:38:03.9652543Z ##[error]Process completed with exit code 1.'
+        ) -join "`n"
+        First-Error $log | Should -Be 'Npgsql.PostgresException (0x80004005): 42501: permission denied for schema public'
+    }
+
+    It 'ignores a Terraform warning box with no colour too, as HCP''s logs print it' {
+        $log = @(
+            '╷'
+            '│ Warning: Applied changes may be incomplete'
+            '│ Terraform specifically suggests to use it as part of an error message.'
+            '╵'
+            'Plan: 3 to add'
+        ) -join "`n"
+        First-Error $log | Should -Be 'Plan: 3 to add'
+    }
+
+    It 'adds the response to a generic Terraform summary, and skips the with and on lines (canaries 16 and 24)' {
+        $log = @(
+            '2026-11-06T23:20:00.9577971Z │ Error: Failed to execute action'
+            '2026-11-06T23:20:00.9578515Z │ '
+            '2026-11-06T23:20:00.9579001Z │   with msgraph_resource_action.user_flow_link,'
+            '2026-11-06T23:20:00.9579788Z │   on auth.entra-external.tf line 161, in resource "msgraph_resource_action" "user_flow_link":'
+            '2026-11-06T23:20:00.9581143Z │ '
+            '2026-11-06T23:20:00.9581538Z │ API call failed: POST'
+            '2026-11-06T23:20:00.9582860Z │ https://graph.microsoft.com/v1.0/identity/authenticationEventsFlows/1/conditions/applications/includeApplications'
+            '2026-11-06T23:20:00.9584583Z │ RESPONSE 400: 400 Bad Request'
+            '2026-11-06T23:20:00.9585033Z │ ERROR CODE: AADB2C'
+            '2026-11-06T23:20:00.9586139Z │ {'
+            '2026-11-06T23:20:01.0000000Z ╵'
+        ) -join "`n"
+        First-Error $log | Should -Be 'Error: Failed to execute action: RESPONSE 400: 400 Bad Request; ERROR CODE: AADB2C'
+    }
+
+    It 'joins a summary that azurerm wrapped over several lines, so the cause is in it (J-019 attempt 2)' {
+        $log = @(
+            '│ Error: creating Key Vault (Subscription: "s-1"'
+            '│ Resource Group Name: "rg-todoapp-j019"'
+            '│ Key Vault Name: "kv-1"): polling after CreateOrUpdate: unexpected status 404 (404 Not Found) with error: ResourceNotFound: The Resource was not found'
+            '│ '
+            '│   with azurerm_key_vault.main,'
+            '╵'
+        ) -join "`n"
+        First-Error $log | Should -Be 'Error: creating Key Vault (Subscription: "s-1" Resource Group Name: "rg-todoapp-j019" Key Vault Name: "kv-1"): polling after CreateOrUpdate: unexpected status 404 (404 Not Found) with error: ResourceNotFound: The Resource was not found'
+    }
+
+    It 'adds the Message when the summary ends by promising the error (J-019 attempt 1)' {
+        $log = @(
+            '│ Error: creating Flexible Server (Subscription: "s-1"'
+            '│ Flexible Server Name: "psql-1"): polling failed: the Azure API returned the following error:'
+            '│ '
+            '│ Status: "SkuNotAvailable"'
+            '│ Message: "Specified SKU is not supported in this region. Please choose a different SKU."'
+            '╵'
+        ) -join "`n"
+        First-Error $log | Should -Be 'Error: creating Flexible Server (Subscription: "s-1" Flexible Server Name: "psql-1"): polling failed: the Azure API returned the following error: Message: "Specified SKU is not supported in this region. Please choose a different SKU."'
     }
 
     It 'falls back to the generic exit line when nothing better is there' {

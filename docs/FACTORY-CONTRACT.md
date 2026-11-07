@@ -1027,8 +1027,9 @@ anything but the one child process that needs it, never logged):
    200. A freshly started container can take a while, so each is retried every 10 seconds for up to
    `$env:FACTORY_SMOKE_SECONDS` (default 300). A probe that never answers 200 is a failed attempt,
    and `deploy-<a>.log` ends with a `## Smoke` section: each url, its last status, how long it took,
-   its `Server` header and the start of its body. (The templates map `/health` in every environment,
-   not only in Development, and serve every route with and without the `/api` prefix.)
+   its `Server` header and the start of its body. A pass leaves the same lines in
+   `jobs/<id>/smoke-<a>.log`. (The templates map `/health` in every environment, not only in
+   Development, and serve every route with and without the `/api` prefix.)
 7a. Sign-in smoke, when the workspace outputs `qa_user` and `qa_password` (the auth add-on's, the
    ones `qa-login` reads) and there is a front end. `factory/scripts/signin-smoke.mjs` (Playwright,
    headless Chromium) opens `<urls.frontend>`, clicks **Sign in**, completes the identity
