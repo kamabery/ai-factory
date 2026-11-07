@@ -1029,7 +1029,9 @@ anything but the one child process that needs it, never logged):
    and `deploy-<a>.log` ends with a `## Smoke` section: each url, its last status, how long it took,
    its `Server` header and the start of its body. A pass leaves the same lines in
    `jobs/<id>/smoke-<a>.log`. (The templates map `/health` in every environment, not only in
-   Development, and serve every route with and without the `/api` prefix.)
+   Development, and serve every route with and without the `/api` prefix.) An idle preview scales to
+   zero, and the first request through its Static Web App then answers 500 `Backend call failure`
+   after about 45 s, so an agent checking a preview retries too.
 7a. Sign-in smoke, when the workspace outputs `qa_user` and `qa_password` (the auth add-on's, the
    ones `qa-login` reads) and there is a front end. `factory/scripts/signin-smoke.mjs` (Playwright,
    headless Chromium) opens `<urls.frontend>`, clicks **Sign in**, completes the identity

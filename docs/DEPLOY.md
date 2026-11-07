@@ -216,6 +216,13 @@ preview in another region and scaffolds made before this keep a full stack of th
 To remove the platform: `az group delete -n rg-factory-platform`, then delete the `platform` variable from
 the HCP variable set. Previews go back to full stacks.
 
+### A 500 on an idle preview
+
+Previews scale to zero after about 5 idle minutes. The first request through the Static Web App then
+answers **500 `Backend call failure`** after about 45 s, and the next ones work (J-027, 2026-11-07). That
+is a cold start, not a fault, so reload. Scale-to-zero stays because it keeps idle previews free. The
+factory's smoke and the agents' preview checks retry, so it doesn't fail a job.
+
 ## 5. GitHub PAT
 
 The deploy stage pushes workflows, creates each target's `preview` environment and its variables,

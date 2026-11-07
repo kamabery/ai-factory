@@ -660,3 +660,10 @@ Add-Content (Join-Path $env:FACTORY_HOME 'env.log') ($seen | ConvertTo-Json -Com
         }
     }
 }
+
+Describe 'agents checking a preview' {
+    # A scaled-to-zero preview answers its first request 500 after about 45 s (J-027, "Backend call failure").
+    It '<_> retries, so a cold start is not an escalation' -ForEach 'approver', 'devops' {
+        Get-Content (Join-Path $PSScriptRoot "../plugin/agents/$_.md") -Raw | Should -Match 'curl -sf --retry 6 --retry-delay 10 --retry-all-errors'
+    }
+}
