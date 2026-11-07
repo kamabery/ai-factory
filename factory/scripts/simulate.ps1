@@ -41,7 +41,17 @@ function F-Must {
 function Tick([double] $units = 1) { Start-Sleep -Milliseconds ([int](600 * $units / $Speed)) }
 function Ev([string] $job, [string] $kind, [string] $agent) { F-Must event -Job $job -Kind $kind -Agent $agent | Out-Null }
 
-if ($Reset -and (Test-Path $StateDir)) { Remove-Item -Recurse -Force $StateDir }
+# A live serve.ps1 on this directory can write to it mid-delete ("The directory is not empty").
+if ($Reset) {
+    $deadline = (Get-Date).AddSeconds(30)
+    while (Test-Path $StateDir) {
+        try { Remove-Item -Recurse -Force $StateDir }
+        catch {
+            if ((Get-Date) -ge $deadline) { throw }
+            Start-Sleep -Milliseconds 250
+        }
+    }
+}
 New-Item -ItemType Directory -Force $StateDir | Out-Null
 
 $stub = $null
