@@ -31,7 +31,8 @@ you changed and its `## Template gaps`.
    GitHub run, and is not counted again. Exit 0 means
    the job has moved to approve. If it printed `skipped:` (a bootstrap: no preview until it merges),
    note that and finish. Otherwise the preview is up: smoke the printed URLs (`curl -sf --retry 6 --retry-delay 10 --retry-all-errors
-   <api>/openapi/v1.json`, and the front end), note the result, and finish.
+   <front end>/api/openapi/v1.json`, or `<api>/openapi/v1.json` with no front end, and the front end
+   itself), note the result, and finish. The API's own address answers 401 behind a Static Web App.
 2. Exit 1 saying `deploy refused by GitHub: the GitHub PAT needs <permission>`: stop. The code is
    not at fault; the job is already with the human, who must add the permission. Never try to work
    around it.

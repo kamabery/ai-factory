@@ -27,9 +27,10 @@ Write `<job>/decision.md`, following the `decision.md` template (absolute path f
   GitHub runs `deploy.yml` only from `main`, which this job is creating. A `deploy skipped:
   bootstrap` note says so. Judge it on its gate and reviews; a missing preview is not a reason to escalate.
 - When the job has a preview (`deploy.status` is `up`), smoke it yourself before APPROVE: `curl -sf --retry 6 --retry-delay 10 --retry-all-errors
-  <api>/openapi/v1.json` returns 200 and the front end URL returns 200. An idle preview scales to zero
-  and answers its first request 500 after about 45 s, which is why it retries. A preview that still
-  does not answer is an ESCALATE, with what you saw.
+  <front end>/api/openapi/v1.json` returns 200 and the front end URL returns 200. With no front end, use
+  `<api>/openapi/v1.json`. The API's own address answers 401 behind a Static Web App, so a 401 there
+  means nothing. An idle preview scales to zero and answers its first request 500 after about 45 s,
+  which is why it retries. A preview that still does not answer is an ESCALATE, with what you saw.
 - Review every commit `deploy.md` lists under "Commits after review" (`git show <sha>`): the four
   reviewers never saw them. One that changes application behaviour rather than infrastructure is
   an ESCALATE.

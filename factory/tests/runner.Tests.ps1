@@ -666,4 +666,9 @@ Describe 'agents checking a preview' {
     It '<_> retries, so a cold start is not an escalation' -ForEach 'approver', 'devops' {
         Get-Content (Join-Path $PSScriptRoot "../plugin/agents/$_.md") -Raw | Should -Match 'curl -sf --retry 6 --retry-delay 10 --retry-all-errors'
     }
+
+    # React's Static Web App puts the API's own address behind its auth, so that url answers 401 (J-027).
+    It '<_> checks the API through the front end when there is one' -ForEach 'approver', 'devops' {
+        Get-Content (Join-Path $PSScriptRoot "../plugin/agents/$_.md") -Raw | Should -Match '<front end>/api/openapi/v1\.json'
+    }
 }
