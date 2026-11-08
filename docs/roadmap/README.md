@@ -22,11 +22,11 @@ are merged.
 | 04 | [Port: board and transition commands](04-port-board-transitions.md) | 1 | 03 | 1–2 sessions |
 | 05 | [Port: idea and spec commands, GitHub client](05-port-ideas-github.md) | 1 | 04 | 1 session |
 | 06 | [Port: git commands, gate and merge](06-port-git-gate-merge.md) | 1 | 05 | 1–2 sessions |
-| 07 | [Port: the runner and run-mode providers](07-port-runner.md) | 1 | 06 | 1–2 sessions |
-| 08 | [Port: the dashboard server](08-port-server.md) | 1 | 07 | 1–2 sessions |
 | 09 | [Port: deploy, HCP and canary](09-port-deploy-canary.md) | 1 | 06 | 2 sessions |
-| 10 | [Port: idea turns on the run mode](10-port-idea-turns.md) | 1 | 07, 08 | 1–2 sessions |
 | 11 | [Port: evals, lessons and state admin](11-port-evals-lessons-state.md) | 1 | 04 | 1 session |
+| 07 | [Port: the runner and run-mode providers](07-port-runner.md) | 1 | 06, 09, 11 | 1–2 sessions |
+| 08 | [Port: the dashboard server](08-port-server.md) | 1 | 07 | 1–2 sessions |
+| 10 | [Port: idea turns on the run mode](10-port-idea-turns.md) | 1 | 07, 08 | 1–2 sessions |
 | 12 | [Cutover: retire PowerShell](12-cutover.md) | 1 | 04–11 | 1 session |
 | 13 | [EF Core store](13-ef-core-store.md) | 1 | 12 | 1–2 sessions |
 | 14 | [`factory init` / `doctor`, GitHub App, secrets](14-init-doctor-github-app.md) | 2 | 13 | 2–3 sessions |
@@ -39,15 +39,15 @@ Phase 6 (hosted) is out of scope. The `TenantId` seam (03, 13) and per-job conta
 what it needs from these specs.
 
 ```text
-00 → 01 → 02 → 03 → 04 → 05 → 06 → 07 → 08 → 10 ─┐
-                     │              └→ 09 ─────────┤
-                     └→ 11 ────────────────────────┴→ 12 → 13 → 14 → 15
-                                                          │      └→ 16 ─┐
-                                                          └→ 17 ────────┴→ 18
+00 → 01 → 02 → 03 → 04 → 05 → 06 → 09 ─┐
+                     └→ 11 ─────────────┴→ 07 → 08 → 10 → 12 → 13 → 14 → 15
+                                                              │      └→ 16 ─┐
+                                                              └→ 17 ────────┴→ 18
 ```
 
-09 and 11 can run beside the main line. Sessions are one at a time, so the table order is the
-default.
+09 and 11 run before 07: the .NET runner calls `canary`, `sweep` (09) and `lesson` (11), and the
+server (08) has deploy, QA-login, eval and lesson endpoints, so both need those commands ported
+first. Spec numbers are names, not the order; sessions are one at a time, in table order.
 
 ## Decisions to make
 
