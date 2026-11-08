@@ -31,7 +31,7 @@ and show. `docs/FACTORY-CONTRACT.md` ("Ideas") is the source of truth. Arguments
 `$ARGUMENTS` is a GitHub target `owner/name`, `I-NNN`, or empty, optionally followed by
 `clone=<dir>`: a shallow clone of an existing target that `idea.ps1` made for you to read. If the
 target exists and no clone was given, make one yourself with
-`F clone-target <owner/name> "<system temp>\claude-factory\cli\<owner>-<name>"` and delete it at the end.
+`F clone-target <owner/name> "<system temp>\ai-factory\cli\<owner>-<name>"` and delete it at the end.
 Below, "the target" means that clone whenever you read files.
 
 - `I-NNN`: run `F status -Json`, find the idea. If it isn't `drafting`, say why and stop. Read

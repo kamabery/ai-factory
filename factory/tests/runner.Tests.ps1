@@ -521,64 +521,99 @@ if ($held) { $held.Dispose() }
             # A fake claude that records the provider environment it was started with, one line per job.
             $fake = Join-Path $TestDrive 'fake-claude-env.ps1'
             @'
-$names = 'ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL'
+$names = 'ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY', 'CLAUDE_CODE_USE_FOUNDRY', 'ANTHROPIC_FOUNDRY_RESOURCE',
+    'ANTHROPIC_FOUNDRY_BASE_URL', 'ANTHROPIC_FOUNDRY_API_KEY', 'ANTHROPIC_FOUNDRY_AUTH_TOKEN',
+    'ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_HAIKU_MODEL'
 $seen = [ordered]@{ job = $env:FACTORY_JOB }
-foreach ($n in $names) { $v = [Environment]::GetEnvironmentVariable($n); if ($null -ne $v) { $seen[$n] = $v } }
+foreach ($n in $names) { $v = [Environment]::GetEnvironmentVariable($n); if ($v) { $seen[$n] = $v } }
 Add-Content (Join-Path $env:FACTORY_HOME 'env.log') ($seen | ConvertTo-Json -Compress)
 '{"type":"result","total_cost_usd":0.1,"duration_ms":10}'
 '@ | Set-Content $fake
             $env:FACTORY_CLAUDE_CMD = "& '$fake'"
-            $env:ANTHROPIC_API_KEY = 'sk-ant-from-the-runner'
-            $env:ANTHROPIC_AUTH_TOKEN = 'sk-ant-oat-from-the-runner'
+            # Everything a human's environment could hold that would beat the mode's own credentials.
+            $script:Stray = [ordered]@{
+                ANTHROPIC_API_KEY = 'sk-ant-from-the-runner'; ANTHROPIC_AUTH_TOKEN = 'sk-ant-oat-from-the-runner'
+                ANTHROPIC_BASE_URL = 'https://stray.example'; CLAUDE_CODE_USE_FOUNDRY = '1'
+                ANTHROPIC_FOUNDRY_RESOURCE = 'stray-foundry'; ANTHROPIC_FOUNDRY_BASE_URL = 'https://stray-foundry.example'
+                ANTHROPIC_FOUNDRY_API_KEY = 'stray-foundry-key'; ANTHROPIC_FOUNDRY_AUTH_TOKEN = 'stray-foundry-token'
+            }
+            foreach ($n in $script:Stray.Keys) { Set-Item "Env:$n" $script:Stray[$n] }
             $script:ProviderEnv = Join-Path $TestDrive "provider-$([guid]::NewGuid().ToString('N')).env"
             $env:FACTORY_ENV_FILE = $script:ProviderEnv
         }
 
-        AfterEach { Remove-Item Env:ANTHROPIC_API_KEY, Env:ANTHROPIC_AUTH_TOKEN -ErrorAction SilentlyContinue }
+        AfterEach {
+            foreach ($n in @($script:Stray.Keys) + 'FACTORY_MODE') { Remove-Item "Env:$n" -ErrorAction SilentlyContinue }
+        }
 
         BeforeAll {
             function Seen([string]$id) {
                 Get-Content (Join-Path $env:FACTORY_HOME 'env.log') | ForEach-Object { $_ | ConvertFrom-Json -AsHashtable } | Where-Object job -eq $id
             }
+            function Cost-Provider([string]$id) { (Events | Where-Object { $_.job -eq $id -and $_.kind -eq 'cost' }).provider }
         }
 
-        It 'gives an openrouter job OpenRouter''s endpoint, key and model overrides, and the next subscription job none of them' {
-            Set-Content $script:ProviderEnv ((Get-Content $script:EnvFile) + 'OPENROUTER_API_KEY="sk-or-test"' + 'ANTHROPIC_DEFAULT_SONNET_MODEL=anthropic/claude-sonnet-5-5')
-            $a = New-ApprovedJob 'A'
-            F set-provider $a openrouter | Out-Null
-            $b = New-ApprovedJob 'B'
-            Run-Runner | Out-Null
-
-            $or = Seen $a
-            $or.ANTHROPIC_BASE_URL | Should -Be 'https://openrouter.ai/api'
-            $or.ANTHROPIC_AUTH_TOKEN | Should -Be 'sk-or-test'
-            $or.ANTHROPIC_API_KEY | Should -Be ''
-            $or.ANTHROPIC_DEFAULT_SONNET_MODEL | Should -Be 'anthropic/claude-sonnet-5-5'
-            $or.Keys | Should -Not -Contain 'CLAUDE_CODE_SUBAGENT_MODEL'
-
-            $sub = Seen $b
-            $sub.Keys | Should -Not -Contain 'ANTHROPIC_BASE_URL'
-            $sub.Keys | Should -Not -Contain 'ANTHROPIC_DEFAULT_SONNET_MODEL'
-            # An inherited key or token would bill API credits instead of the subscription (J-019).
-            $sub.ANTHROPIC_API_KEY | Should -Be ''
-            $sub.ANTHROPIC_AUTH_TOKEN | Should -Be ''
-
-            (Events | Where-Object { $_.job -eq $a -and $_.kind -eq 'cost' }).provider | Should -Be 'openrouter'
-            (Events | Where-Object { $_.job -eq $b -and $_.kind -eq 'cost' }).provider | Should -Be 'subscription'
-        }
-
-        It 'escalates an openrouter job without running claude when .env has no OPENROUTER_API_KEY' {
+        It 'runs a local job on the subscription, with every inherited key, token, endpoint and Foundry variable blanked' {
             Set-Content $script:ProviderEnv (Get-Content $script:EnvFile)
             $id = New-ApprovedJob 'A'
-            F set-provider $id openrouter | Out-Null
+            # A job from the per-job-provider factory still runs on the mode's provider.
+            $b = Board
+            ($b.jobs | Where-Object id -eq $id)['provider'] = 'openrouter'
+            Set-Content (Join-Path $env:FACTORY_HOME 'board.json') ($b | ConvertTo-Json -Depth 10)
+            Run-Runner | Out-Null
+
+            # An inherited key or token would bill API credits instead of the subscription (J-019).
+            @((Seen $id).Keys) | Should -Be @('job')
+            Cost-Provider $id | Should -Be 'subscription'
+        }
+
+        It 'runs a cloud job on Foundry, keyless, with the default deployments unless .env pins one' {
+            Set-Content $script:ProviderEnv ((Get-Content $script:EnvFile) + 'FACTORY_MODE=cloud' + 'FACTORY_FOUNDRY_RESOURCE="fdy-test"' + 'ANTHROPIC_DEFAULT_SONNET_MODEL=my-sonnet')
+            $id = New-ApprovedJob 'A'
+            Run-Runner | Out-Null
+
+            $seen = Seen $id
+            $seen.CLAUDE_CODE_USE_FOUNDRY | Should -Be '1'
+            $seen.ANTHROPIC_FOUNDRY_RESOURCE | Should -Be 'fdy-test'
+            $seen.ANTHROPIC_DEFAULT_OPUS_MODEL | Should -Be 'claude-opus-5-5'
+            $seen.ANTHROPIC_DEFAULT_SONNET_MODEL | Should -Be 'my-sonnet'
+            $seen.ANTHROPIC_DEFAULT_HAIKU_MODEL | Should -Be 'claude-haiku-5-5'
+            # Entra ID only: no key, token or other endpoint survives, so the subscription is never used.
+            foreach ($n in 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_FOUNDRY_BASE_URL', 'ANTHROPIC_FOUNDRY_API_KEY', 'ANTHROPIC_FOUNDRY_AUTH_TOKEN') {
+                $seen.Keys | Should -Not -Contain $n
+            }
+            Cost-Provider $id | Should -Be 'foundry'
+        }
+
+        It 'takes FACTORY_MODE from the process environment over .env' {
+            Set-Content $script:ProviderEnv ((Get-Content $script:EnvFile) + 'FACTORY_MODE=local' + 'FACTORY_FOUNDRY_RESOURCE=fdy-test')
+            $env:FACTORY_MODE = 'cloud'
+            $id = New-ApprovedJob 'A'
+            Run-Runner | Out-Null
+            (Seen $id).CLAUDE_CODE_USE_FOUNDRY | Should -Be '1'
+            Cost-Provider $id | Should -Be 'foundry'
+        }
+
+        It 'escalates a cloud job without running claude when no FACTORY_FOUNDRY_RESOURCE is set' {
+            Set-Content $script:ProviderEnv ((Get-Content $script:EnvFile) + 'FACTORY_MODE=cloud')
+            $id = New-ApprovedJob 'A'
             Run-Runner | Out-Null
             (Job $id).stage | Should -Be 'ready'
             (Job $id).flag.reason | Should -Be 'escalated'
-            (Job $id).flag.detail | Should -Be 'provider: no OPENROUTER_API_KEY in .env'
+            (Job $id).flag.detail | Should -Be 'provider: no FACTORY_FOUNDRY_RESOURCE'
             Test-Path (Join-Path $env:FACTORY_HOME 'env.log') | Should -BeFalse
         }
 
-        It 'does not let agents read the environment, which holds the key' {
+        It 'escalates without running claude when FACTORY_MODE is neither local nor cloud' {
+            Set-Content $script:ProviderEnv ((Get-Content $script:EnvFile) + 'FACTORY_MODE=openrouter')
+            $id = New-ApprovedJob 'A'
+            Run-Runner | Out-Null
+            (Job $id).stage | Should -Be 'ready'
+            (Job $id).flag.detail | Should -Match "FACTORY_MODE 'openrouter' must be local or cloud"
+            Test-Path (Join-Path $env:FACTORY_HOME 'env.log') | Should -BeFalse
+        }
+
+        It 'does not let agents read the environment' {
             Set-Content $script:ProviderEnv (Get-Content $script:EnvFile)
             New-ApprovedJob 'A' | Out-Null
             Run-Runner | Out-Null

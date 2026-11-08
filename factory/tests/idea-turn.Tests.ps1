@@ -247,6 +247,62 @@ Describe 'idea-turn.ps1' {
         (Requests) | Should -Be 0
     }
 
+    It 'locally sends the API key and asks for the server-side fallback' {
+        Set-Replies (Reply @((Text 'ok')))
+        New-Session | Out-Null
+        Run-Turn
+        $h = Read-J (Join-Path $script:ReplyDir 'requests/001.headers')
+        $h.authorization | Should -BeNullOrEmpty
+        $h.'anthropic-beta' | Should -Match 'server-side-fallback'
+        (Request 1).fallbacks | Should -Be 'default'
+    }
+
+    Context 'cloud mode (Foundry)' {
+        BeforeEach {
+            # The API key stays in .env to prove cloud mode never sends it.
+            Add-Content $script:EnvFile "FACTORY_MODE=cloud`nFACTORY_FOUNDRY_RESOURCE=fdy-test"
+            $env:FACTORY_FOUNDRY_TOKEN = 'entra-test-token'
+        }
+        AfterEach { Remove-Item Env:FACTORY_FOUNDRY_TOKEN, Env:FACTORY_AZ_CMD -ErrorAction SilentlyContinue }
+
+        It 'sends an Entra bearer token and no API key, with no server-side fallback, to the default deployment' {
+            Set-Replies (Reply @((Text 'ok')))
+            New-Session | Out-Null
+            Run-Turn
+            (Session).status | Should -Be 'idle'
+            $h = Read-J (Join-Path $script:ReplyDir 'requests/001.headers')
+            $h.authorization | Should -Be 'Bearer entra-test-token'
+            $h.'x-api-key' | Should -BeNullOrEmpty
+            $h.'anthropic-beta' | Should -Not -Match 'server-side-fallback'
+            $r = Request 1
+            $r.Keys | Should -Not -Contain 'fallbacks'
+            $r.model | Should -Be 'claude-opus-5-5'
+        }
+
+        It 'gets the token from az for https://ai.azure.com when nothing overrides it' {
+            Remove-Item Env:FACTORY_FOUNDRY_TOKEN
+            $az = Join-Path $TestDrive 'az-token.ps1'
+            Set-Content $az @'
+if (($args -join ' ') -notmatch 'get-access-token --resource https://ai\.azure\.com') { [Console]::Error.WriteLine("unexpected az $args"); exit 1 }
+'{"accessToken":"from-az","expires_on":' + ([DateTimeOffset]::UtcNow.AddHours(1).ToUnixTimeSeconds()) + '}'
+'@
+            $env:FACTORY_AZ_CMD = $az
+            Set-Replies (Reply @((Text 'ok')))
+            New-Session | Out-Null
+            Run-Turn
+            (Read-J (Join-Path $script:ReplyDir 'requests/001.headers')).authorization | Should -Be 'Bearer from-az'
+        }
+
+        It 'is an error with no FACTORY_FOUNDRY_RESOURCE, and no request is made' {
+            Set-Content $script:EnvFile "ANTHROPIC_API_KEY=`"$script:Key`"`nANTHROPIC_BASE_URL=http://localhost:$script:Port`nFACTORY_MODE=cloud"
+            Set-Replies (Reply @((Text 'ok')))
+            New-Session | Out-Null
+            Run-Turn
+            (Session).error | Should -Match 'FACTORY_FOUNDRY_RESOURCE'
+            (Requests) | Should -Be 0
+        }
+    }
+
     It 'refuses to start while a live turn holds the lock' {
         Set-Replies (Reply @((Text 'ok')))
         $dir = New-Session

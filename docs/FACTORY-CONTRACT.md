@@ -123,7 +123,7 @@ Agents may read it and never edit it. It is also a plugin (`aspire-starter`, its
 `.claude-plugin/plugin.json`), loaded into every headless pass; see [Runner](#runner).
 
 **Work directories.** Code changes and testing happen in a local temp clone per job,
-`<work>\jobs\<id>`, where `<work>` is `$env:FACTORY_WORK`, else `<system temp>\claude-factory`.
+`<work>\jobs\<id>`, where `<work>` is `$env:FACTORY_WORK`, else `<system temp>\ai-factory`.
 `checkout` clones the target there and checks out `factory/<id>`. The clone is deleted when the job
 moves to `done` or `discarded`. It survives a rework, and if it is gone `checkout` clones again from
 the pushed branch. One job builds at a time across all targets. Idea sessions read a shallow clone of
@@ -174,33 +174,47 @@ of an install) is missing or older than `package-lock.json`:
 - ui: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build`
 ```
 
-## Providers
+## Run mode and providers
 
-Every job has a **provider**, the endpoint its `claude` pass talks to: `subscription` (the CLI's
-own login, the default) or `openrouter` (Claude models through OpenRouter's Anthropic-compatible
-API). A job's builder, reviewers and approver are subagents of that one pass, so they share it.
-Idea sessions are not affected.
+The factory runs in one of two **modes**, and the mode alone decides the **provider**, the endpoint
+every `claude` pass and every dashboard idea turn talks to. Nothing chooses a provider per job.
 
-- `add-spec` stamps `provider` from `FACTORY_PROVIDER` in `.env` (`subscription` when unset). Any
-  other value is refused. `set-provider <id> <provider>` changes it while the job is in `backlog` or
-  `approved`.
-- For a `subscription` job the runner sets an empty `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN`
-  for the `claude` child, and restores them afterwards. Either one, inherited from the human's
-  environment (a Windows user variable, say), would take precedence over the CLI's login and bill
-  API credits instead of the subscription.
-- For an `openrouter` job the runner reads `OPENROUTER_API_KEY` from `.env` into a local variable and
-  sets, for the `claude` child only, `ANTHROPIC_BASE_URL=https://openrouter.ai/api`,
-  `ANTHROPIC_AUTH_TOKEN=<key>` and an empty `ANTHROPIC_API_KEY`, plus any of
-  `ANTHROPIC_DEFAULT_FABLE_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`,
-  `ANTHROPIC_DEFAULT_HAIKU_MODEL` and `CLAUDE_CODE_SUBAGENT_MODEL` that `.env` sets. It restores its
-  own environment afterwards. The token takes precedence over the CLI's claude.ai login, which also
-  turns off claude.ai connectors for that pass. A missing key escalates the job (`provider: no
-  OPENROUTER_API_KEY in .env`) without running `claude`.
-- The key is in the agents' environment, so the headless settings deny reading the environment
-  (see [Runner](#runner)), and the key should be a dedicated one with a credit limit
-  ([OPENROUTER.md](OPENROUTER.md)).
+| `FACTORY_MODE` | Provider | Credentials |
+| --- | --- | --- |
+| `local` (the default) | `subscription`: the `claude` CLI's own login | the human's claude.ai login; idea turns: `ANTHROPIC_API_KEY` in `.env` (interim, see below) |
+| `cloud` | `foundry`: Claude on Microsoft Foundry, resource `FACTORY_FOUNDRY_RESOURCE` | Microsoft Entra ID only (the Azure credential chain: `az login` on a machine, a managed identity when deployed); no key anywhere |
+
+- `FACTORY_MODE` is read from the process environment first, then `.env`, and is `local` when
+  neither sets it, so every launch on a workstation is local. A deployed factory sets
+  `FACTORY_MODE=cloud` in its environment. Any other value is refused by every script that reads it.
+- A job's builder, reviewers and approver are subagents of its one `claude` pass, so they share the
+  provider. The runner resolves it when it takes a job; a `provider` field left on a job by an older
+  factory is ignored.
+- **local.** For the `claude` child the runner sets empty `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
+  `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_USE_FOUNDRY`, `ANTHROPIC_FOUNDRY_RESOURCE`,
+  `ANTHROPIC_FOUNDRY_BASE_URL`, `ANTHROPIC_FOUNDRY_API_KEY` and `ANTHROPIC_FOUNDRY_AUTH_TOKEN`, and
+  restores them afterwards. Any of them inherited from the human's environment (a Windows user
+  variable, say) would take precedence over the CLI's login and bill something other than the
+  subscription.
+- **cloud.** The runner sets, for the `claude` child only, `CLAUDE_CODE_USE_FOUNDRY=1`,
+  `ANTHROPIC_FOUNDRY_RESOURCE=<FACTORY_FOUNDRY_RESOURCE>`, and `ANTHROPIC_DEFAULT_OPUS_MODEL`,
+  `ANTHROPIC_DEFAULT_SONNET_MODEL` and `ANTHROPIC_DEFAULT_HAIKU_MODEL` (the deployment names: the
+  environment or `.env` value, else `claude-opus-5-5`, `claude-sonnet-5-5` and `claude-haiku-5-5`).
+  It sets empty `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`,
+  `ANTHROPIC_FOUNDRY_BASE_URL`, `ANTHROPIC_FOUNDRY_API_KEY` and `ANTHROPIC_FOUNDRY_AUTH_TOKEN`, so
+  `claude` authenticates through Entra ID and nothing else. **Cloud mode never runs on a
+  subscription**: there is no setting that makes it, and a claude.ai login present on the machine is
+  not used, because `CLAUDE_CODE_USE_FOUNDRY` takes precedence over it.
+- With no `FACTORY_FOUNDRY_RESOURCE`, a cloud job escalates (`provider: no FACTORY_FOUNDRY_RESOURCE`)
+  without running `claude`, and an idea turn fails with the same message.
+- The identity needs **Foundry User** (formerly Azure AI User) on the Foundry account, and nothing
+  wider. The account, its deployments and the role are `factory/infra/llm` ([FOUNDRY.md](FOUNDRY.md)).
 - `costUsd` is `claude`'s own estimate from list prices whatever the provider; the `cost` event
-  carries `provider`, so OpenRouter's bill can be reconciled against it later.
+  carries the resolved `provider` (`subscription` or `foundry`), so a Foundry bill can be reconciled
+  against it.
+- Idea turns follow the same rule; see [Idea sessions](#idea-sessions-dashboard). Running local idea
+  turns on the subscription (through `claude -p`, with no API key) is for the .NET port; until then a
+  local idea turn uses `ANTHROPIC_API_KEY`.
 
 ## Ideas
 
@@ -259,13 +273,22 @@ a conversation stored under `sessions/<S-NNN>/`. It is not on the board, and **t
 changes board state**: every board write in a session is a human click that `serve.ps1` turns into
 one `factory.ps1` call.
 
-**The key.** The API key is `ANTHROPIC_API_KEY` in `.env` at the repo root (gitignored;
-`.env.example` names the keys). `FACTORY_IDEA_MODEL` there overrides the model (default
-`claude-opus-5-5`), and `ANTHROPIC_BASE_URL` the endpoint (tests point it at a stub). The key is
-read from the file into a local variable by `idea-turn.ps1` and never set in the process
-environment, so a `claude` started by the runner keeps using the subscription. `serve.ps1` only
-checks that the key is present. With no key, the dashboard shows the `idea.ps1` hint instead of
-**New idea**.
+**The credential.** It follows the [run mode](#run-mode-and-providers). `FACTORY_IDEA_MODEL` in
+`.env` overrides the model in both modes (default `claude-opus-5-5`, which in cloud mode is the
+Foundry deployment name), and `ANTHROPIC_BASE_URL` the endpoint in both modes (tests point it at a stub).
+- **local:** the API key is `ANTHROPIC_API_KEY` in `.env` at the repo root (gitignored;
+  `.env.example` names the keys), sent as `x-api-key`. The key is read from the file into a local
+  variable by `idea-turn.ps1` and never set in the process environment, so a `claude` started by
+  the runner keeps using the subscription.
+- **cloud:** the endpoint is `https://<FACTORY_FOUNDRY_RESOURCE>.services.ai.azure.com/anthropic`,
+  and every request carries `Authorization: Bearer <token>`, an Entra token for
+  `https://ai.azure.com` from `az account get-access-token`, refreshed when it has under 10 minutes
+  left. No key is read or sent. Foundry has no server-side fallback, so the request carries no
+  `fallbacks` and no `server-side-fallback` beta.
+
+`serve.ps1` only checks that the mode's credential is configured (`ANTHROPIC_API_KEY` locally,
+`FACTORY_FOUNDRY_RESOURCE` in cloud mode). Without it, the dashboard shows the `idea.ps1` hint
+instead of **New idea**.
 
 **Turns.** Each assistant turn is a detached `factory/scripts/idea-turn.ps1 -Session <S> -StateDir
 <dir> -EnvFile <path>` process. It holds `sessions/<S>/turn.lock` (exclusive create) for the whole
@@ -342,7 +365,7 @@ has merged), and closing the session deletes the clone.
 | backlog | approved | human; `spec.md` has a valid `## Target` and at least one `## Gate` command. Sets `approvedAt` and `target` | |
 | backlog | discarded | human | |
 | approved | build | runner; no job is in `build`, `review`, `approve` or `gate`, and this is the oldest `approvedAt` | |
-| build | review | `round-<n>/build.md` exists and the [build checks](#build-checks) pass. In a [tweak round](#tweak-rounds) it also sets the reviewers the diff does not need to `skipped` | |
+| build | review | `round-<n>/build.md` exists and the [build checks](#build-checks) pass | |
 | build | ready / blocked | `set-stage review` found a file outside the spec's Scope: In (`ready` if not deployable, else `blocked`) | `out-of-scope` |
 | build | ready / blocked | `set-stage review`: the job has `baseMoved` and build.md's `## Spec against base` says `Spec holds: no` | `spec-stale` |
 | review | build | all 4 verdicts in, at least one `CHANGES`, round < 2; round += 1, reviews reset to `pending` | |
@@ -369,7 +392,7 @@ has merged), and closing the session deletes the clone.
 | build / review / deploy / approve | ready | the job is not deployable (or is in `approve`, so its preview is up), and the orchestrator gives up or the runner's `claude` process ends with the job still here | `escalated` |
 | ready | done | human `merge`, or `sync-prs` after the human merged the PR on GitHub; see [Gate and merge](#gate-and-merge). Merges the PR (or records the GitHub merge) and deletes the work directory. A bootstrap job's merge moves its idea `waiting` → `drafting` and prints `released <ideaId>` | |
 | ready | ready | human `merge` refused: nothing to merge, uncommitted changes in the work directory, PR not mergeable / red gate | `merge-blocked` / `gate-failed` |
-| ready | approved | human `rework <id> <note> [-Tweak]`; writes `jobs/<id>/rework-<n>.md`, round += 1, `deployFixes` back to 0, sets `approvedAt`. A `Scope +:` line in the note widens the spec (see [Build checks](#build-checks)); `-Tweak` sets `tweak: true` (see [Tweak rounds](#tweak-rounds)) | |
+| ready | approved | human `rework <id> <note>`; writes `jobs/<id>/rework-<n>.md`, round += 1, `deployFixes` back to 0, sets `approvedAt`. A `Scope +:` line in the note widens the spec (see [Build checks](#build-checks)) | |
 | ready | discarded | human; closes the PR, deletes branch `factory/<id>` on GitHub and the work directory | |
 
 `done` and `discarded` are terminal. `flag` is cleared on every move out of `ready` or `blocked`.
@@ -463,32 +486,6 @@ paths of the round, so the builder can write the section before it hands on.
 not counted. With no bootstrap merge on record for the target (a repo the factory did not
 bootstrap), only `scaffold:` and `addon:` commits count, and `provenance` says so on stderr. A job
 with no `roundStart` (built before it existed) is not checked, and a `note` event says so.
-
-### Tweak rounds
-
-A **tweak** is a rework the human marks as small (the rework dialog's **Tweak** checkbox,
-`rework -Tweak`). It sets `tweak: true` on the job for that round. The round then runs:
-
-1. The builder, test-first as always, with no devops author pass.
-2. `factory.ps1 tweak-check <id>`, which promotes the round to a full one (clears `tweak`, prints
-   `full: <why>`, appends a `note` event) when the round's diff (`<roundStart>..HEAD`):
-   - touches `IaC/**`, `.github/**`, `.aspire/**`, `contracts/**`, `**/Migrations/**`, or any path
-     whose name contains `auth`, or
-   - changes more than 10 files or 300 lines (`git diff --shortstat`).
-
-   Otherwise it prints `tweak`. On `full` the orchestrator runs the devops author pass and continues
-   as a normal round.
-3. `set-stage review`, with the build checks as above. For a tweak it sets every reviewer the diff
-   does not need to `skipped`: the ui and ux reviewers run when a path is under `src/ui/**`, and the
-   code reviewer when a path is outside it. The security reviewer never runs in a tweak, since its
-   paths promote the round. `read-reviews` counts `skipped` as `PASS`.
-4. `deploy` as usual, without the devops agent's operate pass: the orchestrator calls
-   `factory.ps1 deploy <id>` itself. A failed attempt falls back to the normal deploy loop with the
-   devops agent.
-5. The approver, then the gate, unchanged.
-
-`tweak` is cleared when the round leaves `build`, whatever path it took, so every round after it is
-a full one unless the human marks that one a tweak too.
 
 ### Evaluations
 
@@ -616,7 +613,7 @@ session. A human marks one `applied` once the fix has merged. `purge` never touc
   lessons/                     kept by purge (see Lessons)
     <id>.md  <id>.json         what a job that went bad taught, for the templates
 
-<work>\                       $env:FACTORY_WORK, else <system temp>\claude-factory
+<work>\                       $env:FACTORY_WORK, else <system temp>\ai-factory
   jobs\<id>\                   the job's clone of its target, on factory/<id>; deleted at done / discarded
   canary\                      the canary's scaffold, deleted when the run ends
   sessions\<S>\                a dashboard idea session's shallow clone of its target
@@ -651,7 +648,6 @@ those lines and nothing else; if one is missing or malformed, the script treats 
       "base": null,
       "kind": "feature",
       "target": "kamabery/todo-app",
-      "provider": "subscription",
       "pr": { "number": 12, "url": "https://github.com/kamabery/todo-app/pull/12" },
       "reviews": { "security": "running", "code": "PASS", "ux": "pending", "ui": "CHANGES" },
       "decision": null,
@@ -669,11 +665,10 @@ those lines and nothing else; if one is missing or malformed, the script treats 
 }
 ```
 
-- `reviews.*` is one of `pending | running | PASS | CHANGES | skipped`, and it resets to `pending` whenever
-  a new round starts. `skipped` is set only by `set-stage review` in a [tweak round](#tweak-rounds).
+- `reviews.*` is one of `pending | running | PASS | CHANGES`, and it resets to `pending` whenever
+  a new round starts.
 - `roundStart` is the branch head when the current round's build began, recorded by `checkout`.
-  The provenance check and `tweak-check` diff from it.
-- `tweak` is `true` (or absent) for a rework the human marked as a tweak, until the round leaves `build`.
+  The provenance check diffs from it.
 - `baseMoved` is `null` (or absent) or `{ "by": "J-NNN", "sha": "...", "at": "..." }`: a job from
   the same idea merged after this one was created (see [Build checks](#build-checks)).
 - `gate` is `null` until the gate runs, then `{ "build": 0, "test": 0, "ui": 0, "sha": "<branch head>", "at": "..." }`
@@ -699,7 +694,8 @@ those lines and nothing else; if one is missing or malformed, the script treats 
 - `base` is `null` (or absent), or the id of the unmerged job this one is stacked on, copied from its
   idea by `add-spec`; see [Stacked jobs](#stacked-jobs).
 - `kind` is `feature` (from a spec-writer spec) or `bootstrap` (generated by `new-idea`); absent means `feature`.
-- `provider` is `subscription` or `openrouter` (see [Providers](#providers)); absent means `subscription`.
+- A job has no `provider`: the run mode decides it (see [Run mode and providers](#run-mode-and-providers)).
+  One written by an older factory is ignored.
 - `costUsd` and `durationMs` are summed over every runner pass on the job.
 - Ids are `I-NNN` and `J-NNN`, allocated by the script, one above the larger of `seq` and the highest
   id on the board. `seq` records the highest id ever allocated, so a `purge` never frees an id. The simulator uses the same ids in its own
@@ -743,7 +739,7 @@ cap in bytes, default `1073741824` (1 GB); `FACTORY_STORAGE_ACCOUNT` and `FACTOR
 (default 5, see Dashboard below).
 
 Overrides, for tests: `FACTORY_STATE_TOKEN` (the bearer token), `FACTORY_LOCAL_DIR` (in place of
-`%LOCALAPPDATA%\claude-factory`), `FACTORY_STATE_LOCK_SECONDS` (the board lease's wait),
+`%LOCALAPPDATA%\ai-factory`), `FACTORY_STATE_LOCK_SECONDS` (the board lease's wait),
 `FACTORY_STATE_RENEW_SECONDS` (the keepers' interval), `FACTORY_IP_URL` (allow-ip's public-IP
 lookup, default `https://api.ipify.org`), and a `{home}` in `FACTORY_BLOB_URL`, which becomes a hash of
 `FACTORY_HOME` so each test's home gets its own container. `FACTORY_TEST_STATE=azure` runs the Pester
@@ -753,7 +749,7 @@ suites on a blob stub (`factory/tests/fixtures/blob-stub.ps1`).
 `$env:FACTORY_STATE_TOKEN` (tests), else the managed identity (`IDENTITY_ENDPOINT` and
 `IDENTITY_HEADER`, in Azure), else `az account get-access-token --resource https://storage.azure.com`
 (through `FACTORY_AZ_CMD` when set). An `az` token is cached until five minutes before it expires in
-`%LOCALAPPDATA%\claude-factory\storage-token.json`, never under `FACTORY_HOME`.
+`%LOCALAPPDATA%\ai-factory\storage-token.json`, never under `FACTORY_HOME`.
 
 **Layout.** Blob names are paths relative to `FACTORY_HOME`, with `/` separators, except:
 
@@ -821,10 +817,10 @@ stderr and leaves the board unchanged.
 | `new-idea <text> -Target <path> [-Scaffold <json>] [-Base <J-NNN>]` · `add-spec <ideaId> <file>` · `idea-done <ideaId> [-Failed -Reason]` · `idea-abandon <ideaId>` | `/factory:idea`, serve.ps1 (idea sessions, **Abandon**) |
 | `check-target <owner/name>` (prints `new` or `existing` from the GitHub API, or refuses as `new-idea` would) · `clone-target <owner/name> <dir> [-Base <J-NNN>]` (replaces `<dir>` with a `--depth 1` clone of `main`, or of `factory/<base>`) | serve.ps1 (idea sessions), idea.ps1 |
 | `list-repos` (prints a JSON array of the token user's own repos, `owner/name`, newest push first, at most 100) | serve.ps1 (New idea) |
-| `edit-spec <id> -File <path>` (backlog only) · `set-provider <id> <subscription\|openrouter>` (backlog or approved) | serve.ps1 |
+| `edit-spec <id> -File <path>` (backlog only) | serve.ps1 |
 | `approve <id>` | `/factory:idea` (on the human's yes), serve.ps1 (human drag) |
-| `rework <id> <note> [-Tweak]` · `discard <id>` (both from `ready` or `blocked`) · `merge <id>` · `purge` | serve.ps1 (human drags, the blocked card's buttons, and **Clear**) |
-| `gate-check <id> [<name>]` (runs the spec's gate commands, or the one named, in the job's work directory exactly as `gate` does, and records nothing on the board; prints the output and exits with the first non-zero code; see [Gate and merge](#gate-and-merge)) · `provenance <id>` (prints this round's template-sourced paths) · `tweak-check <id>` (prints `tweak` or `full: <why>`) | the builder, the reviewers, the approver, `/factory run` |
+| `rework <id> <note>` · `discard <id>` (both from `ready` or `blocked`) · `merge <id>` · `purge` | serve.ps1 (human drags, the blocked card's buttons, and **Clear**) |
+| `gate-check <id> [<name>]` (runs the spec's gate commands, or the one named, in the job's work directory exactly as `gate` does, and records nothing on the board; prints the output and exits with the first non-zero code; see [Gate and merge](#gate-and-merge)) · `provenance <id>` (prints this round's template-sourced paths) | the builder, the reviewers, the approver, `/factory run` |
 | `sync-prs` (moves each `ready` job whose PR was merged on GitHub to `done`; prints their ids) | serve.ps1 (PR sync) |
 | `next` (prints the next runnable approved id, or nothing; a deployable job is runnable only after a canary pass for the current fingerprint, and `next -NeedsCanary` prints `canary` when that is all that holds it back) · `checkout <id>` (creates the GitHub repo if needed, then clones or reuses `<work>\jobs\<id>` on `factory/<id>`, fetches, and points `factory/base` at the base branch; prints the work directory) · `publish <id>` (`ready` or `blocked`: pushes `factory/<id>` and opens the job's PR if it has none; prints the PR url) · `set-cost <id> <usd> <ms>` | runner.ps1 |
 | `set-stage <id> <to> [-By] [-Reason] [-Detail]` · `set-review <id> <role> <state>` · `read-reviews <id>` · `read-decision <id>` · `gate <id>` | `/factory run` |
@@ -839,7 +835,7 @@ stderr and leaves the board unchanged.
 | `lesson <id> [-File <path>]` · `lesson-mark <id> <open\|proposed\|applied> [-Detail <session>]` | runner.ps1, a human evaluation session, serve.ps1 (see [Lessons](#lessons)) |
 | `status [-Json]` | anyone |
 | `state-migrate` (`azure` only: uploads everything in `FACTORY_HOME` that is not already in the container, then writes `.sync.json`; refuses when the container already has a `board.json` newer than the local one) · `state-pull [<prefix>]` (pulls the container, or one prefix such as `jobs/J-019/`) · `prune` (runs the cap now and prints `<used> of <cap> bytes`) | a human; serve.ps1 (`state-pull jobs/<id>/` when a job is opened) |
-| `allow-ip` (`azure` only: adds this machine's public IP to `FACTORY_STORAGE_ACCOUNT`'s firewall through `az storage account network-rule add`, and removes the IP it added last time, recorded in `%LOCALAPPDATA%\claude-factory\allowed-ip.txt`) | a human, after the public IP changes |
+| `allow-ip` (`azure` only: adds this machine's public IP to `FACTORY_STORAGE_ACCOUNT`'s firewall through `az storage account network-rule add`, and removes the IP it added last time, recorded in `%LOCALAPPDATA%\ai-factory\allowed-ip.txt`) | a human, after the public IP changes |
 
 `read-reviews` and `read-decision` exit 2 when a verdict line is missing or malformed; the job
 does not move. `set-stage` only performs `approved → build`, `build → review` and
@@ -1193,9 +1189,8 @@ and a refused move snaps the card back and shows the message.
 | `GET /api/jobs/<id>/files` | (read-only) | the job's artifact paths, relative to `jobs/<id>/` |
 | `GET /api/agents/<agentId>/transcript` | (read-only) | the `transcript` file named by that agent's `agent-start` event; no other path is served |
 | `PUT /api/jobs/<id>/spec` (text/markdown) | `edit-spec` | |
-| `POST /api/jobs/<id>/provider` `{ "provider": "openrouter" }` | `set-provider` | the card's provider chip (backlog and approved) toggles it |
 | `POST /api/jobs/<id>/move` `{ "to": "approved" }` from backlog | `approve` | starts the runner |
-| `POST /api/jobs/<id>/move` `{ "to": "approved", "note", "tweak"? }` from ready or blocked | `rework [-Tweak]` | starts the runner. The rework dialog has a **Tweak** checkbox and the factory-fault hint (see [Blocked](#blocked)) |
+| `POST /api/jobs/<id>/move` `{ "to": "approved", "note" }` from ready or blocked | `rework` | starts the runner. The rework dialog has the factory-fault hint (see [Blocked](#blocked)) |
 | `POST /api/jobs/<id>/move` `{ "to": "done" }` | `merge` | |
 | `POST /api/jobs/<id>/move` `{ "to": "discarded" }` | `discard` | |
 | `POST /api/jobs/<id>/redeploy` | `redeploy` | **Retry deploy** on a blocked card; starts the runner |
@@ -1207,7 +1202,7 @@ and a refused move snaps the card back and shows the message.
 | `POST /api/lessons/<id>/mark` `{ status, session? }` | `lesson-mark` | |
 | `GET /api/evals` | (read-only) | every `evals/<id>.json`, newest job first; the markdown is at `/state/evals/<id>.md` |
 | `PUT /api/evals/<id>/feedback` (text/markdown) | `feedback` | the feedback is at `/state/evals/<id>.feedback.md` |
-| `GET /api/ideate/config` | (read-only) | `{ enabled, model, owner, templatesRepo, deploys }`; `enabled` means `.env` has an Anthropic key; `owner` is `GITHUB_OWNER`; `templatesRepo` is `FACTORY_TEMPLATES_REPO`; `deploys` means `.env` has `HCP_ORG` (Approved cards' wait reasons); no key is ever returned |
+| `GET /api/ideate/config` | (read-only) | `{ enabled, model, owner, templatesRepo, deploys, mode, provider }`; `enabled` means the mode's idea-turn credential is configured (see [Idea sessions](#idea-sessions-dashboard)); `mode` and `provider` are the [run mode](#run-mode-and-providers) and its provider, shown in the dashboard header; `owner` is `GITHUB_OWNER`; `templatesRepo` is `FACTORY_TEMPLATES_REPO`; `deploys` means `.env` has `HCP_ORG` (Approved cards' wait reasons); no key is ever returned |
 | `GET /api/sessions` | (read-only) | every session that is not `closed`: `{ id, target, text, status, idea, bootstrap, costUsd, newTarget }` |
 | `GET /api/repos` | `list-repos` | the JSON array, for the New idea picker |
 | `POST /api/sessions` `{ target, text, base? }` or `{ new: true, text }` | `check-target` (not for `new`, which needs `GITHUB_OWNER`), then `clone-target [-Base]` | allocates `S-NNN`, writes `session.json` (with `base`) and the first message, which tells the model the clone is the base's unmerged branch, and starts a turn. The panel's **Base** list is `main` plus every job on the target that is not `done` or `discarded` and has a PR |
@@ -1264,7 +1259,7 @@ longer running. Otherwise it loops:
      and `git merge --abort`), and read-only shell commands, in both the Bash and the
      PowerShell tool; any other merge is unmatched and so refused, and `deny` blocks `git push`, `git merge main`/`origin…`, `rebase`, `reset --hard`, switching to
      `main` and `git worktree`, and reading the environment (`printenv`, `env`, and
-     `Get-ChildItem`/`Get-Item`/`Get-Content` on `env:`), which holds an `openrouter` job's key. `additionalDirectories` makes `factory/templates` and the template
+     `Get-ChildItem`/`Get-Item`/`Get-Content` on `env:`), which may hold credentials the human never meant an agent to read. `additionalDirectories` makes `factory/templates` and the template
      workspace readable. The allowlist also holds the absolute
      `factory.ps1` path. The skill calls `factory.ps1` by that absolute path with no
      `$VARIABLES`, because a headless permission check can't approve a variable it can't see.
@@ -1272,7 +1267,7 @@ longer running. Otherwise it loops:
      `/docs/FACTORY-CONTRACT.md` in the work directory, the same three by absolute path in this repo,
      `<stateDir>/jobs/*/spec.md`, and the template workspace; and `Read` of this repo's `.env`.
      Agents never push: only `factory.ps1` holds the token.
-   - For an `openrouter` job, `claude` runs with the OpenRouter environment of [Providers](#providers).
+   - `claude` runs with its mode's child environment (see [Run mode and providers](#run-mode-and-providers)).
    - claude's output is read as UTF-8 whatever the console's codepage.
    - stderr goes to the same log, so a reader skips lines that are not JSON.
 4. It appends each stdout line to `jobs/<id>/run-<n>.jsonl` as it arrives, through one stream opened for the whole pass and shared for reading and writing (and `serve.ps1` reads state files shared the same way), so a reader can never fail the job. It calls `set-cost`

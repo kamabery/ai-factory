@@ -1,4 +1,4 @@
-# claude-factory
+# ai-factory
 
 A Claude Code software factory with a human at both ends: you approve the spec and accept the
 result, and agents do everything in between (build → four parallel reviewers → approver →
@@ -30,7 +30,7 @@ That's the only process you start. The dashboard starts the agent runs itself. T
 repos (`owner/name`): put a GitHub PAT in `GITHUB_TOKEN`, and set `GITHUB_OWNER`, in `.env` (see
 `.env.example`). [docs/GITHUB-PAT.md](docs/GITHUB-PAT.md) says how to create the PAT and which
 permissions it needs. Each job
-builds and is tested in its own temp clone (`%TEMP%\claude-factory\jobs\J-NNN`), which is deleted
+builds and is tested in its own temp clone (`%TEMP%\ai-factory\jobs\J-NNN`), which is deleted
 when the job reaches Done or is discarded.
 
 ### 2. Work out an idea with Claude
@@ -49,8 +49,10 @@ never reach the board. The panel shows the session's API cost as it goes. Closin
 nothing: the session's card reopens it.
 
 Only the idea session uses the API key. Build, review, approve and gate run on the `claude` CLI and
-your subscription, as before, and the key is never put in the environment. With no key, or if you
-prefer a terminal, the CLI session still works:
+your subscription, as before, and the key is never put in the environment. That is the **local**
+run mode, the default. In **cloud** mode (`FACTORY_MODE=cloud`, set by a deployed factory) jobs and
+idea turns run on Claude in Microsoft Foundry through Entra ID, with no key at all; see
+[docs/FOUNDRY.md](docs/FOUNDRY.md). With no key, or if you prefer a terminal, the CLI session still works:
 
 ```powershell
 pwsh factory/scripts/idea.ps1 kamabery/todo-app   # or an I-NNN to resume one

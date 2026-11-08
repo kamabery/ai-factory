@@ -121,6 +121,6 @@ resource "azurerm_role_assignment" "firewall" {
 }
 
 locals {
-  tags            = { purpose = "claude-factory-state" }
+  tags            = { purpose = "ai-factory-state" }
   hcp_credentials = try(var.tfc_azure_dynamic_credentials.default, null)
 }

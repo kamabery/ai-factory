@@ -48,7 +48,7 @@ function State-IsAzure { $script:StateMode -eq 'azure' }
 # Outside FACTORY_HOME, so nothing here is ever synced: the token cache and allow-ip's last IP.
 function State-LocalDir {
     if ($env:FACTORY_LOCAL_DIR) { return $env:FACTORY_LOCAL_DIR }
-    Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'claude-factory'
+    Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'ai-factory'
 }
 
 # --- auth --------------------------------------------------------------------------------------
@@ -114,7 +114,13 @@ function Invoke-Blob([string] $Method, [string] $Name, [string] $Query = '', [ha
     }
 }
 
-function Blob-Error($r, [string] $what) { "state: $what answered $($r.Status) $($r.Headers['x-ms-error-code'])" }
+function Blob-Error($r, [string] $what) {
+    $code = $r.Headers['x-ms-error-code']
+    $m = "state: $what answered $($r.Status) $code"
+    # Deleting an old version needs deleteBlobVersion/action, which only Storage Blob Data Owner has.
+    if ($code -eq 'OperationNotAllowedOnAutomaticSnapshot') { $m += ' (deleting an old version needs Storage Blob Data Owner on the container, not Contributor: apply factory/infra/state)' }
+    $m
+}
 
 # ETags compare without the quotes the list XML leaves off and the headers put on.
 function Bare-ETag([string] $e) { if ($e) { $e.Trim('"') } else { $null } }

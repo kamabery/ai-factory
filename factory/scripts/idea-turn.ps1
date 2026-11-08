@@ -249,9 +249,14 @@ function Invoke-Messages([hashtable] $body) {
     $json = $body | ConvertTo-Json -Depth 100 -Compress
     for ($attempt = 0; ; $attempt++) {
         $req = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Post, "$BaseUrl/v1/messages")
-        $req.Headers.Add('x-api-key', $Key)
+        if ($Cloud) {
+            # Foundry: Entra ID only, and no server-side fallback to ask for.
+            $req.Headers.Authorization = [Net.Http.Headers.AuthenticationHeaderValue]::new('Bearer', (Get-FoundryToken))
+        } else {
+            $req.Headers.Add('x-api-key', $Key)
+            $req.Headers.Add('anthropic-beta', 'server-side-fallback-2026-07-01')
+        }
         $req.Headers.Add('anthropic-version', '2023-06-01')
-        $req.Headers.Add('anthropic-beta', 'server-side-fallback-2026-07-01')
         $req.Content = [Net.Http.StringContent]::new($json, [Text.Encoding]::UTF8, 'application/json')
         $resp = $Http.SendAsync($req, [Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
         $code = [int]$resp.StatusCode
@@ -316,6 +321,7 @@ function Get-Cost($usage) {
 # In azure the session may have been started on another machine, and the turn lock is also the
 # lease on locks/turn-<S> (see "State backends" in the contract).
 . (Join-Path $PSScriptRoot 'state.ps1')
+. (Join-Path $PSScriptRoot 'llm.ps1')
 Initialize-State -StateHome $StateDir -EnvFile $EnvFile
 $TurnLease = $null; $TurnKeeper = $null
 if (State-IsAzure) { $null = Pull-State "sessions/$Session/" }
@@ -335,9 +341,13 @@ $S = Read-Json (Join-Path $Dir 'session.json')
 $chat = Read-Json (Join-Path $Dir 'chat.json')
 $messages = New-List $chat.messages
 $vars = Read-DotEnv $EnvFile
-$Key = $vars['ANTHROPIC_API_KEY']
+# The run mode decides the credential (see "Run mode and providers"): the API key locally, Entra ID on Foundry in cloud mode.
+$ModeError = $null; $Cloud = $false
+try { $Cloud = (Get-FactoryMode $EnvFile) -eq 'cloud' } catch { $ModeError = $_.Exception.Message }
+$Key = if ($Cloud) { $null } else { $vars['ANTHROPIC_API_KEY'] }
+$FoundryResource = if ($Cloud) { Get-LlmSetting 'FACTORY_FOUNDRY_RESOURCE' $EnvFile }
 $Model = if ($vars['FACTORY_IDEA_MODEL']) { $vars['FACTORY_IDEA_MODEL'] } else { $DefaultModel }
-$BaseUrl = if ($vars['ANTHROPIC_BASE_URL']) { $vars['ANTHROPIC_BASE_URL'].TrimEnd('/') } else { 'https://api.anthropic.com' }
+$BaseUrl = if ($vars['ANTHROPIC_BASE_URL']) { $vars['ANTHROPIC_BASE_URL'].TrimEnd('/') } elseif ($Cloud) { "https://$FoundryResource.services.ai.azure.com/anthropic" } else { 'https://api.anthropic.com' }
 $cost = 0.0
 
 $S.status = 'running'; $S.error = $null; $S.model = $Model
@@ -345,7 +355,9 @@ Write-Json (Join-Path $Dir 'session.json') $S
 [IO.File]::WriteAllText((Join-Path $Dir 'stream.jsonl'), '')
 
 try {
-    if (-not $Key) { throw "no ANTHROPIC_API_KEY in $EnvFile" }
+    if ($ModeError) { throw $ModeError }
+    if ($Cloud) { if (-not $FoundryResource) { throw 'no FACTORY_FOUNDRY_RESOURCE (cloud mode)' } }
+    elseif (-not $Key) { throw "no ANTHROPIC_API_KEY in $EnvFile" }
     $Http = [Net.Http.HttpClient]::new()
     $Http.Timeout = [Threading.Timeout]::InfiniteTimeSpan
     $system = @(@{ type = 'text'; text = (Get-SystemPrompt); cache_control = @{ type = 'ephemeral' } })
@@ -353,13 +365,14 @@ try {
     $S.pending = $null; $S.pendingResults = @()
 
     for ($loop = 0; $loop -lt $MaxLoops; $loop++) {
-        $r = Invoke-Messages ([ordered]@{
+        $body = [ordered]@{
             model = $Model; max_tokens = 64000; stream = $true
             system = $system; tools = $tools; messages = $messages
             cache_control = @{ type = 'ephemeral' }
             output_config = @{ effort = 'high' }
-            fallbacks = 'default'
-        })
+        }
+        if (-not $Cloud) { $body.fallbacks = 'default' }
+        $r = Invoke-Messages $body
         $cost += Get-Cost $r.usage
         if ($r.stop_reason -eq 'refusal') {
             throw "the model declined to continue$(if ($r.stop_details.category) { " ($($r.stop_details.category))" })"

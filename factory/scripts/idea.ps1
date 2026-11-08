@@ -26,7 +26,7 @@ if ($Arg -match '^I-\d+$') {
 # An existing target is read from a shallow clone in <work>\cli\<owner>-<name>, deleted on exit.
 $clone = $null
 if ($target -and (& $factory check-target $target 2>$null) -eq 'existing') {
-    $work = if ($env:FACTORY_WORK) { $env:FACTORY_WORK } else { Join-Path ([IO.Path]::GetTempPath()) 'claude-factory' }
+    $work = if ($env:FACTORY_WORK) { $env:FACTORY_WORK } else { Join-Path ([IO.Path]::GetTempPath()) 'ai-factory' }
     $clone = & $factory clone-target $target (Join-Path $work "cli/$($target -replace '/', '-')")
     if ($LASTEXITCODE -ne 0) { $clone = $null }
 }

@@ -23,7 +23,7 @@ pwsh -NoProfile -File <factory.ps1> <command> [args]
 Don't put `$VARIABLES` in commands: the permission check can't approve them in a headless run.
 `<stateDir>` is the absolute state directory. Below, `F` means the command above, `<job>` means
 `<stateDir>/jobs/<id>`, and `<templates>` means the `templates` folder next to the `scripts` folder
-that holds `factory.ps1` (for example `D:/code/claude-factory/factory/templates`). Pass agents
+that holds `factory.ps1` (for example `D:/code/ai-factory/factory/templates`). Pass agents
 **absolute** paths, including the template each one follows.
 
 Tell every agent, in its prompt: "Your working directory is already the job's clone. Run each shell

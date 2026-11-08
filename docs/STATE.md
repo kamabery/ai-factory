@@ -15,7 +15,7 @@ endpoint (about $7.30/month each) and no always-on compute.
   which `prune` does, needs `deleteBlobVersion/action`; Contributor lacks it).
 - TLS 1.2 or later.
 - The firewall denies by default; `allow-ip` opens it to the machines that run the factory.
-- The bearer token is cached outside `FACTORY_HOME` (`%LOCALAPPDATA%\claude-factory`), so it is never
+- The bearer token is cached outside `FACTORY_HOME` (`%LOCALAPPDATA%\ai-factory`), so it is never
   synced. It is scoped to storage only.
 
 ## 1. Apply the Terraform
@@ -97,7 +97,7 @@ jobs or idea turns. Terraform is not needed.
    ```powershell
    pwsh factory/scripts/factory.ps1 allow-ip
    ```
-   This adds the machine's public IP. It records the IP in `%LOCALAPPDATA%\claude-factory\allowed-ip.txt`,
+   This adds the machine's public IP. It records the IP in `%LOCALAPPDATA%\ai-factory\allowed-ip.txt`,
    and on the next run it removes the IP it added last time.
 6. **Pull everything:**
    ```powershell
@@ -134,6 +134,10 @@ container lacks once its last command has finished.
 - **How full is it:** `factory.ps1 prune`, which prints `<used> of <cap> bytes`. The cap (1 GB, set by
   `FACTORY_STATE_CAP`) rolls off the bulky logs of finished jobs first. It never touches the board,
   events, ideas, evals or lessons.
+- **`state push failed: ... 403 OperationNotAllowedOnAutomaticSnapshot`:** the prune tried to delete an
+  old version, and your identity has Storage Blob Data Contributor on the container instead of
+  Owner. Only Owner can delete versions. Apply `factory/infra/state` (section 1), which assigns
+  Owner. Until then each push still uploads, but the container stays over the cap.
 - **"state lock refused":** another machine holds `locks/board`. A crashed holder's lease lapses in
   60 s, so wait and retry.
 - **A bad board write:** board.json is versioned, and the newest 50 versions are kept. In the portal,

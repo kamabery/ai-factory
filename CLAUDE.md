@@ -1,11 +1,13 @@
-# claude-factory
+# ai-factory
 
 This repo is **the factory**, a Claude Code software factory, as in the ZazenCodes
 "Build Your Own AI Software Factory with Claude Code" video. It builds GitHub target repos, and new
 targets are scaffolded from `D:\code\template-projects`. A `/factory` skill orchestrates
 spec, build, four parallel reviewers and an approver; ideas are grilled and specced in a
 dashboard idea session on the Claude API (key in `.env`), or in the CLI fallback, an interactive
-`/factory:idea` session. Each job's branch is deployed to an ephemeral Azure preview
+`/factory:idea` session. The run mode picks the LLM: `local` (the default) runs jobs on the
+subscription, and `cloud` (`FACTORY_MODE=cloud`) runs jobs and idea turns on Claude in Microsoft
+Foundry, keyless through Entra ID (`docs/FOUNDRY.md`). Nothing picks a provider per job. Each job's branch is deployed to an ephemeral Azure preview
 through HCP Terraform before the approver (`docs/DEPLOY.md`), and jobs that go bad leave lessons
 the dashboard proposes as template fixes. A deterministic PowerShell control plane
 owns state, the gate and the merge. A local dashboard is where the human works the factory:
@@ -32,7 +34,7 @@ and `...\build-your-own-ai-software-factory-with-claude-code.md`. How to build t
 - **The dashboard's write endpoints are thin `factory.ps1` wrappers.** `serve.ps1` holds no
   transition logic of its own.
 - **Targets are GitHub repos (`owner/name`), and every job builds in its own temp clone**,
-  `<work>\jobs\<id>` (`$env:FACTORY_WORK`, else `%TEMP%\claude-factory`), one job at a time. The
+  `<work>\jobs\<id>` (`$env:FACTORY_WORK`, else `%TEMP%\ai-factory`), one job at a time. The
   clone is deleted when the job reaches Done (its PR merged) or is discarded. Only `factory.ps1`
   holds the GitHub token (`.env`) and pushes; agents never push.
 - **No agent weakens the thing that judges it.** Factory jobs never edit `factory/`, `.claude/`,
@@ -54,5 +56,6 @@ $env:FACTORY_TEST_STATE='azure'; Invoke-Pester factory/tests/factory.Tests.ps1  
 pwsh factory/scripts/factory.ps1 state-migrate | allow-ip | prune   # FACTORY_STATE=azure: state in Blob storage (docs/STATE.md)
 pwsh factory/scripts/setup-platform.ps1                # the shared platform previews run on, ~$18/month (docs/DEPLOY.md)
 pwsh factory/scripts/factory.ps1 canary -Full          # after template IaC changes: the whole stack, off the platform
+cd factory/infra/llm; terraform test; terraform apply  # the Foundry account cloud mode runs on (docs/FOUNDRY.md)
 pwsh factory/scripts/setup-azure.ps1 -SubscriptionId <id> -HcpOrg <org> [-CreateExternalTenant <sub> -ExternalResourceGroup <rg> | -ExternalTenantId <id>]  # one-time preview identities (docs/DEPLOY.md)
 ```

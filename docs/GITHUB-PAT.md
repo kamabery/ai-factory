@@ -25,7 +25,7 @@ Generate new token**.
 
 | Setting | Value |
 | --- | --- |
-| Token name | `claude-factory` |
+| Token name | `ai-factory` |
 | Resource owner | You, or the organization that owns your targets (the same as `GITHUB_OWNER`) |
 | Expiration | Your call. When it expires, every GitHub call fails with GitHub 401 |
 | **Repository access** | **All repositories** |

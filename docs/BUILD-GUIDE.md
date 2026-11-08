@@ -9,7 +9,7 @@ of this is `docs/FACTORY-CONTRACT.md`. Read it before any step.
 **What already exists:** the contract, the artifact templates and the empty folders are in place, and
 `factory/backlog.md` holds sample ideas. Everything below is still to do.
 
-Each step gives a prompt to paste into Claude Code in `D:\code\claude-factory`, the test that has to
+Each step gives a prompt to paste into Claude Code in `D:\code\ai-factory`, the test that has to
 be **seen red before it goes green**, and the evidence that closes the step. Do the steps in order,
 committing each one on `main` once its evidence is in.
 - Steps 1–3 build the deterministic parts and can be tested without spending a token.

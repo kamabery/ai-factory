@@ -41,7 +41,7 @@ API; the workflow in each target queues runs.
 2. **Team token → `HCP_TOKEN` and `HCP_TEAM_TOKEN`.**
    https://app.terraform.io/app/<org>/settings/authentication-tokens?tabIndex=1 (**Settings** →
    **Security** → **API tokens** → **Team tokens**) → **Create a team token**: team **owners** (the only
-   team on the Free plan), description `claude-factory`, 90 days. Copy it when shown; it isn't shown
+   team on the Free plan), description `ai-factory`, 90 days. Copy it when shown; it isn't shown
    again, and creating another replaces it. Put the same token in both lines.
    - `HCP_TOKEN`: `factory.ps1` creates each target's project and workspaces, attaches the variable
      set, and queues destroy runs.

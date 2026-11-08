@@ -194,18 +194,36 @@ test.describe.serial('factory dashboard', () => {
     expect(job('J-005').stage).toBe('backlog');
   });
 
-  test('a backlog card\'s provider chip switches it between subscription and openrouter without opening the modal', async ({ page }) => {
+  test('the header names the run mode and its provider, and no card carries a provider chip', async ({ page }) => {
     await page.goto('/');
-    const chip = card(page, 'J-005').locator('[data-provider]');
-    await expect(chip).toHaveText('subscription');
-    await chip.click();
-    await expect(chip).toHaveText('openrouter');
-    await expect(modal(page)).toBeHidden();
-    expect(board().jobs.find((j: { id: string }) => j.id === 'J-005').provider).toBe('openrouter');
-    await chip.click();
-    await expect(chip).toHaveText('subscription');
-    expect(board().jobs.find((j: { id: string }) => j.id === 'J-005').provider).toBe('subscription');
-    await expect(card(page, 'J-001').locator('[data-provider]')).toHaveCount(0);   // done, on the default
+    await expect(page.locator('#mode')).toHaveText('local · subscription');
+    await expect(card(page, 'J-005')).toBeVisible();
+    await expect(page.locator('[data-provider]')).toHaveCount(0);
+    await expect(page.locator('#mode')).toHaveAttribute('data-mode', 'local');
+  });
+
+  test('cloud mode stands out in the header, because it spends money', async ({ page }) => {
+    await page.goto('/');
+    const quiet = await page.locator('#mode').evaluate((e) => getComputedStyle(e).color);
+    const real = await (await page.request.get('/api/ideate/config')).json();
+    await page.route('**/api/ideate/config', (r) => r.fulfill({ body: JSON.stringify({ ...real, mode: 'cloud', provider: 'foundry' }) }));
+    await page.reload();
+    const mode = page.locator('#mode');
+    await expect(mode).toHaveText('cloud · foundry');
+    await expect(mode).toHaveAttribute('data-mode', 'cloud');
+    await expect(mode).toHaveAttribute('title', /bill.*Microsoft Foundry/);
+    const run = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--run').trim());
+    const loud = await mode.evaluate((e) => ({ color: getComputedStyle(e).color, bg: getComputedStyle(e).backgroundColor }));
+    expect(loud.color).not.toBe(quiet);
+    expect(loud.bg).not.toBe('rgba(0, 0, 0, 0)');
+    const probe = await page.evaluate((c) => { const d = document.createElement('div'); d.style.color = c; document.body.append(d); const v = getComputedStyle(d).color; d.remove(); return v; }, run);
+    expect(loud.color).toBe(probe);
+
+    await page.unroute('**/api/ideate/config');
+    await page.route('**/api/ideate/config', (r) => r.fulfill({ body: JSON.stringify({ ...real, mode: null, provider: null, enabled: false }) }));
+    await page.reload();
+    await expect(mode).toHaveText('FACTORY_MODE is invalid');
+    await expect(mode).toHaveAttribute('data-mode', 'invalid');
   });
 
   test('dragging a backlog card to Approved approves it', async ({ page }) => {

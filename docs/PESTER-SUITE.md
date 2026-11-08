@@ -21,10 +21,10 @@ The dashboard is not covered here; it has its own Playwright check against `simu
 
 | File | Script under test | Covers |
 | --- | --- | --- |
-| `factory.Tests.ps1` | `factory.ps1` | The control plane, against [FACTORY-CONTRACT.md](FACTORY-CONTRACT.md): ideas and specs, providers, board writes, illegal transitions, the Approved queue, review routing, the approver's decision, the gate, publish and merge, human moves from Ready for review, purge, bookkeeping (cost), evaluations, targets and bootstrap jobs, deploy / redeploy / destroy, and lessons |
-| `runner.Tests.ps1` | `runner.ps1`, `hook-event.ps1`, `serve.ps1` | The runner draining the queue with a fake `claude`, its log and resilience, providers, state resolution, `serve.ps1`'s runner watchdog and PR sync, and the hook that turns agent start and stop into events |
-| `serve.Tests.ps1` | `serve.ps1` | The dashboard's HTTP endpoints: idea sessions on a new and an existing target, the repo list and Add new, evaluations, lessons, previews, state files and the job provider toggle |
-| `idea-turn.Tests.ps1` | `idea-turn.ps1` | One idea-session turn on the Claude API: streaming, the key and model it sends, the cached system prompt, read-only tools sandboxed to the target, the scaffold / brief / spec tools and what they refuse, API errors and refusals, and the session lock |
+| `factory.Tests.ps1` | `factory.ps1` | The control plane, against [FACTORY-CONTRACT.md](FACTORY-CONTRACT.md): ideas and specs, the run modes provider on cost events, board writes, illegal transitions, the Approved queue, review routing, the approver's decision, the gate, publish and merge, human moves from Ready for review, purge, bookkeeping (cost), evaluations, targets and bootstrap jobs, deploy / redeploy / destroy, and lessons |
+| `runner.Tests.ps1` | `runner.ps1`, `hook-event.ps1`, `serve.ps1` | The runner draining the queue with a fake `claude`, its log and resilience, the run modes child environment (subscription and Foundry), state resolution, `serve.ps1`'s runner watchdog and PR sync, and the hook that turns agent start and stop into events |
+| `serve.Tests.ps1` | `serve.ps1` | The dashboard's HTTP endpoints: idea sessions on a new and an existing target, the repo list and Add new, evaluations, lessons, previews, state files, and the run mode in the config |
+| `idea-turn.Tests.ps1` | `idea-turn.ps1` | One idea-session turn on the Claude API: streaming, the key (local) or Entra token (cloud, Foundry) and model it sends, the cached system prompt, read-only tools sandboxed to the target, the scaffold / brief / spec tools and what they refuse, API errors and refusals, and the session lock |
 | `setup-azure.Tests.ps1` | `setup-azure.ps1` | The one-time preview identities in [DEPLOY.md](DEPLOY.md): app registrations, service principals, role assignments, External ID, and reruns against what already exists |
 
 ## How it stays offline

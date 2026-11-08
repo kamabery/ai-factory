@@ -37,7 +37,6 @@ $Building = 'build', 'review', 'deploy', 'approve', 'gate'
 $MaxDeployAttempts = 5
 $MaxDeployFixes = 2
 $EventKinds = 'idea', 'stage', 'agent-start', 'agent-stop', 'gate', 'merge', 'cost', 'note', 'eval', 'feedback', 'deploy', 'destroy', 'lesson', 'canary'
-$Providers = 'subscription', 'openrouter'
 
 $BoardLease = $null
 
@@ -68,6 +67,7 @@ $BoardPath = Join-Path $Home_ 'board.json'
 $EventsPath = Join-Path $Home_ 'events.jsonl'
 
 . (Join-Path $PSScriptRoot 'github.ps1')
+. (Join-Path $PSScriptRoot 'llm.ps1')
 . (Join-Path $PSScriptRoot 'hcp.ps1')
 . (Join-Path $PSScriptRoot 'deploy.ps1')
 . (Join-Path $PSScriptRoot 'canary.ps1')
@@ -77,7 +77,7 @@ try { Initialize-State -StateHome $Home_ -EnvFile (EnvFilePath) } catch { Fail "
 # A job's local clone of its target, where it builds and is gated; deleted at done or discarded.
 function WorkRoot {
     if ($env:FACTORY_WORK) { return $env:FACTORY_WORK }
-    Join-Path ([IO.Path]::GetTempPath()) 'claude-factory'
+    Join-Path ([IO.Path]::GetTempPath()) 'ai-factory'
 }
 
 function WorkDir($j) { Join-Path (WorkRoot) "jobs/$($j.id)" }
@@ -343,9 +343,6 @@ function Add-Job($i, [string[]] $lines, [string] $source, [string] $kind) {
     $title = ($lines[$h] -replace '^#\s*Spec:\s*', '').Trim()
     if ($title -match '\s[—-]\s(.+)$') { $title = $Matches[1].Trim() }
     if (-not $title) { Fail "empty title in $source" }
-    $provider = (Read-EnvFile (EnvFilePath))['FACTORY_PROVIDER']
-    if (-not $provider) { $provider = 'subscription' }
-    if ($provider -notin $Providers) { Fail "FACTORY_PROVIDER '$provider' in .env must be $($Providers -join ' or ')" }
     $id = Next-Id 'J' $Board.jobs
     $lines[$h] = "# Spec: $id — $title"
     New-Item -ItemType Directory -Force (JobDir $id) | Out-Null
@@ -355,7 +352,7 @@ function Add-Job($i, [string[]] $lines, [string] $source, [string] $kind) {
     $j = [ordered]@{
         id = $id; idea = $i.id; kind = $kind; title = $title; stage = 'backlog'; round = 1; branch = "factory/$id"
         base = $(if ($i.Contains('base')) { $i.base } else { $null })
-        target = (Read-SpecMeta $spec).repo; provider = $provider
+        target = (Read-SpecMeta $spec).repo
         pr = $null; reviews = $null; decision = $null; gate = $null; flag = $null; merged = $null; approvedAt = $null
         costUsd = $null; durationMs = $null; createdAt = $ts; updatedAt = $ts; history = @()
     }
@@ -786,15 +783,6 @@ try {
             Add-Event ([ordered]@{ job = $j.id; kind = 'note'; detail = 'spec edited' })
         }
 
-        'set-provider' {
-            $j = Get-Job $Arg1
-            Require-Stage $j 'backlog', 'approved' 'set-provider'
-            if ($Arg2 -notin $Providers) { Fail "set-provider refused: provider must be $($Providers -join ' or ')" }
-            $j.provider = $Arg2
-            $j.updatedAt = Now
-            Save-Board $Board
-            Add-Event ([ordered]@{ job = $j.id; kind = 'note'; detail = "provider $Arg2" })
-        }
 
         'approve' {
             $j = Get-Job $Arg1
@@ -979,7 +967,7 @@ try {
             $j.costUsd = [Math]::Round([double]($j.costUsd ?? 0) + $usd, 4)
             $j.durationMs = [long]($j.durationMs ?? 0) + $ms
             Save-Board $Board
-            Add-Event ([ordered]@{ job = $j.id; kind = 'cost'; costUsd = $usd; durationMs = $ms; provider = $j['provider'] ?? 'subscription' })
+            Add-Event ([ordered]@{ job = $j.id; kind = 'cost'; costUsd = $usd; durationMs = $ms; provider = (Get-FactoryProvider (EnvFilePath)) })
         }
 
         'deploy' {
