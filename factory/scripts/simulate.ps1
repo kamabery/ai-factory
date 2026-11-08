@@ -95,7 +95,7 @@ $intent
 - test: ``exit 0``
 
 ## Acceptance criteria
-- [ ] AC1: $title works as described — proven by ``dotnet test tests/shelf.api.tests``
+- [ ] AC1: $title works as described — proven by ``dotnet test``
 - [ ] AC2: the UI builds — proven by ``npm run build``
 
 ## Scope

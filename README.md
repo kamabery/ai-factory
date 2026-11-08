@@ -2,7 +2,7 @@
 
 A Claude Code software factory with a human at both ends: you approve the spec and accept the
 result, and agents do everything in between (build → four parallel reviewers → approver →
-deterministic gate). It is installed into **Shelf**, a small .NET 10 + Aspire + React app, and a
+deterministic gate). It builds GitHub target repos scaffolded from `template-projects`, and a
 live dashboard is where you work it.
 
 - **Status:** the factory is built (guide steps 1–5) and tested; it has not run a real job yet.
@@ -123,23 +123,4 @@ factory/scripts/           factory.ps1 (control plane), runner.ps1, idea.ps1, id
 factory/dashboard/         index.html, the live view
 factory/tests/             Pester + Playwright
 .factory-runs/             runtime state (gitignored)
-src/ tests/ contracts/     Shelf: shelf.api, shelf.data, sqlite migrations, servicedefaults, ui/react
-.aspire/apphost.cs         file-based AppHost (api + ui)
-IaC/                       Terraform for Azure (from the scaffold)
 ```
-
-## Shelf
-
-Reproduce the scaffold with:
-
-```
-dotnet new aspire-base     -n Shelf -o claude-factory --dbProvider sqlite --resource Book
-dotnet new aspire-ui-react -n Shelf -o claude-factory --resource Book
-```
-
-Run it with `aspire run`; there is no Docker requirement because the store is SQLite. The API serves
-Swagger at `/api-docs` and returns 404 at `/`. The UI has `/books`, plus `/styleguide`, which
-renders every approved component; `docs/DESIGN.md` holds the rules behind it.
-
-Deployment is in `IaC/README.md`: Container Apps for the API, a Static Web App for the React UI,
-and `.github/workflows/deploy.yml` with three OIDC secrets.

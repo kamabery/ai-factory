@@ -19,7 +19,7 @@ the spec needs, for the human to rework with.>
 
 ## Evidence
 <!-- Paste command + exit code. Claims without output are not evidence. -->
-- `dotnet test tests/shelf.api.tests` → exit <code>
+- `dotnet test <name>.slnx` → exit <code>
 - `npm run build` (src/ui/react) → exit <code>
 
 ## Acceptance criteria status

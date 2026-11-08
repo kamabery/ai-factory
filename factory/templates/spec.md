@@ -23,8 +23,8 @@
      globs and stops the job on any other path, so list generated outputs (lockfiles,
      contracts/api.openapi.json, routeTree.gen.ts) wherever the change will regenerate them. -->
 - In:
-  - `src/api/Features/Books/**` (the endpoint and its handler)
-  - `tests/shelf.api.tests/Books/*.cs`
+  - `src/<name>.api/Controllers/**` (the endpoint)
+  - `tests/<name>.api.tests/**/*.cs`
   - `contracts/api.openapi.json` (generated)
 - Out: <explicitly excluded>
 
