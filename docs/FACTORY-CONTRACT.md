@@ -42,7 +42,7 @@ Done and discarded cards stay until a human clears them ([Purge](#purge), the Do
 
 | Column | Stages | Who moves cards out |
 | --- | --- | --- |
-| Ideas | `idea` records with status `waiting`, `drafting` or `failed`, and open dashboard [idea sessions](#idea-sessions-dashboard) (not jobs) | the idea session, or the card's **Abandon** |
+| Ideas | `idea` records with status `waiting`, `drafting` or `failed`, and open dashboard [idea sessions](#idea-sessions-dashboard) (not jobs) | the idea session, or **Abandon**, on the card or in the idea's opened card |
 | Backlog | `backlog` | human (drag to Approved, or discard) |
 | Approved | `approved` | runner |
 | Building | `build`, `review`, `deploy`, `approve`, `gate`, `blocked` | orchestrator / script; a `blocked` card: human (retry deploy, rework, or discard) |

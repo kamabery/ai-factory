@@ -831,4 +831,25 @@ test.describe.serial('factory dashboard', () => {
       await expect(modal(page)).toBeHidden();
     }
   });
+
+  test('an opened idea has its own Abandon, which asks once more and then closes the card', async ({ page }) => {
+    const ideas = [
+      { id: 'I-401', text: 'a released idea', target: sandbox, status: 'drafting', jobs: ['J-401'] },
+      { id: 'I-402', text: 'an idea that is done', target: sandbox, status: 'done', jobs: [] },
+    ];
+    const posts: string[] = [];
+    await page.route('**/state/board.json', (r) => r.fulfill({ body: JSON.stringify({ jobs: [], ideas }) }));
+    await page.route('**/api/ideas/I-401/abandon', (r) => { posts.push(r.request().url()); return r.fulfill({ json: { ok: true, message: 'ok' } }); });
+
+    await page.goto('/');
+    await column(page, 'ideas').locator('[data-idea="I-401"] .title').click();
+    const btn = modal(page).locator('#idea-abandon-btn');
+    await expect(btn).toHaveText('Abandon');
+    await btn.click();
+    await expect(btn).toHaveText('Abandon?');
+    expect(posts).toHaveLength(0);
+    await btn.click();
+    await expect.poll(() => posts.length).toBe(1);
+    await expect(modal(page)).toBeHidden();
+  });
 });
