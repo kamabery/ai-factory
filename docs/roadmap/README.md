@@ -1,0 +1,75 @@
+# Roadmap: specs and run order
+
+This turns the approved replatform roadmap (2026-10-23, revised 2026-11-08) into specs a human
+session can pick up one at a time. The rationale and the decisions table live in
+`C:\Users\kamab\.claude\plans\grill-me-on-the-silly-yao.md`; this folder is the work.
+
+**Where things stand (2026-11-08):** Phase 0 is done. The deploy stage (PR #1) and run-mode
+providers with Foundry (PR #2) are merged to `main` at `cbff31e`. J-031 proved cloud mode end to end.
+Last green suites: Pester 408 local, 223 azure; Playwright 39.
+
+## Run order
+
+Each spec is one branch and one PR, in this order. A spec starts only when the ones it depends on
+are merged.
+
+| # | Spec | Phase | Depends on | Size |
+| --- | --- | --- | --- | --- |
+| 00 | [Phase 0 close-out](00-phase0-closeout.md) | 0 | none | 1 session |
+| 01 | [.NET skeleton, CI and the oracle switch](01-dotnet-skeleton-and-oracle.md) | 1 | 00 | 1 session |
+| 02 | [Factory.Core: contract types and rules](02-core-contract.md) | 1 | 01 | 1 session |
+| 03 | [Factory.Store: file and blob backends](03-store.md) | 1 | 02 | 1–2 sessions |
+| 04 | [Port: board and transition commands](04-port-board-transitions.md) | 1 | 03 | 1–2 sessions |
+| 05 | [Port: idea and spec commands, GitHub client](05-port-ideas-github.md) | 1 | 04 | 1 session |
+| 06 | [Port: git commands, gate and merge](06-port-git-gate-merge.md) | 1 | 05 | 1–2 sessions |
+| 07 | [Port: the runner and run-mode providers](07-port-runner.md) | 1 | 06 | 1–2 sessions |
+| 08 | [Port: the dashboard server](08-port-server.md) | 1 | 07 | 1–2 sessions |
+| 09 | [Port: deploy, HCP and canary](09-port-deploy-canary.md) | 1 | 06 | 2 sessions |
+| 10 | [Port: idea turns on the run mode](10-port-idea-turns.md) | 1 | 07, 08 | 1–2 sessions |
+| 11 | [Port: evals, lessons and state admin](11-port-evals-lessons-state.md) | 1 | 04 | 1 session |
+| 12 | [Cutover: retire PowerShell](12-cutover.md) | 1 | 04–11 | 1 session |
+| 13 | [EF Core store](13-ef-core-store.md) | 1 | 12 | 1–2 sessions |
+| 14 | [`factory init` / `doctor`, GitHub App, secrets](14-init-doctor-github-app.md) | 2 | 13 | 2–3 sessions |
+| 15 | [Turn-key acceptance and the public repo](15-turnkey-public.md) | 2 | 14, decision D1 | 1–2 sessions |
+| 16 | [`factory init previews`](16-init-previews.md) | 3 | 14 | 2 sessions |
+| 17 | [React dashboard](17-react-dashboard.md) | 4 | 12 | 2–3 sessions |
+| 18 | [Cloud mode on Container Apps](18-cloud-mode.md) | 5 | 13, 16, 17 | 2–3 sessions |
+
+Phase 6 (hosted) is out of scope. The `TenantId` seam (03, 13) and per-job containers (18) are
+what it needs from these specs.
+
+```text
+00 → 01 → 02 → 03 → 04 → 05 → 06 → 07 → 08 → 10 ─┐
+                     │              └→ 09 ─────────┤
+                     └→ 11 ────────────────────────┴→ 12 → 13 → 14 → 15
+                                                          │      └→ 16 ─┐
+                                                          └→ 17 ────────┴→ 18
+```
+
+09 and 11 can run beside the main line. Sessions are one at a time, so the table order is the
+default.
+
+## Decisions to make
+
+| # | Decision | Needed by | Recommendation |
+| --- | --- | --- | --- |
+| D1 | Product name (not "Claude") and license | 15 (public repo) | MIT; pick the name before 14 so `factory init` prints it |
+| D2 | What the port's store is | 03 | Port the file and blob backends faithfully (Pester reads `board.json` directly), then EF Core in 13 with `board.json` as an export |
+| D3 | Strangler routing | 01 | `factory.ps1` forwards a ported command to the .NET CLI, so agents, `serve.ps1` and the runner keep working while the port is part-way |
+| D4 | Preview Terraform state in cloud mode: HCP or Azure Storage | 16 | Keep HCP; the templates depend on it |
+| D5 | Sample target for the public repo: todoapp-two or a minimal "hello" | 15 | A minimal hello target; the ~15-minute bar needs a small one |
+
+## Rules for every spec
+
+- Red before green: the test is written and seen failing, then the code. Run the Pester suites
+  (and, for state writes, the azure backend run); from 01 on, also `dotnet test`.
+- **`docs/FACTORY-CONTRACT.md` changes first.** A port reproduces the contract; it does not change
+  it. A behaviour change found mid-port is its own commit, contract first.
+- **A command counts as ported** when its Pester tests pass with `FACTORY_IMPL=dotnet`, its xUnit
+  tests exist (seen red, then green), and `factory.ps1` forwards it. PowerShell code is deleted
+  only at cutover (12), so the oracle can still run both ways.
+- Cross-platform from the first line: no named mutex, no `-WindowStyle Hidden`, `Path.Combine`,
+  `git`/`claude`/`az`/`terraform` resolved from PATH.
+- A human session changes the factory, never `/factory`. Commit per step, with the suite counts in
+  the message. One branch per spec, `feature/<NN>-<slug>`, PR to `main`, and Kurt merges.
+- At the end of each spec, update its **Status** line and this table.
