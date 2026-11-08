@@ -85,6 +85,33 @@ On the previews from B and C, while each is warm and after each has idled past s
 - If the cold 500 is confirmed, keep scale-to-zero, make the approver's preview check retry, and note
   it in `docs/DEPLOY.md`.
 
+## Results (2026-11-07 to 2026-11-08)
+
+| Claim | Result | Evidence |
+|---|---|---|
+| `First-Error` | Fixed. All 32 old logs read correctly; live, it named `AADB2C` (J-027) and `25001` (J-029) | `98097b4`; events |
+| Step 7 HTTP smoke | Fixed and live: caught the 404 twice, then answered 200 | J-027 `deploy-1.log`, `smoke-1.log` |
+| Playwright flake | `simulate.ps1 -Reset` raced a live serve. 4 of 90 failed before the fix, 100 of 100 passed after | `1253865` |
+| Shell limit | Proven to about 30 minutes, not 90: one `deploy` call ran 32 min 47 s and returned | J-027 `run-1.jsonl` |
+| Infrastructure fix path | Proven: the agent fixed the Entra race in IaC, and the next attempt passed it | J-027 `4918912` |
+| `block` | Proven twice: J-027's `/health` 404, and J-029's GitHub outage. Both fair calls with no commit | flags `environment` |
+| `deploy-fix` | Proven, with the fault planted by a human rework: `25001`, round 3 with the diagnosis, re-review, deploy 200, APPROVE | J-029 `deploy-fix-3.md` |
+| Scope stop | Not exercised live; the Pester stubs only | |
+| j026's 500 and 404 | Reproduced: a cold start answers 500 `Backend call failure` after 45.6 s, then 404 because `/health` was Development-only | J-027 preview |
+| Isolation | Each role is refused CONNECT on the other's database and can't assume its role. Each identity reads only its own secret. Destroying J-030 left J-029 healthy and the platform clean | `factory/scripts/isolation-check.ps1`, run by Kurt |
+
+**Not covered:** two simultaneous applies (one job runs at a time), the data-row check (the script used a wrong
+column, `UpdatedAt` for `UpdatedOn`), and the full 90-minute limit.
+
+**Changed on the way:**
+- The agents' preview checks retry and go through the front end (`590faf6`, `5eaae6a`).
+- `todoapp-two` maps `/health` in every environment (J-027 `866ab95`).
+- The template pack was rebuilt to pick up `5c4fa6e`. Canary 28 passed with it, the role-race fix's first run on Azure.
+
+**Follow-ups:** `First-Error` on "Error while installing"; give the approver `deploy-log`; retry `terraform init`
+on provider timeouts (template); the stale `/health` docs in todoapp-two; a usage limit reads as `escalated`; the
+devops agent's `terraform -chdir` is denied in author mode.
+
 ## Finish
 
 - An eval for every job (`factory.ps1 eval`), including failures.
