@@ -832,7 +832,7 @@ test.describe.serial('factory dashboard', () => {
     }
   });
 
-  test('an opened idea has its own Abandon, which asks once more and then closes the card', async ({ page }) => {
+  test('an opened idea has its own Abandon, which abandons at once and closes the card', async ({ page }) => {
     const ideas = [
       { id: 'I-401', text: 'a released idea', target: sandbox, status: 'drafting', jobs: ['J-401'] },
       { id: 'I-402', text: 'an idea that is done', target: sandbox, status: 'done', jobs: [] },
@@ -846,14 +846,11 @@ test.describe.serial('factory dashboard', () => {
     const btn = modal(page).locator('#idea-abandon-btn');
     await expect(btn).toHaveText('Abandon');
     await btn.click();
-    await expect(btn).toHaveText('Abandon?');
-    expect(posts).toHaveLength(0);
-    await btn.click();
     await expect.poll(() => posts.length).toBe(1);
     await expect(modal(page)).toBeHidden();
   });
 
-  test('an opened idea session has its own Abandon too, which asks once more and then closes it', async ({ page }) => {
+  test('an opened idea session has its own Abandon too, which abandons at once and closes it', async ({ page }) => {
     const session = { id: 'S-401', target: sandbox, text: 'radar items', status: 'idle', idea: null, costUsd: 0.2 };
     const posts: { url: string; body: unknown }[] = [];
     await page.route('**/state/board.json', (r) => r.fulfill({ body: JSON.stringify({ jobs: [], ideas: [] }) }));
@@ -867,9 +864,6 @@ test.describe.serial('factory dashboard', () => {
     await column(page, 'ideas').locator('[data-session="S-401"] .title').click();
     const btn = modal(page).locator('#session-abandon-btn');
     await expect(btn).toHaveText('Abandon');
-    await btn.click();
-    await expect(btn).toHaveText('Abandon?');
-    expect(posts).toHaveLength(0);
     await btn.click();
     await expect.poll(() => posts.length).toBe(1);
     expect(posts[0].body).toMatchObject({ abandon: true });

@@ -480,15 +480,17 @@ async function tearDown(id) {
   const res = await api('POST', `/api/jobs/${encodeURIComponent(id)}/destroy`, {});
   toast(res.ok ? `${id}: ${res.message}` : res.message, !res.ok);
 }
-// Abandon on an Ideas card, or in the opened idea: the first click asks, a second within 4 s abandons (see "Ideas").
-function renderArmed() { renderBoard(); if (['idea', 'session'].includes(state.open?.kind)) renderHead(); }
+// Abandon on an Ideas card: the first click asks, a second within 4 s abandons (see "Ideas"). In the opened
+// idea or session it abandons at once.
+function renderArmed() { renderBoard(); }
 function abandonBtn(key) {
   const armed = state.armed === key;
   return `<button type="button" class="chip action${armed ? ' danger' : ''}" data-abandon="${esc(key)}">${armed ? 'Abandon?' : 'Abandon'}</button>`;
 }
-async function abandon(key) {
+// now: the opened card's Abandon, where opening it was the confirmation.
+async function abandon(key, now = false) {
   clearTimeout(state.armTimer);
-  if (state.armed !== key) {
+  if (!now && state.armed !== key) {
     state.armed = key;
     state.armTimer = setTimeout(() => { state.armed = null; renderArmed(); }, 4000);
     renderArmed();
@@ -678,8 +680,8 @@ function renderHead() {
     h.innerHTML = `${close}<h3>${esc(idea.text)}</h3>
       <div class="sub-meta">${esc(idea.id)} · ${esc(idea.status)}${idea.target ? ` · target <code>${esc(idea.target)}</code>` : ''}${idea.jobs?.length ? ` · ${esc(idea.jobs.join(', '))}` : ''}</div>
       ${idea.reason ? `<div class="flagbox">${esc(idea.reason)}</div>` : ''}
-      ${canAbandon ? `<div class="actions"><button class="danger" id="idea-abandon-btn">${state.armed === idea.id ? 'Abandon?' : 'Abandon'}</button></div>` : ''}`;
-    $('#idea-abandon-btn', h)?.addEventListener('click', () => abandon(idea.id));
+      ${canAbandon ? '<div class="actions"><button class="danger" id="idea-abandon-btn">Abandon</button></div>' : ''}`;
+    $('#idea-abandon-btn', h)?.addEventListener('click', (e) => { e.currentTarget.disabled = true; abandon(idea.id, true); });
     return;
   }
   const j = openJob();
@@ -932,8 +934,8 @@ function renderSessionHead(h, close) {
   h.innerHTML = `${close}<h3>${esc(s?.text ?? state.sess?.id)}</h3>
     <div class="sub-meta">${esc(state.sess?.id)}${s?.idea ? ` · ${esc(s.idea)}` : ''} · ${esc(s?.status ?? '…')}${s?.target ? ` · target <code>${esc(s.target)}</code>${s.newTarget ? ' (new)' : ''}` : s ? ' · target pending' : ''}${s?.base ? ` · base <code>factory/${esc(s.base)}</code>` : ''}${s?.model ? ` · <code>${esc(s.model)}</code>` : ''} · <span data-cost>${money(s?.costUsd)}</span>
     ${canClose ? ' · <button type="button" id="s-close" class="danger" style="padding:1px 8px;font-size:12px">Close session</button>' : ''}</div>
-    ${canClose ? `<div class="actions"><button class="danger" id="session-abandon-btn">${state.armed === state.sess.id ? 'Abandon?' : 'Abandon'}</button></div>` : ''}`;
-  $('#session-abandon-btn', h)?.addEventListener('click', () => abandon(state.sess.id));
+    ${canClose ? '<div class="actions"><button class="danger" id="session-abandon-btn">Abandon</button></div>' : ''}`;
+  $('#session-abandon-btn', h)?.addEventListener('click', (e) => { e.currentTarget.disabled = true; abandon(state.sess.id, true); });
   $('#s-close', h)?.addEventListener('click', async () => {
     const r = await sessApi('close', { failed: true, reason: 'closed in session before every spec was decided' });
     if (r.ok) { toast(`${state.sess.id} closed`); closeModal(); state.sessionsText = null; poll(); }
