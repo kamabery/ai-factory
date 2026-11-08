@@ -39,6 +39,7 @@ $Sessions = Join-Path $StateDir 'sessions'
 # contract): the board and events are refreshed at most every FACTORY_STATE_POLL_SECONDS (default 5,
 # a conditional GET each), and a job's folder when it is opened.
 . (Join-Path $Scripts 'state.ps1')
+. (Join-Path $Scripts 'llm.ps1')
 Initialize-State -StateHome $StateDir -EnvFile $EnvFile
 $StatePoll = if ($env:FACTORY_STATE_POLL_SECONDS) { [double]$env:FACTORY_STATE_POLL_SECONDS } else { 5 }
 $StateSeen = @{}
@@ -150,6 +151,16 @@ function Get-EnvValue([string] $name) {
     if ($line) { ($line -replace "^\s*$name\s*=\s*", '').Trim().Trim('"', "'") }
 }
 function Get-IdeaModel { (Get-EnvValue 'FACTORY_IDEA_MODEL') ?? 'claude-opus-5-5' }
+# The run mode (see "Run mode and providers"); $null when FACTORY_MODE is invalid.
+function Get-Mode { try { Get-FactoryMode $EnvFile } catch { $null } }
+# Why idea sessions cannot start in this mode, or $null when the mode's credential is configured.
+function Get-IdeaBlocker {
+    switch (Get-Mode) {
+        'local' { if (-not (Get-EnvValue 'ANTHROPIC_API_KEY')) { "no ANTHROPIC_API_KEY in $EnvFile" } }
+        'cloud' { if (-not (Get-LlmSetting 'FACTORY_FOUNDRY_RESOURCE' $EnvFile)) { "no FACTORY_FOUNDRY_RESOURCE (cloud mode)" } }
+        default { "FACTORY_MODE must be local or cloud" }
+    }
+}
 
 function Read-Json([string] $path) { Get-Content $path -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable -DateKind String }
 # Atomic, with the rename retried while a turn process or a reader holds the target (as idea-turn.ps1).
@@ -164,7 +175,7 @@ function Write-Json([string] $path, $o) {
 function SessionDir([string] $id) { Join-Path $Sessions $id }
 # The session's shallow clone of its target, for the model's read tools; see "Work directories".
 function SessionClone([string] $id) {
-    $work = if ($env:FACTORY_WORK) { $env:FACTORY_WORK } else { Join-Path ([IO.Path]::GetTempPath()) 'claude-factory' }
+    $work = if ($env:FACTORY_WORK) { $env:FACTORY_WORK } else { Join-Path ([IO.Path]::GetTempPath()) 'ai-factory' }
     Join-Path $work "sessions/$id"
 }
 function Read-Session([string] $id) { Read-Json (Join-Path (SessionDir $id) 'session.json') }
@@ -334,7 +345,8 @@ function Handle-Session($ctx, [string] $method, [string] $id, [string] $action, 
 
 function New-Session($ctx) {
     $req = Read-Body $ctx | ConvertFrom-Json -AsHashtable
-    if (-not (Get-EnvValue 'ANTHROPIC_API_KEY')) { return Send-Result $ctx (Refuse "no ANTHROPIC_API_KEY in $EnvFile") }
+    $blocker = Get-IdeaBlocker
+    if ($blocker) { return Send-Result $ctx (Refuse $blocker) }
     if (-not "$($req.text)".Trim()) { return Send-Result $ctx (Refuse 'describe the idea first') }
     $owner = Get-EnvValue 'GITHUB_OWNER'
     if ($req.new) {
@@ -436,12 +448,6 @@ function Handle($ctx) {
         return Send-Result $ctx $r
     }
 
-    if ($method -eq 'POST' -and $path -match '^/api/jobs/([A-Z]+-\d+)/provider$') {
-        $id = $Matches[1]
-        $req = Read-Body $ctx | ConvertFrom-Json
-        return Send-Result $ctx (Invoke-Factory set-provider $id "$($req.provider)")
-    }
-
     if ($method -eq 'POST' -and $path -match '^/api/jobs/([A-Z]+-\d+)/move$') {
         $id = $Matches[1]
         $req = Read-Body $ctx | ConvertFrom-Json
@@ -509,7 +515,7 @@ function Handle($ctx) {
     }
 
     if ($method -eq 'GET' -and $path -eq '/api/ideate/config') {
-        return Send $ctx 200 (@{ enabled = [bool](Get-EnvValue 'ANTHROPIC_API_KEY'); model = (Get-IdeaModel); owner = (Get-EnvValue 'GITHUB_OWNER')
+        return Send $ctx 200 (@{ enabled = -not (Get-IdeaBlocker); mode = (Get-Mode); provider = $(if (Get-Mode) { $FactoryModeProviders[(Get-Mode)] }); model = (Get-IdeaModel); owner = (Get-EnvValue 'GITHUB_OWNER')
                                  templatesRepo = (Get-EnvValue 'FACTORY_TEMPLATES_REPO'); deploys = [bool](Get-EnvValue 'HCP_ORG') } | ConvertTo-Json -Compress)
     }
 

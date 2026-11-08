@@ -504,6 +504,6 @@ override.tf.json
 *_override.tf
 *_override.tf.json
 
-# Claude factory runtime state (never committed; see CLAUDE.md)
+# AI factory runtime state (never committed; see CLAUDE.md)
 .factory-runs/
 .factory-runs-sim/

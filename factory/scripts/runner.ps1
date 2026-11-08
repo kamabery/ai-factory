@@ -102,12 +102,12 @@ try {
 
         # One job's failure must not stall the queue: log it, escalate the job, take the next.
         try {
-            $j = Get-StatusJob $id
-            $provider = if ($j.PSObject.Properties['provider'] -and $j.provider) { $j.provider } else { 'subscription' }
-            $childEnv = Get-ProviderEnv $provider
+            # The run mode decides the provider; a job's own provider field (older factories) is ignored.
+            $childEnv = $null; $why = 'provider: no FACTORY_FOUNDRY_RESOURCE'
+            try { $childEnv = Get-ProviderEnv $RunEnvFile } catch { $why = "provider: $($_.Exception.Message)" }
             if ($null -eq $childEnv) {
-                Log "provider $id failed: no OPENROUTER_API_KEY in .env"
-                F set-stage $id ready -By runner -Reason escalated -Detail 'provider: no OPENROUTER_API_KEY in .env' | Out-Null
+                Log "provider $id failed: $why"
+                F set-stage $id ready -By runner -Reason escalated -Detail $why | Out-Null
                 continue
             }
 

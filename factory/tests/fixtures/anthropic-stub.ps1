@@ -3,7 +3,8 @@
   A stand-in for POST /v1/messages (stream: true), so idea sessions can be tested without a token.
 .DESCRIPTION
   Serves <Dir>/001.json, 002.json, ... in order, one per request, as Messages API server-sent events,
-  and saves each request body as <Dir>/requests/NNN.json (with its x-api-key in NNN.key).
+  and saves each request body as <Dir>/requests/NNN.json (with its x-api-key in NNN.key, and its
+  Authorization, anthropic-beta and x-api-key headers in NNN.headers).
   A script file is { "content": [ blocks ], "stop_reason": "...", "usage": { ... } }, where a block is
   { type: text, text } | { type: thinking, thinking, signature } | { type: tool_use, id, name, input },
   or { "status": <code>, "body": { ... } } for an error. POST /__reset { "dir"? } starts over.
@@ -105,6 +106,8 @@ while ($listener.IsListening) {
         $reqDir = New-Item -ItemType Directory -Force (Join-Path $Dir 'requests')
         Set-Content (Join-Path $reqDir "$name.json") (Read-Body $ctx) -NoNewline
         Set-Content (Join-Path $reqDir "$name.key") "$($ctx.Request.Headers['x-api-key'])" -NoNewline
+        Set-Content (Join-Path $reqDir "$name.headers") (@{ authorization = "$($ctx.Request.Headers['Authorization'])"
+            'anthropic-beta' = "$($ctx.Request.Headers['anthropic-beta'])"; 'x-api-key' = "$($ctx.Request.Headers['x-api-key'])" } | ConvertTo-Json -Compress) -NoNewline
         $file = Join-Path $Dir "$name.json"
         $script = if (Test-Path $file) { Get-Content $file -Raw | ConvertFrom-Json -AsHashtable }
                   else { @{ status = 500; body = @{ type = 'error'; error = @{ type = 'api_error'; message = "stub has no script $name" } } } }

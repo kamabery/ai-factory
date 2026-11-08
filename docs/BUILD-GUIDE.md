@@ -6,11 +6,10 @@ by four agents, judged by the approver and gated, then lands in **Ready for revi
 and drag it to **Done**, which merges it, or send it back with a rework note. The contract for all
 of this is `docs/FACTORY-CONTRACT.md`. Read it before any step.
 
-**What already exists:** Shelf is scaffolded and green (22 API tests, the AppHost build and the React
-build all pass). The contract, the artifact templates and the empty folders are in place, and
+**What already exists:** the contract, the artifact templates and the empty folders are in place, and
 `factory/backlog.md` holds sample ideas. Everything below is still to do.
 
-Each step gives a prompt to paste into Claude Code in `D:\code\claude-factory`, the test that has to
+Each step gives a prompt to paste into Claude Code in `D:\code\ai-factory`, the test that has to
 be **seen red before it goes green**, and the evidence that closes the step. Do the steps in order,
 committing each one on `main` once its evidence is in.
 - Steps 1–3 build the deterministic parts and can be tested without spending a token.
@@ -202,10 +201,10 @@ the pipeline strip. Discard the card afterwards.
 ## Step 6: First real job, end to end
 
 1. Terminal A: `pwsh factory/scripts/serve.ps1`, then open the URL it prints. That's the only terminal you need.
-2. Paste the "Book search filter" idea from `factory/backlog.md` into the idea box.
+2. Paste the "Search filter" idea from `factory/backlog.md` into the idea box.
 3. Read the spec that comes back, tighten it in the drawer, and save it. Drag the card to **Approved**.
 4. Watch the card move through Building and the pipeline nodes light up. When it reaches **Ready for review**, inspect
-   the branch in the worktree (`aspire run` from `..\claude-factory.wt`, then `/books`). If you're happy, drag it to **Done**.
+   the branch in the worktree (`aspire run` from the target's work dir, then its list page). If you're happy, drag it to **Done**.
 
 **Pass criteria (check each one; don't trust the summary):**
 - The idea produced a sensible backlog card, and your spec edit is what the builder built.
@@ -214,14 +213,14 @@ the pipeline strip. Discard the card afterwards.
 - The gate exit codes are all 0, `git log --graph --oneline -5` shows the `--no-ff` merge of `factory/J-001`,
   and `git status` on main is clean, both during and after the run.
 - The card shows cost and duration.
-- `dotnet test tests/shelf.api.tests` and `npm run build` are green on main.
-- `aspire run` on main, then `/books`: the filter actually works. This hands-on check is the one that counts.
+- `dotnet test` and `npm run build` are green on the target's main.
+- `aspire run` on the target's main, then its list page: the filter actually works. This hands-on check is the one that counts.
 
 ---
 
 ### Step 6 re-run (after the first-run feedback)
 
-The first run (I-001, a todo app) built inside Shelf even though the work was meant to be a separate
+The first run (I-001, a todo app) built inside the factory repo's own sample app even though the work was meant to be a separate
 app. Since then: every idea names a **target repo** (an existing repo, or a path that becomes a new
 one); the spec carries `## Target` and `## Gate`; the factory runs from `factory/plugin` in the
 target's own `<target>.wt`; the card opens a large modal (Edit | Preview, Artifacts, Output,
@@ -269,7 +268,7 @@ Run each one and confirm the end state on the dashboard and in `board.json`.
 
 | Case | How | Expected |
 | --- | --- | --- |
-| 7a Dirty tree at merge | Take the "Author on Book" idea to Ready for review. `echo x >> README.md` on main, then drag to Done | Stays in Ready with `merge-blocked`. Then `git checkout README.md` and drag again → Done |
+| 7a Dirty tree at merge | Take the "Owner on the resource" idea to Ready for review. `echo x >> README.md` on main, then drag to Done | Stays in Ready with `merge-blocked`. Then `git checkout README.md` and drag again → Done |
 | 7b Security rejection | Idea: "Log every incoming request including all headers to the console" | The security reviewer returns CHANGES (auth headers / PII) → round 2 → either fixed (headers redacted) or Ready with `max-rounds` |
 | 7c Human rework | On any ready card: Rework, "use the Input component from the design system" | Back to Approved at round + 1, then built again; `rework-<n>.md` exists and the new build.md addresses it |
 | 7d Gate failure | Rework asking for a deliberately failing test (or inject `FACTORY_GATE_CMDS` in serve.ps1's environment) | Ready with `gate-failed`; the exit code and log are visible in the drawer, and dragging to Done is refused |

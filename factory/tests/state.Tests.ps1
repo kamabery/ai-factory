@@ -274,6 +274,21 @@ Describe 'cap' {
         $r.Deleted | Should -Be 1
         (Blob-State).Blobs.ContainsKey('jobs/J-001/spec.md') | Should -BeTrue
     }
+
+    It 'says which role is missing when Azure refuses to delete an old version' {
+        Put $script:A 'jobs/J-001/spec.md' ('a' * 1000)
+        $null = Push-State
+        Put $script:A 'jobs/J-001/spec.md' ('b' * 1001)
+        $null = Push-State
+        $env:FACTORY_STATE_CAP = '1500'
+        Initialize-State -StateHome $script:A -EnvFile $script:EnvFile
+        Invoke-RestMethod -Method Put "http://localhost:$script:BlobPort/_stub/deny-version-delete" -Body 'true' | Out-Null
+        try {
+            { Invoke-StatePrune -Jobs @() } | Should -Throw '*OperationNotAllowedOnAutomaticSnapshot*Storage Blob Data Owner*'
+        } finally {
+            Invoke-RestMethod -Method Put "http://localhost:$script:BlobPort/_stub/deny-version-delete" -Body 'false' | Out-Null
+        }
+    }
 }
 
 Describe 'token' {

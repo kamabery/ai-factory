@@ -291,28 +291,37 @@ Describe 'serve.ps1 state files' {
     }
 }
 
-Describe 'serve.ps1 job provider' {
-    AfterEach { Stop-Serve; Remove-Item Env:FACTORY_ENV_FILE -ErrorAction SilentlyContinue }
+Describe 'serve.ps1 run mode' {
+    AfterEach { Stop-Serve }
 
-    It 'sets a backlog job''s provider through factory.ps1 set-provider, and refuses an unknown one' {
+    It 'has no provider endpoint: the run mode decides the provider' {
         Start-Serve $script:EnvFile
-        $env:FACTORY_ENV_FILE = $script:EnvFile
-        $repo = New-Repo
-        $factory = Join-Path $script:Scripts 'factory.ps1'
-        $idea = & pwsh -NoProfile -File $factory new-idea 'pick a provider' -Target $repo
-        $spec = Join-Path $TestDrive 'provider-spec.md'
-        Set-Content $spec (Spec-Md 'Provider' $repo)
-        $id = & pwsh -NoProfile -File $factory add-spec $idea $spec
+        (Api POST '/api/jobs/J-001/provider' @{ provider = 'openrouter' }).Status | Should -Be 404
+    }
 
-        $r = Api POST "/api/jobs/$id/provider" @{ provider = 'openrouter' }
-        $r.Status | Should -Be 200
-        $r.Body.ok | Should -BeTrue
-        ((Board).jobs | Where-Object id -eq $id).provider | Should -Be 'openrouter'
+    It 'reports local and subscription by default' {
+        Start-Serve $script:EnvFile
+        $r = Api GET '/api/ideate/config'
+        $r.Body.mode | Should -Be 'local'
+        $r.Body.provider | Should -Be 'subscription'
+    }
 
-        $r = Api POST "/api/jobs/$id/provider" @{ provider = 'bedrock' }
-        $r.Status | Should -Be 409
-        $r.Body.message | Should -Match 'provider must be'
-        ((Board).jobs | Where-Object id -eq $id).provider | Should -Be 'openrouter'
+    It 'in cloud mode, enables idea sessions on FACTORY_FOUNDRY_RESOURCE, not the API key' {
+        $cloud = Join-Path $TestDrive 'cloud.env'
+        Set-Content $cloud ((Get-Content $script:EnvFile | Where-Object { $_ -notmatch '^ANTHROPIC_API_KEY=' }) + 'FACTORY_MODE=cloud')
+        Start-Serve $cloud
+        $r = Api GET '/api/ideate/config'
+        $r.Body.mode | Should -Be 'cloud'
+        $r.Body.provider | Should -Be 'foundry'
+        $r.Body.enabled | Should -BeFalse
+        $s = Api POST '/api/sessions' @{ target = (New-Repo); text = 'x' }
+        $s.Status | Should -Be 409
+        $s.Body.message | Should -Match 'FACTORY_FOUNDRY_RESOURCE'
+        Stop-Serve
+
+        Add-Content $cloud 'FACTORY_FOUNDRY_RESOURCE=fdy-test'
+        Start-Serve $cloud
+        (Api GET '/api/ideate/config').Body.enabled | Should -BeTrue
     }
 }
 

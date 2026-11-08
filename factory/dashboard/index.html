@@ -72,8 +72,10 @@
   #idea-hint { flex: 1; margin-top: 7px; color: var(--muted); font-size: 12.5px; }
   #purge-btn { font-size: 11px; text-transform: none; letter-spacing: 0; padding: 1px 8px; margin-left: 8px; }
   .chip.kind { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
-  .chip.provider[data-toggle] { cursor: pointer; }
-  .chip.provider.openrouter { color: var(--run); background: var(--run-soft); border-color: transparent; }
+  #mode { margin-top: 7px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+  /* Cloud mode bills Microsoft Foundry per token, so it must not read like the quiet local default. */
+  #mode[data-mode="cloud"] { margin-top: 3px; padding: 3px 10px; border-radius: 999px; color: var(--run); background: var(--run-soft); font-weight: 600; }
+  #mode[data-mode="invalid"] { color: var(--warn); font-weight: 600; }
   input, textarea { font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
   textarea { width: 100%; font-family: var(--mono); font-size: 12.5px; }
   a.button { text-decoration: none; display: inline-block; }
@@ -209,6 +211,7 @@
   <h1>Factory</h1>
   <nav id="views" aria-label="Views"><button type="button" data-view="board" class="on">Board</button><button type="button" data-view="evals">Evaluations</button><button type="button" data-view="lessons">Lessons</button></nav>
   <span id="idea-hint">New idea: <code>pwsh factory/scripts/idea.ps1 &lt;owner/name&gt;</code> opens a Claude session that grills you, writes the specs and puts the ones you approve on the board.</span>
+  <span id="mode" title="Run mode and the provider it decides (FACTORY_MODE)"></span>
   <button id="theme" type="button" title="Toggle theme">◐</button>
 </header>
 
@@ -419,16 +422,11 @@ function jobCard(j) {
   // A sibling of the same idea merged since this was specced (see "Build checks" in the contract).
   const moved = j.baseMoved?.by
     ? `<span class="chip kind" data-base-moved title="${esc(j.baseMoved.by)} merged after this spec was written; check the spec still fits main">base moved: ${esc(j.baseMoved.by)} merged</span>` : '';
-  // Toggleable before the job builds; afterwards shown only when it is not the default.
-  const p = j.provider ?? 'subscription';
-  const settable = j.stage === 'backlog' || j.stage === 'approved';
-  const provider = settable || p !== 'subscription'
-    ? `<span class="chip provider ${esc(p)}" data-provider="${esc(p)}"${settable ? ` data-toggle title="provider: click to switch"` : ` title="provider"`}>${esc(p)}</span>` : '';
   const pr = j.pr?.url && (j.stage === 'ready' || j.stage === 'blocked') ? `<a class="chip pr" data-pr href="${esc(j.pr.url)}" target="_blank" rel="noopener" draggable="false">PR #${esc(j.pr.number)}</a>` : '';
   return `<div class="card${state.open?.id === j.id ? ' selected' : ''}" data-card="${esc(j.id)}" data-stage="${esc(j.stage)}" draggable="${draggable}">
     <div class="top"><span>${esc(j.id)}</span><span>r${j.round} · ${elapsed(j)}</span></div>
     <div class="title">${esc(j.title)}</div>${repo}
-    <div class="meta">${moving}${kind}${stacked}${moved}${provider}${pr}${sub}${flag}${reviews}${cost}</div>${previewBar(j)}${blockedBar(j)}</div>`;
+    <div class="meta">${moving}${kind}${stacked}${moved}${pr}${sub}${flag}${reviews}${cost}</div>${previewBar(j)}${blockedBar(j)}</div>`;
 }
 // A blocked card's ways out (see "Blocked" in the contract): Retry deploy, Rework (opens the note), Discard.
 function blockedBar(j) {
@@ -590,12 +588,6 @@ async function move(id, to, note) {
   return res.ok;
 }
 
-async function setProvider(id, provider) {
-  const res = await api('POST', `/api/jobs/${id}/provider`, { provider });
-  toast(res.ok ? `${id} → ${provider}` : res.message || 'refused', !res.ok);
-  state.boardText = '';
-  await poll();
-}
 
 // --- modal ---------------------------------------------------------------------------------
 document.addEventListener('click', (e) => {
@@ -616,8 +608,6 @@ document.addEventListener('click', (e) => {
   if (dc) { move(dc.closest('[data-card]').dataset.card, 'discarded'); return; }
   const ab = e.target.closest?.('[data-abandon]');
   if (ab) { abandon(ab.dataset.abandon); return; }
-  const pc = e.target.closest?.('[data-provider][data-toggle]');
-  if (pc) { setProvider(pc.closest('[data-card]').dataset.card, pc.dataset.provider === 'openrouter' ? 'subscription' : 'openrouter'); return; }
   const c = e.target.closest?.('[data-card]');
   if (c) { openModal('job', c.dataset.card); return; }
   if (e.target.closest?.('#new-idea-btn')) { openModal('new-session', null); return; }
@@ -1312,7 +1302,7 @@ async function proposeFix() {
   const ids = [...lessonView.picked];
   const bodies = await Promise.all(ids.map((id) => getText(`/state/lessons/${encodeURIComponent(id)}.md`)));
   const text = `Template fixes from factory lessons (${ids.join(', ')}). Each says what went wrong in a job and where the fix belongs; make the templates handle it so the next scaffold needs no hand fix.\n\n${bodies.join('\n\n---\n\n')}`;
-  if (!state.config.enabled) { toast(`No Anthropic key: run pwsh factory/scripts/idea.ps1 ${repo} and paste the lessons`, true); return; }
+  if (!state.config.enabled) { toast(`Idea sessions are off in this run mode: run pwsh factory/scripts/idea.ps1 ${repo} and paste the lessons`, true); return; }
   const res = await api('POST', '/api/sessions', { target: repo, text });
   if (!res.ok) { toast(res.message, true); return; }
   for (const id of ids) await markLesson(id, 'proposed', res.message);
@@ -1346,7 +1336,15 @@ document.addEventListener('click', async (e) => {
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && state.open) closeModal(); });
 
 render();
-getText('/api/ideate/config').then((t) => { try { state.config = JSON.parse(t); } catch {} state.sessionsText = null; poll(); });
+getText('/api/ideate/config').then((t) => {
+  try { state.config = JSON.parse(t); } catch {}
+  const mode = document.getElementById('mode');
+  mode.textContent = state.config.mode ? `${state.config.mode} · ${state.config.provider}` : 'FACTORY_MODE is invalid';
+  mode.dataset.mode = state.config.mode || 'invalid';
+  mode.title = state.config.mode === 'cloud' ? 'Cloud mode: jobs and idea turns bill per token to Microsoft Foundry (FACTORY_MODE=cloud)'
+    : state.config.mode ? 'Local mode: jobs run on your Claude subscription (FACTORY_MODE)' : 'FACTORY_MODE must be local or cloud';
+  state.sessionsText = null; poll();
+});
 setInterval(poll, 1500);
 setInterval(() => { if (!dragging) renderBoard(); }, 15000);
 </script>

@@ -35,24 +35,14 @@ $AllowCommands = @(
     'ls*', 'cat *', 'head *', 'tail *', 'wc *', 'grep *', 'echo *', 'pwd', 'cd *', 'which *',
     'Get-ChildItem*', 'Get-Content *', 'Select-String *', 'Test-Path *', 'Resolve-Path *', 'Get-Location', 'Set-Location *', 'Write-Output *'
 )
-# The environment holds an openrouter job's key, so reading it is denied too.
+# The environment may hold credentials the human never meant an agent to read, so reading it is denied too.
 $DenyCommands = @('git push*', 'git merge main*', 'git merge origin*', 'git rebase*', 'git reset --hard*', 'git checkout main*', 'git switch main*', 'git branch -D*', 'git worktree*',
     'printenv*', 'env*', 'Get-ChildItem env:*', 'Get-Item env:*', 'Get-Content env:*')
 
 . (Join-Path $PSScriptRoot 'env-file.ps1')
-
-# The child environment for a job's provider (see "Providers" in docs/FACTORY-CONTRACT.md): name ->
-# value. For subscription, blanks an inherited key or token, which would beat the CLI's login;
-# $null when openrouter has no key in .env.
-$ModelVars = 'ANTHROPIC_DEFAULT_FABLE_MODEL', 'ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_HAIKU_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL'
-function Get-ProviderEnv([string] $provider) {
-    if ($provider -ne 'openrouter') { return @{ ANTHROPIC_API_KEY = ''; ANTHROPIC_AUTH_TOKEN = '' } }
-    $vars = Read-EnvFile $(if ($env:FACTORY_ENV_FILE) { $env:FACTORY_ENV_FILE } else { Join-Path $FactoryRoot '.env' })
-    if (-not $vars['OPENROUTER_API_KEY']) { return $null }
-    $e = [ordered]@{ ANTHROPIC_BASE_URL = 'https://openrouter.ai/api'; ANTHROPIC_AUTH_TOKEN = $vars['OPENROUTER_API_KEY']; ANTHROPIC_API_KEY = '' }
-    foreach ($n in $ModelVars) { if ($vars[$n]) { $e[$n] = $vars[$n] } }
-    $e
-}
+# Get-ProviderEnv: the claude child's environment for the run mode (see "Run mode and providers").
+. (Join-Path $PSScriptRoot 'llm.ps1')
+$RunEnvFile = if ($env:FACTORY_ENV_FILE) { $env:FACTORY_ENV_FILE } else { Join-Path $FactoryRoot '.env' }
 
 # The factory's own plugin, and the template workspace as the aspire-starter plugin (boot-strap-app, enhance-app).
 function Get-PluginDirs { @((Join-Path $FactoryRoot 'factory/plugin'), $TemplatesRoot) }

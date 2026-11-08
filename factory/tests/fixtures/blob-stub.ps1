@@ -12,7 +12,9 @@
     GET ?restype=container&comp=list[&prefix=][&include=versions][&marker=] (pages of -PageSize)
   Leases run on the clock (-LeaseScale shortens them for tests). A write to a leased blob without its
   lease id is 412. GET /_stub/state answers the blobs as JSON, PUT /_stub/token changes the token
-  it accepts, and GET|PUT /_stub/ip is allow-ip's public-IP lookup, so tests can assert on them. Every request is appended to <Log> as { method, path, query }.
+  it accepts, PUT /_stub/deny-version-delete (body `true`/`false`) answers every version delete as a
+  principal without Storage Blob Data Owner gets it (403 OperationNotAllowedOnAutomaticSnapshot), and
+  GET|PUT /_stub/ip is allow-ip's public-IP lookup, so tests can assert on them. Every request is appended to <Log> as { method, path, query }.
 #>
 param(
     [Parameter(Mandatory)] [int] $Port,
@@ -26,6 +28,7 @@ $ErrorActionPreference = 'Stop'
 
 # name -> @{ type; bytes; etag; modified; versionId; lease = @{ id; until } | $null }
 $blobs = @{}
+$script:DenyVersionDelete = $false
 # @{ name; versionId; bytes; type; modified } for every non-current version
 $versions = [Collections.Generic.List[object]]::new()
 $clock = 0
@@ -87,6 +90,7 @@ function Get-Blob([string] $name, $req) {
 
 function Delete-Blob([string] $name, $req, [string] $versionId) {
     if ($versionId) {
+        if ($script:DenyVersionDelete) { return @{ status = 403; code = 'OperationNotAllowedOnAutomaticSnapshot' } }
         if ($blobs[$name] -and $blobs[$name].versionId -eq $versionId) { return @{ status = 403; code = 'OperationNotAllowedOnRootBlob' } }
         $v = $versions | Where-Object { $_.name -eq $name -and $_.versionId -eq $versionId } | Select-Object -First 1
         if (-not $v) { return @{ status = 404; code = 'BlobNotFound' } }
@@ -178,6 +182,7 @@ function Handle($req, [byte[]] $body) {
         foreach ($n in $blobs.Keys) { $out[$n] = @{ type = $blobs[$n].type; text = [Text.Encoding]::UTF8.GetString($blobs[$n].bytes); leased = [bool](Lease-Active $blobs[$n]) } }
         return @{ status = 200; text = (@{ blobs = $out; versions = @($versions | ForEach-Object { @{ name = $_.name; versionId = $_.versionId } }) } | ConvertTo-Json -Depth 5); contentType = 'application/json' }
     }
+    if ($path -eq '_stub/deny-version-delete' -and $req.HttpMethod -eq 'PUT') { $script:DenyVersionDelete = [Text.Encoding]::UTF8.GetString($body) -eq 'true'; return @{ status = 200 } }
     if ($path -eq '_stub/token' -and $req.HttpMethod -eq 'PUT') { $script:Token = [Text.Encoding]::UTF8.GetString($body); return @{ status = 200 } }
     # What allow-ip's "what is my IP" call answers (FACTORY_IP_URL); PUT changes it.
     if ($path -eq '_stub/ip') {

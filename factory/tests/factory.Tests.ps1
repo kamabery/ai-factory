@@ -171,61 +171,40 @@ Describe 'ideas and specs' {
     }
 }
 
-Describe 'providers' {
-    It 'add-spec stamps provider subscription when .env sets no FACTORY_PROVIDER' {
-        (Job (New-BacklogJob)).provider | Should -Be 'subscription'
-    }
+Describe 'run mode and providers' {
+    AfterEach { Remove-Item Env:FACTORY_MODE -ErrorAction SilentlyContinue }
 
-    It 'add-spec stamps FACTORY_PROVIDER from .env, and refuses an unknown one' {
+    It 'add-spec stamps no provider on a new job, whatever .env says' {
         $envFile = Join-Path $TestDrive "provider-$([guid]::NewGuid().ToString('N')).env"
         Set-Content $envFile ((Get-Content $script:EnvFile) + 'FACTORY_PROVIDER=openrouter')
         $env:FACTORY_ENV_FILE = $envFile
-        (Job (New-BacklogJob)).provider | Should -Be 'openrouter'
-
-        Set-Content $envFile ((Get-Content $script:EnvFile) + 'FACTORY_PROVIDER=bedrock')
-        $idea = F new-idea 'idea' -Target $script:Repo
-        F add-spec $idea (New-Spec 'Bad provider') | Out-Null
-        $LASTEXITCODE | Should -Not -Be 0
-        @((Board).jobs | Where-Object title -eq 'Bad provider') | Should -HaveCount 0
+        (Job (New-BacklogJob)).Keys | Should -Not -Contain 'provider'
     }
 
-    It 'set-provider changes the provider in backlog and approved, with a note event' {
+    It 'has no set-provider command' {
         $id = New-BacklogJob
-        F set-provider $id openrouter | Out-Null
-        $LASTEXITCODE | Should -Be 0
-        (Job $id).provider | Should -Be 'openrouter'
-        F approve $id | Out-Null
         F set-provider $id subscription | Out-Null
-        $LASTEXITCODE | Should -Be 0
-        (Job $id).provider | Should -Be 'subscription'
-        (Events | Where-Object { $_.job -eq $id -and $_.kind -eq 'note' }).detail | Should -Contain 'provider openrouter'
+        $LASTEXITCODE | Should -Not -Be 0
+        (Job $id).Keys | Should -Not -Contain 'provider'
     }
 
-    It 'set-provider refuses an unknown provider and any stage after approved' {
+    It 'the cost event carries the run mode''s provider, whatever a job from before modes says' {
         $id = New-BacklogJob
-        F set-provider $id bedrock | Out-Null
-        $LASTEXITCODE | Should -Not -Be 0
-        (Job $id).provider | Should -Be 'subscription'
-
-        F approve $id | Out-Null
-        F set-stage $id build -By runner | Out-Null
-        F set-provider $id openrouter | Out-Null
-        $LASTEXITCODE | Should -Not -Be 0
-        (Job $id).provider | Should -Be 'subscription'
-    }
-
-    It 'the cost event carries the job''s provider, and subscription for a job from before providers' {
-        $id = New-BacklogJob
-        F set-provider $id openrouter | Out-Null
-        F set-cost $id 0.1 100 | Out-Null
-        @(Events | Where-Object { $_.job -eq $id -and $_.kind -eq 'cost' })[-1].provider | Should -Be 'openrouter'
-
-        $old = New-BacklogJob 'Old'
         $b = Board
-        ($b.jobs | Where-Object id -eq $old).Remove('provider')
+        ($b.jobs | Where-Object id -eq $id)['provider'] = 'openrouter'
         Set-Content (Join-Path $env:FACTORY_HOME 'board.json') ($b | ConvertTo-Json -Depth 10)
-        F set-cost $old 0.1 100 | Out-Null
-        @(Events | Where-Object { $_.job -eq $old -and $_.kind -eq 'cost' })[-1].provider | Should -Be 'subscription'
+        F set-cost $id 0.1 100 | Out-Null
+        @(Events | Where-Object { $_.job -eq $id -and $_.kind -eq 'cost' })[-1].provider | Should -Be 'subscription'
+
+        $envFile = Join-Path $TestDrive "mode-$([guid]::NewGuid().ToString('N')).env"
+        Set-Content $envFile ((Get-Content $script:EnvFile) + 'FACTORY_MODE=cloud')
+        $env:FACTORY_ENV_FILE = $envFile
+        F set-cost $id 0.1 100 | Out-Null
+        @(Events | Where-Object { $_.job -eq $id -and $_.kind -eq 'cost' })[-1].provider | Should -Be 'foundry'
+
+        $env:FACTORY_MODE = 'local'
+        F set-cost $id 0.1 100 | Out-Null
+        @(Events | Where-Object { $_.job -eq $id -and $_.kind -eq 'cost' })[-1].provider | Should -Be 'subscription'
     }
 }
 

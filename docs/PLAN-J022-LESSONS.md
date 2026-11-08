@@ -216,6 +216,10 @@ The live auth canary did not reach the smoke:
 Last, because it is the largest change and the least certain gain.
 
 **Measured 2026-11-04; Kurt chose the front-end-only deploy instead of the tweak path (deferred).**
+**Contract text removed 2026-11-08**, because it described tweak rounds as shipped (`rework -Tweak`,
+`tweak-check`, the `tweak` and `skipped` fields, the dialog checkbox) and none of it was built. To
+pick Phase 6 up, restore the "Tweak rounds" section from `docs/FACTORY-CONTRACT.md` at `42db371`
+first, contract first as always.
 Over 15 deploys (J-022 to J-025) the devops agent adds about 1 min. The GitHub run is the rest:
 - Redeploy over a live preview: ~10 min. tf apply (registry/db) 1.1, images 2.4, db firewall
   open+close 2.1, schema 0.5, tf apply 2.2, publish front end 1.0.
