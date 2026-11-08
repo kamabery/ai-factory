@@ -852,4 +852,27 @@ test.describe.serial('factory dashboard', () => {
     await expect.poll(() => posts.length).toBe(1);
     await expect(modal(page)).toBeHidden();
   });
+
+  test('an opened idea session has its own Abandon too, which asks once more and then closes it', async ({ page }) => {
+    const session = { id: 'S-401', target: sandbox, text: 'radar items', status: 'idle', idea: null, costUsd: 0.2 };
+    const posts: { url: string; body: unknown }[] = [];
+    await page.route('**/state/board.json', (r) => r.fulfill({ body: JSON.stringify({ jobs: [], ideas: [] }) }));
+    await page.route('**/api/sessions', (r) => r.fulfill({ json: [session] }));
+    await page.route('**/state/sessions/S-401/session.json', (r) => r.fulfill({ json: session }));
+    await page.route('**/state/sessions/S-401/chat.json', (r) => r.fulfill({ json: { messages: [] } }));
+    await page.route('**/state/sessions/S-401/stream.jsonl', (r) => r.fulfill({ body: '' }));
+    await page.route('**/api/sessions/S-401/close', (r) => { posts.push({ url: r.request().url(), body: r.request().postDataJSON() }); return r.fulfill({ json: { ok: true, message: 'ok' } }); });
+
+    await page.goto('/');
+    await column(page, 'ideas').locator('[data-session="S-401"] .title').click();
+    const btn = modal(page).locator('#session-abandon-btn');
+    await expect(btn).toHaveText('Abandon');
+    await btn.click();
+    await expect(btn).toHaveText('Abandon?');
+    expect(posts).toHaveLength(0);
+    await btn.click();
+    await expect.poll(() => posts.length).toBe(1);
+    expect(posts[0].body).toMatchObject({ abandon: true });
+    await expect(modal(page)).toBeHidden();
+  });
 });

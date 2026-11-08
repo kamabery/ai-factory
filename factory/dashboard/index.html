@@ -481,7 +481,7 @@ async function tearDown(id) {
   toast(res.ok ? `${id}: ${res.message}` : res.message, !res.ok);
 }
 // Abandon on an Ideas card, or in the opened idea: the first click asks, a second within 4 s abandons (see "Ideas").
-function renderArmed() { renderBoard(); if (state.open?.kind === 'idea') renderHead(); }
+function renderArmed() { renderBoard(); if (['idea', 'session'].includes(state.open?.kind)) renderHead(); }
 function abandonBtn(key) {
   const armed = state.armed === key;
   return `<button type="button" class="chip action${armed ? ' danger' : ''}" data-abandon="${esc(key)}">${armed ? 'Abandon?' : 'Abandon'}</button>`;
@@ -497,8 +497,8 @@ async function abandon(key) {
   state.armed = null;
   const r = key.startsWith('S-') ? await api('POST', `/api/sessions/${key}/close`, { abandon: true }) : await api('POST', `/api/ideas/${key}/abandon`, {});
   toast(r.ok ? `${key} abandoned` : r.message, !r.ok);
-  if (r.ok && state.open?.kind === 'idea' && state.open.id === key) closeModal();
-  else if (state.open?.kind === 'idea') renderHead();
+  if (r.ok && ['idea', 'session'].includes(state.open?.kind) && state.open.id === key) closeModal();
+  else if (['idea', 'session'].includes(state.open?.kind)) renderHead();
   state.sessionsText = null; state.boardText = null;
   poll();
 }
@@ -931,7 +931,9 @@ function renderSessionHead(h, close) {
   const canClose = s && s.status !== 'running' && s.status !== 'closed';
   h.innerHTML = `${close}<h3>${esc(s?.text ?? state.sess?.id)}</h3>
     <div class="sub-meta">${esc(state.sess?.id)}${s?.idea ? ` · ${esc(s.idea)}` : ''} · ${esc(s?.status ?? '…')}${s?.target ? ` · target <code>${esc(s.target)}</code>${s.newTarget ? ' (new)' : ''}` : s ? ' · target pending' : ''}${s?.base ? ` · base <code>factory/${esc(s.base)}</code>` : ''}${s?.model ? ` · <code>${esc(s.model)}</code>` : ''} · <span data-cost>${money(s?.costUsd)}</span>
-    ${canClose ? ' · <button type="button" id="s-close" class="danger" style="padding:1px 8px;font-size:12px">Close session</button>' : ''}</div>`;
+    ${canClose ? ' · <button type="button" id="s-close" class="danger" style="padding:1px 8px;font-size:12px">Close session</button>' : ''}</div>
+    ${canClose ? `<div class="actions"><button class="danger" id="session-abandon-btn">${state.armed === state.sess.id ? 'Abandon?' : 'Abandon'}</button></div>` : ''}`;
+  $('#session-abandon-btn', h)?.addEventListener('click', () => abandon(state.sess.id));
   $('#s-close', h)?.addEventListener('click', async () => {
     const r = await sessApi('close', { failed: true, reason: 'closed in session before every spec was decided' });
     if (r.ok) { toast(`${state.sess.id} closed`); closeModal(); state.sessionsText = null; poll(); }
