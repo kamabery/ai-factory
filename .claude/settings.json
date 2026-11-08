@@ -24,9 +24,7 @@
     ],
     "deny": [
       "Edit(/.factory-runs/board.json)",
-      "Write(/.factory-runs/board.json)",
-      "Edit(/.factory-runs/events.jsonl)",
-      "Write(/.factory-runs/events.jsonl)"
+      "Edit(/.factory-runs/events.jsonl)"
     ]
   }
 }

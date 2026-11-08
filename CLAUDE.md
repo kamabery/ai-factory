@@ -8,7 +8,9 @@ Two things live in this repo:
    "Build Your Own AI Software Factory with Claude Code" video. A `/factory` skill orchestrates
    spec, build, four parallel reviewers and an approver; ideas are grilled and specced in a
    dashboard idea session on the Claude API (key in `.env`), or in the CLI fallback, an interactive
-   `/factory:idea` session. A deterministic PowerShell control plane
+   `/factory:idea` session. Each job's branch is deployed to an ephemeral Azure preview
+   through HCP Terraform before the approver (`docs/DEPLOY.md`), and jobs that go bad leave lessons
+   the dashboard proposes as template fixes. A deterministic PowerShell control plane
    owns state, the gate and the merge. A local dashboard is where the human works the factory:
    backlog specs edited and approved by drag and drop, and finished work reviewed, merged and cleared.
 
@@ -27,15 +29,20 @@ and `...\build-your-own-ai-software-factory-with-claude-code.md`. How to build t
   In the source video, a modified `backlog.md` blocked an approved merge. Don't move state into
   tracked files.
 - **Approval is not merge.** The approver's `APPROVE` only moves a job to `gate`, and a green gate
-  only moves it to Ready for review. Only a human drag to Done runs `factory.ps1 merge`, which
-  still requires a green gate and a clean tree.
+  only moves it to Ready for review. Only a human accepts: a drag to Done runs `factory.ps1 merge`,
+  which still requires a green gate and a clean tree, or the human merges the PR on GitHub, which
+  `sync-prs` records as Done (an ungated head is noted, not refused).
 - **The dashboard's write endpoints are thin `factory.ps1` wrappers.** `serve.ps1` holds no
   transition logic of its own.
-- **Jobs build in one reusable worktree, `..\claude-factory.wt`**, one at a time. The main checkout
-  stays on a clean `main`.
+- **Targets are GitHub repos (`owner/name`), and every job builds in its own temp clone**,
+  `<work>\jobs\<id>` (`$env:FACTORY_WORK`, else `%TEMP%\claude-factory`), one job at a time. The
+  clone is deleted when the job reaches Done (its PR merged) or is discarded. Only `factory.ps1`
+  holds the GitHub token (`.env`) and pushes; agents never push.
 - **No agent weakens the thing that judges it.** Factory jobs never edit `factory/`, `.claude/`,
   `docs/FACTORY-CONTRACT.md` or test assertions in order to pass. Changes to the factory itself are
   made by a human session, not by `/factory`.
+- **Previews are never production.** The deploy stage applies only `j<NNN>` previews; dev and
+  staging are ready to deploy by hand, and nothing in the factory deploys prod.
 - **Tests are seen red before green.** The factory scripts are tested with Pester
   (`Invoke-Pester factory/tests`) and the dashboard with a Playwright check against `simulate.ps1`.
 
@@ -66,8 +73,13 @@ dotnet test tests/shelf.api.tests
 cd src/ui/react; npm install; npm run build
 aspire run                                   # no Docker needed (SQLite)
 
-pwsh factory/scripts/serve.ps1               # dashboard on http://localhost:4317 (after step 3)
-pwsh factory/scripts/idea.ps1 <target|I-NNN> # CLI fallback for the dashboard's New idea: grill -> brief -> specs -> you approve
+pwsh factory/scripts/serve.ps1               # dashboard on a random localhost port it prints; -Port N to fix one
+pwsh factory/scripts/idea.ps1 <owner/name|I-NNN> # CLI fallback for the dashboard's New idea: grill -> brief -> specs -> you approve
 pwsh factory/scripts/runner.ps1              # drains the Approved queue; serve.ps1 starts it for you (after step 2)
 Invoke-Pester factory/tests                  # control-plane, runner, idea-turn and serve tests (after steps 1-2)
+$env:FACTORY_TEST_STATE='azure'; Invoke-Pester factory/tests/factory.Tests.ps1   # the same on the azure state backend (blob stub)
+pwsh factory/scripts/factory.ps1 state-migrate | allow-ip | prune   # FACTORY_STATE=azure: state in Blob storage (docs/STATE.md)
+pwsh factory/scripts/setup-platform.ps1                # the shared platform previews run on, ~$18/month (docs/DEPLOY.md)
+pwsh factory/scripts/factory.ps1 canary -Full          # after template IaC changes: the whole stack, off the platform
+pwsh factory/scripts/setup-azure.ps1 -SubscriptionId <id> -HcpOrg <org> [-CreateExternalTenant <sub> -ExternalResourceGroup <rg> | -ExternalTenantId <id>]  # one-time preview identities (docs/DEPLOY.md)
 ```

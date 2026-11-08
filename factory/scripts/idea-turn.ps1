@@ -122,11 +122,13 @@ function Get-Tools {
         Tool 'ask_questions' 'Ask the human 1-4 questions in one round, each with 2-4 options. Ends your turn; the answers come back as the result.' @{
             questions = @{ type = 'array'; items = $question } } @('questions')
         Tool 'propose_scaffold' 'New target only: propose its scaffold options; the human confirms or edits them in a form. Ends your turn.' @{
+            repo = @{ type = 'string'; description = 'required when there is no target yet: the new GitHub repo name, lower-case (the owner is given)' }
             name = @{ type = 'string'; description = 'lower-case letters and digits, starting with a letter' }
             resource = @{ type = 'string'; description = 'PascalCase: the main thing the app manages' }
             db = @{ type = 'string'; enum = @('sqlite', 'sqlserver', 'postgres') }
             ui = @{ type = 'string'; enum = @('react', 'blazor', 'blazor-maui', 'none') }
-            events = @{ type = 'boolean' } } @('name', 'resource', 'db', 'ui', 'events')
+            events = @{ type = 'boolean' }
+            auth = @{ type = 'boolean'; description = 'sign-in: Keycloak locally, Entra External ID in Azure; only with a web ui (not none)' } } @('name', 'resource', 'db', 'ui', 'events')
         Tool 'submit_brief' 'Show the human the whole brief for confirmation. Ends your turn; a correction comes back as the result.' @{ markdown = @{ type = 'string' } } @('markdown')
     )
 }
@@ -135,7 +137,7 @@ function Get-Tools {
 
 function Roots {
     $r = @()
-    if ($S.target -and (Test-Path $S.target -PathType Container)) { $r += [IO.Path]::GetFullPath($S.target) }
+    if ($S.Contains('checkout') -and $S.checkout -and (Test-Path $S.checkout -PathType Container)) { $r += [IO.Path]::GetFullPath($S.checkout) }
     $r + [IO.Path]::GetFullPath($Templates)
 }
 
@@ -224,7 +226,10 @@ function Test-UiInput($tu) {
             foreach ($x in $q) { if (-not $x.question -or @($x.options).Count -lt 2) { return 'every question needs text and at least 2 options' } }
         }
         'submit_brief' { if (-not $in.markdown) { return 'markdown is required' } }
-        'propose_scaffold' { foreach ($k in 'name', 'resource', 'db', 'ui') { if (-not $in.$k) { return "$k is required" } } }
+        'propose_scaffold' {
+            foreach ($k in 'name', 'resource', 'db', 'ui') { if (-not $in.$k) { return "$k is required" } }
+            if (-not $S.target -and "$($in.repo)" -notmatch '^[a-z0-9][a-z0-9._-]*$') { return 'repo is required: there is no target yet, so name a new lower-case GitHub repo' }
+        }
     }
     $null
 }
@@ -308,8 +313,23 @@ function Get-Cost($usage) {
 
 # --- the turn ---------------------------------------------------------------------------------
 
+# In azure the session may have been started on another machine, and the turn lock is also the
+# lease on locks/turn-<S> (see "State backends" in the contract).
+. (Join-Path $PSScriptRoot 'state.ps1')
+Initialize-State -StateHome $StateDir -EnvFile $EnvFile
+$TurnLease = $null; $TurnKeeper = $null
+if (State-IsAzure) { $null = Pull-State "sessions/$Session/" }
+
 if (-not (Test-Path (Join-Path $Dir 'session.json'))) { [Console]::Error.WriteLine("idea-turn: no session $Session"); exit 2 }
 if (-not (Enter-Lock)) { [Console]::Error.WriteLine("idea-turn: a turn is already running for $Session"); exit 3 }
+if (State-IsAzure) {
+    $TurnLease = Enter-StateLease "turn-$Session" 0
+    if (-not $TurnLease) {
+        Remove-Item (Join-Path $Dir 'turn.lock') -Force -ErrorAction SilentlyContinue
+        [Console]::Error.WriteLine("idea-turn: a turn is already running for $Session on another machine"); exit 3
+    }
+    $TurnKeeper = Start-StateLeaseKeeper "turn-$Session" $TurnLease
+}
 
 $S = Read-Json (Join-Path $Dir 'session.json')
 $chat = Read-Json (Join-Path $Dir 'chat.json')
@@ -389,6 +409,11 @@ try {
     Write-Json (Join-Path $Dir 'chat.json') ([ordered]@{ messages = $messages })
     Write-Json (Join-Path $Dir 'session.json') $S
     Add-Stream @{ type = 'end' }
+    if ($TurnLease) {
+        Stop-StateLeaseKeeper $TurnKeeper
+        try { $null = Push-State } catch { [Console]::Error.WriteLine("idea-turn: state push failed: $($_.Exception.Message)") }
+        try { Exit-StateLease "turn-$Session" $TurnLease } catch { }
+    }
     Remove-Item (Join-Path $Dir 'turn.lock') -Force -ErrorAction SilentlyContinue
 }
 exit 0

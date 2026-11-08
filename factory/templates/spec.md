@@ -5,10 +5,10 @@
 
 ## Target
 <!-- Copied verbatim from the idea. A path that does not exist yet becomes a new git repo. -->
-- Repo: <absolute path>
+- Repo: <owner/name>
 
 ## Gate
-<!-- The commands the gate runs in the target's worktree, in order. Each must exit 0. -->
+<!-- The commands the gate runs in the job's clone of the target, in order. Each must exit 0. -->
 - build: `<command>`
 - test: `<command>`
 
@@ -18,7 +18,14 @@
 - [ ] AC2: ...
 
 ## Scope
-- In: <files and areas the builder may touch>
+<!-- One sub-bullet per path the builder may touch: a backticked repo-relative glob first, prose after.
+     `*` stays within one folder, `**` crosses folders. The factory compares the build's diff with these
+     globs and stops the job on any other path, so list generated outputs (lockfiles,
+     contracts/api.openapi.json, routeTree.gen.ts) wherever the change will regenerate them. -->
+- In:
+  - `src/api/Features/Books/**` (the endpoint and its handler)
+  - `tests/shelf.api.tests/Books/*.cs`
+  - `contracts/api.openapi.json` (generated)
 - Out: <explicitly excluded>
 
 ## Risks

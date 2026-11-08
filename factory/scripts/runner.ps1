@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-  Drains the Approved queue one job at a time in the factory worktree; see "Runner" in
+  Drains the Approved queue one job at a time, each in its own temp clone; see "Runner" in
   docs/FACTORY-CONTRACT.md. Started by serve.ps1 after an approve or rework; safe to start twice.
 .DESCRIPTION
-  Each pass runs in the job target's worktree through claude-run.ps1 (plugin, headless settings,
+  Each pass runs in the job's work dir through claude-run.ps1 (plugin, headless settings,
   stream-json to run-<n>.jsonl). $env:FACTORY_CLAUDE_CMD, when set, replaces claude (it runs
   through pwsh -Command with FACTORY_JOB set), so tests spend no tokens.
 #>
@@ -12,9 +12,20 @@ Set-StrictMode -Version 3
 
 $Factory = Join-Path $PSScriptRoot 'factory.ps1'
 . (Join-Path $PSScriptRoot 'claude-run.ps1')
-$Building = 'build', 'review', 'approve', 'gate'
+$Building = 'build', 'review', 'deploy', 'approve', 'gate'
 
 function F { & $Factory @args }
+# factory.ps1 in a child process, for a call whose refusal must be read: Fail writes to the console's
+# stderr, which an in-process call cannot capture. Returns { Code, Out (stdout), Err (stderr) }.
+function F-Child {
+    $lines = & pwsh -NoProfile -File $Factory @args 2>&1
+    $code = $LASTEXITCODE
+    [pscustomobject]@{
+        Code = $code
+        Out = (@($lines | Where-Object { $_ -isnot [Management.Automation.ErrorRecord] }) -join "`n").Trim()
+        Err = (@($lines | Where-Object { $_ -is [Management.Automation.ErrorRecord] } | ForEach-Object { "$_" }) -join ' ').Trim()
+    }
+}
 
 $mainRoot = if ($env:FACTORY_REPO) { $env:FACTORY_REPO } else {
     Split-Path ((git rev-parse --path-format=absolute --git-common-dir) -replace '/', '\') -Parent
@@ -39,11 +50,21 @@ function Take-Lock {
     $true
 }
 
-function Stage([string] $id) {
-    ((F status -Json | ConvertFrom-Json).jobs | Where-Object id -eq $id).stage
-}
+function Get-StatusJob([string] $id) { (F status -Json | ConvertFrom-Json).jobs | Where-Object id -eq $id }
+function Stage([string] $id) { (Get-StatusJob $id).stage }
 
 if (-not (Take-Lock)) { exit 0 }
+
+# In azure, runner.lock is also the lease on locks/runner, so one runner drains the queue across
+# machines (see "State backends" in the contract). A lease held elsewhere is a running runner.
+. (Join-Path $PSScriptRoot 'state.ps1')
+Initialize-State -StateHome $env:FACTORY_HOME -EnvFile $(if ($env:FACTORY_ENV_FILE) { $env:FACTORY_ENV_FILE } else { Join-Path $mainRoot '.env' })
+$lease = $null; $keeper = $null
+if (State-IsAzure) {
+    $lease = Enter-StateLease 'runner' 0
+    if (-not $lease) { Remove-Item $lock -Force -ErrorAction SilentlyContinue; exit 0 }
+    $keeper = Start-StateLeaseKeeper 'runner' $lease
+}
 
 # The runner runs in a hidden window; this log is the only place its failures can be seen.
 $runLog = Join-Path $env:FACTORY_HOME 'runner.log'
@@ -53,21 +74,50 @@ function Log([string] $msg) { Add-Content -LiteralPath $runLog "$((Get-Date).ToU
 $how = 'stopped'
 Log "start pid=$PID"
 try {
+    $canaryRan = $false
     while ($true) {
-        $id = F next
-        if (-not $id) { $how = 'drained'; break }
+        # A deployable job waits for a canary pass on the current deploy inputs (see "Canary" in the
+        # contract). One run per drain: a failure leaves those jobs in Approved for the human.
+        $id = if ($canaryRan) { F next } else { F next -NeedsCanary }
+        if ($id -eq 'canary') {
+            $canaryRan = $true
+            $c = F-Child canary
+            Log $(if ($c.Code -eq 0) { 'canary pass' } else { "canary failed: $($c.Err -replace '^factory: canary failed: ', '')" })
+            continue
+        }
+        if (-not $id) {
+            $how = 'drained'
+            # Previews that outlived their work; a failure here must not read as a failed drain.
+            $sw = F-Child sweep
+            if ($sw.Code -ne 0) { Log "sweep failed: $($sw.Err)" } elseif ($sw.Out) { Log "sweep started: $($sw.Out -replace "`r?`n", ' ')" }
+            break
+        }
 
-        F set-stage $id build -By runner | Out-Null
-        if ($LASTEXITCODE -ne 0) { $how = "fatal: set-stage $id build refused"; break }
+        # A redeployed job resumes at deploy; everything else starts at build.
+        $resume = (Get-StatusJob $id).PSObject.Properties['resume']
+        $to = if ($resume -and $resume.Value -eq 'deploy') { 'deploy' } else { 'build' }
+        F set-stage $id $to -By runner | Out-Null
+        if ($LASTEXITCODE -ne 0) { $how = "fatal: set-stage $id $to refused"; break }
         Log "take $id"
 
         # One job's failure must not stall the queue: log it, escalate the job, take the next.
         try {
-            $wt = F checkout $id 2>&1
-            if ($LASTEXITCODE -ne 0) {
-                F set-stage $id ready -By runner -Reason escalated -Detail "worktree: $wt" | Out-Null
+            $j = Get-StatusJob $id
+            $provider = if ($j.PSObject.Properties['provider'] -and $j.provider) { $j.provider } else { 'subscription' }
+            $childEnv = Get-ProviderEnv $provider
+            if ($null -eq $childEnv) {
+                Log "provider $id failed: no OPENROUTER_API_KEY in .env"
+                F set-stage $id ready -By runner -Reason escalated -Detail 'provider: no OPENROUTER_API_KEY in .env' | Out-Null
                 continue
             }
+
+            $co = F-Child checkout $id
+            if ($co.Code -ne 0) {
+                Log "checkout $id failed: $($co.Err)"
+                F set-stage $id ready -By runner -Reason escalated -Detail "work dir: $($co.Err)" | Out-Null
+                continue
+            }
+            $wt = $co.Out
 
             $jobDir = Join-Path $env:FACTORY_HOME "jobs/$id"
             $n = @(Get-ChildItem $jobDir -Filter 'run-*.jsonl' -ErrorAction SilentlyContinue).Count + 1
@@ -76,7 +126,7 @@ try {
             Push-Location $wt
             try {
                 $state = $env:FACTORY_HOME.Replace('\', '/')
-                $run = Invoke-ClaudeStream "/factory:factory run $id $state $($Factory.Replace('\', '/'))" (Join-Path $jobDir "run-$n.jsonl")
+                $run = Invoke-ClaudeStream "/factory:factory run $id $state $($Factory.Replace('\', '/'))" (Join-Path $jobDir "run-$n.jsonl") -childEnv $childEnv
                 $code = $run.Code
                 $result = $run.Result
             } finally {
@@ -95,7 +145,18 @@ try {
 
             if ((Stage $id) -in $Building) {
                 $why = if ($code -ne 0) { "claude exited with exit $code" } else { 'claude finished but the job is still in Building' }
+                if ($result -and $result.PSObject.Properties['is_error'] -and $result.is_error -and $result.PSObject.Properties['result']) { $why += ": $($result.result)" }
                 F set-stage $id ready -By runner -Reason escalated -Detail "$why; see run-$n.jsonl" | Out-Null
+            }
+
+            # Push the branch and open the PR, so the human reviews it on GitHub. merge publishes again.
+            # escalated lands a deployable job in blocked (see "Blocked" in the contract), which is published too.
+            if ((Stage $id) -in 'ready', 'blocked') {
+                $pub = F-Child publish $id
+                if ($pub.Code -ne 0) { Log "publish $($id): $($pub.Err)" }
+                # What a job that went bad taught, for the templates; a clean job writes nothing.
+                $les = F-Child lesson $id
+                if ($les.Code -ne 0) { Log "lesson $($id): $($les.Err)" }
             }
         } catch {
             Log "error $($id): $($_.Exception.Message)`n$($_.ScriptStackTrace)"
@@ -111,6 +172,7 @@ try {
     Log $_.ScriptStackTrace
 } finally {
     Log "exit $how"
+    if ($lease) { Stop-StateLeaseKeeper $keeper; try { Exit-StateLease 'runner' $lease } catch { } }
     Remove-Item $lock -Force -ErrorAction SilentlyContinue
 }
 exit 0

@@ -6,6 +6,8 @@ BeforeAll {
     $script:Runner = Join-Path $script:Scripts 'runner.ps1'
     $script:Hook = Join-Path $script:Scripts 'hook-event.ps1'
     $script:Fixtures = Join-Path $PSScriptRoot 'fixtures'
+    . (Join-Path $script:Fixtures 'github.ps1')
+    Start-GitHubStub
 
     function F { & $script:Factory @args 2>$null }
     function Board { Get-Content (Join-Path $env:FACTORY_HOME 'board.json') -Raw | ConvertFrom-Json -AsHashtable -DateKind String }
@@ -32,16 +34,18 @@ BeforeAll {
 `$id = `$env:FACTORY_JOB
 `$f = '$script:Factory'
 `$building = @((& `$f status -Json | ConvertFrom-Json).jobs | Where-Object { `$_.stage -in 'build','review','approve','gate' })
-Add-Content (Join-Path `$env:FACTORY_HOME 'fake.log') "`$id building=`$(`$building.Count) cwd=`$((Get-Location).Path) branch=`$(git branch --show-current)"
+`$stage = ((& `$f status -Json | ConvertFrom-Json).jobs | Where-Object id -eq `$id).stage
+Add-Content (Join-Path `$env:FACTORY_HOME 'fake.log') "`$id building=`$(`$building.Count) stage=`$stage cwd=`$((Get-Location).Path) branch=`$(git branch --show-current)"
 `$runs = Join-Path `$env:FACTORY_HOME "jobs/`$id"
 '{"type":"system","subtype":"init"}'
 Start-Sleep -Milliseconds 1500
 `$live = @(Get-ChildItem `$runs -Filter 'run-*.jsonl' | Where-Object { (Get-Content `$_.FullName -Raw) -match 'init' }).Count -gt 0
 Add-Content (Join-Path `$env:FACTORY_HOME 'fake.log') "`$id live=`$live"
 if ('$mode' -eq 'crash') { exit 1 }
+if ('$mode' -eq 'api-error') { '{"type":"result","is_error":true,"result":"Credit balance is too low","total_cost_usd":0,"duration_ms":10}'; exit 1 }
 if ('$mode' -eq 'stall') { '{"type":"result","total_cost_usd":0.1,"duration_ms":10}'; exit 0 }
 Add-Content "`$id.txt" ([guid]::NewGuid())
-git add -A 2>&1 | Out-Null; git commit -q -m "work `$id" 2>&1 | Out-Null
+git add -A 2>&1 | Out-Null; git -c user.email=f@t -c user.name=f commit -q -m "work `$id" 2>&1 | Out-Null
 `$job = (& `$f status -Json | ConvertFrom-Json).jobs | Where-Object id -eq `$id
 `$dir = Join-Path `$env:FACTORY_HOME "jobs/`$id/round-`$(`$job.round)"
 New-Item -ItemType Directory -Force `$dir | Out-Null
@@ -49,6 +53,7 @@ Set-Content (Join-Path `$dir 'build.md') 'built'
 & `$f set-stage `$id review | Out-Null
 foreach (`$r in 'security','code','ux','ui') { Set-Content (Join-Path `$dir "review-`$r.md") 'Verdict: PASS' }
 & `$f read-reviews `$id | Out-Null
+if ('$mode' -eq 'deploy-stall') { '{"type":"result","total_cost_usd":0.1,"duration_ms":10}'; exit 0 }
 Set-Content (Join-Path `$env:FACTORY_HOME "jobs/`$id/decision.md") 'Decision: APPROVE'
 & `$f read-decision `$id | Out-Null
 if ('$mode' -eq 'gate-crash') { exit 1 }
@@ -61,27 +66,24 @@ else { '{"type":"result","total_cost_usd":0.5,"duration_ms":2000}' }
     }
 }
 
+AfterAll {
+    Stop-GitHubStub
+}
+
 Describe 'runner.ps1 and hook-event.ps1' {
 
     BeforeEach {
-        $script:Repo = Join-Path $TestDrive "repo-$([guid]::NewGuid().ToString('N').Substring(0,8))"
-        New-Item -ItemType Directory $script:Repo | Out-Null
-        git -C $script:Repo init -q -b main 2>&1 | Out-Null
-        git -C $script:Repo config user.email 'factory@test' | Out-Null
-        git -C $script:Repo config user.name 'factory test' | Out-Null
-        Set-Content (Join-Path $script:Repo 'README.md') 'fixture'
-        git -C $script:Repo add -A 2>&1 | Out-Null
-        git -C $script:Repo commit -q -m init 2>&1 | Out-Null
+        $script:Repo = "test/repo-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+        New-Remote $script:Repo
 
         $env:FACTORY_HOME = Join-Path $TestDrive "state-$([guid]::NewGuid().ToString('N').Substring(0,8))"
-        $env:FACTORY_WORKTREE = "$script:Repo.wt"
+        $env:FACTORY_WORK = Join-Path $TestDrive "work-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+        $env:FACTORY_ENV_FILE = $script:EnvFile
         $env:FACTORY_GATE_CMDS = '[{"name":"build","cmd":"exit 0"}]'
-        Push-Location $script:Repo
     }
 
     AfterEach {
-        Pop-Location
-        Remove-Item Env:FACTORY_HOME, Env:FACTORY_WORKTREE, Env:FACTORY_GATE_CMDS, Env:FACTORY_CLAUDE_CMD, Env:FACTORY_JOB, Env:FACTORY_IDEA, Env:FAKE_BAD_COST -ErrorAction SilentlyContinue
+        Remove-Item Env:FACTORY_HOME, Env:FACTORY_WORK, Env:FACTORY_ENV_FILE, Env:FACTORY_GATE_CMDS, Env:FACTORY_CLAUDE_CMD, Env:FACTORY_JOB, Env:FACTORY_IDEA, Env:FAKE_BAD_COST -ErrorAction SilentlyContinue
     }
 
     Context 'runner log and resilience' {
@@ -120,7 +122,7 @@ Describe 'runner.ps1 and hook-event.ps1' {
             $port = Get-Random -Minimum 20000 -Maximum 40000
             $serve = Start-Process pwsh -PassThru -WindowStyle Hidden -ArgumentList @(
                 '-NoProfile', '-File', (Join-Path $script:Scripts 'serve.ps1'),
-                '-Port', $port, '-StateDir', $env:FACTORY_HOME, '-WatchdogSeconds', 1)
+                '-Port', $port, '-StateDir', $env:FACTORY_HOME, '-EnvFile', $script:EnvFile, '-WatchdogSeconds', 1)
             try {
                 $deadline = (Get-Date).AddSeconds(60)
                 while ((Get-Date) -lt $deadline -and (Job $id).stage -ne 'ready') { Start-Sleep -Milliseconds 500 }
@@ -134,6 +136,27 @@ Describe 'runner.ps1 and hook-event.ps1' {
         }
     }
 
+    Context 'serve.ps1 PR sync' {
+        It 'moves a ready job to done once the human merges its PR on GitHub' {
+            $id = New-ApprovedJob 'A'
+            Set-FakeClaude
+            Run-Runner | Out-Null
+            (Job $id).pr.number | Should -Not -BeNullOrEmpty
+            Invoke-RestMethod -Method Put "http://localhost:$script:GhPort/repos/$script:Repo/pulls/$((Job $id).pr.number)/merge" `
+                -Headers @{ Authorization = "Bearer $script:Token" } -ContentType 'application/json' -Body '{}' | Out-Null
+            $port = Get-Random -Minimum 20000 -Maximum 40000
+            $serve = Start-Process pwsh -PassThru -WindowStyle Hidden -ArgumentList @(
+                '-NoProfile', '-File', (Join-Path $script:Scripts 'serve.ps1'),
+                '-Port', $port, '-StateDir', $env:FACTORY_HOME, '-EnvFile', $script:EnvFile, '-PrSyncSeconds', 1)
+            try {
+                $deadline = (Get-Date).AddSeconds(60)
+                while ((Get-Date) -lt $deadline -and (Job $id).stage -ne 'done') { Start-Sleep -Milliseconds 500 }
+                (Job $id).stage | Should -Be 'done'
+                (Job $id).merged.sha | Should -Be (RGit rev-parse main)
+            } finally { Stop-Process -Id $serve.Id -Force -ErrorAction SilentlyContinue }
+        }
+    }
+
     Context 'runner' {
         It 'exits at once and does nothing while runner.lock is held by a live process' {
             $id = New-ApprovedJob 'A'
@@ -144,6 +167,30 @@ Describe 'runner.ps1 and hook-event.ps1' {
             (Job $id).stage | Should -Be 'approved'
         }
 
+        It 'keeps logging when a reader opens run-<n>.jsonl mid-run, as the dashboard''s Output tab does' {
+            $id = New-ApprovedJob 'A'
+            # Opens the log the way File.ReadAllBytes does (FileShare.Read) and holds it while claude
+            # prints a line; the line must still reach the log and the job must not be escalated.
+            $fake = Join-Path $TestDrive 'fake-claude-reader.ps1'
+            @'
+'{"type":"system","subtype":"init"}'
+Start-Sleep -Milliseconds 300
+$log = Join-Path $env:FACTORY_HOME "jobs/$env:FACTORY_JOB/run-1.jsonl"
+$held = $null
+try { $held = [IO.File]::Open($log, 'Open', 'Read', 'Read') } catch { }
+'{"type":"assistant","note":"while read"}'
+Start-Sleep -Milliseconds 500
+if ($held) { $held.Dispose() }
+'{"type":"result","total_cost_usd":0.1,"duration_ms":10}'
+'@ | Set-Content $fake
+            $env:FACTORY_CLAUDE_CMD = "& '$fake'"
+            Run-Runner | Out-Null
+            Get-Content (Join-Path $env:FACTORY_HOME 'runner.log') | Should -Not -Match "error $id"
+            (Get-Content (Join-Path $env:FACTORY_HOME "jobs/$id/run-1.jsonl")) | Should -Contain '{"type":"assistant","note":"while read"}'
+            (Job $id).flag.detail | Should -Not -Match 'runner error'
+            (Job $id).costUsd | Should -Be 0.1
+        }
+
         It 'takes over a stale lock left by a dead process' {
             $id = New-ApprovedJob 'A'
             Set-FakeClaude
@@ -152,7 +199,7 @@ Describe 'runner.ps1 and hook-event.ps1' {
             (Job $id).stage | Should -Be 'ready'
         }
 
-        It 'drains two approved jobs strictly in order, reusing one worktree, and releases the lock' {
+        It 'drains two approved jobs strictly in order, each in its own work dir, and releases the lock' {
             $a = New-ApprovedJob 'A'
             $b = New-ApprovedJob 'B'
             Set-FakeClaude
@@ -167,17 +214,29 @@ Describe 'runner.ps1 and hook-event.ps1' {
             $log[1] | Should -Match "^$b building=1 "
             $log[0] | Should -Match "branch=factory/$a$"
             $log[1] | Should -Match "branch=factory/$b$"
-            $log | ForEach-Object { $_ | Should -Match ([regex]::Escape("cwd=$env:FACTORY_WORKTREE")) }
-            @(git worktree list).Count | Should -Be 2
+            $log[0] | Should -Match ([regex]::Escape("cwd=$(Work $a) "))
+            $log[1] | Should -Match ([regex]::Escape("cwd=$(Work $b) "))
             Test-Path (Join-Path $env:FACTORY_HOME 'runner.lock') | Should -BeFalse
         }
 
-        It 'leaves the main checkout on a clean main' {
-            New-ApprovedJob 'A' | Out-Null
+        It "publishes a job that lands in ready: its branch is pushed and a PR opened, main is untouched" {
+            $main = RGit rev-parse main
+            $id = New-ApprovedJob 'A'
             Set-FakeClaude
             Run-Runner | Out-Null
-            git branch --show-current | Should -Be 'main'
-            git status --porcelain | Should -BeNullOrEmpty
+            $j = Job $id
+            $j.stage | Should -Be 'ready'
+            $j.pr.url | Should -Match '/pull/1$'
+            RGit rev-parse "factory/$id" | Should -Be (git -C (Work $id) rev-parse HEAD)
+            RGit rev-parse main | Should -Be $main
+        }
+
+        It 'publishes an escalated job too, so the human can read what it got to' {
+            $id = New-ApprovedJob 'A'
+            Set-FakeClaude 'stall'
+            Run-Runner | Out-Null
+            (Job $id).flag.reason | Should -Be 'escalated'
+            (Job $id).pr | Should -Not -BeNullOrEmpty
         }
 
         It 'streams claude output live to run-<n>.jsonl and records cost and duration from the result line' {
@@ -192,17 +251,17 @@ Describe 'runner.ps1 and hook-event.ps1' {
             Get-Content (Join-Path $env:FACTORY_HOME 'fake.log') | Should -Contain "$id live=True"
         }
 
-        It "runs claude in the target's own worktree for a job on another repo" {
-            Remove-Item Env:FACTORY_WORKTREE
-            $target = Join-Path $TestDrive "target-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+        It "runs claude in the job's clone of its own target for a job on another repo" {
+            $target = "test/target-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+            New-Remote $target
             $id = New-ApprovedJob 'Elsewhere' $target
             Set-FakeClaude
             Run-Runner | Out-Null
             (Job $id).stage | Should -Be 'ready'
             Get-Content (Join-Path $env:FACTORY_HOME 'fake.log') | Where-Object { $_ -match 'building=' } |
-                Should -Match ([regex]::Escape("cwd=$target.wt") + " branch=factory/$id$")
-            git -C $target branch --list "factory/$id" | Should -Not -BeNullOrEmpty
-            git -C $script:Repo branch --list "factory/$id" | Should -BeNullOrEmpty
+                Should -Match ([regex]::Escape("cwd=$(Work $id)") + " branch=factory/$id$")
+            git -C (Bare $target) branch --list "factory/$id" | Should -Not -BeNullOrEmpty
+            RGit branch --list "factory/$id" | Should -BeNullOrEmpty
         }
 
         It 'writes headless-settings.json with the absolute factory.ps1 allow rule and the edit fence' {
@@ -216,6 +275,17 @@ Describe 'runner.ps1 and hook-event.ps1' {
             $settings.permissions.deny | Should -Contain "Edit(/$state/jobs/*/spec.md)"
             $settings.permissions.deny | Should -Contain 'Edit(/factory/**)'
             $settings.permissions.deny | Should -Contain 'Edit(/.claude/**)'
+            $envFile = (Join-Path (Split-Path (Split-Path $script:Scripts -Parent) -Parent) '.env') -replace '\\', '/' -replace '^([A-Za-z]):', { '/' + $_.Groups[1].Value.ToLowerInvariant() }
+            $settings.permissions.deny | Should -Contain "Read(/$envFile)"
+        }
+
+        It 'lets a shell call outlast a deploy, whose deadline is 60 minutes' {
+            # The default limit of 10 minutes killed the deploy call on every fresh preview (J-023).
+            New-ApprovedJob 'A' | Out-Null
+            Set-FakeClaude
+            Run-Runner | Out-Null
+            $settings = Get-Content (Join-Path $env:FACTORY_HOME 'headless-settings.json') -Raw | ConvertFrom-Json
+            [int]$settings.env.BASH_MAX_TIMEOUT_MS | Should -BeGreaterThan 3600000
         }
 
         It 'lets agents run the toolchain and read-only shell commands in either shell, and read the templates' {
@@ -223,19 +293,36 @@ Describe 'runner.ps1 and hook-event.ps1' {
             Set-FakeClaude
             Run-Runner | Out-Null
             $p = (Get-Content (Join-Path $env:FACTORY_HOME 'headless-settings.json') -Raw | ConvertFrom-Json).permissions
-            foreach ($rule in 'dotnet *', 'npm *', 'npx *', 'node *', 'git status*', 'ls*', 'cat *') {
+            # git revert and git rm only add a commit on the job branch (J-022's rework-4 was a revert).
+            foreach ($rule in 'dotnet *', 'npm *', 'npx *', 'node *', 'aspire-addon *', 'git status*', 'git revert *', 'git rm *', 'ls*', 'cat *') {
                 $p.allow | Should -Contain "Bash($rule)"
                 $p.allow | Should -Contain "PowerShell($rule)"
             }
             $p.allow | Should -Contain 'PowerShell(Get-ChildItem*)'
+            # The devops agent's offline Terraform and the approver's smoke test - and no apply or plan.
+            foreach ($rule in 'terraform init -backend=false*', 'terraform validate*', 'terraform test*', 'terraform fmt*', 'curl *') {
+                $p.allow | Should -Contain "Bash($rule)"
+            }
+            @($p.allow | Where-Object { $_ -match "terraform (apply|plan|destroy)|terraform \*|\((az|gh) " }) | Should -BeNullOrEmpty
             $p.deny | Should -Contain 'Bash(git push*)'
-            $p.deny | Should -Contain 'Bash(git merge*)'
+            # The one merge an agent may run: the job's base into its branch (factory/base, set by checkout).
+            $p.allow | Should -Contain 'Bash(git merge --no-edit factory/base*)'
+            $p.allow | Should -Contain 'Bash(git merge --abort*)'
+            @($p.allow | Where-Object { $_ -match '\(git merge \*\)|\(git merge\*\)' }) | Should -BeNullOrEmpty
+            $p.deny | Should -Contain 'Bash(git merge main*)'
             $templates = (Join-Path (Split-Path $script:Scripts -Parent) 'templates') -replace '\\', '/'
             $p.additionalDirectories | Should -Contain $templates
             $workspace = ([IO.Path]::GetFullPath((Join-Path $script:Scripts '..\..\..\template-projects'))) -replace '\\', '/'
             $p.additionalDirectories | Should -Contain $workspace
             $rule = ($workspace -replace '^([A-Za-z]):', { '/' + $_.Groups[1].Value.ToLowerInvariant() })
             $p.deny | Should -Contain "Edit(/$rule/**)"
+        }
+
+        It 'loads the factory plugin and the template workspace as plugins' {
+            . (Join-Path $script:Scripts 'claude-run.ps1')
+            $dirs = Get-PluginDirs
+            $dirs | Should -Contain (Join-Path (Split-Path $script:Scripts -Parent) 'plugin')
+            $dirs | Should -Contain ([IO.Path]::GetFullPath((Join-Path $script:Scripts '..\..\..\template-projects')))
         }
 
         It 'keeps non-ASCII text from claude intact in run-<n>.jsonl' {
@@ -256,12 +343,40 @@ Describe 'runner.ps1 and hook-event.ps1' {
             $id = New-ApprovedJob 'A'
             Set-FakeClaude
             Run-Runner | Out-Null
-            $first = git rev-parse "factory/$id"
+            $first = RGit rev-parse "factory/$id"
             F rework $id 'again' | Out-Null
+            Remove-Item -Recurse -Force (Work $id)    # a rework survives a lost work dir: the branch is on GitHub
             Run-Runner | Out-Null
-            git rev-list --count "factory/$id" | Should -Be 3
-            git merge-base --is-ancestor $first "factory/$id"; $LASTEXITCODE | Should -Be 0
+            RGit rev-list --count "factory/$id" | Should -Be 3
+            RGit merge-base --is-ancestor $first "factory/$id"; $LASTEXITCODE | Should -Be 0
             Test-Path (Join-Path $env:FACTORY_HOME "jobs/$id/run-2.jsonl") | Should -BeTrue
+        }
+
+        It 'escalates a job whose checkout fails with factory.ps1''s reason, in the flag and in runner.log' {
+            $id = New-ApprovedJob 'A'
+            Set-FakeClaude
+            $bad = Join-Path $TestDrive 'no-token.env'
+            Set-Content $bad (Get-Content $script:EnvFile | Where-Object { $_ -notmatch '^GITHUB_TOKEN=' })
+            $env:FACTORY_ENV_FILE = $bad
+            Run-Runner | Out-Null
+            (Job $id).stage | Should -Be 'ready'
+            (Job $id).flag.reason | Should -Be 'escalated'
+            (Job $id).flag.detail | Should -Match 'GITHUB_TOKEN is not set'
+            (Get-Content (Join-Path $env:FACTORY_HOME 'runner.log') -Raw) | Should -Match "checkout $id failed: .*GITHUB_TOKEN is not set"
+        }
+
+        It 'resumes a redeployed job at deploy instead of build, and clears resume' {
+            $id = New-ApprovedJob 'A'
+            # As `redeploy` leaves it: Approved, round and attempts kept, resume set. (redeploy itself is
+            # covered in factory.Tests.ps1, which has the deploy stubs.)
+            $b = Board; ($b.jobs | Where-Object id -eq $id).resume = 'deploy'
+            Set-Content (Join-Path $env:FACTORY_HOME 'board.json') ($b | ConvertTo-Json -Depth 20)
+            Set-FakeClaude 'crash'
+            Run-Runner | Out-Null
+            (Get-Content (Join-Path $env:FACTORY_HOME 'fake.log') -Raw) | Should -Match "$id building=\d+ stage=deploy "
+            $j = Job $id
+            ($j.history | Where-Object { $_.from -eq 'approved' }).to | Should -Be 'deploy'
+            $j.resume | Should -BeNullOrEmpty
         }
 
         It 'escalates a job whose claude process exits non-zero' {
@@ -273,6 +388,14 @@ Describe 'runner.ps1 and hook-event.ps1' {
             (Job $id).flag.detail | Should -Match 'exit 1'
         }
 
+        It 'puts the API error claude reported in the escalation detail' {
+            $id = New-ApprovedJob 'A'
+            Set-FakeClaude 'api-error'
+            Run-Runner | Out-Null
+            (Job $id).flag.reason | Should -Be 'escalated'
+            (Job $id).flag.detail | Should -Match '^claude exited with exit 1: Credit balance is too low; see run-1\.jsonl$'
+        }
+
         It 'runs the gate itself when claude dies after the approver approved' {
             $id = New-ApprovedJob 'A'
             Set-FakeClaude 'gate-crash'
@@ -281,7 +404,7 @@ Describe 'runner.ps1 and hook-event.ps1' {
             $j.stage | Should -Be 'ready'
             $j.flag | Should -BeNullOrEmpty
             $j.gate.build | Should -Be 0
-            $j.gate.sha | Should -Be (git rev-parse "factory/$id")
+            $j.gate.sha | Should -Be (git -C (Work $id) rev-parse "factory/$id")
         }
 
         It 'flags gate-failed, not escalated, when that gate is red' {
@@ -293,6 +416,16 @@ Describe 'runner.ps1 and hook-event.ps1' {
             (Job $id).flag.reason | Should -Be 'gate-failed'
         }
 
+        It 'compiles the lessons of a pass that leaves the job flagged' {
+            $id = New-ApprovedJob 'A'
+            Set-FakeClaude 'stall'
+            Run-Runner | Out-Null
+            (Job $id).flag.reason | Should -Be 'escalated'
+            $l = Get-Content (Join-Path $env:FACTORY_HOME "lessons/$id.json") -Raw | ConvertFrom-Json
+            $l.flag | Should -Be 'escalated'
+            $l.status | Should -Be 'open'
+        }
+
         It 'escalates a job left in Building, so the queue moves on' {
             $a = New-ApprovedJob 'A'
             $b = New-ApprovedJob 'B'
@@ -301,20 +434,171 @@ Describe 'runner.ps1 and hook-event.ps1' {
             (Job $a).flag.reason | Should -Be 'escalated'
             (Job $b).flag.reason | Should -Be 'escalated'
         }
+
+        It 'escalates a job claude leaves in deploy to blocked, then publishes it and compiles its lessons' {
+            Use-Deploys
+            Use-Canary
+            try {
+                $id = New-ApprovedJob 'A'
+                Set-FakeClaude 'deploy-stall'
+                Run-Runner | Out-Null
+                (Job $id).flag.reason | Should -Be 'escalated'
+                ((Job $id).history | Where-Object { $_.from -eq 'deploy' }).to | Should -Be 'blocked'
+                (Job $id).pr | Should -Not -BeNullOrEmpty
+                Test-Path (Join-Path $env:FACTORY_HOME "lessons/$id.json") | Should -BeTrue
+            } finally { Clear-Deploys }
+        }
+    }
+
+    Context 'canary' {
+        BeforeEach {
+            Use-Deploys; Use-Canary
+            # The teardown is detached and lands after the canary has exited: waits until it ends and returns its record.
+            function Wait-CanaryTeardown {
+                $file = Join-Path $env:FACTORY_HOME 'canary.json'
+                $deadline = (Get-Date).AddSeconds(45)
+                while ($true) {
+                    $t = (Get-Content $file -Raw | ConvertFrom-Json).teardown
+                    if ($t.status -ne 'destroying' -and -not (Test-Path (Join-Path $env:FACTORY_HOME 'canary.lock'))) { return $t }
+                    if ((Get-Date) -gt $deadline) { throw "the canary's teardown never finished" }
+                    Start-Sleep -Milliseconds 300
+                }
+            }
+        }
+        AfterEach {
+            Remove-Item (Join-Path $script:GitBase 'destroy-fails') -ErrorAction SilentlyContinue
+            if (Test-Path (Join-Path $env:FACTORY_HOME 'canary.json')) { Wait-CanaryTeardown | Out-Null }
+            Clear-Deploys
+        }
+
+        It 'sweeps when it drains: a canary whose teardown failed is torn down again' {
+            Set-Content (Join-Path $script:GitBase 'destroy-fails') ''
+            F canary | Out-Null
+            (Wait-CanaryTeardown).status | Should -Be 'failed'
+            Remove-Item (Join-Path $script:GitBase 'destroy-fails')
+
+            Run-Runner | Out-Null
+
+            Get-Content (Join-Path $env:FACTORY_HOME 'runner.log') -Raw | Should -Match 'sweep started: canary'
+            $deadline = (Get-Date).AddSeconds(30)
+            while ((Get-Content (Join-Path $env:FACTORY_HOME 'canary.json') -Raw | ConvertFrom-Json).teardown.status -ne 'down') {
+                if ((Get-Date) -gt $deadline) { throw 'the sweep never took the canary down' }
+                Start-Sleep -Milliseconds 300
+            }
+        }
+
+        It 'runs the canary before the first deployable job, then takes it' {
+            $id = New-ApprovedJob 'A'
+            Set-FakeClaude 'stall'
+            Run-Runner | Out-Null
+
+            $log = Get-Content (Join-Path $env:FACTORY_HOME 'runner.log')
+            $canary = [array]::FindIndex([string[]]$log, [Predicate[string]] { param($l) $l -match ' canary pass$' })
+            $take = [array]::FindIndex([string[]]$log, [Predicate[string]] { param($l) $l -match " take $id$" })
+            $canary | Should -BeGreaterThan -1
+            $take | Should -BeGreaterThan $canary
+            (Get-Content (Join-Path $env:FACTORY_HOME 'canary.json') -Raw | ConvertFrom-Json).status | Should -Be 'pass'
+        }
+
+        It 'after a failed canary, leaves deployable jobs in Approved and still takes a bootstrap' {
+            $env:CANARY_DEPLOY_FAIL = 'boom'
+            $id = New-ApprovedJob 'A'
+            $out = F new-idea 'boot' -Target "test/boot-$([guid]::NewGuid().ToString('N').Substring(0,8))" -Scaffold '{"name":"todo","resource":"Todo","db":"sqlite","ui":"none","events":false}'
+            $boot = ($out -split ' ')[1]
+            F approve $boot | Out-Null
+            Set-FakeClaude 'stall'
+            Run-Runner | Out-Null
+
+            Get-Content (Join-Path $env:FACTORY_HOME 'runner.log') -Raw | Should -Match 'canary failed: Error: boom'
+            (Job $id).stage | Should -Be 'approved'
+            (Job $boot).stage | Should -Not -Be 'approved'
+            @(Get-Content (Join-Path $env:FACTORY_HOME 'runner.log') | Where-Object { $_ -match ' canary ' }) | Should -HaveCount 1
+        }
+    }
+
+    Context 'providers' {
+        BeforeEach {
+            # A fake claude that records the provider environment it was started with, one line per job.
+            $fake = Join-Path $TestDrive 'fake-claude-env.ps1'
+            @'
+$names = 'ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL'
+$seen = [ordered]@{ job = $env:FACTORY_JOB }
+foreach ($n in $names) { $v = [Environment]::GetEnvironmentVariable($n); if ($null -ne $v) { $seen[$n] = $v } }
+Add-Content (Join-Path $env:FACTORY_HOME 'env.log') ($seen | ConvertTo-Json -Compress)
+'{"type":"result","total_cost_usd":0.1,"duration_ms":10}'
+'@ | Set-Content $fake
+            $env:FACTORY_CLAUDE_CMD = "& '$fake'"
+            $env:ANTHROPIC_API_KEY = 'sk-ant-from-the-runner'
+            $env:ANTHROPIC_AUTH_TOKEN = 'sk-ant-oat-from-the-runner'
+            $script:ProviderEnv = Join-Path $TestDrive "provider-$([guid]::NewGuid().ToString('N')).env"
+            $env:FACTORY_ENV_FILE = $script:ProviderEnv
+        }
+
+        AfterEach { Remove-Item Env:ANTHROPIC_API_KEY, Env:ANTHROPIC_AUTH_TOKEN -ErrorAction SilentlyContinue }
+
+        BeforeAll {
+            function Seen([string]$id) {
+                Get-Content (Join-Path $env:FACTORY_HOME 'env.log') | ForEach-Object { $_ | ConvertFrom-Json -AsHashtable } | Where-Object job -eq $id
+            }
+        }
+
+        It 'gives an openrouter job OpenRouter''s endpoint, key and model overrides, and the next subscription job none of them' {
+            Set-Content $script:ProviderEnv ((Get-Content $script:EnvFile) + 'OPENROUTER_API_KEY="sk-or-test"' + 'ANTHROPIC_DEFAULT_SONNET_MODEL=anthropic/claude-sonnet-5-5')
+            $a = New-ApprovedJob 'A'
+            F set-provider $a openrouter | Out-Null
+            $b = New-ApprovedJob 'B'
+            Run-Runner | Out-Null
+
+            $or = Seen $a
+            $or.ANTHROPIC_BASE_URL | Should -Be 'https://openrouter.ai/api'
+            $or.ANTHROPIC_AUTH_TOKEN | Should -Be 'sk-or-test'
+            $or.ANTHROPIC_API_KEY | Should -Be ''
+            $or.ANTHROPIC_DEFAULT_SONNET_MODEL | Should -Be 'anthropic/claude-sonnet-5-5'
+            $or.Keys | Should -Not -Contain 'CLAUDE_CODE_SUBAGENT_MODEL'
+
+            $sub = Seen $b
+            $sub.Keys | Should -Not -Contain 'ANTHROPIC_BASE_URL'
+            $sub.Keys | Should -Not -Contain 'ANTHROPIC_DEFAULT_SONNET_MODEL'
+            # An inherited key or token would bill API credits instead of the subscription (J-019).
+            $sub.ANTHROPIC_API_KEY | Should -Be ''
+            $sub.ANTHROPIC_AUTH_TOKEN | Should -Be ''
+
+            (Events | Where-Object { $_.job -eq $a -and $_.kind -eq 'cost' }).provider | Should -Be 'openrouter'
+            (Events | Where-Object { $_.job -eq $b -and $_.kind -eq 'cost' }).provider | Should -Be 'subscription'
+        }
+
+        It 'escalates an openrouter job without running claude when .env has no OPENROUTER_API_KEY' {
+            Set-Content $script:ProviderEnv (Get-Content $script:EnvFile)
+            $id = New-ApprovedJob 'A'
+            F set-provider $id openrouter | Out-Null
+            Run-Runner | Out-Null
+            (Job $id).stage | Should -Be 'ready'
+            (Job $id).flag.reason | Should -Be 'escalated'
+            (Job $id).flag.detail | Should -Be 'provider: no OPENROUTER_API_KEY in .env'
+            Test-Path (Join-Path $env:FACTORY_HOME 'env.log') | Should -BeFalse
+        }
+
+        It 'does not let agents read the environment, which holds the key' {
+            Set-Content $script:ProviderEnv (Get-Content $script:EnvFile)
+            New-ApprovedJob 'A' | Out-Null
+            Run-Runner | Out-Null
+            $p = (Get-Content (Join-Path $env:FACTORY_HOME 'headless-settings.json') -Raw | ConvertFrom-Json).permissions
+            $p.allow | Should -Not -Contain 'Bash(printenv*)'
+            $p.allow | Should -Not -Contain 'PowerShell(printenv*)'
+            foreach ($rule in 'printenv*', 'env*', 'Get-ChildItem env:*', 'Get-Item env:*', 'Get-Content env:*') {
+                $p.deny | Should -Contain "Bash($rule)"
+                $p.deny | Should -Contain "PowerShell($rule)"
+            }
+        }
     }
 
     Context 'state resolution' {
-        It 'resolves FACTORY_HOME from inside the worktree to the main checkout' {
-            Remove-Item Env:FACTORY_HOME
-            $env:FACTORY_HOME = $null
-            & $script:Factory new-idea 'x' -Target $script:Repo 2>$null | Out-Null
-            & $script:Factory add-spec I-001 (New-Item (Join-Path $TestDrive 's.md') -Value '# Spec: A' -Force) 2>$null | Out-Null
-            & $script:Factory checkout J-001 2>$null | Out-Null
-            Push-Location $env:FACTORY_WORKTREE
-            try { $board = & $script:Factory status -Json 2>$null | ConvertFrom-Json } finally { Pop-Location }
-            $board.jobs[0].id | Should -Be 'J-001'
-            Test-Path (Join-Path $script:Repo '.factory-runs/board.json') | Should -BeTrue
-            Test-Path (Join-Path $env:FACTORY_WORKTREE '.factory-runs') | Should -BeFalse
+        It "gives claude FACTORY_HOME, so factory.ps1 in the work dir (its own repo) uses this factory's state" {
+            $id = New-ApprovedJob 'A'
+            Set-FakeClaude
+            Run-Runner | Out-Null
+            (Job $id).stage | Should -Be 'ready'
+            Test-Path (Join-Path (Work $id) '.factory-runs') | Should -BeFalse
         }
     }
 
@@ -374,5 +658,17 @@ Describe 'runner.ps1 and hook-event.ps1' {
             'not json' | & pwsh -NoProfile -File $script:Hook 2>&1 | Out-Null
             $LASTEXITCODE | Should -Be 0
         }
+    }
+}
+
+Describe 'agents checking a preview' {
+    # A scaled-to-zero preview answers its first request 500 after about 45 s (J-027, "Backend call failure").
+    It '<_> retries, so a cold start is not an escalation' -ForEach 'approver', 'devops' {
+        Get-Content (Join-Path $PSScriptRoot "../plugin/agents/$_.md") -Raw | Should -Match 'curl -sf --retry 6 --retry-delay 10 --retry-all-errors'
+    }
+
+    # React's Static Web App puts the API's own address behind its auth, so that url answers 401 (J-027).
+    It '<_> checks the API through the front end when there is one' -ForEach 'approver', 'devops' {
+        Get-Content (Join-Path $PSScriptRoot "../plugin/agents/$_.md") -Raw | Should -Match '<front end>/api/openapi/v1\.json'
     }
 }

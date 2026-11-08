@@ -36,11 +36,13 @@ BeforeAll {
     $script:Ask = @{ questions = @(@{ question = 'Who uses it?'; header = 'Users'; multiSelect = $false
                                         options = @(@{ label = 'Just me'; description = 'one person' }, @{ label = 'A team'; description = 'several' }) }) }
 
-    function New-Session([string] $target = $script:Target, [string] $idea = $null) {
+    # The read tools are fenced to the session's clone of its GitHub target (checkout), here $script:Target.
+    function New-Session([string] $checkout = $script:Target, [string] $idea = $null, [switch] $NoTarget) {
+        $target = if ($NoTarget) { $null } else { 'test/todo-app' }
         $dir = Join-Path $env:FACTORY_HOME 'sessions/S-001'
         New-Item -ItemType Directory -Force $dir | Out-Null
         Set-Content (Join-Path $dir 'session.json') (Json ([ordered]@{
-            id = 'S-001'; target = $target; text = 'a todo app'; newTarget = $false; status = 'idle'; error = $null
+            id = 'S-001'; target = $target; checkout = $checkout; text = 'a todo app'; newTarget = $false; status = 'idle'; error = $null
             model = $null; costUsd = 0; scaffold = $null; idea = $idea; bootstrap = $null; pending = $null; pendingResults = @(); specs = @()
             createdAt = '2026-10-17T00:00:00Z' }))
         Set-Content (Join-Path $dir 'chat.json') (Json @{ messages = @(@{ role = 'user'; content = @(@{ type = 'text'; text = "Target: $target`n`nIdea: a todo app" }) }) })
@@ -167,6 +169,16 @@ Describe 'idea-turn.ps1' {
         $res[1].content | Should -Not -Match 'secret'
         $res[2].is_error | Should -Not -BeTrue
         $res[2].content | Should -Match '# Spec:'
+    }
+
+    It 'refuses propose_scaffold without a repo while the session has no target' {
+        $sc = @{ name = 'todo'; resource = 'Todo'; db = 'sqlite'; ui = 'react'; events = $false }
+        Set-Replies (Reply @((ToolUse 'p1' 'propose_scaffold' $sc)) 'tool_use') (Reply @((ToolUse 'p2' 'propose_scaffold' ($sc + @{ repo = 'todo-app' }))) 'tool_use')
+        New-Session -NoTarget | Out-Null
+        Run-Turn
+        (Request 2).messages[-1].content[0].is_error | Should -BeTrue
+        (Request 2).messages[-1].content[0].content | Should -Match 'repo'
+        (Session).pending.input.repo | Should -Be 'todo-app'
     }
 
     It 'refuses submit_specs before the brief is confirmed, and writes the specs once there is an idea' {

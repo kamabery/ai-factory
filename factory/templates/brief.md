@@ -4,7 +4,7 @@
      Nothing here is the session's own idea; a blank the human left stays under "Not sure". -->
 
 ## Target
-- Repo: <absolute path>
+- Repo: <owner/name>
 
 ## Who uses it, and what they do first
 <As a <persona>, I open this to ... One line per persona.>

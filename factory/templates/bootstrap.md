@@ -3,13 +3,19 @@
 ## Intent
 Start the new project `{{name}}` from the `template-projects` templates, so later feature jobs work
 on a known scaffold. The human chose these options in the idea form: resource `{{resource}}`, data
-store `{{db}}`, front end `{{ui}}`, events `{{events}}`. Nothing beyond the scaffold is built here;
+store `{{db}}`, front end `{{ui}}`, events `{{events}}`, sign-in `{{auth}}`. Nothing beyond the scaffold is built here;
 the idea's features are specced after this job is merged.
 
-Follow `{{templates}}/.claude/skills/scaffold-aspire-app/SKILL.md`, **Phases 3 to 5 only**, using
-the answers above. Do not interview anyone and do not run Phase 2: the template pack is already
-installed (`dotnet new list aspire-base` shows it). If it is not installed, give up and say so.
-The template workspace is read-only.
+Invoke the `/aspire-starter:boot-strap-app` skill with the Skill tool (if it is not available, read
+`{{templates}}/.claude/skills/boot-strap-app/SKILL.md` and follow it). Every answer is supplied, so
+use its **answers-supplied** mode: name `{{name}}`, output directory `.` (the work dir root),
+resource `{{resource}}`, data store `{{db}}`, events `{{events}}`, front end `{{ui}}`, sign-in
+`{{auth}}`. Do not
+interview anyone and do not install the template pack or `aspire-addon`; if either is missing, give
+up and say so. **Skip Phase 5** (graphify) and list it as a follow-up in build.md. The template
+workspace is read-only. Commit each `dotnet new` and each `aspire-addon add` on its own, with a
+subject starting `scaffold: ` or `addon: ` (for example `addon: auth`), so later jobs can tell
+template code from the app's own.
 
 ## Target
 - Repo: {{target}}
@@ -18,14 +24,14 @@ The template workspace is read-only.
 {{gate}}
 
 ## Acceptance criteria
-- [ ] AC1: These commands were run verbatim, in order, in the worktree root, and each exited 0:
+- [ ] AC1: These commands were run verbatim, in order, in the work dir root, and each exited 0:
 {{commands}}
   — proven by the commands and their exit codes in build.md.
-- [ ] AC2: Every `.scaffold/*.wiring.md` was applied exactly as written (markers kept, blocks inserted
-  where they say), and `.scaffold/` is deleted — proven by `git ls-files .scaffold` printing nothing
-  and the wiring blocks being present in the diff.
+- [ ] AC2: `aspire-addon` did the wiring: no `Refused:` in its output, no wiring applied by hand,
+  and `.aspirestarter.json` lists every add-on run — proven by its report in build.md, the
+  manifest in the diff, and `git ls-files .scaffold` printing nothing.
 - [ ] AC3: `README.md` and `CLAUDE.md` exist and describe only what was generated, per the skill's
-  Phase 4 — proven by the files in the diff.
+  Phase 4 — proven by the files in the diff. No `graphify-out/` and no `.claude/` hooks are committed.
 - [ ] AC4: Every Gate command exits 0 — proven by the Gate commands' output in build.md.
 
 ## Scope
@@ -34,8 +40,8 @@ The template workspace is read-only.
   workspace; Terraform apply or any deployment.
 
 ## Risks
-- **Wiring:** a block missed or applied from memory instead of from the wiring file; `--resource`
-  or `-n` differing between template runs fails silently.
+- **Wiring:** an add-on run with `dotnet new` instead of `aspire-addon`, or a refusal worked around
+  by hand, skips the CLI's consistency checks (`--resource`, `-n`, event store).
 - **Secrets:** no connection strings or keys committed beyond the templates' local defaults.
 - **Generated files:** `contracts/api.openapi.json` and the generated TS types come from the
   templates; they must not be hand-edited.

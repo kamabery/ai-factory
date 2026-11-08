@@ -23,6 +23,13 @@ One paragraph: did the factory turn the human's intent into mergeable work, and 
 
 ## Factory lessons
 - What to change in the factory (prompts, agents, contract, scripts) so the next run goes better.
+  A human Claude Code session makes these; factory jobs never edit `factory/`.
+
+## Template lessons
+- What to change in `template-projects` (add-ons, IaC, the `aspire-addon` CLI, the `aspire-starter`
+  skills) so the next scaffold needs no hand fix. Record them with
+  `factory.ps1 lesson <id> -File <this section>`; the dashboard's Lessons tab proposes them as a
+  template fix.
 
 The human's own verdict is not written here. It is recorded as Human feedback in the dashboard's
 Evaluations tab (`factory.ps1 feedback`), and a re-eval keeps it.

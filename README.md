@@ -8,6 +8,8 @@ live dashboard is where you work it.
 - **Status:** the factory is built (guide steps 1–5) and tested; it has not run a real job yet.
 - **Contract:** [docs/FACTORY-CONTRACT.md](docs/FACTORY-CONTRACT.md) covers stages, files, board and event formats.
 - **Rules for agents:** [CLAUDE.md](CLAUDE.md).
+- **GitHub PAT setup:** [docs/GITHUB-PAT.md](docs/GITHUB-PAT.md).
+- **Tests:** [docs/PESTER-SUITE.md](docs/PESTER-SUITE.md) covers what the Pester suite tests and how it runs offline.
 
 ## Getting started
 
@@ -21,16 +23,21 @@ without spending tokens, run the simulator first (see "Checking without spending
 ### 1. Start the dashboard
 
 ```powershell
-pwsh factory/scripts/serve.ps1        # http://localhost:4317
+pwsh factory/scripts/serve.ps1        # prints its URL (a random free port; -Port N to fix one)
 ```
 
-That's the only process you start. The dashboard starts the agent runs itself. Keep the main
-checkout on a clean `main`: jobs build in `..\claude-factory.wt`, never in your checkout.
+That's the only process you start. The dashboard starts the agent runs itself. Targets are GitHub
+repos (`owner/name`): put a GitHub PAT in `GITHUB_TOKEN`, and set `GITHUB_OWNER`, in `.env` (see
+`.env.example`). [docs/GITHUB-PAT.md](docs/GITHUB-PAT.md) says how to create the PAT and which
+permissions it needs. Each job
+builds and is tested in its own temp clone (`%TEMP%\claude-factory\jobs\J-NNN`), which is deleted
+when the job reaches Done or is discarded.
 
 ### 2. Work out an idea with Claude
 
 Put your API key in `.env` at the repo root (copy `.env.example`; it is gitignored). Then press
-**New idea** in the Ideas column, give the target repo and a sentence, and the whole session runs in
+**New idea** in the Ideas column, give the target repo (`owner/name`; a repo that doesn't exist yet
+is created, private, and scaffolded first) and a sentence, and the whole session runs in
 the panel against the Claude API (`claude-opus-5-5` unless `FACTORY_IDEA_MODEL` says otherwise).
 Samples are in [factory/backlog.md](factory/backlog.md).
 
@@ -46,7 +53,7 @@ your subscription, as before, and the key is never put in the environment. With 
 prefer a terminal, the CLI session still works:
 
 ```powershell
-pwsh factory/scripts/idea.ps1 D:\code\Scratchpad\todo-app   # or an I-NNN to resume one
+pwsh factory/scripts/idea.ps1 kamabery/todo-app   # or an I-NNN to resume one
 ```
 
 ### 3. Backlog (optional)
@@ -69,12 +76,14 @@ The card moves into **Building** and the pipeline strip lights up as each agent 
 
 ### 5. Review → Done, Rework or Discard
 
-The job lands in **Ready for review**. Inspect the branch: run `aspire run` in `..\claude-factory.wt`,
-and read the build, reviews and decision in the drawer. Then:
+The job lands in **Ready for review**, and its branch is pushed with a pull request (the **PR** link
+in the drawer). Read the diff on GitHub, or run `aspire run` in its work dir, and read the build,
+reviews and decision in the drawer. Then:
 
-- **Drag to Done** to merge it (`--no-ff` into `main`). This is the only way anything merges.
+- **Drag to Done** to merge the PR (a merge commit into `main`) and delete the work dir. This is the
+  only way anything merges.
 - **Rework** with a note to send it back to the Approved queue for another build.
-- **Discard** to drop the job and delete its branch.
+- **Discard** to drop the job, close its PR, and delete its branch and its work dir.
 
 A red badge on the card means the factory gave up or refused, and why:
 
@@ -83,7 +92,7 @@ A red badge on the card means the factory gave up or refused, and why:
 | `max-rounds` | Reviewers still want changes after round 2 | Read the reviews; rework, or drag to Done to overrule them |
 | `escalated` | The approver or an agent needs a human decision | Read `decision.md`; rework or discard |
 | `gate-failed` | Build or tests failed | Rework; Done is refused until the gate is green |
-| `merge-blocked` | `main` is dirty or the merge conflicts | Clean or resolve `main`, then drag to Done again |
+| `merge-blocked` | Nothing to merge, uncommitted changes in the work dir, or GitHub won't merge the PR (conflict, branch protection) | Read the detail; commit or revert the change, or resolve the PR, then drag to Done again |
 
 Card cost and duration feed the "validated" bar in the build guide.
 
@@ -91,17 +100,14 @@ Card cost and duration feed the "validated" bar in the build guide.
 
 ```powershell
 pwsh factory/scripts/factory.ps1 status   # the board as text
-Invoke-Pester factory/tests               # control plane and runner
+Invoke-Pester factory/tests               # control plane and runner; see docs/PESTER-SUITE.md
 ```
 
 ### Checking without spending tokens
 
 ```powershell
-$env:FACTORY_REPO = "$PWD/.factory-runs-sim/repo"; $env:FACTORY_WORKTREE = "$PWD/.factory-runs-sim/repo.wt"
-$env:FACTORY_CLAUDE_CMD = 'exit 0'
-pwsh factory/scripts/serve.ps1 -StateDir .factory-runs-sim      # terminal A
-pwsh factory/scripts/simulate.ps1 -Reset -Speed 0.5              # terminal B
-cd factory/tests/dashboard; npm ci; npx playwright test          # the dashboard tests
+pwsh factory/scripts/simulate.ps1 -Reset -Speed 0.5              # fake jobs, against its own GitHub stub
+cd factory/tests/dashboard; npm ci; npx playwright test          # the dashboard tests (serve + both stubs)
 ```
 
 Factory state lives in `.factory-runs/` (gitignored). Never edit it by hand; see [CLAUDE.md](CLAUDE.md).

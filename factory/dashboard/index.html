@@ -35,7 +35,14 @@
   #views button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 4px 10px; color: var(--muted); }
   #views button.on { color: var(--text); border-bottom-color: var(--accent); }
   #evals { display: grid; grid-template-columns: minmax(320px, 2fr) 3fr; gap: 12px; padding: 16px; align-items: start; }
-  #pipeline[hidden], #board[hidden], #evals[hidden] { display: none; }
+  #lessons { display: grid; grid-template-columns: minmax(320px, 2fr) 3fr; gap: 12px; padding: 16px; align-items: start; }
+  #pipeline[hidden], #board[hidden], #evals[hidden], #lessons[hidden] { display: none; }
+  .chip.preview { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+  .chip.preview.down, .chip.preview.expired { color: var(--muted); background: transparent; border-color: var(--border); }
+  .chip.preview.failed { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
+  .chip.action { cursor: pointer; text-decoration: none; color: var(--text); background: var(--panel); }
+  .lesson-actions { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+  .lesson-row .top input { margin-right: 6px; }
   .eval-list { display: flex; flex-direction: column; gap: 8px; }
   .eval-row.card .meta span { white-space: nowrap; }
   .chip.rating-good { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
@@ -65,12 +72,18 @@
   #idea-hint { flex: 1; margin-top: 7px; color: var(--muted); font-size: 12.5px; }
   #purge-btn { font-size: 11px; text-transform: none; letter-spacing: 0; padding: 1px 8px; margin-left: 8px; }
   .chip.kind { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+  .chip.provider[data-toggle] { cursor: pointer; }
+  .chip.provider.openrouter { color: var(--run); background: var(--run-soft); border-color: transparent; }
   input, textarea { font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
   textarea { width: 100%; font-family: var(--mono); font-size: 12.5px; }
-  button { font: inherit; cursor: pointer; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); border-radius: 6px; padding: 6px 12px; }
+  a.button { text-decoration: none; display: inline-block; }
+  .chip.pr { color: var(--accent); background: var(--accent-soft); border-color: transparent; text-decoration: none; }
+  button, a.button { font: inherit; cursor: pointer; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); border-radius: 6px; padding: 6px 12px; }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   button.danger { color: var(--warn); }
   button:disabled { opacity: .5; cursor: default; }
+  .spinner { display: inline-block; width: 1em; height: 1em; margin-right: 5px; vertical-align: -.15em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
   #pipeline { display: flex; align-items: center; gap: 6px; padding: 10px 16px; overflow-x: auto; border-bottom: 1px solid var(--border); background: var(--panel); }
   .node { position: relative; border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px; white-space: nowrap; background: var(--panel-2); color: var(--muted); }
@@ -179,9 +192,14 @@
   #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 6px; max-width: min(90vw, 640px); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 20; }
   #toast.show { opacity: 1; }
   #toast.error { background: var(--warn); color: #fff; }
+  #canary { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 8px 16px; font-size: 13px; background: var(--warn-soft); color: var(--warn); border-bottom: 1px solid var(--border); }
+  #canary[hidden] { display: none; }
+  #canary.running { background: var(--run-soft); color: var(--run); }
+  #canary .why { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  #canary code { font-size: 12px; }
   @media (max-width: 700px) {
     #board { grid-template-columns: repeat(6, 78vw); }
-    .split, .art, #evals, .breakdown { grid-template-columns: 1fr; height: auto; }
+    .split, .art, #evals, #lessons, .breakdown { grid-template-columns: 1fr; height: auto; }
     #modal { height: 95vh; }
   }
 </style>
@@ -189,14 +207,16 @@
 <body>
 <header>
   <h1>Factory</h1>
-  <nav id="views" aria-label="Views"><button type="button" data-view="board" class="on">Board</button><button type="button" data-view="evals">Evaluations</button></nav>
-  <span id="idea-hint">New idea: <code>pwsh factory/scripts/idea.ps1 &lt;target&gt;</code> opens a Claude session that grills you, writes the specs and puts the ones you approve on the board.</span>
+  <nav id="views" aria-label="Views"><button type="button" data-view="board" class="on">Board</button><button type="button" data-view="evals">Evaluations</button><button type="button" data-view="lessons">Lessons</button></nav>
+  <span id="idea-hint">New idea: <code>pwsh factory/scripts/idea.ps1 &lt;owner/name&gt;</code> opens a Claude session that grills you, writes the specs and puts the ones you approve on the board.</span>
   <button id="theme" type="button" title="Toggle theme">◐</button>
 </header>
 
+<div id="canary" role="status" hidden></div>
 <nav id="pipeline" aria-label="Pipeline"></nav>
 <main id="board"></main>
 <main id="evals" hidden><div class="eval-list"></div><div class="eval-body md" data-eval-body></div></main>
+<main id="lessons" hidden><div class="eval-list"></div><div class="eval-body md" data-lesson-body></div></main>
 <div id="backdrop"><section id="modal" role="dialog" aria-modal="true" aria-label="Details">
   <div id="m-head"></div><nav id="m-tabs"></nav><div id="m-body"></div>
 </section></div>
@@ -207,14 +227,16 @@ const COLUMNS = [
   { key: 'ideas', label: 'Ideas' },
   { key: 'backlog', label: 'Backlog', stages: ['backlog'] },
   { key: 'approved', label: 'Approved', stages: ['approved'] },
-  { key: 'building', label: 'Building', stages: ['build', 'review', 'approve', 'gate'] },
+  { key: 'building', label: 'Building', stages: ['build', 'review', 'deploy', 'approve', 'gate', 'blocked'] },
   { key: 'ready', label: 'Ready for review', stages: ['ready'] },
   { key: 'done', label: 'Done', stages: ['done'] },
 ];
 const DROP_TARGETS = { backlog: ['approved', 'done'], ready: ['approved', 'done'] };
 const ROLES = ['security', 'code', 'ux', 'ui'];
-const NODES = ['spec-writer', 'builder', ['security-reviewer', 'code-reviewer', 'ux-reviewer', 'ui-reviewer'], 'approver', 'gate'];
-const BUILDING = ['build', 'review', 'approve', 'gate'];
+const NODES = ['spec-writer', 'builder', ['security-reviewer', 'code-reviewer', 'ux-reviewer', 'ui-reviewer'], 'devops', 'approver', 'gate'];
+const BUILDING = ['build', 'review', 'deploy', 'approve', 'gate'];   // blocked waits in Building but is not building
+// A job blocked from deploy can retry it; one blocked from build or review never had a passing round.
+const blockedFromDeploy = (j) => j.stage === 'blocked' && (j.history ?? []).at(-1)?.from === 'deploy';
 
 const state = {
   board: { jobs: [], ideas: [] }, events: [], boardText: '', eventsText: '',
@@ -222,6 +244,7 @@ const state = {
   sess: null,            // the open idea session: { id, s, chat, streamText, texts, actKey }
   open: null,            // { kind: 'job' | 'idea' | 'session' | 'new-session', id }
   tab: 'spec', files: [], specText: null, specDirty: false, viewerFile: null, viewerText: null, outputKey: '',
+  moving: new Set(),     // job ids with a move to Approved in flight; kept here because a poll re-renders the buttons
 };
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -234,7 +257,20 @@ const literalBackslash = {
   tokenizer: (src) => src[0] === '\\' ? { type: 'text', raw: '\\', text: '\\' } : undefined,
 };
 if (window.marked) marked.use({ gfm: true, extensions: [literalBackslash], renderer: { html: (token) => esc(typeof token === 'string' ? token : token.text) } });
-const md = (text) => window.marked ? marked.parse(text ?? '') : `<pre>${esc(text)}</pre>`;
+// What each flag reason means for the human, shown above the flag's own detail in the job modal.
+const FLAG_MEANS = {
+  escalated: 'the factory stopped short of the gate and needs your decision before this goes further.',
+  'max-rounds': 'reviewers still asked for changes after the last build round.',
+  'gate-failed': 'a gate command exited non-zero; gate.log has the output.',
+  'merge-blocked': 'the merge was refused.',
+  environment: 'the devops agent judged the environment or the factory at fault, which cannot be fixed by an agent. Fix the cause, then Retry deploy.',
+  'deploy-fix-rounds': 'two deploy-fix rounds did not get the change deployed; the diagnosis is below. Rework it, or discard it.',
+  'deploy-failed': 'the preview did not deploy in five attempts; deploy-<n>.log has the GitHub and HCP logs, and the preview is left up for you to look at.',
+  'out-of-scope': 'the build changed the paths below, which match none of the Scope: In globs in the spec, so it stopped before review. Rework with a line "Scope +: <glob>, <glob>" to keep them (the spec is widened), or with a note asking the builder to remove them.',
+  'spec-stale': 'a job from the same idea merged after this spec was written, and the builder found the spec no longer holds against main (its reasons are below). Rework with its proposed "Scope +: <glob>" line and AC wording, or discard.',
+  'github-permission':'GitHub refused the deploy because the GitHub PAT lacks the permission named below. Add it on GitHub, then run factory.ps1 redeploy <id>; no deploy attempt was used.',
+};
+const md = (text) =>window.marked ? marked.parse(text ?? '') : `<pre>${esc(text)}</pre>`;
 
 // --- theme -------------------------------------------------------------------------------
 try { const t = localStorage.getItem('factory-theme'); if (t) document.documentElement.dataset.theme = t; } catch {}
@@ -251,11 +287,44 @@ async function getText(url) {
   const r = await fetch(url, { cache: 'no-store' });
   return r.ok ? r.text() : '';
 }
+// The deploy canary (see "Canary" in the contract): a banner while one runs, or after one failed,
+// because deployable jobs wait in Approved until it passes. Returns whether canary.json changed.
+function renderCanary(text) {
+  const el = $('#canary');
+  let c = null; try { c = text ? JSON.parse(text) : null; } catch { c = null; }
+  if (text === state.canaryText) return false;
+  state.canaryText = text;
+  state.canary = c;
+  const stuck = c?.status === 'pass' && c.teardown?.status === 'failed';
+  if (!c || (c.status !== 'failed' && c.status !== 'running' && !stuck)) { el.hidden = true; el.innerHTML = ''; return true; }
+  el.hidden = false;
+  el.className = c.status === 'running' ? 'running' : '';
+  el.innerHTML = c.status === 'running'
+    ? `<span class="why">Deploy canary running (since ${esc(new Date(c.startedAt).toLocaleTimeString())}): deployable jobs wait for it.</span>`
+    : stuck
+    ? `<span class="why"><strong>The deploy canary passed, but j000 could not be torn down</strong> (${esc(c.teardown.failures)} of 5 tries). <code>${esc(c.teardown.error)}</code></span>
+       <a data-canary-log href="/state/${esc(c.log)}" target="_blank" rel="noopener">Log</a>`
+    : `<span class="why"><strong>Deployable jobs are waiting:</strong> the deploy canary failed. <code>${esc(c.error)}</code></span>
+       <a data-canary-log href="/state/${esc(c.log)}" target="_blank" rel="noopener">Log</a>
+       <button type="button" data-run-canary>Run canary</button>`;
+  $('[data-run-canary]', el)?.addEventListener('click', async (e) => {
+    e.currentTarget.disabled = true;
+    const r = await api('POST', '/api/canary', {});
+    toast(r.message, !r.ok);
+  });
+  return true;
+}
+
 async function poll() {
   try {
+    const canaryChanged = renderCanary(await getText('/state/canary.json'));
     const [b, e, ss] = await Promise.all([getText('/state/board.json'), getText('/state/events.jsonl'), state.config.enabled ? getText('/api/sessions') : '']);
     if (state.open?.kind === 'session') refreshSession();
-    if (b === state.boardText && e === state.eventsText && ss === state.sessionsText) { if (state.open && state.tab === 'output') refreshOutput(); return; }
+    if (b === state.boardText && e === state.eventsText && ss === state.sessionsText) {
+      if (canaryChanged && !dragging) renderBoard();   // Approved cards wait on the canary
+      if (state.open && state.tab === 'output') refreshOutput();
+      return;
+    }
     state.boardText = b; state.eventsText = e; state.sessionsText = ss;
     try { state.sessions = ss ? JSON.parse(ss) : []; } catch { state.sessions = []; }
     state.board = b ? JSON.parse(b) : { jobs: [], ideas: [] };
@@ -289,8 +358,14 @@ function activeAgents() {
     if (ev.kind === 'agent-start') running.set(key, { id: ev.job ?? ev.idea, agent: ev.agent });
     else running.delete(key);
   }
+  // An escalated or killed run never logs agent-stop, so a job's agents count only while it is on the
+  // board and building (a purged job is gone from the board but not from the events).
+  const stage = new Map(state.board.jobs.map((j) => [j.id, j.stage]));
   const byAgent = {};
-  for (const { id, agent } of running.values()) (byAgent[agent] ??= new Set()).add(id);
+  for (const { id, agent } of running.values()) {
+    if (/^J-/.test(id) && !BUILDING.includes(stage.get(id))) continue;
+    (byAgent[agent] ??= new Set()).add(id);
+  }
   for (const j of state.board.jobs) if (j.stage === 'gate') (byAgent.gate ??= new Set()).add(j.id);
   return byAgent;
 }
@@ -306,32 +381,136 @@ function renderPipeline() {
 // --- board ---------------------------------------------------------------------------------
 function elapsed(j) {
   const start = Date.parse(j.approvedAt ?? j.createdAt);
-  const end = ['done', 'discarded', 'ready', 'backlog'].includes(j.stage) ? Date.parse(j.updatedAt) : Date.now();
+  const end = ['done', 'discarded', 'ready', 'blocked', 'backlog'].includes(j.stage) ? Date.parse(j.updatedAt) : Date.now();
   if (!start || !end) return '';
   const s = Math.max(0, Math.round((end - start) / 1000));
   return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
 }
 const leaf = (p) => String(p ?? '').split(/[\\/]/).filter(Boolean).pop() ?? '';
+// What an approved job waits on, by the rules `next` applies (see "Board columns" in the contract).
+const queueOrder = (a, b) => String(a.approvedAt ?? '').localeCompare(String(b.approvedAt ?? '')) || a.id.localeCompare(b.id);
+function waitReason(j) {
+  const building = state.board.jobs.find((x) => BUILDING.includes(x.stage));
+  if (building) return `waiting: ${building.id} is building`;
+  const c = state.canary;
+  if (c?.status === 'running') return 'waiting: deploy canary';
+  const held = (x) => c?.status === 'failed' && state.config.deploys && x.kind !== 'bootstrap';
+  if (held(j)) return 'held: deploy canary failed';
+  const ahead = state.board.jobs.filter((x) => x.stage === 'approved' && !held(x) && queueOrder(x, j) < 0).sort(queueOrder).pop();
+  return ahead ? `after ${ahead.id}` : 'next';
+}
 function jobCard(j) {
-  const draggable = j.stage === 'backlog' || j.stage === 'ready';
+  const isMoving = state.moving.has(j.id);
+  const draggable = (j.stage === 'backlog' || j.stage === 'ready') && !isMoving;
+  const moving = isMoving ? '<span class="sub" data-moving><span class="spinner"></span>Moving…</span>' : '';
   const reviews = j.reviews && ROLES.some((r) => j.reviews[r] && j.reviews[r] !== 'pending')
     ? ROLES.map((r) => `<span class="chip ${esc(j.reviews[r])}" data-review="${r}" title="${r}">${r}:${esc(j.reviews[r])}</span>`).join('') : '';
-  const sub = BUILDING.includes(j.stage) ? `<span class="sub">${j.stage} r${j.round}</span>` : '';
+  const sub = BUILDING.includes(j.stage) || j.stage === 'blocked'
+    ? `<span class="sub">${j.stage} r${j.round}${j.stage === 'deploy' && j.deploy ? ` · ${j.deploy.attempts}/5` : ''}</span>`
+    : j.stage === 'approved' ? `<span class="sub" data-wait>${esc(waitReason(j))}</span>` : '';
   const flag = j.flag ? `<span class="flag" data-flag title="${esc(j.flag.detail)}">${esc(j.flag.reason)}</span>` : '';
   const cost = j.costUsd != null ? `<span data-cost>$${Number(j.costUsd).toFixed(2)}</span>` : '';
   const repo = j.target ? `<div class="repo" title="${esc(j.target)}">→ ${esc(leaf(j.target))}</div>` : '';
   const kind = j.kind === 'bootstrap' ? '<span class="chip kind" data-kind="bootstrap">bootstrap</span>' : '';
+  // Stacked on an unmerged job (see "Stacked jobs" in the contract): built on its branch, merged after it.
+  const baseJob = j.base ? state.board.jobs.find((x) => x.id === j.base) : null;
+  const stacked = baseJob && baseJob.stage !== 'done'
+    ? `<span class="chip kind" data-base title="built on ${esc(j.base)}'s unmerged branch; merges after it">on ${esc(j.base)}</span>` : '';
+  // A sibling of the same idea merged since this was specced (see "Build checks" in the contract).
+  const moved = j.baseMoved?.by
+    ? `<span class="chip kind" data-base-moved title="${esc(j.baseMoved.by)} merged after this spec was written; check the spec still fits main">base moved: ${esc(j.baseMoved.by)} merged</span>` : '';
+  // Toggleable before the job builds; afterwards shown only when it is not the default.
+  const p = j.provider ?? 'subscription';
+  const settable = j.stage === 'backlog' || j.stage === 'approved';
+  const provider = settable || p !== 'subscription'
+    ? `<span class="chip provider ${esc(p)}" data-provider="${esc(p)}"${settable ? ` data-toggle title="provider: click to switch"` : ` title="provider"`}>${esc(p)}</span>` : '';
+  const pr = j.pr?.url && (j.stage === 'ready' || j.stage === 'blocked') ? `<a class="chip pr" data-pr href="${esc(j.pr.url)}" target="_blank" rel="noopener" draggable="false">PR #${esc(j.pr.number)}</a>` : '';
   return `<div class="card${state.open?.id === j.id ? ' selected' : ''}" data-card="${esc(j.id)}" data-stage="${esc(j.stage)}" draggable="${draggable}">
     <div class="top"><span>${esc(j.id)}</span><span>r${j.round} · ${elapsed(j)}</span></div>
     <div class="title">${esc(j.title)}</div>${repo}
-    <div class="meta">${kind}${sub}${flag}${reviews}${cost}</div></div>`;
+    <div class="meta">${moving}${kind}${stacked}${moved}${provider}${pr}${sub}${flag}${reviews}${cost}</div>${previewBar(j)}${blockedBar(j)}</div>`;
+}
+// A blocked card's ways out (see "Blocked" in the contract): Retry deploy, Rework (opens the note), Discard.
+function blockedBar(j) {
+  if (j.stage !== 'blocked') return '';
+  return '<div class="meta" data-blocked-bar>'
+    + (blockedFromDeploy(j) ? '<button type="button" class="chip action" data-redeploy>Retry deploy</button>' : '')
+    + '<button type="button" class="chip action" data-rework>Rework</button>'
+    + '<button type="button" class="chip action" data-discard>Discard</button></div>';
+}
+async function redeploy(id) {
+  const res = await api('POST', `/api/jobs/${encodeURIComponent(id)}/redeploy`, {});
+  toast(res.ok ? `${id}: retrying deploy` : res.message, !res.ok);
+  return res.ok;
+}
+function openRework(id) {
+  openModal('job', id);
+  setTimeout(() => $('#rework-note')?.focus(), 50);
+}
+// The preview's state (up, or expired once its auto-destroy time has passed) and where to open it.
+function preview(j) {
+  const d = j.deploy;
+  const url = d.urls?.frontend ?? (d.urls?.api ? `${d.urls.api}/openapi/v1.json` : null);
+  // A failed destroy outranks the timer: what it left behind is still there, and still billing.
+  if (d.destroyError && d.status !== 'destroying' && d.status !== 'down') return { status: 'failed', label: 'destroy failed', url, live: false };
+  const expired = d.status === 'up' && d.destroyAt && Date.parse(d.destroyAt) < Date.now();
+  const status = expired ? 'expired' : d.status;
+  return { status, label: status, url, live: status === 'up' };
+}
+
+// The job's ephemeral preview: its state, and Launch / QA login / Tear down while it is up.
+function previewBar(j) {
+  const d = j.deploy;
+  if (!d || !d.status) return '';
+  const { status, label, url, live } = preview(j);
+  const title = label === 'destroy failed' ? ` title="${esc(d.destroyError)}"`
+    : d.destroyAt ? ` title="auto-destroys ${esc(new Date(d.destroyAt).toLocaleString())}"` : '';
+  return `<div class="meta" data-preview-bar><span class="chip preview ${esc(status)}" data-preview${title}>preview: ${esc(label)}</span>`
+    + (live && url ? `<a class="chip action" data-launch href="${esc(url)}" target="_blank" rel="noopener" draggable="false">Launch</a>` : '')
+    + (live ? '<button type="button" class="chip action" data-qa>QA login</button>' : '')
+    + (live || status === 'failed' ? '<button type="button" class="chip action" data-teardown>Tear down</button>' : '')
+    + '</div>';
+}
+async function qaLogin(id) {
+  const r = await fetch(`/api/jobs/${encodeURIComponent(id)}/qa-login`);
+  let res; try { res = await r.json(); } catch { res = { ok: false, message: `HTTP ${r.status}` }; }
+  toast(res.ok ? res.message.replace(/\n/g, ' · ') : res.message, !res.ok);
+}
+async function tearDown(id) {
+  const res = await api('POST', `/api/jobs/${encodeURIComponent(id)}/destroy`, {});
+  toast(res.ok ? `${id}: ${res.message}` : res.message, !res.ok);
+}
+// Abandon on an Ideas card: the first click asks, a second within 4 s abandons (see "Ideas"). In the opened
+// idea or session it abandons at once.
+function renderArmed() { renderBoard(); }
+function abandonBtn(key) {
+  const armed = state.armed === key;
+  return `<button type="button" class="chip action${armed ? ' danger' : ''}" data-abandon="${esc(key)}">${armed ? 'Abandon?' : 'Abandon'}</button>`;
+}
+// now: the opened card's Abandon, where opening it was the confirmation.
+async function abandon(key, now = false) {
+  clearTimeout(state.armTimer);
+  if (!now && state.armed !== key) {
+    state.armed = key;
+    state.armTimer = setTimeout(() => { state.armed = null; renderArmed(); }, 4000);
+    renderArmed();
+    return;
+  }
+  state.armed = null;
+  const r = key.startsWith('S-') ? await api('POST', `/api/sessions/${key}/close`, { abandon: true }) : await api('POST', `/api/ideas/${key}/abandon`, {});
+  toast(r.ok ? `${key} abandoned` : r.message, !r.ok);
+  if (r.ok && ['idea', 'session'].includes(state.open?.kind) && state.open.id === key) closeModal();
+  else if (['idea', 'session'].includes(state.open?.kind)) renderHead();
+  state.sessionsText = null; state.boardText = null;
+  poll();
 }
 function ideaCard(i) {
   return `<div class="card idea-card ${esc(i.status)}" data-idea="${esc(i.id)}">
     <div class="top"><span>${esc(i.id)}</span><span>${i.status === 'failed' ? 'failed' : i.status === 'waiting' ? `waiting for bootstrap ${esc(i.jobs?.[0] ?? '')}` : `spec it: <code>/factory:idea ${esc(i.id)}</code>`}</span></div>
     <div class="title">${esc(i.text)}</div>
     ${i.target ? `<div class="repo" title="${esc(i.target)}">→ ${esc(leaf(i.target))}</div>` : ''}
-    ${i.reason ? `<div class="meta">${esc(i.reason)}</div>` : ''}</div>`;
+    ${i.reason ? `<div class="meta">${esc(i.reason)}</div>` : ''}
+    <div class="meta">${i.base ? `<span class="chip kind">on ${esc(i.base)}</span>` : ''}${abandonBtn(i.id)}</div></div>`;
 }
 function sessionCard(x) {
   const what = x.status === 'running' ? '<span class="chip running">Claude is working</span>'
@@ -340,16 +519,16 @@ function sessionCard(x) {
     <div class="top"><span>${esc(x.id)}${x.idea ? ` · ${esc(x.idea)}` : ''}</span><span>${x.costUsd ? `$${Number(x.costUsd).toFixed(2)}` : ''}</span></div>
     <div class="title">${esc(x.text)}</div>
     ${x.target ? `<div class="repo" title="${esc(x.target)}">→ ${esc(leaf(x.target))}</div>` : ''}
-    <div class="meta">${what}${x.bootstrap ? `<span class="chip kind">bootstrap ${esc(x.bootstrap)}</span>` : ''}</div></div>`;
+    <div class="meta">${what}${x.bootstrap ? `<span class="chip kind">bootstrap ${esc(x.bootstrap)}</span>` : ''}${x.status !== 'running' ? abandonBtn(x.id) : ''}</div></div>`;
 }
 function renderBoard() {
   const before = new Map([...document.querySelectorAll('[data-card]')].map((el) => [el.dataset.card, el.getBoundingClientRect()]));
   $('#board').innerHTML = COLUMNS.map((c) => {
     const inSession = new Set(state.sessions.map((x) => x.idea).filter(Boolean));
     const items = c.key === 'ideas'
-      ? [...state.sessions.map(sessionCard), ...state.board.ideas.filter((i) => i.status !== 'done' && !inSession.has(i.id)).map(ideaCard)]
+      ? [...state.sessions.map(sessionCard), ...state.board.ideas.filter((i) => i.status !== 'done' && i.status !== 'abandoned' && !inSession.has(i.id)).map(ideaCard)]
       : state.board.jobs.filter((j) => c.stages.includes(j.stage)).map(jobCard);
-    const clear = c.key === 'done' ? '<button id="purge-btn" type="button" title="Remove done and discarded cards, their folders and branches">Clear</button>'
+    const clear = c.key === 'done' ? '<button id="purge-btn" type="button" title="Remove evaluated done and discarded cards, their folders and branches; unevaluated ones stay">Clear</button>'
       : c.key === 'ideas' && state.config.enabled ? '<button id="new-idea-btn" class="primary" type="button" title="Grill an idea with Claude, here">New idea</button>' : '';
     return `<section class="column" data-column="${c.key}"><h2>${c.label}<span>${items.length}${clear}</span></h2><div class="cards">${items.join('')}</div></section>`;
   }).join('');
@@ -394,8 +573,16 @@ document.addEventListener('drop', async (e) => {
 });
 
 async function move(id, to, note) {
+  if (to === 'approved') {
+    if (state.moving.has(id)) return false;   // already on its way; a second request would be refused
+    state.moving.add(id);
+    renderBoard();
+  }
   if (to === 'done') toast(`${id}: merging…`);
-  const res = await api('POST', `/api/jobs/${id}/move`, note ? { to, note } : { to });
+  let res;
+  try { res = await api('POST', `/api/jobs/${id}/move`, note ? { to, note } : { to }); }
+  catch (err) { res = { ok: false, message: `${id}: ${err.message}` }; }
+  if (to === 'approved') state.moving.delete(id);
   if (res.ok) toast(`${id} → ${to === 'discarded' ? 'discarded' : COLUMNS.find((c) => c.key === to)?.label ?? to}`);
   else toast(res.message || 'refused', true);
   state.boardText = '';
@@ -403,10 +590,34 @@ async function move(id, to, note) {
   return res.ok;
 }
 
+async function setProvider(id, provider) {
+  const res = await api('POST', `/api/jobs/${id}/provider`, { provider });
+  toast(res.ok ? `${id} → ${provider}` : res.message || 'refused', !res.ok);
+  state.boardText = '';
+  await poll();
+}
+
 // --- modal ---------------------------------------------------------------------------------
 document.addEventListener('click', (e) => {
   if (e.target.closest('#modal')) return;
+  if (e.detail > 1) return;   // the rest of a double-click on Approve lands on whatever the closed modal uncovered
   if (e.target.id === 'backdrop') { closeModal(); return; }
+  if (e.target.closest?.('a[data-pr]')) return;   // the card's PR link opens GitHub, not the modal
+  if (e.target.closest?.('a[data-launch]')) return;   // Launch opens the preview, not the modal
+  const qa = e.target.closest?.('[data-qa]');
+  if (qa) { qaLogin(qa.closest('[data-card]').dataset.card); return; }
+  const td = e.target.closest?.('[data-teardown]');
+  if (td) { td.disabled = true; tearDown(td.closest('[data-card]').dataset.card); return; }
+  const rd = e.target.closest?.('[data-redeploy]');
+  if (rd) { rd.disabled = true; redeploy(rd.closest('[data-card]').dataset.card); return; }
+  const rw = e.target.closest?.('[data-rework]');
+  if (rw) { openRework(rw.closest('[data-card]').dataset.card); return; }
+  const dc = e.target.closest?.('[data-discard]');
+  if (dc) { move(dc.closest('[data-card]').dataset.card, 'discarded'); return; }
+  const ab = e.target.closest?.('[data-abandon]');
+  if (ab) { abandon(ab.dataset.abandon); return; }
+  const pc = e.target.closest?.('[data-provider][data-toggle]');
+  if (pc) { setProvider(pc.closest('[data-card]').dataset.card, pc.dataset.provider === 'openrouter' ? 'subscription' : 'openrouter'); return; }
   const c = e.target.closest?.('[data-card]');
   if (c) { openModal('job', c.dataset.card); return; }
   if (e.target.closest?.('#new-idea-btn')) { openModal('new-session', null); return; }
@@ -465,9 +676,12 @@ function renderHead() {
   if (state.open?.kind === 'session') { renderSessionHead(h, close); return; }
   const idea = openIdea();
   if (idea) {
+    const canAbandon = ['waiting', 'drafting', 'failed'].includes(idea.status);
     h.innerHTML = `${close}<h3>${esc(idea.text)}</h3>
       <div class="sub-meta">${esc(idea.id)} · ${esc(idea.status)}${idea.target ? ` · target <code>${esc(idea.target)}</code>` : ''}${idea.jobs?.length ? ` · ${esc(idea.jobs.join(', '))}` : ''}</div>
-      ${idea.reason ? `<div class="flagbox">${esc(idea.reason)}</div>` : ''}`;
+      ${idea.reason ? `<div class="flagbox">${esc(idea.reason)}</div>` : ''}
+      ${canAbandon ? '<div class="actions"><button class="danger" id="idea-abandon-btn">Abandon</button></div>' : ''}`;
+    $('#idea-abandon-btn', h)?.addEventListener('click', (e) => { e.currentTarget.disabled = true; abandon(idea.id, true); });
     return;
   }
   const j = openJob();
@@ -475,29 +689,38 @@ function renderHead() {
   const prev = $('#rework-note', h);
   const reworkDraft = prev?.value ?? '';
   const reworkFocus = prev && document.activeElement === prev ? [prev.selectionStart, prev.selectionEnd] : null;
-  const flag = j.flag ? `<div class="flagbox"><b>${esc(j.flag.reason)}</b> — ${esc(j.flag.detail)}</div>` : '';
+  const flag = j.flag ? `<div class="flagbox" data-flagbox><b>${esc(j.flag.reason)}</b>${FLAG_MEANS[j.flag.reason] ? `: ${FLAG_MEANS[j.flag.reason]}` : ''}
+    ${j.flag.why ? `<div class="md">${md(j.flag.why)}</div>` : `<div>${esc(j.flag.detail)}</div>`}</div>` : '';
   let actions = '';
-  if (j.stage === 'backlog') actions = `<button class="primary" id="approve-btn">Approve</button><button class="danger" id="discard-btn">Discard</button>`;
-  if (j.stage === 'ready') actions = `<button class="primary" id="merge-btn">Merge (Done)</button><button class="danger" id="discard-btn">Discard</button>`;
+  if (j.stage === 'backlog') actions = state.moving.has(j.id)
+    ? `<button class="primary" id="approve-btn" disabled><span class="spinner"></span>Approving…</button><button class="danger" id="discard-btn" disabled>Discard</button>`
+    : `<button class="primary" id="approve-btn">Approve</button><button class="danger" id="discard-btn">Discard</button>`;
+  const live = j.deploy?.status ? preview(j) : null;
+  const previewBtn = live?.live && live.url ? `<a class="button" id="preview-btn" href="${esc(live.url)}" target="_blank" rel="noopener">Open preview</a>` : '';
+  if (j.stage === 'ready') actions = `${previewBtn}${j.pr?.url ? `<a class="button" id="pr-btn" href="${esc(j.pr.url)}" target="_blank" rel="noopener">Open PR #${esc(j.pr.number)}</a>` : ''}<button class="primary" id="merge-btn">Merge (Done)</button><button class="danger" id="discard-btn">Discard</button>`;
+  const prBtn = j.pr?.url ? `<a class="button" id="pr-btn" href="${esc(j.pr.url)}" target="_blank" rel="noopener">Open PR #${esc(j.pr.number)}</a>` : '';
+  if (j.stage === 'blocked') actions = `${previewBtn}${prBtn}${blockedFromDeploy(j) ? '<button class="primary" id="redeploy-btn">Retry deploy</button>' : ''}<button class="danger" id="discard-btn">Discard</button>`;
   const gate = j.gate ? Object.entries(j.gate).filter(([k]) => k !== 'at' && k !== 'sha').map(([k, v]) => `${k}=${v}`).join(' ') + (j.gate.sha ? ` · ${j.gate.sha.slice(0, 7)}` : '') : '';
-  const rework = j.stage === 'ready' ? `<div class="rework"><textarea id="rework-note" rows="2" placeholder="Rework: what should change? The note goes to the builder.">${esc(reworkDraft)}</textarea>
+  const rework = j.stage === 'ready' || j.stage === 'blocked' ? `<div class="rework"><textarea id="rework-note" rows="2" placeholder="Rework: what should change? The note goes to the builder.">${esc(reworkDraft)}</textarea>
     <div class="actions"><button id="rework-btn">Rework</button></div></div>` : '';
   const m = j.merged;
-  const merged = m ? `<div class="merged" data-merged>Merged into <code>${esc(m.repo)}</code> @ <code>${esc(m.sha.slice(0, 7))}</code>
+  const merged = m ? `<div class="merged" data-merged>Merged into <code>${esc(m.repo)}</code> @ <code>${esc(m.sha.slice(0, 7))}</code>${m.pr ? ` by <a href="${esc(m.pr)}" target="_blank" rel="noopener">pull request</a>` : ''}
       <button id="copy-paths" type="button">Copy paths</button>
       <ul>${(m.added ?? []).map((p) => `<li><span class="kind">A</span> ${esc(p)}</li>`).join('')}${(m.modified ?? []).map((p) => `<li><span class="kind">M</span> ${esc(p)}</li>`).join('')}</ul></div>` : '';
 
   h.innerHTML = `${close}<h3>${esc(j.title)}</h3>
     <div class="sub-meta">${esc(j.id)} · ${esc(j.stage)} · round ${j.round}${j.idea ? ` · from ${esc(j.idea)}` : ''}${j.costUsd != null ? ` · $${Number(j.costUsd).toFixed(2)}` : ''}${j.durationMs ? ` · ${Math.round(j.durationMs / 1000)}s` : ''}
-      ${j.target ? `<br>target <code>${esc(j.target)}</code>` : ''}${gate ? ` · gate <span data-gate>${esc(gate)}</span>` : ''}</div>
+      ${j.target ? `<br>target <code>${esc(j.target)}</code>` : ''}${j.pr?.url ? ` · <a data-pr href="${esc(j.pr.url)}" target="_blank" rel="noopener">PR #${esc(j.pr.number)}</a>` : ''}${gate ?` · gate <span data-gate>${esc(gate)}</span>` : ''}</div>
     ${flag}${merged}
     ${actions ? `<div class="actions">${actions}</div>` : ''}
     ${rework}`;
   if (reworkFocus) { const n = $('#rework-note', h); n.focus(); n.setSelectionRange(...reworkFocus); }
 
-  $('#approve-btn', h)?.addEventListener('click', async () => {
+  // factory.ps1 approve takes seconds: close at once, and the card spins until it lands (see move).
+  $('#approve-btn', h)?.addEventListener('click', () => {
     if (state.specDirty) { toast('Save the spec first', true); return; }
-    await move(j.id, 'approved');
+    closeModal();
+    move(j.id, 'approved');
   });
   // A merge may run the whole gate first (minutes): block a second click, and on success get out of
   // the way so the card can be seen landing in Done. On a refusal the modal stays, showing the flag.
@@ -506,13 +729,20 @@ function renderHead() {
     if (await move(j.id, 'done')) closeModal();
   });
   $('#discard-btn', h)?.addEventListener('click', () => move(j.id, 'discarded'));
+  $('#redeploy-btn', h)?.addEventListener('click', async (e) => {
+    const b = e.currentTarget; b.disabled = true;
+    if (await redeploy(j.id)) closeModal(); else b.disabled = false;
+  });
   $('#copy-paths', h)?.addEventListener('click', async () => {
     try { await navigator.clipboard.writeText([...(m.added ?? []), ...(m.modified ?? [])].join('\n')); toast('Paths copied'); } catch { toast('Copy failed', true); }
   });
-  $('#rework-btn', h)?.addEventListener('click', async () => {
+  // Like merge: block a second click, and on success close so the card is seen going back to build.
+  $('#rework-btn', h)?.addEventListener('click', async (e) => {
     const note = $('#rework-note').value.trim();
     if (!note) { toast('A rework needs a note', true); return; }
-    await move(j.id, 'approved', note);
+    const b = e.currentTarget; b.disabled = true; b.textContent = 'Reworking…';
+    if (await move(j.id, 'approved', note)) closeModal();
+    else { b.disabled = false; b.textContent = 'Rework'; }
   });
 }
 
@@ -655,17 +885,43 @@ async function sessApi(action, body, method = 'POST', type = 'application/json')
 
 function renderNewSession(body) {
   const targets = [...new Set([...state.board.ideas.map((i) => i.target), ...state.board.jobs.map((j) => j.target)].filter(Boolean))];
+  const options = (repos) => `<option value="+new">+ Add new (Claude grills you and names the repo)</option>
+    ${[...new Set([...repos, ...targets])].map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}
+    <option value="+other">Other owner/name…</option>`;
   body.innerHTML = `<div class="s-form">
     <label for="s-target">Target repo</label>
-    <div><input id="s-target" list="s-targets" autocomplete="off" placeholder="D:\\code\\Scratchpad\\todo-app"><datalist id="s-targets">${targets.map((t) => `<option value="${esc(t)}">`).join('')}</datalist></div>
+    <div><select id="s-target">${options([])}</select> <span id="s-repos-note" style="color:var(--muted);font-size:12px">loading your repos…</span>
+      <input id="s-other" autocomplete="off" hidden placeholder="${esc(state.config.owner || 'owner')}/todo-app"></div>
+    <label for="s-base" id="s-base-label" hidden>Base</label>
+    <div id="s-base-row" hidden><select id="s-base"></select> <span style="color:var(--muted);font-size:12px">An unmerged job: the session reads its branch, and the specs build on it.</span></div>
     <label for="s-text">The idea</label>
     <textarea id="s-text" rows="5" placeholder="What do you want built? A sentence is enough: Claude asks the rest."></textarea>
     <span></span><div class="actions"><button class="primary" id="s-start">Start</button>
-      <span style="color:var(--muted);font-size:12px">An absolute path: an existing git repo, or a new folder that a bootstrap job will scaffold.</span></div></div>`;
-  $('#s-target').focus();
+      <span style="color:var(--muted);font-size:12px">An existing repo, or a new one that a bootstrap job creates and scaffolds.</span></div></div>`;
+  // Base: main, or an unmerged job on the target that has a PR (see "Stacked jobs" in the contract).
+  const target = () => $('#s-target').value === '+other' ? $('#s-other').value.trim() : $('#s-target').value;
+  const fillBase = () => {
+    const t = target();
+    const jobs = state.board.jobs.filter((j) => j.target === t && !['done', 'discarded'].includes(j.stage) && j.pr);
+    $('#s-base').innerHTML = '<option value="">main</option>'
+      + jobs.map((j) => `<option value="${esc(j.id)}">${esc(j.id)}: ${esc(j.title)} (unmerged, ${esc(j.stage)})</option>`).join('');
+    $('#s-base-label').hidden = $('#s-base-row').hidden = !jobs.length;
+  };
+  api('GET', '/api/repos').then((r) => {
+    if (!Array.isArray(r)) { $('#s-repos-note').textContent = r.message || 'could not list your repos'; return; }
+    const sel = $('#s-target'), v = sel.value;
+    sel.innerHTML = options(r); sel.value = v;
+    $('#s-repos-note').textContent = '';
+    fillBase();
+  });
+  $('#s-target').onchange = () => { $('#s-other').hidden = $('#s-target').value !== '+other'; fillBase(); };
+  $('#s-other').oninput = fillBase;
+  fillBase();
+  $('#s-text').focus();
   $('#s-start').onclick = async (e) => {
     const b = e.currentTarget; b.disabled = true;
-    const r = await api('POST', '/api/sessions', { target: $('#s-target').value.trim(), text: $('#s-text').value.trim() });
+    const v = $('#s-target').value, text = $('#s-text').value.trim(), base = $('#s-base').value || undefined;
+    const r = await api('POST', '/api/sessions', v === '+new' ? { new: true, text } : { target: target(), text, base });
     if (!r.ok) { toast(r.message || 'refused', true); b.disabled = false; return; }
     state.sessionsText = null; poll();
     openModal('session', r.message);
@@ -676,8 +932,10 @@ function renderSessionHead(h, close) {
   const s = state.sess?.s;
   const canClose = s && s.status !== 'running' && s.status !== 'closed';
   h.innerHTML = `${close}<h3>${esc(s?.text ?? state.sess?.id)}</h3>
-    <div class="sub-meta">${esc(state.sess?.id)}${s?.idea ? ` · ${esc(s.idea)}` : ''} · ${esc(s?.status ?? '…')}${s?.target ? ` · target <code>${esc(s.target)}</code>${s.newTarget ? ' (new)' : ''}` : ''}${s?.model ? ` · <code>${esc(s.model)}</code>` : ''} · <span data-cost>${money(s?.costUsd)}</span>
-    ${canClose ? ' · <button type="button" id="s-close" class="danger" style="padding:1px 8px;font-size:12px">Close session</button>' : ''}</div>`;
+    <div class="sub-meta">${esc(state.sess?.id)}${s?.idea ? ` · ${esc(s.idea)}` : ''} · ${esc(s?.status ?? '…')}${s?.target ? ` · target <code>${esc(s.target)}</code>${s.newTarget ? ' (new)' : ''}` : s ? ' · target pending' : ''}${s?.base ? ` · base <code>factory/${esc(s.base)}</code>` : ''}${s?.model ? ` · <code>${esc(s.model)}</code>` : ''} · <span data-cost>${money(s?.costUsd)}</span>
+    ${canClose ? ' · <button type="button" id="s-close" class="danger" style="padding:1px 8px;font-size:12px">Close session</button>' : ''}</div>
+    ${canClose ? '<div class="actions"><button class="danger" id="session-abandon-btn">Abandon</button></div>' : ''}`;
+  $('#session-abandon-btn', h)?.addEventListener('click', (e) => { e.currentTarget.disabled = true; abandon(state.sess.id, true); });
   $('#s-close', h)?.addEventListener('click', async () => {
     const r = await sessApi('close', { failed: true, reason: 'closed in session before every spec was decided' });
     if (r.ok) { toast(`${state.sess.id} closed`); closeModal(); state.sessionsText = null; poll(); }
@@ -715,7 +973,7 @@ function toolLine(b) {
   const i = b.input ?? {};
   const text = b.name === 'ask_questions' ? `? ${(i.questions ?? []).map((q) => q.question).join(' · ')}`
     : b.name === 'submit_brief' ? '▸ proposed the brief'
-    : b.name === 'propose_scaffold' ? `▸ proposed the scaffold: ${[i.name, i.resource, i.db, i.ui, i.events ? 'events' : 'no events'].join(' / ')}`
+    : b.name === 'propose_scaffold' ? `▸ proposed the scaffold: ${[i.name, i.resource, i.db, i.ui, i.events ? 'events' : 'no events', i.auth ? 'sign-in' : 'no sign-in'].join(' / ')}`
     : b.name === 'submit_specs' ? `▸ wrote ${(i.specs ?? []).length} spec(s)`
     : b.name === 'revise_spec' ? `▸ revised spec ${i.k}`
     : `▸ ${b.name}(${i.path ?? i.pattern ?? ''})`;
@@ -767,11 +1025,13 @@ function scaffoldForm(i) {
   const opt = (vals, v) => vals.map((x) => `<option${x === v ? ' selected' : ''}>${x}</option>`).join('');
   return `<p>A new target is scaffolded from template-projects. Check the options Claude proposed:</p>
     <div class="s-form" data-scaffold>
+      ${i.repo !== undefined && !state.sess?.s?.target ? `<label for="sc-repo">Repo</label><div>${esc(state.config.owner)}/<input id="sc-repo" value="${esc(i.repo)}"></div>` : ''}
       <label for="sc-name">Name</label><input id="sc-name" value="${esc(i.name)}">
       <label for="sc-resource">Resource</label><input id="sc-resource" value="${esc(i.resource)}">
       <label for="sc-db">Data store</label><select id="sc-db">${opt(['sqlite', 'sqlserver', 'postgres'], i.db)}</select>
       <label for="sc-ui">Front end</label><select id="sc-ui">${opt(['react', 'blazor', 'blazor-maui', 'none'], i.ui)}</select>
       <label for="sc-events">Events</label><div><input type="checkbox" id="sc-events"${i.events ? ' checked' : ''}></div>
+      <label for="sc-auth">Sign-in</label><div><input type="checkbox" id="sc-auth"${i.auth ? ' checked' : ''}> <small>Keycloak locally, Entra External ID in Azure; needs a web front end</small></div>
       <span></span><div class="actions"><button class="primary" id="s-confirm-scaffold">Confirm scaffold</button></div></div>`;
 }
 
@@ -846,8 +1106,9 @@ function renderSessionActions() {
     sessApi('reply', { text });
   });
   $('#s-confirm-scaffold', el)?.addEventListener('click', () => {
-    const scaffold = { name: $('#sc-name').value.trim(), resource: $('#sc-resource').value.trim(), db: $('#sc-db').value, ui: $('#sc-ui').value, events: $('#sc-events').checked };
-    sessApi('reply', { text: `Scaffold confirmed: name ${scaffold.name}, resource ${scaffold.resource}, data store ${scaffold.db}, front end ${scaffold.ui}, ${scaffold.events ? 'with' : 'no'} events.`, scaffold });
+    const scaffold = { name: $('#sc-name').value.trim(), resource: $('#sc-resource').value.trim(), db: $('#sc-db').value, ui: $('#sc-ui').value, events: $('#sc-events').checked, auth: $('#sc-auth').checked };
+    if ($('#sc-repo')) scaffold.repo = $('#sc-repo').value.trim();
+    sessApi('reply', { text: `Scaffold confirmed: ${scaffold.repo ? `repo ${scaffold.repo}, ` : ''}name ${scaffold.name}, resource ${scaffold.resource}, data store ${scaffold.db}, front end ${scaffold.ui}, ${scaffold.events ? 'with' : 'no'} events.`, scaffold });
   });
   $('#s-confirm-brief', el)?.addEventListener('click', async (e) => {
     e.currentTarget.disabled = true;
@@ -883,11 +1144,21 @@ function render() { renderPipeline(); renderBoard(); }
 
 // --- evaluations ---------------------------------------------------------------------------
 // fb is the open evaluation's human feedback: the saved file parsed, then the human's unsaved draft.
-const evalView = { list: [], text: '', open: null, body: '', fb: { rating: '', note: '' } };
+const evalView = { list: [], text: '', pend: '', open: null, body: '', fb: { rating: '', note: '' } };
 function duration(ms) {
   if (!ms) return '';
   const s = Math.round(ms / 1000);
   return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+}
+// Finished jobs on the board with no evaluation yet: purge keeps them until they have one.
+function pendingEvals() {
+  const done = new Set(evalView.list.map((e) => e.job));
+  return state.board.jobs.filter((j) => (j.stage === 'done' || j.stage === 'discarded') && !done.has(j.id))
+    .map((j) => ({ job: j.id, idea: j.idea, title: j.title, target: j.target, rating: 'not evaluated', pending: true,
+      stage: j.stage, round: j.round, flag: j.flag?.reason, merged: j.merged?.sha, costUsd: j.costUsd, durationMs: j.durationMs }));
+}
+function evalRows() {
+  return [...evalView.list, ...pendingEvals()].sort((a, b) => Number(b.job.replace(/\D/g, '')) - Number(a.job.replace(/\D/g, '')));
 }
 function evalRow(x) {
   const facts = [
@@ -895,7 +1166,7 @@ function evalRow(x) {
     x.gate ? `gate ${esc(x.gate)}` : '', x.merged ? `merged ${esc(String(x.merged).slice(0, 7))}` : '',
     x.costUsd != null ? `$${Number(x.costUsd).toFixed(2)}` : '', duration(x.durationMs),
   ].filter(Boolean).map((f) => f.startsWith('<') ? f : `<span>${esc(f)}</span>`).join(' · ');
-  return `<div class="card eval-row${evalView.open === x.job ? ' selected' : ''}" data-eval="${esc(x.job)}">
+  return `<div class="card eval-row${evalView.open === x.job ? ' selected' : ''}" data-eval="${esc(x.job)}"${x.pending ? ' data-pending' : ''}>
     <div class="top"><span>${esc(x.job)}${x.idea ? ` · ${esc(x.idea)}` : ''}</span><span>${esc(String(x.evaluatedAt ?? '').slice(0, 10))}</span></div>
     <div class="title">${esc(x.title)}</div>
     ${x.target ? `<div class="repo" title="${esc(x.target)}">→ ${esc(leaf(x.target))}</div>` : ''}
@@ -952,14 +1223,17 @@ async function saveFeedback() {
 }
 function renderEvals() {
   const list = $('#evals .eval-list');
-  list.innerHTML = evalView.list.length ? evalView.list.map(evalRow).join('')
+  const rows = evalRows();
+  list.innerHTML = rows.length ? rows.map(evalRow).join('')
     : '<div class="eval-empty">No evaluations yet. A finished job is evaluated with <code>factory.ps1 eval &lt;id&gt; -File &lt;md&gt;</code>.</div>';
   for (const el of list.querySelectorAll('[data-eval]')) el.onclick = () => openEval(el.dataset.eval);
   const x = evalView.list.find((e) => e.job === evalView.open);
+  const pending = rows.find((e) => e.job === evalView.open && e.pending);
   const body = $('[data-eval-body]');
   const prev = $('[data-feedback] textarea', body);
   const focus = prev && document.activeElement === prev ? [prev.selectionStart, prev.selectionEnd] : null;
-  body.innerHTML = evalView.open ? (x ? evalFacts(x) : '') + md(evalView.body) + (x ? feedbackForm() : '') : '<p class="eval-empty">Pick an evaluation.</p>';
+  body.innerHTML = pending ? `<p class="eval-empty">${esc(pending.job)} is ${esc(pending.stage)} and not evaluated yet; Clear keeps it on the board until it is. Evaluate it in a Claude Code session with <code>factory.ps1 eval ${esc(pending.job)} -File &lt;md&gt;</code>.</p>`
+    : evalView.open ? (x ? evalFacts(x) : '') + md(evalView.body) + (x ? feedbackForm() : '') : '<p class="eval-empty">Pick an evaluation.</p>';
   const note = $('[data-feedback] textarea', body);
   if (!note) return;
   if (focus) { note.focus(); note.setSelectionRange(...focus); }
@@ -969,34 +1243,105 @@ function renderEvals() {
 }
 async function refreshEvals() {
   const t = await getText('/api/evals');
-  if (t === evalView.text) return;
-  evalView.text = t;
+  const pend = pendingEvals().map((e) => e.job).join();
+  if (t === evalView.text && pend === evalView.pend) return;
+  evalView.text = t; evalView.pend = pend;
   try { evalView.list = t ? JSON.parse(t) : []; } catch { evalView.list = []; }
-  if (evalView.open) evalView.body = await getText(`/state/evals/${encodeURIComponent(evalView.open)}.md`);
+  if (evalView.open && evalView.list.some((e) => e.job === evalView.open)) evalView.body = await getText(`/state/evals/${encodeURIComponent(evalView.open)}.md`);
   renderEvals();
 }
 async function openEval(id) {
   evalView.open = id;
+  if (!evalView.list.some((e) => e.job === id)) { evalView.body = ''; renderEvals(); return; }
   evalView.body = await getText(`/state/evals/${encodeURIComponent(id)}.md`);
   await loadFeedback(id);
   renderEvals();
 }
+// --- lessons -------------------------------------------------------------------------------
+const lessonView = { list: [], text: '', open: null, body: '', picked: new Set() };
+function lessonRow(x) {
+  const gaps = x.templateGaps ? `${x.templateGaps} template gap${x.templateGaps > 1 ? 's' : ''}` : 'no template gaps';
+  return `<div class="card eval-row lesson-row${lessonView.open === x.job ? ' selected' : ''}" data-lesson="${esc(x.job)}">
+    <div class="top"><span>${x.status === 'open' ? `<input type="checkbox" data-select${lessonView.picked.has(x.job) ? ' checked' : ''} aria-label="select ${esc(x.job)}">` : ''}${esc(x.job)}</span><span>${esc(String(x.at ?? '').slice(0, 10))}</span></div>
+    <div class="title">${esc(x.title)}</div>
+    ${x.target ? `<div class="repo" title="${esc(x.target)}">→ ${esc(leaf(x.target))}</div>` : ''}
+    <div class="meta"><span class="chip" data-status>${esc(x.status)}${x.session ? ` ${esc(x.session)}` : ''}</span>${x.flag ? `<span class="flag">${esc(x.flag)}</span>` : ''}<span data-gaps>${gaps}</span>`
+    + `${x.status === 'proposed' ? '<button type="button" class="chip action" data-applied>Mark applied</button>' : ''}</div></div>`;
+}
+function renderLessons() {
+  const list = $('#lessons .eval-list');
+  const repo = state.config.templatesRepo;
+  const head = `<div class="lesson-actions"><button type="button" class="primary" data-propose${lessonView.picked.size ? '' : ' disabled'}>Propose template fix</button>`
+    + `<small>${repo ? `as an idea on ${esc(repo)}` : 'set FACTORY_TEMPLATES_REPO in .env'}</small></div>`;
+  list.innerHTML = head + (lessonView.list.length ? lessonView.list.map(lessonRow).join('')
+    : '<div class="eval-empty">No lessons yet. A job that ends flagged, or whose devops report names a template gap, leaves one here.</div>');
+  for (const el of list.querySelectorAll('[data-lesson]')) {
+    const id = el.dataset.lesson;
+    el.onclick = (e) => {
+      if (e.target.closest('[data-select]')) { e.target.checked ? lessonView.picked.add(id) : lessonView.picked.delete(id); renderLessons(); return; }
+      if (e.target.closest('[data-applied]')) { markLesson(id, 'applied'); return; }
+      openLesson(id);
+    };
+  }
+  $('[data-propose]', list).onclick = proposeFix;
+  $('[data-lesson-body]').innerHTML = lessonView.open ? md(lessonView.body) : '<p class="eval-empty">Pick a lesson.</p>';
+}
+async function refreshLessons() {
+  const t = await getText('/api/lessons');
+  if (t === lessonView.text) return;
+  lessonView.text = t;
+  try { lessonView.list = t ? JSON.parse(t) : []; } catch { lessonView.list = []; }
+  renderLessons();
+}
+async function openLesson(id) {
+  lessonView.open = id;
+  lessonView.body = await getText(`/state/lessons/${encodeURIComponent(id)}.md`);
+  renderLessons();
+}
+async function markLesson(id, status, session) {
+  const res = await api('POST', `/api/lessons/${encodeURIComponent(id)}/mark`, session ? { status, session } : { status });
+  if (!res.ok) toast(res.message, true);
+  lessonView.text = '';
+  await refreshLessons();
+}
+// The selected lessons become one idea session on the templates repo, so the fix goes through the
+// factory under the human's approval like any other change.
+async function proposeFix() {
+  const repo = state.config.templatesRepo;
+  if (!repo) { toast('Set FACTORY_TEMPLATES_REPO in .env to the template-projects repo', true); return; }
+  const ids = [...lessonView.picked];
+  const bodies = await Promise.all(ids.map((id) => getText(`/state/lessons/${encodeURIComponent(id)}.md`)));
+  const text = `Template fixes from factory lessons (${ids.join(', ')}). Each says what went wrong in a job and where the fix belongs; make the templates handle it so the next scaffold needs no hand fix.\n\n${bodies.join('\n\n---\n\n')}`;
+  if (!state.config.enabled) { toast(`No Anthropic key: run pwsh factory/scripts/idea.ps1 ${repo} and paste the lessons`, true); return; }
+  const res = await api('POST', '/api/sessions', { target: repo, text });
+  if (!res.ok) { toast(res.message, true); return; }
+  for (const id of ids) await markLesson(id, 'proposed', res.message);
+  lessonView.picked.clear();
+  renderLessons();
+  toast(`Proposed as ${res.message} on ${repo}`);
+}
+
 function showView(v) {
   state.view = v;
   for (const b of document.querySelectorAll('#views [data-view]')) b.classList.toggle('on', b.dataset.view === v);
   $('#pipeline').hidden = $('#board').hidden = v !== 'board';
   $('#evals').hidden = v !== 'evals';
+  $('#lessons').hidden = v !== 'lessons';
   if (v === 'evals') refreshEvals();
+  if (v === 'lessons') { lessonView.text = ''; refreshLessons(); }
 }
 for (const b of document.querySelectorAll('#views [data-view]')) b.onclick = () => showView(b.dataset.view);
-setInterval(() => { if (state.view === 'evals') refreshEvals(); }, 3000);
+setInterval(() => { if (state.view === 'evals') refreshEvals(); if (state.view === 'lessons') refreshLessons(); }, 3000);
 
 document.addEventListener('click', async (e) => {
   if (!e.target.closest?.('#purge-btn')) return;
   const res = await api('POST', '/api/purge');
-  toast(res.ok ? (res.message ? `Cleared ${res.message.split('\n').join(', ')}` : 'Nothing to clear') : res.message, !res.ok);
   state.boardText = '';
-  poll();
+  await poll();
+  const kept = state.board.jobs.filter((j) => j.stage === 'done' || j.stage === 'discarded').map((j) => j.id);
+  const keptMsg = kept.length ? `${kept.join(', ')} kept until evaluated` : '';
+  const cleared = res.message ? `Cleared ${res.message.split('\n').join(', ')}` : kept.length ? '' : 'Nothing to clear';
+  toast(res.ok ? [cleared, keptMsg].filter(Boolean).join(' · ') : res.message, !res.ok);
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && state.open) closeModal(); });
 

@@ -6,6 +6,8 @@ BeforeAll {
     $script:Scripts = Join-Path $PSScriptRoot '..\scripts' | Resolve-Path | Select-Object -ExpandProperty Path
     $script:Stub = Join-Path $PSScriptRoot 'fixtures\anthropic-stub.ps1' | Resolve-Path | Select-Object -ExpandProperty Path
     $script:Key = 'sk-ant-test-' + [guid]::NewGuid().ToString('N')
+    . (Join-Path $PSScriptRoot 'fixtures\github.ps1')
+    Start-GitHubStub
 
     function Free-Port { $l = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0); $l.Start(); $p = $l.LocalEndpoint.Port; $l.Stop(); $p }
     function Wait-Http([string] $url) {
@@ -51,6 +53,7 @@ BeforeAll {
         $script:State = Join-Path $TestDrive "state-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
         New-Item -ItemType Directory -Force $script:State | Out-Null
         $env:FACTORY_HOME = $script:State
+        $env:FACTORY_WORK = Join-Path $TestDrive "work-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
         $env:FACTORY_CLAUDE_CMD = 'exit 0'
         $env:FACTORY_GATE_CMDS = '[{"name":"build","cmd":"exit 0"}]'
         $script:Port = Free-Port
@@ -70,26 +73,74 @@ BeforeAll {
     function Idle([string] $id = 'S-001') { $s = Session $id; $s.status -in 'idle', 'error' -and -not (Test-Path (Join-Path $script:State "sessions/$id/turn.lock")) }
 
     function New-Repo {
-        $r = Join-Path $TestDrive "repo-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
-        New-Item -ItemType Directory -Force $r | Out-Null
-        git -C $r init -q -b main 2>&1 | Out-Null
-        Set-Content (Join-Path $r 'README.md') 'target readme'
-        git -C $r add -A 2>&1 | Out-Null
-        git -C $r -c user.email=t@t -c user.name=t commit -q -m init 2>&1 | Out-Null
+        $r = "test/repo-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
+        New-Remote $r
         $r
     }
+    function SessionClone([string] $id = 'S-001') { Join-Path $env:FACTORY_WORK "sessions/$id" }
     function Spec-Md([string] $title, [string] $repo) { "# Spec: $title`n`n## Target`n- Repo: $repo`n`n## Gate`n- build: ``exit 0``" }
     $script:Ask = @{ questions = @(@{ question = 'Who uses it?'; header = 'Users'; multiSelect = $false
                                         options = @(@{ label = 'Just me'; description = 'one' }, @{ label = 'A team'; description = 'many' }) }) }
 
+    $github = Get-Content $script:EnvFile   # Start-GitHubStub's settings; serve.ps1 hands this file to factory.ps1
     $script:EnvFile = Join-Path $TestDrive '.env'
-    Set-Content $script:EnvFile "ANTHROPIC_API_KEY=$script:Key`nANTHROPIC_BASE_URL=http://localhost:$script:StubPort"
+    Set-Content $script:EnvFile (@("ANTHROPIC_API_KEY=$script:Key", "ANTHROPIC_BASE_URL=http://localhost:$script:StubPort") + $github)
 }
 
 AfterAll {
     Stop-Serve
     if ($script:StubProc -and -not $script:StubProc.HasExited) { Stop-Process -Id $script:StubProc.Id -Force }
-    Remove-Item Env:FACTORY_HOME, Env:FACTORY_CLAUDE_CMD, Env:FACTORY_GATE_CMDS -ErrorAction SilentlyContinue
+    Stop-GitHubStub
+    Remove-Item Env:FACTORY_HOME, Env:FACTORY_WORK, Env:FACTORY_ENV_FILE, Env:FACTORY_CLAUDE_CMD, Env:FACTORY_GATE_CMDS -ErrorAction SilentlyContinue
+}
+
+Describe 'serve.ps1 port' {
+    It 'without -Port listens on a random free port and prints it, so two dashboards never collide' {
+        $procs = @()
+        try {
+            $urls = foreach ($n in 1, 2) {
+                $state = Join-Path $TestDrive "port-state-$n"
+                New-Item -ItemType Directory -Force $state | Out-Null
+                $out = Join-Path $TestDrive "port-out-$n.txt"
+                $procs += Start-Process pwsh -PassThru -WindowStyle Hidden -RedirectStandardOutput $out -ArgumentList @(
+                    '-NoProfile', '-File', (Join-Path $script:Scripts 'serve.ps1'), '-StateDir', $state, '-EnvFile', $script:EnvFile)
+                Wait-Until { (Test-Path $out) -and ((Get-Content $out -Raw) -match 'factory dashboard on (http://localhost:\d+/)') } "dashboard $n to print its url"
+                [regex]::Match((Get-Content $out -Raw), 'factory dashboard on (http://localhost:\d+/)').Groups[1].Value
+            }
+            $urls[0] | Should -Not -Be 'http://localhost:4317/'
+            $urls[0] | Should -Not -Be $urls[1]
+            foreach ($u in $urls) { (Invoke-WebRequest $u -SkipHttpErrorCheck).StatusCode | Should -Be 200 }
+        } finally { $procs | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue } }
+    }
+
+    It 'refuses a second dashboard on the same state, naming the first one, and takes over a dead one''s lock' {
+        $state = Join-Path $TestDrive 'lock-state'
+        New-Item -ItemType Directory -Force $state | Out-Null
+        $serve = { param($n) $out = Join-Path $TestDrive "lock-out-$n.txt"
+            $p = Start-Process pwsh -PassThru -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError "$out.err" -ArgumentList @(
+                '-NoProfile', '-File', (Join-Path $script:Scripts 'serve.ps1'), '-StateDir', $state, '-EnvFile', $script:EnvFile)
+            @{ Proc = $p; Out = $out } }
+        $url = { param($o) [regex]::Match("$(Get-Content $o -Raw)",'factory dashboard on (http://localhost:\d+/)').Groups[1].Value }
+        $procs = @()
+        try {
+            $first = & $serve 1; $procs += $first.Proc
+            Wait-Until { (Test-Path $first.Out) -and (& $url $first.Out) } 'the first dashboard to print its url'
+            $firstUrl = & $url $first.Out
+            (Get-Content (Join-Path $state 'serve.lock'))[0] | Should -Be "$($first.Proc.Id)"
+
+            $second = & $serve 2; $procs += $second.Proc
+            $second.Proc.WaitForExit(30000) | Should -BeTrue
+            $second.Proc.ExitCode | Should -Not -Be 0
+            ((Get-Content $second.Out -Raw) + (Get-Content "$($second.Out).err" -Raw)) | Should -Match ([regex]::Escape($firstUrl))
+
+            Stop-Process -Id $first.Proc.Id -Force   # no finally runs: the lock is left behind
+            $first.Proc.WaitForExit(10000) | Out-Null
+            Test-Path (Join-Path $state 'serve.lock') | Should -BeTrue
+            $third = & $serve 3; $procs += $third.Proc
+            Wait-Until { (Test-Path $third.Out) -and (& $url $third.Out) } 'a dashboard to take over the dead lock'
+            (Get-Content (Join-Path $state 'serve.lock'))[0] | Should -Be "$($third.Proc.Id)"
+        } finally { $procs | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue } }
+    }
 }
 
 Describe 'serve.ps1 ideate config' {
@@ -105,6 +156,7 @@ Describe 'serve.ps1 ideate config' {
         $r = Api GET '/api/ideate/config'
         $r.Body.enabled | Should -BeTrue
         $r.Body.model | Should -Be 'claude-opus-5-5'
+        $r.Body.owner | Should -Be 'test'
         ($r.Body | ConvertTo-Json) | Should -Not -Match ([regex]::Escape($script:Key))
     }
 }
@@ -147,6 +199,166 @@ Describe 'serve.ps1 evaluations' {
     }
 }
 
+Describe 'serve.ps1 lessons' {
+    AfterEach { Stop-Serve }
+
+    It 'lists every lessons/J-NNN.json, newest job first, serves the markdown, and names the templates repo' {
+        $envFile = Join-Path $TestDrive 'lessons.env'
+        Set-Content $envFile ((Get-Content $script:EnvFile) + 'FACTORY_TEMPLATES_REPO=test/template-projects')
+        Start-Serve $envFile
+        (Invoke-WebRequest "http://localhost:$script:Port/api/lessons").Content | Should -Be '[]'
+
+        $dir = Join-Path $script:State 'lessons'
+        New-Item -ItemType Directory -Force $dir | Out-Null
+        foreach ($id in 'J-002', 'J-011') {
+            Set-Content (Join-Path $dir "$id.json") (Json @{ job = $id; title = "job $id"; status = 'open'; templateGaps = 1 })
+            Set-Content (Join-Path $dir "$id.md") "# Lessons: $id"
+        }
+        @((Api GET '/api/lessons').Body | ForEach-Object job) | Should -Be @('J-011', 'J-002')
+        (Invoke-WebRequest "http://localhost:$script:Port/state/lessons/J-011.md").Content | Should -Match '# Lessons: J-011'
+        (Api GET '/api/ideate/config').Body.templatesRepo | Should -Be 'test/template-projects'
+    }
+
+    It 'marks a lesson through factory.ps1 lesson-mark, and refuses an unknown status' {
+        Start-Serve $script:EnvFile
+        $dir = Join-Path $script:State 'lessons'
+        New-Item -ItemType Directory -Force $dir | Out-Null
+        Set-Content (Join-Path $dir 'J-004.json') (Json @{ job = 'J-004'; title = 'job'; status = 'open'; session = $null })
+
+        $r = Api POST '/api/lessons/J-004/mark' @{ status = 'proposed'; session = 'S-002' }
+        $r.Status | Should -Be 200
+        $l = Read-J (Join-Path $dir 'J-004.json')
+        $l.status | Should -Be 'proposed'
+        $l.session | Should -Be 'S-002'
+
+        (Api POST '/api/lessons/J-004/mark' @{ status = 'shipped' }).Status | Should -Be 409
+    }
+}
+
+Describe 'serve.ps1 previews' {
+    AfterEach { Stop-Serve }
+
+    It 'Tear down answers at once, and QA login refuses a job without a live preview' {
+        Start-Serve $script:EnvFile
+        $env:FACTORY_ENV_FILE = $script:EnvFile
+        $factory = Join-Path $script:Scripts 'factory.ps1'
+        $repo = New-Repo
+        $idea = & $factory new-idea 'x' -Target $repo 2>$null
+        $spec = Join-Path $TestDrive "spec-$([guid]::NewGuid().ToString('N')).md"
+        Set-Content $spec (Spec-Md 'Thing' $repo)
+        $id = & $factory add-spec $idea $spec 2>$null
+
+        $r = Api POST "/api/jobs/$id/destroy" @{}
+        $r.Status | Should -Be 200
+        $r.Body.ok | Should -BeTrue
+
+        $q = Api GET "/api/jobs/$id/qa-login"
+        $q.Status | Should -Be 409
+        $q.Body.message | Should -Match 'no live preview'
+    }
+
+    It 'Run canary answers at once, and refuses while a live canary holds canary.lock' {
+        Start-Serve $script:EnvFile
+        $r = Api POST '/api/canary' @{}
+        $r.Status | Should -Be 200
+        $r.Body.ok | Should -BeTrue
+
+        Set-Content (Join-Path $script:State 'canary.lock') $PID
+        try {
+            $busy = Api POST '/api/canary' @{}
+            $busy.Status | Should -Be 409
+            $busy.Body.message | Should -Match 'already running'
+        } finally { Remove-Item (Join-Path $script:State 'canary.lock') -ErrorAction SilentlyContinue }
+    }
+}
+
+Describe 'serve.ps1 state files' {
+    AfterEach { Stop-Serve }
+
+    It 'serves a run log the runner is still writing' {
+        Start-Serve $script:EnvFile
+        $dir = Join-Path $script:State 'jobs/J-001'
+        New-Item -ItemType Directory -Force $dir | Out-Null
+        $log = Join-Path $dir 'run-1.jsonl'
+        $w = [IO.FileStream]::new($log, 'Create', 'Write', 'ReadWrite')
+        try {
+            $b = [Text.Encoding]::UTF8.GetBytes("{`"type`":`"system`"}`n")
+            $w.Write($b, 0, $b.Length); $w.Flush()
+            $r = Invoke-WebRequest "http://localhost:$script:Port/state/jobs/J-001/run-1.jsonl" -SkipHttpErrorCheck
+            [int]$r.StatusCode | Should -Be 200
+            "$($r.Content)" | Should -Match '"type":"system"'
+        } finally { $w.Dispose() }
+    }
+}
+
+Describe 'serve.ps1 job provider' {
+    AfterEach { Stop-Serve; Remove-Item Env:FACTORY_ENV_FILE -ErrorAction SilentlyContinue }
+
+    It 'sets a backlog job''s provider through factory.ps1 set-provider, and refuses an unknown one' {
+        Start-Serve $script:EnvFile
+        $env:FACTORY_ENV_FILE = $script:EnvFile
+        $repo = New-Repo
+        $factory = Join-Path $script:Scripts 'factory.ps1'
+        $idea = & pwsh -NoProfile -File $factory new-idea 'pick a provider' -Target $repo
+        $spec = Join-Path $TestDrive 'provider-spec.md'
+        Set-Content $spec (Spec-Md 'Provider' $repo)
+        $id = & pwsh -NoProfile -File $factory add-spec $idea $spec
+
+        $r = Api POST "/api/jobs/$id/provider" @{ provider = 'openrouter' }
+        $r.Status | Should -Be 200
+        $r.Body.ok | Should -BeTrue
+        ((Board).jobs | Where-Object id -eq $id).provider | Should -Be 'openrouter'
+
+        $r = Api POST "/api/jobs/$id/provider" @{ provider = 'bedrock' }
+        $r.Status | Should -Be 409
+        $r.Body.message | Should -Match 'provider must be'
+        ((Board).jobs | Where-Object id -eq $id).provider | Should -Be 'openrouter'
+    }
+}
+
+Describe 'serve.ps1 blocked jobs' {
+    BeforeAll {
+        # Deploys on, with the gh, az and canary stubs, so the runner a rework starts touches nothing real.
+        Use-Deploys
+        Use-Canary
+        Start-Serve $env:FACTORY_ENV_FILE
+        $script:Factory = Join-Path $script:Scripts 'factory.ps1'
+        function Fx { & pwsh -NoProfile -File $script:Factory @args 2>$null }
+        function New-BlockedJob([string] $title) {
+            $repo = New-Repo
+            $idea = Fx new-idea $title -Target $repo
+            $spec = Join-Path $TestDrive "$title-spec.md"
+            Set-Content $spec (Spec-Md $title $repo)
+            $id = Fx add-spec $idea $spec
+            Fx approve $id | Out-Null
+            Fx set-stage $id build -By runner | Out-Null
+            Fx set-stage $id ready -Reason escalated -Detail 'gave up' | Out-Null
+            $id
+        }
+    }
+    AfterAll { Stop-Serve; Clear-Deploys }
+
+    It 'Retry deploy calls factory.ps1 redeploy, which refuses a job blocked from build' {
+        $id = New-BlockedJob 'retry'
+        ((Board).jobs | Where-Object id -eq $id).stage | Should -Be 'blocked'
+        $r = Api POST "/api/jobs/$id/redeploy" @{}
+        $r.Status | Should -Be 409
+        $r.Body.message | Should -Match 'blocked from build, not deploy'
+    }
+
+    It 'Rework on a blocked card calls factory.ps1 rework, and needs a note' {
+        $id = New-BlockedJob 'rework'
+        $r = Api POST "/api/jobs/$id/move" @{ to = 'approved' }
+        $r.Status | Should -Be 409
+        $r.Body.message | Should -Match 'needs a note'
+        $r = Api POST "/api/jobs/$id/move" @{ to = 'approved'; note = 'remove the stray file' }
+        $r.Status | Should -Be 200
+        $r.Body.ok | Should -BeTrue
+        Get-Content (Join-Path $script:State "jobs/$id/rework-2.md") | Should -Be 'remove the stray file'
+        ((Board).jobs | Where-Object id -eq $id).history | Where-Object { $_.from -eq 'blocked' } | ForEach-Object to | Should -Be 'approved'
+    }
+}
+
 Describe 'serve.ps1 idea session on an existing repo' {
     BeforeAll {
         Start-Serve $script:EnvFile
@@ -159,12 +371,9 @@ Describe 'serve.ps1 idea session on an existing repo' {
     AfterAll { Stop-Serve }
 
     It 'refuses a target that new-idea would refuse, and creates no session' {
-        $bad = Join-Path $TestDrive 'loose'
-        New-Item -ItemType Directory -Force $bad | Out-Null
-        Set-Content (Join-Path $bad 'x.txt') 'x'
-        $r = Api POST '/api/sessions' @{ target = $bad; text = 'a todo app' }
+        $r = Api POST '/api/sessions' @{ target = (Join-Path $TestDrive 'loose'); text = 'a todo app' }
         $r.Status | Should -Be 409
-        $r.Body.message | Should -Match 'not a git repo'
+        $r.Body.message | Should -Match 'owner/name'
         Test-Path (Join-Path $script:State 'sessions') | Should -BeFalse
     }
 
@@ -175,6 +384,8 @@ Describe 'serve.ps1 idea session on an existing repo' {
         Wait-Until { (Idle) -and (Session).pending } 'the first turn'
         $s = Session
         $s.newTarget | Should -BeFalse
+        $s.checkout | Should -Be (SessionClone)
+        Get-Content (Join-Path (SessionClone) 'README.md') | Should -Be 'fixture'
         $s.pending.name | Should -Be 'ask_questions'
         (Chat)[0].content[0].text | Should -Match 'existing git repo'
         (Chat)[0].content[0].text | Should -Match 'a todo app'
@@ -196,6 +407,20 @@ Describe 'serve.ps1 idea session on an existing repo' {
         $sent[-1].type | Should -Be 'tool_result'
         $sent[-1].tool_use_id | Should -Be 'q1'
         $sent[-1].content | Should -Be 'Who uses it? -> Just me'
+    }
+
+    It 'records the human''s exact words in human.jsonl, in order, each with what it answered' {
+        $lines = @(Get-Content (Join-Path $script:State 'sessions/S-001/human.jsonl') | ForEach-Object { $_ | ConvertFrom-Json -AsHashtable })
+        $lines.Count | Should -Be 2
+        $lines[0].kind | Should -Be 'idea'
+        $lines[0].text | Should -Be 'a todo app'
+        $lines[0].target | Should -Be $script:Target
+        $lines[0].newTarget | Should -BeFalse
+        $lines[1].kind | Should -Be 'answer'
+        $lines[1].text | Should -Be 'Who uses it? -> Just me'
+        $lines[1].asked.name | Should -Be 'ask_questions'
+        $lines[1].asked.input.questions[0].question | Should -Be 'Who uses it?'
+        $lines | ForEach-Object { $_.ts | Should -Not -BeNullOrEmpty }
     }
 
     It 'confirming the brief runs new-idea, writes brief.md and starts the spec turn' {
@@ -238,15 +463,177 @@ Describe 'serve.ps1 idea session on an existing repo' {
         ((Board).ideas | Where-Object id -eq 'I-001').status | Should -Be 'done'
         (Session).status | Should -Be 'closed'
         @((Api GET '/api/sessions').Body).Count | Should -Be 0
+        Test-Path (SessionClone) | Should -BeFalse
+    }
+}
+
+Describe 'serve.ps1 idea session on an unmerged base' {
+    BeforeAll {
+        Start-Serve $script:EnvFile
+        $env:FACTORY_ENV_FILE = $script:EnvFile
+        $factory = Join-Path $script:Scripts 'factory.ps1'
+        function Fx { & pwsh -NoProfile -File $factory @args 2>$null }
+        $script:Target = New-Repo
+        # J-001: in ready with its PR open, the base the session builds on.
+        $spec = Join-Path $TestDrive "base-$([guid]::NewGuid().ToString('N').Substring(0, 8)).md"
+        Set-Content $spec (Spec-Md 'Tags' $script:Target)
+        $idea = Fx new-idea 'tags' -Target $script:Target
+        $script:BaseJob = Fx add-spec $idea $spec
+        Fx approve $script:BaseJob | Out-Null
+        $wt = Fx checkout $script:BaseJob
+        Set-Content (Join-Path $wt 'tags.txt') 'the tag list'
+        git -C $wt add -A 2>&1 | Out-Null
+        git -C $wt -c user.email=f@t -c user.name=f commit -q -m tags 2>&1 | Out-Null
+        Fx set-stage $script:BaseJob build -By runner | Out-Null
+        Fx set-stage $script:BaseJob ready -Reason escalated -Detail x | Out-Null
+        Fx publish $script:BaseJob | Out-Null
+        Set-Replies (Reply @((ToolUse 'q1' 'ask_questions' $script:Ask)) 'tool_use') `
+                    (Reply @((ToolUse 'b1' 'submit_brief' @{ markdown = "# Brief: Tags in the menu`n`n## Target`n- Repo: $script:Target" })) 'tool_use') `
+                    (Reply @((ToolUse 's1' 'submit_specs' @{ specs = @(@{ k = 1; markdown = (Spec-Md 'Menu' $script:Target) }) })) 'tool_use') `
+                    (Reply @((Text 'One spec.')))
+    }
+    AfterAll { Stop-Serve; Remove-Item Env:FACTORY_ENV_FILE -ErrorAction SilentlyContinue }
+
+    It 'refuses a base that is not an open job on the target, and creates no session' {
+        $r = Api POST '/api/sessions' @{ target = $script:Target; text = 'menu'; base = 'J-999' }
+        $r.Status | Should -Be 409
+        $r.Body.message | Should -Match 'base refused'
+        Test-Path (Join-Path $script:State 'sessions') | Should -BeFalse
+    }
+
+    It 'clones the base branch and tells the model it reads unmerged work' {
+        $r = Api POST '/api/sessions' @{ target = $script:Target; text = 'move tag list to the main menu'; base = $script:BaseJob }
+        $r.Status | Should -Be 200
+        Wait-Until { (Idle) -and (Session).pending } 'the first turn'
+        (Session).base | Should -Be $script:BaseJob
+        Get-Content (Join-Path (SessionClone) 'tags.txt') | Should -Be 'the tag list'
+        (Chat)[0].content[0].text | Should -Match "factory/$script:BaseJob"
+    }
+
+    It 'confirming the brief makes an idea on the base, and its approved spec is a job stacked on it' {
+        (Api POST '/api/sessions/S-001/reply' @{ text = 'Just me' }).Status | Should -Be 200
+        Wait-Until { (Idle) -and (Session).pending.name -eq 'submit_brief' } 'the brief'
+        $r = Api POST '/api/sessions/S-001/brief' $null
+        $r.Status | Should -Be 200
+        ((Board).ideas | Where-Object id -eq $r.Body.message).base | Should -Be $script:BaseJob
+        Wait-Until { (Idle) -and @((Session).specs).Count -eq 1 } 'the specs'
+        $job = (Api POST '/api/sessions/S-001/specs/1' @{ decision = 'backlog' }).Body.message
+        ((Board).jobs | Where-Object id -eq $job).base | Should -Be $script:BaseJob
+    }
+
+    It 'Abandon is refused while a turn runs, then closes the session and abandons its idea' {
+        $lock = Join-Path $script:State 'sessions/S-001/turn.lock'
+        Set-Content $lock $PID
+        try { (Api POST '/api/sessions/S-001/close' @{ abandon = $true }).Status | Should -Be 409 } finally { Remove-Item $lock }
+        (Api POST '/api/sessions/S-001/close' @{ abandon = $true }).Status | Should -Be 200
+        (Session).status | Should -Be 'closed'
+        ((Board).ideas | Where-Object id -eq (Session).idea).status | Should -Be 'abandoned'
+        @((Api GET '/api/sessions').Body).Count | Should -Be 0
+    }
+
+    It 'Abandon on an idea card abandons it through factory.ps1, and refuses one that is done' {
+        $i = Fx new-idea 'left over' -Target $script:Target
+        (Api POST "/api/ideas/$i/abandon" $null).Status | Should -Be 200
+        ((Board).ideas | Where-Object id -eq $i).status | Should -Be 'abandoned'
+        (Api POST "/api/ideas/$i/abandon" $null).Status | Should -Be 409
+    }
+}
+
+Describe 'serve.ps1 repo list and Add new' {
+    BeforeAll {
+        Start-Serve $script:EnvFile
+        $script:Existing = New-Repo
+        $script:Picked = "new-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
+        Set-Replies (Reply @((ToolUse 'q1' 'ask_questions' $script:Ask)) 'tool_use') `
+                    (Reply @((ToolUse 'p1' 'propose_scaffold' @{ repo = $script:Picked; name = 'todo'; resource = 'Todo'; db = 'sqlite'; ui = 'react'; events = $false })) 'tool_use') `
+                    (Reply @((ToolUse 'b1' 'submit_brief' @{ markdown = "# Brief: A todo app`n`n## Target`n- Repo: test/$script:Picked" })) 'tool_use')
+    }
+    AfterAll { Stop-Serve }
+
+    It 'GET /api/repos lists the token user''s GitHub repos through factory.ps1 list-repos' {
+        $r = Api GET '/api/repos'
+        $r.Status | Should -Be 200
+        @($r.Body) | Should -Contain $script:Existing
+    }
+
+    It 'Add new starts a session with no target, no clone and no check-target, and asks for a repo name' {
+        # An earlier test's runner may still be publishing its PR (slower on the azure state backend);
+        # its requests are not this session's. Only this test's runner counts, not a live factory's.
+        Wait-Until {
+            $holder = (Get-Content (Join-Path $script:State 'runner.lock') -ErrorAction SilentlyContinue | Select-Object -First 1) -as [int]
+            -not ($holder -and (Get-Process -Id $holder -ErrorAction SilentlyContinue))
+        } 'earlier runners to finish'
+        $before = @(Get-Content (Join-Path $script:GitBase 'requests.jsonl')).Count
+        $r = Api POST '/api/sessions' @{ new = $true; text = 'a todo app' }
+        $r.Status | Should -Be 200
+        Wait-Until { (Idle) -and (Session).pending } 'the first turn'
+        $s = Session
+        $s.target | Should -BeNullOrEmpty
+        $s.newTarget | Should -BeTrue
+        $s.checkout | Should -BeNullOrEmpty
+        @(Get-Content (Join-Path $script:GitBase 'requests.jsonl')).Count | Should -Be $before
+        (Chat)[0].content[0].text | Should -Match 'no repo yet'
+        (Chat)[0].content[0].text | Should -Match '\btest\b'
+        @((Api GET '/api/sessions').Body)[0].target | Should -BeNullOrEmpty
+    }
+
+    It 'the grill runs until propose_scaffold names a repo' {
+        (Api POST '/api/sessions/S-001/reply' @{ text = 'Who uses it? -> Just me' }).Status | Should -Be 200
+        Wait-Until { (Idle) -and (Session).pending.name -eq 'propose_scaffold' } 'the scaffold proposal'
+        (Session).pending.input.repo | Should -Be $script:Picked
+    }
+
+    It 'confirming the scaffold refuses a repo that already exists, and leaves the session as it was' {
+        $name = ($script:Existing -split '/')[1]
+        $r = Api POST '/api/sessions/S-001/reply' @{ text = 'ok'; scaffold = @{ repo = $name; name = 'todo'; resource = 'Todo'; db = 'sqlite'; ui = 'react'; events = $false } }
+        $r.Status | Should -Be 409
+        $r.Body.message | Should -Match 'pick it from the list'
+        $s = Session
+        $s.target | Should -BeNullOrEmpty
+        $s.scaffold | Should -BeNullOrEmpty
+        $s.pending.name | Should -Be 'propose_scaffold'
+    }
+
+    It 'confirming the scaffold sets the target from the owner and repo, and keeps repo out of the scaffold' {
+        $r = Api POST '/api/sessions/S-001/reply' @{ text = 'Scaffold confirmed'; scaffold = @{ repo = $script:Picked; name = 'todo'; resource = 'Todo'; db = 'sqlite'; ui = 'react'; events = $false } }
+        $r.Status | Should -Be 200
+        Wait-Until { (Idle) -and (Session).pending.name -eq 'submit_brief' } 'the brief'
+        $s = Session
+        $s.target | Should -Be "test/$script:Picked"
+        $s.scaffold.Contains('repo') | Should -BeFalse
+        (Request 3).messages[-1].content[-1].content | Should -Match "test/$script:Picked"
+    }
+
+    It 'confirming the brief creates the idea and its bootstrap job on the chosen target' {
+        $r = Api POST '/api/sessions/S-001/brief' $null
+        $r.Status | Should -Be 200
+        $r.Body.message | Should -Be 'I-001 J-001'
+        (Board).ideas[0].target | Should -Be "test/$script:Picked"
+        (Board).ideas[0].scaffold.Contains('repo') | Should -BeFalse
+    }
+}
+
+Describe 'serve.ps1 Add new without an owner' {
+    AfterAll { Stop-Serve }
+
+    It 'refuses Add new when GITHUB_OWNER is not set, and creates no session' {
+        $env = Join-Path $TestDrive 'no-owner.env'
+        Set-Content $env (Get-Content $script:EnvFile | Where-Object { $_ -notmatch '^GITHUB_OWNER=' })
+        Start-Serve $env
+        $r = Api POST '/api/sessions' @{ new = $true; text = 'a todo app' }
+        $r.Status | Should -Be 409
+        $r.Body.message | Should -Match 'GITHUB_OWNER'
+        Test-Path (Join-Path $script:State 'sessions') | Should -BeFalse
     }
 }
 
 Describe 'serve.ps1 idea session on a new target' {
     BeforeAll {
         Start-Serve $script:EnvFile
-        $script:NewTarget = Join-Path $TestDrive "new-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
+        $script:NewTarget = "test/new-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
         Set-Replies (Reply @((ToolUse 'p1' 'propose_scaffold' @{ name = 'todo'; resource = 'Todo'; db = 'sqlite'; ui = 'react'; events = $false })) 'tool_use') `
-                    (Reply @((ToolUse 'b1' 'submit_brief' @{ markdown = "# Brief: A todo app`n`n## Target`n- Repo: $script:NewTarget" })) 'tool_use')
+                    (Reply @((ToolUse 'b1' 'submit_brief' @{ markdown = "# Brief: A todo app`n`n## Target`n- Repo: $script:NewTarget" })) 'tool_use') `
+                    (Reply @((Text 'Reading the scaffold.')))
     }
     AfterAll { Stop-Serve }
 
@@ -254,6 +641,7 @@ Describe 'serve.ps1 idea session on a new target' {
         (Api POST '/api/sessions' @{ target = $script:NewTarget; text = 'a todo app' }).Status | Should -Be 200
         Wait-Until { (Idle) -and (Session).pending } 'the scaffold proposal'
         (Session).newTarget | Should -BeTrue
+        (Session).checkout | Should -BeNullOrEmpty
         (Session).pending.name | Should -Be 'propose_scaffold'
         (Chat)[0].content[0].text | Should -Match 'propose_scaffold'
     }
@@ -281,5 +669,23 @@ Describe 'serve.ps1 idea session on a new target' {
         $r = Api POST '/api/sessions/S-001/write-specs' $null
         $r.Status | Should -Be 409
         $r.Body.message | Should -Match 'waiting'
+    }
+
+    It 'after the bootstrap merge, Write specs clones the scaffolded target for the spec turn' {
+        $env:FACTORY_ENV_FILE = $script:EnvFile
+        $f = Join-Path $script:Scripts 'factory.ps1'
+        & $f approve J-001 2>$null | Out-Null
+        & $f set-stage J-001 build -By runner 2>$null | Out-Null
+        $wt = & $f checkout J-001 2>$null
+        Set-Content (Join-Path $wt 'todo.slnx') '<Solution />'
+        git -C $wt add -A 2>&1 | Out-Null
+        git -C $wt -c user.email=f@t -c user.name=f commit -q -m scaffold 2>&1 | Out-Null
+        & $f set-stage J-001 ready -By runner -Reason escalated -Detail 'test' 2>$null | Out-Null
+        & $f merge J-001 2>$null | Should -Contain 'released I-001'
+
+        (Api POST '/api/sessions/S-001/write-specs' $null).Status | Should -Be 200
+        Wait-Until { Idle } 'the spec turn'
+        (Session).checkout | Should -Be (SessionClone)
+        Test-Path (Join-Path (SessionClone) 'todo.slnx') | Should -BeTrue
     }
 }
