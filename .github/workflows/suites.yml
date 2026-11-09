@@ -16,6 +16,12 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 90
     steps:
+      # Defender scans every file the tests' git repos and pwsh starts touch: a dashboard rework took
+      # about 1 s locally, 5.4 s and 19 s here. Exclude only the checkout and the temp folders the
+      # tests write to, on this throwaway VM; real-time scanning stays on.
+      - name: Defender exclusions for the test paths
+        shell: pwsh
+        run: Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE, $env:RUNNER_TEMP, ([IO.Path]::GetTempPath())
       - uses: actions/checkout@v4
       - name: Git identity for the test repos
         run: |
@@ -25,7 +31,7 @@ jobs:
       - name: Pester 6
         shell: pwsh
         run: Install-Module Pester -MinimumVersion 6.0.0 -Force -Scope CurrentUser -SkipPublisherCheck
-      # Every test file in its own process, plus factory.Tests.ps1 on the azure backend (blob stub).
+      # Every test block in its own process, one per vCPU, plus factory.Tests.ps1 on the azure backend (blob stub).
       - name: Pester, local and azure, in parallel
         shell: pwsh
         run: pwsh -NoProfile -File factory/tests/run-all.ps1 -ResultDir pester-results
@@ -42,6 +48,11 @@ jobs:
       run:
         working-directory: factory/tests/dashboard
     steps:
+      # As in the pester job: only the checkout and the temp folders, real-time scanning stays on.
+      - name: Defender exclusions for the test paths
+        shell: pwsh
+        working-directory: ${{ github.workspace }}
+        run: Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE, $env:RUNNER_TEMP, ([IO.Path]::GetTempPath())
       - uses: actions/checkout@v4
       - name: Git identity for the simulator's repos
         run: |
