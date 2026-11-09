@@ -1,0 +1,63 @@
+# The factory's own suites, as they stand: Pester on both state backends and the dashboard's
+# Playwright check against simulate.ps1. Everything runs against stubs (GitHub, HCP, blob, claude),
+# so no secrets and no cloud. Roadmap spec 01 widens this to three OSes.
+name: suites
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  pester:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Git identity for the test repos
+        run: |
+          git config --global user.email ci@factory.test
+          git config --global user.name factory-ci
+          git config --global init.defaultBranch main
+      - name: Pester 6
+        shell: pwsh
+        run: Install-Module Pester -MinimumVersion 6.0.0 -Force -Scope CurrentUser -SkipPublisherCheck
+      # Every test file in its own process, plus factory.Tests.ps1 on the azure backend (blob stub).
+      - name: Pester, local and azure, in parallel
+        shell: pwsh
+        run: pwsh -NoProfile -File factory/tests/run-all.ps1 -ResultDir pester-results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pester-results
+          path: pester-results
+
+  playwright:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: factory/tests/dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - name: Git identity for the simulator's repos
+        run: |
+          git config --global user.email ci@factory.test
+          git config --global user.name factory-ci
+          git config --global init.defaultBranch main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: factory/tests/dashboard/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-results
+          path: factory/tests/dashboard/test-results
