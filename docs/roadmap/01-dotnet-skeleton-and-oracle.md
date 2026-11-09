@@ -1,6 +1,20 @@
 # 01: .NET skeleton, CI and the oracle switch
 
-**Status:** not started. **Branch:** `feature/01-dotnet-skeleton`. **Depends on:** 19.
+**Status:** built on its branch (2026-11-09), not yet merged. Proven locally: 41 .NET tests (33 unit, 8
+integration), gates Core 100%, Store 100%, Cli 92%; `status` Pester blocks pass with `FACTORY_IMPL=ps`
+and `dotnet`; `aspire run` starts the AppHost. Left: CI (Actions was blocked by the account's spending
+limit), and the Linux and macOS Pester runs (see "Deviations"). **Branch:** `feature/01-dotnet-skeleton`. **Depends on:** 19.
+
+**Deviations (2026-11-09):**
+- One switch, `FACTORY_IMPL`, default `ps`. The Pester helpers keep calling `factory.ps1`, which
+  forwards ported commands when it is `dotnet`; the default flips at cutover (12).
+- Tests run on Microsoft.Testing.Platform (xUnit v3 4.x requires it on the .NET 10 SDK; `global.json`
+  at the repo root), so coverage is Microsoft.Testing.Extensions.CodeCoverage, not coverlet.
+- CI cost: every PR runs .NET on one Linux VM, and a port PR runs the `Ported` Pester blocks on one
+  Windows VM. Windows and macOS for .NET are in `full.yml`, on demand. Pester on Linux and macOS
+  isn't in CI yet: the oracle has only ever run on Windows.
+- Found mid-port: the empty board's key order was random per process (an unordered hashtable).
+  Fixed in PowerShell and the contract first: `version`, `ideas`, `jobs`.
 
 ## Goal
 

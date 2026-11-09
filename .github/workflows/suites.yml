@@ -1,6 +1,6 @@
 # What every PR runs: the Playwright smoke set (@smoke, about 5 tests). The full Playwright suite and
 # the full Pester suite run on demand (full.yml); Pester also runs when a PR touches the scripts
-# (pester.yml). Tiers and when each runs: docs/TESTING.md. Roadmap spec 01 adds the .NET jobs here.
+# (pester.yml). Tiers and when each runs: docs/TESTING.md. The .NET tests run here on Linux.
 name: suites
 
 # Docs-only changes skip the suites: no test reads docs/ or the root markdown. The plugin's
@@ -25,3 +25,21 @@ jobs:
     uses: ./.github/workflows/_playwright.yml
     with:
       grep: '@smoke'
+
+  # The .NET port (roadmap spec 01): unit and integration tests, tier counts and the coverage gates,
+  # on one Linux VM. Windows and macOS run in full.yml, on demand.
+  dotnet:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Git identity for the test repos
+        run: |
+          git config --global user.email ci@factory.test
+          git config --global user.name factory-ci
+      - name: Unit and integration tests, coverage gates
+        shell: pwsh
+        run: ./src/factory/test.ps1

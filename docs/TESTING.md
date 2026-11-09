@@ -24,7 +24,7 @@ counts per tier; coverage is the gate, not the ratio.
 
 | Tier | May touch | Where | Runs |
 | --- | --- | --- | --- |
-| **Unit** (small) | memory only: no file system, process, network, real clock or environment variables | `Factory.UnitTests` (xUnit v3) | every PR, on Windows, Linux and macOS |
+| **Unit** (small) | memory only: no file system, process, network, real clock or environment variables | `Factory.UnitTests` (xUnit v3) | every PR on Linux; Windows and macOS on demand (`full.yml`) and before cutover |
 | **Integration** (medium) | temp directories, git, child processes, localhost stubs (GitHub, HCP, blob, Anthropic) | `Factory.IntegrationTests` (xUnit v3) | every PR on Linux; all three OSes on demand and before cutover |
 | **End to end** (large) | the dashboard in a browser against `simulate.ps1` | `factory/tests/dashboard` (Playwright) | the `@smoke` set on every PR; the whole suite on demand |
 | **Pester** (legacy oracle, integration) | as integration | `factory/tests/*.Tests.ps1` | PRs that touch the scripts; on demand; retired at 12 |
@@ -82,7 +82,7 @@ Spec 12's mapping file names, for every Pester case, the unit or integration tes
 
 | Gate | Where | Bar |
 | --- | --- | --- |
-| Coverage (coverlet, line) | every PR, from spec 01 | **90%** on `Factory.Core`, **70%** on every other project with logic. `Factory.AppHost` and `Factory.ServiceDefaults` are excluded |
+| Coverage (Microsoft.Testing.Extensions.CodeCoverage, line, unit and integration merged; `src/factory/test.ps1`) | every PR, from spec 01 | **90%** on `Factory.Core`, **70%** on every other project with logic. `Factory.AppHost` and `Factory.ServiceDefaults` are excluded |
 | Mutation score (Stryker.NET) | on demand, `Factory.Core` | not a gate; each port spec records the score in its Status line |
 | Tier counts | every PR | reported in the run summary, not a gate |
 
@@ -90,9 +90,9 @@ Spec 12's mapping file names, for every Pester case, the unit or integration tes
 
 | Workflow | When | Runs |
 | --- | --- | --- |
-| `suites.yml` | every PR and push to `main`, except docs-only (`docs/**`, root `*.md`) | the Playwright `@smoke` set (5 tests, one VM); from 01, also the .NET unit and integration jobs |
-| `pester.yml` | PRs and pushes that touch `factory/scripts/**`, `factory/plugin/**`, `factory/tests/*.ps1`, `factory/tests/fixtures/**` | the full Pester suite, 4 shards. From 01, port PRs run the `Ported` blocks both ways instead |
-| `full.yml` | **Run workflow** (`gh workflow run full.yml -f suites=all\|playwright\|pester`), or a PR labelled `e2e` (Playwright) or `full` (Pester), rerun on each push | the whole Playwright suite and/or the whole Pester suite |
+| `suites.yml` | every PR and push to `main`, except docs-only (`docs/**`, root `*.md`) | the Playwright `@smoke` set (5 tests, one VM) and the .NET unit and integration tests with the gates (`src/factory/test.ps1`, one Linux VM) |
+| `pester.yml` | PRs and pushes that touch `factory/scripts/**`, `factory/plugin/**`, `factory/tests/*.ps1`, `factory/tests/fixtures/**` or `src/factory/**` | a change under `src/factory/` (a port PR) runs only the `Ported` blocks, with `FACTORY_IMPL=ps` and `dotnet`, on one Windows VM; any other runs the full Pester suite in 4 shards |
+| `full.yml` | **Run workflow** (`gh workflow run full.yml -f suites=all\|playwright\|pester\|dotnet`), or a PR labelled `e2e` (Playwright) or `full` (Pester and .NET), rerun on each push | the whole Playwright suite, the whole Pester suite, and/or the .NET tests on Windows and macOS. **Costly (4 Windows VMs for Pester, macOS at 10x Linux): only when the human asks** |
 
 `_pester.yml` and `_playwright.yml` are the reusable jobs these call.
 
@@ -102,6 +102,8 @@ Spec 12's mapping file names, for every Pester case, the unit or integration tes
 cd factory/tests/dashboard; npx playwright test --grep @smoke   # the smoke set (what every PR runs)
 cd factory/tests/dashboard; npx playwright test                 # the whole e2e suite
 pwsh factory/tests/run-all.ps1                                  # the whole Pester suite, in parallel
+pwsh factory/tests/run-all.ps1 -Tag Ported -NoAzure              # the ported commands' blocks, FACTORY_IMPL=ps and dotnet
+pwsh src/factory/test.ps1                                        # .NET unit + integration, tier counts, coverage gates
 gh workflow run full.yml -f suites=all                           # both full suites in CI
 ```
 

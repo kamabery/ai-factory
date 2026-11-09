@@ -831,6 +831,19 @@ the board for over <n> s`) rather than run unlocked, where its save could overwr
 command's. A refused command exits non-zero with a one-line reason on
 stderr and leaves the board unchanged.
 
+### Implementations
+
+The control plane is being ported to .NET (`src/factory`, roadmap specs 01–12) command by command.
+`FACTORY_IMPL` picks the implementation: `ps` (the default) runs everything in `factory.ps1`;
+`dotnet` makes `factory.ps1` **forward** each ported command to the .NET CLI
+(`artifacts/bin/Factory.Cli/debug/Factory.Cli.dll` after `dotnet build src/factory`, or
+`FACTORY_CLI`): the same arguments, the same environment, and the CLI's stdout, stderr and exit code
+as its own. Any other value is refused (`FACTORY_IMPL '<v>' must be ps or dotnet`), as is
+`dotnet` when the CLI is not built. Callers never change: agents, `serve.ps1` and the runner keep
+calling `factory.ps1`. A ported command must match this contract byte for byte, and its Pester
+blocks (tagged `Ported`) pass under both implementations. Ported so far: `status` (the `local`
+state backend; with `FACTORY_STATE=azure` it stays in PowerShell until spec 03).
+
 | Command | Used by |
 | --- | --- |
 | `new-idea <text> -Target <path> [-Scaffold <json>] [-Base <J-NNN>]` · `add-spec <ideaId> <file>` · `idea-done <ideaId> [-Failed -Reason]` · `idea-abandon <ideaId>` | `/factory:idea`, serve.ps1 (idea sessions, **Abandon**) |

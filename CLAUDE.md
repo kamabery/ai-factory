@@ -55,8 +55,10 @@ pwsh factory/scripts/idea.ps1 <owner/name|I-NNN> # CLI fallback for the dashboar
 pwsh factory/scripts/runner.ps1              # drains the Approved queue; serve.ps1 starts it for you (after step 2)
 Invoke-Pester factory/tests                  # control-plane, runner, idea-turn and serve tests (after steps 1-2)
 pwsh factory/tests/run-all.ps1               # the same plus the azure backend run, one process per Pester block in parallel
+pwsh factory/tests/run-all.ps1 -Tag Ported -NoAzure   # the ported commands' Pester blocks, on PowerShell and on .NET (FACTORY_IMPL)
+pwsh src/factory/test.ps1                    # the .NET port: unit + integration tests, tier counts, coverage gates
 cd factory/tests/dashboard; npx playwright test --grep @smoke   # the dashboard smoke set every PR runs; drop --grep for the whole suite
-gh workflow run full.yml -f suites=all       # the whole Pester and Playwright suites in CI (docs/TESTING.md)
+gh workflow run full.yml -f suites=all       # the whole suites in CI (docs/TESTING.md); costly, only when Kurt asks
 $env:FACTORY_TEST_STATE='azure'; Invoke-Pester factory/tests/factory.Tests.ps1   # the same on the azure state backend (blob stub)
 pwsh factory/scripts/factory.ps1 state-migrate | allow-ip | prune   # FACTORY_STATE=azure: state in Blob storage (docs/STATE.md)
 pwsh factory/scripts/setup-platform.ps1                # the shared platform previews run on, ~$18/month (docs/DEPLOY.md)

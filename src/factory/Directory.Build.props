@@ -1,0 +1,14 @@
+<Project>
+  <!-- Shared settings for the factory's .NET port (roadmap specs 01-12). Build output goes to the
+       repo's artifacts/ folder, so factory.ps1 finds the CLI at a fixed path:
+       artifacts/bin/Factory.Cli/debug/Factory.Cli.dll -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <UseArtifactsOutput>true</UseArtifactsOutput>
+    <ArtifactsPath>$(MSBuildThisFileDirectory)../../artifacts</ArtifactsPath>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+</Project>

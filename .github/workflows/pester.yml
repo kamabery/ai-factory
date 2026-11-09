@@ -1,6 +1,8 @@
-# The full Pester suite (the PowerShell control plane and the port's oracle), only when a change can
-# affect it: the scripts, the plugin the tests read, the Pester tests and their stubs, or this CI.
-# Dashboard-only changes run the Playwright smoke set instead (suites.yml). docs/TESTING.md.
+# The Pester suite (the PowerShell control plane and the port's oracle), only when a change can
+# affect it: the scripts, the plugin the tests read, the Pester tests and their stubs, the .NET port,
+# or this CI. Dashboard-only changes run the Playwright smoke set instead (suites.yml).
+# A port change (anything under src/factory/) runs only the Ported blocks, both ways, on one VM; a
+# PowerShell-only change runs the full suite in 4 shards. docs/TESTING.md.
 name: pester
 
 on:
@@ -10,6 +12,7 @@ on:
       - 'factory/plugin/**'
       - 'factory/tests/*.ps1'
       - 'factory/tests/fixtures/**'
+      - 'src/factory/**'
       - '.github/workflows/pester.yml'
       - '.github/workflows/_pester.yml'
   push:
@@ -19,6 +22,7 @@ on:
       - 'factory/plugin/**'
       - 'factory/tests/*.ps1'
       - 'factory/tests/fixtures/**'
+      - 'src/factory/**'
       - '.github/workflows/pester.yml'
       - '.github/workflows/_pester.yml'
 
@@ -26,5 +30,43 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      port: ${{ steps.diff.outputs.port }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if git diff --name-only "$BASE" HEAD | grep -q '^src/factory/'; then echo port=true >> "$GITHUB_OUTPUT"; else echo port=false >> "$GITHUB_OUTPUT"; fi
+
+  ported:
+    needs: changes
+    if: needs.changes.outputs.port == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Git identity for the test repos
+        run: |
+          git config --global user.email ci@factory.test
+          git config --global user.name factory-ci
+          git config --global init.defaultBranch main
+      - name: Pester 6
+        shell: pwsh
+        run: Install-Module Pester -MinimumVersion 6.0.0 -Force -Scope CurrentUser -SkipPublisherCheck
+      - name: Ported blocks, FACTORY_IMPL=ps and dotnet
+        shell: pwsh
+        run: pwsh -NoProfile -File factory/tests/run-all.ps1 -Tag Ported -NoAzure
+
   pester:
+    needs: changes
+    if: needs.changes.outputs.port != 'true'
     uses: ./.github/workflows/_pester.yml
