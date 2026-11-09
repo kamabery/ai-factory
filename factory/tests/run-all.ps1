@@ -13,8 +13,8 @@
 .EXAMPLE
   pwsh factory/tests/run-all.ps1                    # everything, local + azure
   pwsh factory/tests/run-all.ps1 -NoAzure -Throttle 4
-  pwsh factory/tests/run-all.ps1 -ResultDir out     # also NUnit XML per unit (CI)
-  pwsh factory/tests/run-all.ps1 -Shard 2/4         # the second of four shards (a CI matrix job)
+  pwsh factory/tests/run-all.ps1 -ResultDir out     # also NUnit XML per unit
+  pwsh factory/tests/run-all.ps1 -Shard 2/4         # the second of four shards (split a run across machines)
   pwsh factory/tests/run-all.ps1 -Tag Ported        # the ported commands' blocks, on PowerShell and on .NET
 #>
 param(

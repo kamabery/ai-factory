@@ -3,8 +3,8 @@
   Runs the .NET tests by tier, prints the tier counts, and with -Tier all applies the coverage gates
   (docs/TESTING.md): 90% line coverage on Factory.Core, 70% on every other assembly the tests reach.
 .EXAMPLE
-  pwsh src/factory/test.ps1                 # unit + integration, counts and gates (what CI's Linux job runs)
-  pwsh src/factory/test.ps1 -Tier unit      # unit tests only, no gate (CI's Windows and macOS jobs)
+  pwsh src/factory/test.ps1                 # unit + integration, counts and gates (run before every PR)
+  pwsh src/factory/test.ps1 -Tier unit      # unit tests only, no gate (the quick loop)
 #>
 param(
     [ValidateSet('unit', 'integration', 'all')] [string] $Tier = 'all',

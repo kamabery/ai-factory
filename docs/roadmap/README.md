@@ -73,7 +73,7 @@ calls `lesson`. Spec numbers are names, not the order; sessions are one at a tim
 - **Tests follow `docs/TESTING.md`** (spec 19): unit-first, red before green, the coverage gates
   (90% Core, 70% elsewhere). A ported command's Pester cases are pushed down to unit tests on the
   service plus a few integration tests per command, and its `Describe` blocks are tagged `Ported`
-  and run both ways. The full Pester suite runs on demand (`full.yml`) and before 12.
+  and run both ways. The full Pester suite runs locally before every PR that touches the scripts or `src/factory` (no CI).
 - **`docs/FACTORY-CONTRACT.md` changes first.** A port reproduces the contract; it does not change
   it. A behaviour change found mid-port is its own commit, contract first.
 - **A command counts as ported** when its Pester tests pass with `FACTORY_IMPL=dotnet`, its xUnit

@@ -19,7 +19,7 @@ moved).
 - The dirty-tree check keeps its stricter-than-git semantics and its error message, which names what
   is dirty (`docs/BRANCHING-STRATEGY.md`, gap 6).
 - "Start detached" for `destroy` becomes a child process that survives the parent on all three OSes.
-  Test that on Linux and macOS in CI.
+  Test that on Linux and macOS (by hand: the repo has no CI).
 
 ## Done when
 

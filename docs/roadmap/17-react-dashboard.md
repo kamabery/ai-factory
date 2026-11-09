@@ -23,7 +23,7 @@ The API is unchanged; the SPA uses the contract's endpoints.
 Port `factory/tests/dashboard/dashboard.spec.ts` case for case. It is the oracle. It runs against
 the simulator, and passes against the old page first and then the new one. Per `docs/TESTING.md`,
 component and hook logic is unit-tested with Vitest and Testing Library (the base of the pyramid);
-Playwright keeps the `@smoke` set on every PR and the whole suite on demand.
+Playwright keeps the `@smoke` set before every PR (locally) and the whole suite on demand.
 
 ## Done when
 
