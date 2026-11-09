@@ -14,12 +14,18 @@
   pwsh factory/tests/run-all.ps1                    # everything, local + azure
   pwsh factory/tests/run-all.ps1 -NoAzure -Throttle 4
   pwsh factory/tests/run-all.ps1 -ResultDir out     # also NUnit XML per unit (CI)
+  pwsh factory/tests/run-all.ps1 -Shard 2/4         # the second of four shards (a CI matrix job)
 #>
 param(
     # The tests mostly wait on process starts and git, not CPU, so one unit per core.
     [int] $Throttle = [Math]::Max(2, [Environment]::ProcessorCount),
     [switch] $NoAzure,
-    [string] $ResultDir
+    [string] $ResultDir,
+    # k/n: run only shard k of n. Every shard computes the same assignment (units longest first, each
+    # to the shard with the least time so far), so the n shards together run every unit once.
+    [string] $Shard,
+    # Print the units this run would take, and exit.
+    [switch] $List
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
@@ -52,7 +58,21 @@ foreach ($file in Get-ChildItem $PSScriptRoot -Filter '*.Tests.ps1') {
         }
     }
 }
-$units = @($units | Sort-Object Last -Descending)
+$units = @($units | Sort-Object Last, Label -Descending)
+if ($Shard) {
+    if ($Shard -notmatch '^(\d+)/(\d+)$' -or [int]$Matches[1] -lt 1 -or [int]$Matches[1] -gt [int]$Matches[2]) { throw "-Shard must be k/n with 1 <= k <= n, not '$Shard'" }
+    $k = [int]$Matches[1]; $nShards = [int]$Matches[2]
+    $load = [double[]]::new($nShards)
+    $mine = foreach ($u in $units) {
+        $i = [array]::IndexOf($load, ($load | Measure-Object -Minimum).Minimum)
+        $load[$i] += [Math]::Max(1, $u.Last)
+        if ($i -eq $k - 1) { $u }
+    }
+    $units = @($mine)
+    $expected = @{ local = 0; azure = 0 }
+    foreach ($u in $units) { $expected[$u.State] += $u.Tests }
+}
+if ($List) { $units | ForEach-Object { '{0,5} {1,4}  {2}' -f $_.Last, $_.Tests, $_.Label }; exit 0 }
 if ($ResultDir) { New-Item -ItemType Directory -Force $ResultDir | Out-Null; $ResultDir = (Resolve-Path $ResultDir).Path }
 
 $run = {
@@ -98,7 +118,8 @@ while ($pending.Count -or $running.Count) {
 }
 
 # The next run starts the longest units first.
-try { $t = @{}; foreach ($x in $results) { $t[$x.Unit.Label] = $x.Seconds }; Set-Content $timesPath ($t | ConvertTo-Json) } catch { }
+# Merged, so a shard keeps the other shards' times.
+try { foreach ($x in $results) { $lastTimes[$x.Unit.Label] = $x.Seconds }; Set-Content $timesPath ($lastTimes | ConvertTo-Json) } catch { }
 
 Write-Host ''
 foreach ($s in 'local', 'azure') {
@@ -108,6 +129,7 @@ foreach ($s in 'local', 'azure') {
 }
 # Minutes may pass 60: a timespan's mm format would wrap them.
 $fmt = { param([timespan] $t) '{0}:{1:00}' -f [int][Math]::Floor($t.TotalMinutes), $t.Seconds }
+if ($Shard) { Write-Host "shard $Shard" }
 Write-Host ("{0} units, throttle {1}, wall {2}, units summed {3}" -f $units.Count, $Throttle, (& $fmt $total.Elapsed), (& $fmt ([timespan]::FromSeconds(($results | Measure-Object Seconds -Sum).Sum))))
 $bad = @($results | Where-Object { $_.Failed -or $_.RunError })
 foreach ($b in $bad) {

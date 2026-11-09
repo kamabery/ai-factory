@@ -12,16 +12,17 @@ permissions:
   contents: read
 
 jobs:
+  # A private repo's windows-latest runner has 2 cores, so more processes on one VM only add
+  # overhead (85 units took 53 min there). Parallelism comes from machines: four shards, each its
+  # own VM, splitting the units by run-all.ps1's deterministic assignment.
   pester:
     runs-on: windows-latest
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
-      # Defender scans every file the tests' git repos and pwsh starts touch: a dashboard rework took
-      # about 1 s locally, 5.4 s and 19 s here. Exclude only the checkout and the temp folders the
-      # tests write to, on this throwaway VM; real-time scanning stays on.
-      - name: Defender exclusions for the test paths
-        shell: pwsh
-        run: Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE, $env:RUNNER_TEMP, ([IO.Path]::GetTempPath())
       - uses: actions/checkout@v4
       - name: Git identity for the test repos
         run: |
@@ -31,14 +32,14 @@ jobs:
       - name: Pester 6
         shell: pwsh
         run: Install-Module Pester -MinimumVersion 6.0.0 -Force -Scope CurrentUser -SkipPublisherCheck
-      # Every test block in its own process, one per vCPU, plus factory.Tests.ps1 on the azure backend (blob stub).
-      - name: Pester, local and azure, in parallel
+      # Every test block in its own process, plus factory.Tests.ps1 on the azure backend (blob stub).
+      - name: Pester shard ${{ matrix.shard }} of 4, local and azure
         shell: pwsh
-        run: pwsh -NoProfile -File factory/tests/run-all.ps1 -ResultDir pester-results
+        run: pwsh -NoProfile -File factory/tests/run-all.ps1 -Shard ${{ matrix.shard }}/4 -ResultDir pester-results
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: pester-results
+          name: pester-results-${{ matrix.shard }}
           path: pester-results
 
   playwright:
@@ -48,11 +49,6 @@ jobs:
       run:
         working-directory: factory/tests/dashboard
     steps:
-      # As in the pester job: only the checkout and the temp folders, real-time scanning stays on.
-      - name: Defender exclusions for the test paths
-        shell: pwsh
-        working-directory: ${{ github.workspace }}
-        run: Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE, $env:RUNNER_TEMP, ([IO.Path]::GetTempPath())
       - uses: actions/checkout@v4
       - name: Git identity for the simulator's repos
         run: |
@@ -71,4 +67,10 @@ jobs:
         if: failure()
         with:
           name: playwright-results
-          path: factory/tests/dashboard/test-results
+          # The traces, and the simulator's state (runner.log, events.jsonl, board.json, tools.jsonl),
+          # so a slow board move can be traced to what else was running.
+          path: |
+            factory/tests/dashboard/test-results
+            .factory-runs-sim
+            !.factory-runs-sim/work
+            !.factory-runs-sim/github
