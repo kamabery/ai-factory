@@ -326,7 +326,15 @@ if (($args -join ' ') -notmatch 'get-access-token --resource https://ai\.azure\.
         Set-Replies (Reply @((Text 'ok')))
         $dir = New-Session
         $fs = [IO.File]::Open((Join-Path $dir 'session.json'), 'Open', 'Read', 'Read')
-        $job = Start-ThreadJob -ArgumentList $fs { param($f) Start-Sleep -Milliseconds 700; $f.Dispose() }
+        # Release only once the writer is retrying (its temp file exists), and well inside its ~2 s of
+        # retries. A fixed 700 ms from now raced the child pwsh's start on a loaded CI runner.
+        $job = Start-ThreadJob -ArgumentList $fs, $dir {
+            param($f, $d)
+            $until = [DateTime]::UtcNow.AddSeconds(60)
+            while (-not (Get-ChildItem $d -Filter 'session.json.*.tmp') -and [DateTime]::UtcNow -lt $until) { Start-Sleep -Milliseconds 20 }
+            Start-Sleep -Milliseconds 300
+            $f.Dispose()
+        }
         try { Run-Turn } finally { $job | Wait-Job | Remove-Job; $fs.Dispose() }
         (Session).status | Should -Be 'idle'
         @(Chat).Count | Should -Be 2

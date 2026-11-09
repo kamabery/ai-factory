@@ -43,6 +43,8 @@ jobs:
         if: failure()
         with:
           name: playwright-results
+          # .factory-runs-sim is a dot-folder, which upload-artifact v4.4+ skips unless told.
+          include-hidden-files: true
           # The traces, and the simulator's state (runner.log, events.jsonl, board.json, tools.jsonl),
           # so a slow board move can be traced to what else was running.
           path: |
