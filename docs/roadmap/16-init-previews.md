@@ -1,6 +1,6 @@
 # 16: `factory init previews`
 
-**Status:** not started. **Branch:** `feature/16-init-previews`. **Depends on:** 14. **Decision:** D4.
+**Status:** not started. **Branch:** `feature/16-init-previews`. **Depends on:** 09, 14. **Decision:** D4.
 
 ## Goal
 
@@ -22,4 +22,6 @@ manual steps in `docs/DEPLOY.md`.
 ## Done when
 
 Run against a clean subscription it ends with a green canary, and a real job reaches `preview: up`
-and is torn down. Running it a second time changes nothing.
+and is torn down. Running it a second time changes nothing. This is also 09's live check: the
+preview comes from the .NET implementation, and its destroy leaves no resource group, checked in
+Azure, not on the board. Deploys are back on (`HCP_ORG`) from here.

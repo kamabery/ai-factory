@@ -1,6 +1,6 @@
 # 07: Port the runner and run-mode providers
 
-**Status:** not started. **Branch:** `feature/07-port-runner`. **Depends on:** 06, 09, 11.
+**Status:** not started. **Branch:** `feature/07-port-runner`. **Depends on:** 06, 11.
 
 ## Goal
 
@@ -20,6 +20,8 @@
 - The shell limit (`BASH_MAX_TIMEOUT_MS`), the cost and time from the `claude` result, the
   `usage-limit` flag from 00, and the `cost` event's `provider`.
 - `serve.ps1` starts the .NET runner instead of `runner.ps1` (forwarding).
+- Deploy is not ported yet (09 runs after 10): the runner calls `canary`, `next -NeedsCanary`,
+  `sweep` and the deploy commands through `factory.ps1`, which runs them in PowerShell (D3).
 
 ## Tests
 
@@ -29,4 +31,4 @@ covers provider resolution for each mode, plus the failure on an unset mode.
 ## Done when
 
 The suites are green, and one real job runs end to end on the .NET runner in local mode and one in
-cloud mode (Foundry account `fdy-factory-gc6c2b`), each with an eval recorded.
+cloud mode, both with deploys off (README rules) (Foundry account `fdy-factory-gc6c2b`), each with an eval recorded.

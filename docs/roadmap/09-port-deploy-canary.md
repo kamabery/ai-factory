@@ -21,10 +21,10 @@ the sign-in smoke, `First-Error`), `deploy-log`, `deploy-fix`, `block`, `redeplo
 
 ## Tests
 
-`canary.Tests.ps1` and the deploy `Describe` blocks pass both ways. One live preview from the .NET
-implementation: a real job reaches `preview: up`, merges, and its destroy leaves no resource group.
-Check that in Azure, not on the board.
+`canary.Tests.ps1` and the deploy `Describe` blocks pass both ways. The live check (one preview from
+the .NET implementation: a real job reaches `preview: up`, merges, and its destroy leaves no resource
+group, checked in Azure) moved to 16, which runs it with previews on; until then deploys are off.
 
 ## Done when
 
-The suites are green and the live check is recorded in this spec's Status.
+The suites are green both ways.

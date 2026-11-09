@@ -11,7 +11,7 @@
 - **The public repo:** the factory moves to its own public repo under the D1 name and license. The
   history is reviewed for secrets first (`.env`, tokens printed in logs, the two preview DB passwords
   noted in PR #1). `.factory-runs/` stays out.
-- A README for a stranger: what it is, the core tier (GitHub plus an LLM), previews as an add-on.
+- A README for a stranger: what it is, the core tier (GitHub plus an LLM), previews as an add-on, marked as still being proven until 16.
 
 ## Done when
 
