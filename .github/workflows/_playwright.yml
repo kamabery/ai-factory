@@ -1,0 +1,52 @@
+# The dashboard's Playwright check against simulate.ps1. Called with grep '@smoke' on every PR
+# (suites.yml) and with no grep, the whole suite, on demand (full.yml).
+name: playwright (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      grep:
+        description: Playwright --grep; empty runs every test
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  playwright:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: factory/tests/dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - name: Git identity for the simulator's repos
+        run: |
+          git config --global user.email ci@factory.test
+          git config --global user.name factory-ci
+          git config --global init.defaultBranch main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: factory/tests/dashboard/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: playwright test ${{ inputs.grep && format('--grep {0}', inputs.grep) || '(all)' }}
+        shell: pwsh
+        env:
+          GREP: ${{ inputs.grep }}
+        run: if ($env:GREP) { npx playwright test --grep $env:GREP } else { npx playwright test }
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-results
+          # The traces, and the simulator's state (runner.log, events.jsonl, board.json, tools.jsonl),
+          # so a slow board move can be traced to what else was running.
+          path: |
+            factory/tests/dashboard/test-results
+            .factory-runs-sim
+            !.factory-runs-sim/work
+            !.factory-runs-sim/github

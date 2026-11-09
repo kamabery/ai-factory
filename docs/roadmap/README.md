@@ -17,7 +17,8 @@ are merged.
 | # | Spec | Phase | Depends on | Size |
 | --- | --- | --- | --- | --- |
 | 00 | [Phase 0 close-out](00-phase0-closeout.md) | 0 | none | 1 session |
-| 01 | [.NET skeleton, CI and the oracle switch](01-dotnet-skeleton-and-oracle.md) | 1 | 00 | 1 session |
+| 19 | [Test strategy and CI tiers](19-test-strategy.md) | 0 | 00 | 1 session |
+| 01 | [.NET skeleton, CI and the oracle switch](01-dotnet-skeleton-and-oracle.md) | 1 | 19 | 1 session |
 | 02 | [Factory.Core: contract types and rules](02-core-contract.md) | 1 | 01 | 1 session |
 | 03 | [Factory.Store: file and blob backends](03-store.md) | 1 | 02 | 1–2 sessions |
 | 04 | [Port: board and transition commands](04-port-board-transitions.md) | 1 | 03 | 1–2 sessions |
@@ -40,10 +41,10 @@ Phase 6 (hosted) is out of scope. The `TenantId` seam (03, 13) and per-job conta
 what it needs from these specs.
 
 ```text
-00 → 01 → 02 → 03 → 04 → 05 → 06 → 11 → 07 → 08 → 10 → 09 → 12 → 13 → 14 → 15
-                                                       │    │         └→ 16 ─┐
-                                                       │    └→ 17 ───────────┴→ 18
-                                                       └──────────────┘
+00 → 19 → 01 → 02 → 03 → 04 → 05 → 06 → 11 → 07 → 08 → 10 → 09 → 12 → 13 → 14 → 15
+                                                            │    │         └→ 16 ─┐
+                                                            │    └→ 17 ───────────┴→ 18
+                                                            └──────────────┘
 ```
 
 Arrows are dependencies (16 needs 09 and 14). The run order is the table's: 15, then 17, then the
@@ -69,8 +70,10 @@ calls `lesson`. Spec numbers are names, not the order; sessions are one at a tim
 
 ## Rules for every spec
 
-- Red before green: the test is written and seen failing, then the code. Run the Pester suites
-  (and, for state writes, the azure backend run); from 01 on, also `dotnet test`.
+- **Tests follow `docs/TESTING.md`** (spec 19): unit-first, red before green, the coverage gates
+  (90% Core, 70% elsewhere). A ported command's Pester cases are pushed down to unit tests on the
+  service plus a few integration tests per command, and its `Describe` blocks are tagged `Ported`
+  and run both ways. The full Pester suite runs on demand (`full.yml`) and before 12.
 - **`docs/FACTORY-CONTRACT.md` changes first.** A port reproduces the contract; it does not change
   it. A behaviour change found mid-port is its own commit, contract first.
 - **A command counts as ported** when its Pester tests pass with `FACTORY_IMPL=dotnet`, its xUnit

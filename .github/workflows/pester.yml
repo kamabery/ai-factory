@@ -1,0 +1,30 @@
+# The full Pester suite (the PowerShell control plane and the port's oracle), only when a change can
+# affect it: the scripts, the plugin the tests read, the Pester tests and their stubs, or this CI.
+# Dashboard-only changes run the Playwright smoke set instead (suites.yml). docs/TESTING.md.
+name: pester
+
+on:
+  pull_request:
+    paths:
+      - 'factory/scripts/**'
+      - 'factory/plugin/**'
+      - 'factory/tests/*.ps1'
+      - 'factory/tests/fixtures/**'
+      - '.github/workflows/pester.yml'
+      - '.github/workflows/_pester.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'factory/scripts/**'
+      - 'factory/plugin/**'
+      - 'factory/tests/*.ps1'
+      - 'factory/tests/fixtures/**'
+      - '.github/workflows/pester.yml'
+      - '.github/workflows/_pester.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  pester:
+    uses: ./.github/workflows/_pester.yml

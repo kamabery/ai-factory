@@ -31,7 +31,7 @@ test.describe.serial('factory dashboard', () => {
     });
   });
 
-  test('the simulated run lands every card where the contract says', async ({ page }) => {
+  test('the simulated run lands every card where the contract says', { tag: '@smoke' }, async ({ page }) => {
     await page.goto('/');
     await expect(column(page, 'done').locator('[data-card="J-001"]')).toBeVisible();
 
@@ -61,7 +61,7 @@ test.describe.serial('factory dashboard', () => {
     await expect(card(page, 'J-001').locator('[data-cost]')).toBeVisible();
   });
 
-  test('the modal shows the timeline, artifacts rendered as markdown, and the gate result', async ({ page }) => {
+  test('the modal shows the timeline, artifacts rendered as markdown, and the gate result', { tag: '@smoke' }, async ({ page }) => {
     await page.goto('/');
     await card(page, 'J-001').click();
     await expect(modal(page)).toBeVisible();
@@ -226,7 +226,7 @@ test.describe.serial('factory dashboard', () => {
     await expect(mode).toHaveAttribute('data-mode', 'invalid');
   });
 
-  test('dragging a backlog card to Approved approves it', async ({ page }) => {
+  test('dragging a backlog card to Approved approves it', { tag: '@smoke' }, async ({ page }) => {
     await page.goto('/');
     await card(page, 'J-005').dragTo(column(page, 'approved'));
     await expect(column(page, 'backlog').locator('[data-card="J-005"]')).toHaveCount(0);
@@ -234,7 +234,7 @@ test.describe.serial('factory dashboard', () => {
   });
 
   // Dragging to Done is covered by the bootstrap test above.
-  test('Merge (Done) in the modal merges, closes the modal, and the card lands in Done', async ({ page }) => {
+  test('Merge (Done) in the modal merges, closes the modal, and the card lands in Done', { tag: '@smoke' }, async ({ page }) => {
     await page.goto('/');
     await card(page, 'J-003').click();
     await page.locator('#merge-btn').click();
@@ -243,7 +243,7 @@ test.describe.serial('factory dashboard', () => {
     expect(job('J-003').stage).toBe('done');
   });
 
-  test('rework from a ready card sends it back to Approved with the note', async ({ page }) => {
+  test('rework from a ready card sends it back to Approved with the note', { tag: '@smoke' }, async ({ page }) => {
     const before = job('J-002').round;
     await page.goto('/');
     await card(page, 'J-002').click();
