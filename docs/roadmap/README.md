@@ -4,9 +4,10 @@ This turns the approved replatform roadmap (2026-10-23, revised 2026-11-08) into
 session can pick up one at a time. The rationale and the decisions table live in
 `C:\Users\kamab\.claude\plans\grill-me-on-the-silly-yao.md`; this folder is the work.
 
-**Where things stand (2026-11-08):** Phase 0 is done. The deploy stage (PR #1) and run-mode
-providers with Foundry (PR #2) are merged to `main` at `cbff31e`. J-031 proved cloud mode end to end.
-Last green suites: Pester 408 local, 223 azure; Playwright 39.
+**Where things stand (2026-11-09):** spec 00's ai-factory items are merged (PR #3) and the template
+retry is merged (template-projects PR #6); its todoapp-two docs job, J-032, is in flight. Last green
+suites: Pester 429 local, 229 azure; Playwright 41. Reordered 2026-11-09 so previews come last (see
+below).
 
 ## Run order
 
@@ -22,32 +23,39 @@ are merged.
 | 04 | [Port: board and transition commands](04-port-board-transitions.md) | 1 | 03 | 1–2 sessions |
 | 05 | [Port: idea and spec commands, GitHub client](05-port-ideas-github.md) | 1 | 04 | 1 session |
 | 06 | [Port: git commands, gate and merge](06-port-git-gate-merge.md) | 1 | 05 | 1–2 sessions |
-| 09 | [Port: deploy, HCP and canary](09-port-deploy-canary.md) | 1 | 06 | 2 sessions |
 | 11 | [Port: evals, lessons and state admin](11-port-evals-lessons-state.md) | 1 | 04 | 1 session |
-| 07 | [Port: the runner and run-mode providers](07-port-runner.md) | 1 | 06, 09, 11 | 1–2 sessions |
+| 07 | [Port: the runner and run-mode providers](07-port-runner.md) | 1 | 06, 11 | 1–2 sessions |
 | 08 | [Port: the dashboard server](08-port-server.md) | 1 | 07 | 1–2 sessions |
 | 10 | [Port: idea turns on the run mode](10-port-idea-turns.md) | 1 | 07, 08 | 1–2 sessions |
+| 09 | [Port: deploy, HCP and canary](09-port-deploy-canary.md) | 1 | 06 | 2 sessions |
 | 12 | [Cutover: retire PowerShell](12-cutover.md) | 1 | 04–11 | 1 session |
 | 13 | [EF Core store](13-ef-core-store.md) | 1 | 12 | 1–2 sessions |
 | 14 | [`factory init` / `doctor`, GitHub App, secrets](14-init-doctor-github-app.md) | 2 | 13 | 2–3 sessions |
 | 15 | [Turn-key acceptance and the public repo](15-turnkey-public.md) | 2 | 14, decision D1 | 1–2 sessions |
-| 16 | [`factory init previews`](16-init-previews.md) | 3 | 14 | 2 sessions |
 | 17 | [React dashboard](17-react-dashboard.md) | 4 | 12 | 2–3 sessions |
+| 16 | [`factory init previews`](16-init-previews.md) | 3 | 09, 14 | 2 sessions |
 | 18 | [Cloud mode on Container Apps](18-cloud-mode.md) | 5 | 13, 16, 17 | 2–3 sessions |
 
 Phase 6 (hosted) is out of scope. The `TenantId` seam (03, 13) and per-job containers (18) are
 what it needs from these specs.
 
 ```text
-00 → 01 → 02 → 03 → 04 → 05 → 06 → 09 ─┐
-                     └→ 11 ─────────────┴→ 07 → 08 → 10 → 12 → 13 → 14 → 15
-                                                              │      └→ 16 ─┐
-                                                              └→ 17 ────────┴→ 18
+00 → 01 → 02 → 03 → 04 → 05 → 06 → 11 → 07 → 08 → 10 → 09 → 12 → 13 → 14 → 15
+                                                       │    │         └→ 16 ─┐
+                                                       │    └→ 17 ───────────┴→ 18
+                                                       └──────────────┘
 ```
 
-09 and 11 run before 07: the .NET runner calls `canary`, `sweep` (09) and `lesson` (11), and the
-server (08) has deploy, QA-login, eval and lesson endpoints, so both need those commands ported
-first. Spec numbers are names, not the order; sessions are one at a time, in table order.
+Arrows are dependencies (16 needs 09 and 14). The run order is the table's: 15, then 17, then the
+devops block, 16 → 18.
+
+**Previews last.** A deployable job spends about 30 minutes in its preview deploy, and a template
+change costs a `canary -Full`, so the port and the core product are proven without previews and the
+devops work comes as one block at the end (16, then 18). The deploy port (09) is slow only because
+of its live check, so 09 runs just before cutover (12 needs it ported) and its live check moves into
+16, whose own live run already covers it. Until 09, the .NET runner (07) and server (08) forward
+`canary`, `sweep` and the deploy commands to `factory.ps1` (D3). 11 still runs before 07, which
+calls `lesson`. Spec numbers are names, not the order; sessions are one at a time, in table order.
 
 ## Decisions to make
 
@@ -72,4 +80,7 @@ first. Spec numbers are names, not the order; sessions are one at a time, in tab
   `git`/`claude`/`az`/`terraform` resolved from PATH.
 - A human session changes the factory, never `/factory`. Commit per step, with the suite counts in
   the message. One branch per spec, `feature/<NN>-<slug>`, PR to `main`, and Kurt merges.
+- **Live proofs before 16 run with deploys off:** comment out `HCP_ORG` in `.env`, so no canary
+  runs and no job deploys (contract, Deploy, "On or off"). First check that no preview is still up,
+  since `sweep` and `destroy` run only while deploys are on. 16 turns them back on.
 - At the end of each spec, update its **Status** line and this table.

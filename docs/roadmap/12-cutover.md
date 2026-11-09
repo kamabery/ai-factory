@@ -20,4 +20,5 @@
 
 ## Done when
 
-A real job runs end to end with no PowerShell on the path (test on Linux), with its eval recorded.
+A real job runs end to end with no PowerShell on the path (test on Linux), with deploys off (16
+proves previews), and its eval recorded.
