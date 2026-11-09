@@ -1,6 +1,6 @@
 # 00: Phase 0 close-out
 
-**Status:** in progress (2026-11-08). All five in-repo items built and green locally, one commit each; next: push, PR, CI green, then the other-repo items. Housekeeping already done (only `main` exists). **Branch:** `feature/00-phase0-closeout`.
+**Status:** done (2026-11-09). The five in-repo items merged in PR #3 (CI green on its head). template-projects: `terraform init` retry merged in its PR #6, proven by canary 30 (factory-canary run 42653672964 ran the new step). todoapp-two: the `/health` docs ran as factory job J-032, merged as its PR #12, eval recorded (good). **Branch:** `feature/00-phase0-closeout` (deleted).
 
 **Why:** the port reproduces the PowerShell behaviour. These follow-ups from PR #1
 (`docs/PLAN-PR1-PROOFS.md`, Results) change that behaviour, so they land first and the oracle

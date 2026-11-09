@@ -1,6 +1,6 @@
 # 19: Test strategy and CI tiers
 
-**Status:** in progress (2026-11-09). **Branch:** `feature/19-test-strategy`. **Depends on:** 00.
+**Status:** merged in PR #5 (2026-11-09). Proven: the smoke tags (0 → 5, pass alone), actionlint, `full.yml` skipping without a label. Left: this docs-only close-out PR runs no suites, and a `full.yml` button run (41 + 4 shards). **Branch:** `feature/19-test-strategy`. **Depends on:** 00.
 
 ## Why
 
