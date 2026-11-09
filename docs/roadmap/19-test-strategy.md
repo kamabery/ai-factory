@@ -37,6 +37,7 @@ unit-first from its first line. The rules are in `docs/TESTING.md`.
 
 - `npx playwright test --grep @smoke --list` lists 5 tests (0 before), and they pass on their own.
 - actionlint is clean.
-- This spec's PR runs the smoke set and skips Pester (it touches no script).
+- This spec's PR runs the smoke set. Pester triggers on it only because the PR adds `pester.yml`,
+  which is in its own filter; that run was cancelled, since no PowerShell changed.
 - The next docs-only PR runs nothing.
 - `full.yml` from the button runs all 41 Playwright tests and the 4 Pester shards.
