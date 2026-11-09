@@ -4,8 +4,8 @@ This turns the approved replatform roadmap (2026-10-23, revised 2026-11-08) into
 session can pick up one at a time. The rationale and the decisions table live in
 `C:\Users\kamab\.claude\plans\grill-me-on-the-silly-yao.md`; this folder is the work.
 
-**Where things stand (2026-11-09):** spec 00's ai-factory items are merged (PR #3) and the template
-retry is merged (template-projects PR #6); its todoapp-two docs job, J-032, is in flight. Last green
+**Where things stand (2026-11-09):** spec 00 is done (PR #3, template-projects PR #6, J-032 as
+todoapp-two PR #12), and spec 19 (test strategy and CI tiers) is merged (PR #5). Next: spec 01. Last green
 suites: Pester 429 local, 229 azure; Playwright 41. Reordered 2026-11-09 so previews come last (see
 below).
 
