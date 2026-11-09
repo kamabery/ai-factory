@@ -223,6 +223,35 @@ Describe 'board writes' {
         (Job $id).stage | Should -Be 'approved'
     }
 
+    It 'releases the board during a checkout''s clone and fetch, so a dashboard move does not wait them out' {
+        $id = New-ApprovedJob
+        F set-stage $id build -By runner | Out-Null
+        $other = New-BacklogJob
+        # A slow git: every committed ref update (the clone's, the fetch's) marks itself, then sleeps.
+        $hooks = Join-Path $TestDrive 'slow-hooks'
+        $marker = Join-Path $TestDrive 'git-busy'
+        New-Item -ItemType Directory -Force $hooks | Out-Null
+        [IO.File]::WriteAllText((Join-Path $hooks 'reference-transaction'),
+            "#!/bin/sh`n[ `"`$1`" = committed ] || exit 0`ntouch '$($marker -replace '\\', '/')'`nsleep 3`n")
+        $env:GIT_CONFIG_COUNT = '1'; $env:GIT_CONFIG_KEY_0 = 'core.hooksPath'; $env:GIT_CONFIG_VALUE_0 = $hooks
+        try {
+            $p = Start-Process pwsh -ArgumentList '-NoProfile', '-File', $script:Factory, 'checkout', $id -PassThru -WindowStyle Hidden
+        } finally { Remove-Item Env:GIT_CONFIG_COUNT, Env:GIT_CONFIG_KEY_0, Env:GIT_CONFIG_VALUE_0 }
+        $deadline = (Get-Date).AddSeconds(30)
+        while (-not (Test-Path $marker) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 100 }
+        Test-Path $marker | Should -BeTrue
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        F approve $other | Out-Null
+        $sw.Stop()
+        $LASTEXITCODE | Should -Be 0
+        (Job $other).stage | Should -Be 'approved'
+        $p.HasExited | Should -BeFalse -Because 'the move landed while checkout was still in git'
+        $sw.Elapsed.TotalSeconds | Should -BeLessThan 2.5
+        $p.WaitForExit()
+        $p.ExitCode | Should -Be 0
+        (Job $id).roundStart | Should -Not -BeNullOrEmpty -Because 'checkout re-takes the board to record the round start'
+    }
+
     It 'refuses a command that cannot take the board lock in time, rather than running unlocked' {
         $id = New-BacklogJob
         # Another factory.ps1 holding the board: the same named mutex, from another process.
