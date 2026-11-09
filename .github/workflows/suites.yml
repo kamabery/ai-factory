@@ -3,10 +3,19 @@
 # so no secrets and no cloud. Roadmap spec 01 widens this to three OSes.
 name: suites
 
+# Docs-only changes skip the suites: no test reads docs/ or the root markdown. The plugin's
+# markdown (factory/plugin/**) is outside these paths on purpose, since the tests read it. A PR is
+# judged on its whole diff, so one code file in it runs everything.
 on:
   pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
   push:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
 
 permissions:
   contents: read
