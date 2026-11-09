@@ -470,6 +470,13 @@ function Handle($ctx) {
         return Send-Result $ctx $r
     }
 
+    # Resume on a card stopped by a usage limit: back to Approved, to continue its claude session.
+    if ($method -eq 'POST' -and $path -match '^/api/jobs/([A-Z]+-\d+)/resume$') {
+        $r = Invoke-Factory resume $Matches[1]
+        if ($r.Ok) { Start-Detached 'runner.ps1' }
+        return Send-Result $ctx $r
+    }
+
     # Retry deploy on a blocked card: back to Approved, resuming at deploy.
     if ($method -eq 'POST' -and $path -match '^/api/jobs/([A-Z]+-\d+)/redeploy$') {
         $r = Invoke-Factory redeploy $Matches[1]

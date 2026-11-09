@@ -355,6 +355,13 @@ Describe 'serve.ps1 blocked jobs' {
         $r.Body.message | Should -Match 'blocked from build, not deploy'
     }
 
+    It 'Resume calls factory.ps1 resume, which refuses a job not flagged usage-limit' {
+        $id = New-BlockedJob 'resume'
+        $r = Api POST "/api/jobs/$id/resume" @{}
+        $r.Status | Should -Be 409
+        $r.Body.message | Should -Match 'not flagged usage-limit'
+    }
+
     It 'Rework on a blocked card calls factory.ps1 rework, and needs a note' {
         $id = New-BlockedJob 'rework'
         $r = Api POST "/api/jobs/$id/move" @{ to = 'approved' }

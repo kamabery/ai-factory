@@ -1202,6 +1202,91 @@ Describe 'human moves from ready' {
     }
 }
 
+Describe 'usage limit' {
+    It 'flags a job usage-limit, not escalated, with the stage it stopped in and its session' {
+        $id = New-ApprovedJob
+        Move-ToReview $id
+        F set-stage $id ready -By runner -Reason usage-limit -Detail "You've hit your 5-hour limit" -Session 'sess-1' | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        $j = Job $id
+        $j.stage | Should -Be 'ready'
+        $j.flag.reason | Should -Be 'usage-limit'
+        $j.flag.detail | Should -Be "You've hit your 5-hour limit"
+        $j.flag.stage | Should -Be 'review'
+        $j.flag.session | Should -Be 'sess-1'
+        (Events | Where-Object { $_.kind -eq 'stage' -and $_.job -eq $id })[-1].reason | Should -Be 'usage-limit'
+    }
+
+    It 'refuses a usage-limit flag with no session, since there would be nothing to resume' {
+        $id = New-ApprovedJob
+        F set-stage $id build -By runner | Out-Null
+        F set-stage $id ready -By runner -Reason usage-limit -Detail 'limit' 2>$null | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        (Job $id).stage | Should -Be 'build'
+    }
+
+    It 'holds the queue while any job is flagged usage-limit, so the next job does not hit the same limit' {
+        $a = New-ApprovedJob 'A'
+        Start-Sleep -Milliseconds 20
+        $b = New-ApprovedJob 'B'
+        F set-stage $a build -By runner | Out-Null
+        F set-stage $a ready -By runner -Reason usage-limit -Detail 'limit' -Session 's' | Out-Null
+        F next | Should -BeNullOrEmpty
+        F next -NeedsCanary | Should -BeNullOrEmpty
+        F set-stage $b build -By runner 2>$null | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        (Job $b).stage | Should -Be 'approved'
+    }
+
+    It 'resume queues the job back at the stage it stopped in, keeping its round, reviews and roundStart' {
+        $id = New-ApprovedJob
+        F set-stage $id build -By runner | Out-Null
+        F checkout $id | Out-Null
+        $start = (Job $id).roundStart
+        $start | Should -Not -BeNullOrEmpty
+        F set-stage $id ready -By runner -Reason usage-limit -Detail 'limit' -Session 'sess-2' | Out-Null
+        F resume $id | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        $j = Job $id
+        $j.stage | Should -Be 'approved'
+        $j.flag | Should -BeNullOrEmpty
+        $j.resume | Should -Be 'build'
+        $j.resumeSession | Should -Be 'sess-2'
+        F next | Should -Be $id
+        F set-stage $id build -By runner | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        $j = Job $id
+        $j.stage | Should -Be 'build'
+        $j.round | Should -Be 1
+        $j.roundStart | Should -Be $start
+        $j['resume'] | Should -BeNullOrEmpty
+        $j['resumeSession'] | Should -BeNullOrEmpty
+    }
+
+    It 'a job resumed in review goes back to review, not build, with its reviews as they were' {
+        $id = New-ApprovedJob
+        Move-ToReview $id
+        F set-review $id code PASS | Out-Null
+        F set-stage $id ready -By runner -Reason usage-limit -Detail 'limit' -Session 's' | Out-Null
+        F resume $id | Out-Null
+        F set-stage $id build -By runner 2>$null | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        F set-stage $id review -By runner | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        (Job $id).stage | Should -Be 'review'
+        (Job $id).reviews.code | Should -Be 'PASS'
+    }
+
+    It 'resume refuses a job that is not flagged usage-limit' {
+        $id = New-ApprovedJob
+        F set-stage $id build -By runner | Out-Null
+        F set-stage $id ready -Reason escalated -Detail 'gave up' | Out-Null
+        F resume $id 2>$null | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        (Job $id).stage | Should -Be 'ready'
+    }
+}
+
 Describe 'stacked jobs' {
     BeforeAll {
         # A job in ready with its PR open: what a session can pick as a base.

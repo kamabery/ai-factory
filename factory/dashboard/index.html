@@ -271,6 +271,7 @@ const FLAG_MEANS = {
   'deploy-failed': 'the preview did not deploy in five attempts; deploy-<n>.log has the GitHub and HCP logs, and the preview is left up for you to look at.',
   'out-of-scope': 'the build changed the paths below, which match none of the Scope: In globs in the spec, so it stopped before review. Rework with a line "Scope +: <glob>, <glob>" to keep them (the spec is widened), or with a note asking the builder to remove them.',
   'spec-stale': 'a job from the same idea merged after this spec was written, and the builder found the spec no longer holds against main (its reasons are below). Rework with its proposed "Scope +: <glob>" line and AC wording, or discard.',
+  'usage-limit': 'claude stopped on a usage limit (the subscription limit, or a Foundry quota), not on a decision, and the queue waits. Once the limit has reset, Resume continues the same claude session in the stage it stopped in; nothing is re-run.',
   'github-permission':'GitHub refused the deploy because the GitHub PAT lacks the permission named below. Add it on GitHub, then run factory.ps1 redeploy <id>; no deploy attempt was used.',
 };
 const md = (text) =>window.marked ? marked.parse(text ?? '') : `<pre>${esc(text)}</pre>`;
@@ -399,6 +400,8 @@ function waitReason(j) {
   if (c?.status === 'running') return 'waiting: deploy canary';
   const held = (x) => c?.status === 'failed' && state.config.deploys && x.kind !== 'bootstrap';
   if (held(j)) return 'held: deploy canary failed';
+  const limited = state.board.jobs.find((x) => x.flag?.reason === 'usage-limit');
+  if (limited) return `held: usage limit on ${limited.id}`;
   const ahead = state.board.jobs.filter((x) => x.stage === 'approved' && !held(x) && queueOrder(x, j) < 0).sort(queueOrder).pop();
   return ahead ? `after ${ahead.id}` : 'next';
 }
@@ -429,12 +432,21 @@ function jobCard(j) {
     <div class="meta">${moving}${kind}${stacked}${moved}${pr}${sub}${flag}${reviews}${cost}</div>${previewBar(j)}${blockedBar(j)}</div>`;
 }
 // A blocked card's ways out (see "Blocked" in the contract): Retry deploy, Rework (opens the note), Discard.
+// A card stopped on a usage limit, ready or blocked, resumes instead (see "Runner" in the contract).
+const usageLimited = (j) => j.flag?.reason === 'usage-limit';
 function blockedBar(j) {
+  if (usageLimited(j) && j.stage === 'ready') return '<div class="meta" data-blocked-bar><button type="button" class="chip action" data-resume>Resume</button></div>';
   if (j.stage !== 'blocked') return '';
   return '<div class="meta" data-blocked-bar>'
-    + (blockedFromDeploy(j) ? '<button type="button" class="chip action" data-redeploy>Retry deploy</button>' : '')
+    + (usageLimited(j) ? '<button type="button" class="chip action" data-resume>Resume</button>'
+      : blockedFromDeploy(j) ? '<button type="button" class="chip action" data-redeploy>Retry deploy</button>' : '')
     + '<button type="button" class="chip action" data-rework>Rework</button>'
     + '<button type="button" class="chip action" data-discard>Discard</button></div>';
+}
+async function resume(id) {
+  const res = await api('POST', `/api/jobs/${encodeURIComponent(id)}/resume`, {});
+  toast(res.ok ? `${id}: resuming` : res.message, !res.ok);
+  return res.ok;
 }
 async function redeploy(id) {
   const res = await api('POST', `/api/jobs/${encodeURIComponent(id)}/redeploy`, {});
@@ -600,6 +612,8 @@ document.addEventListener('click', (e) => {
   if (qa) { qaLogin(qa.closest('[data-card]').dataset.card); return; }
   const td = e.target.closest?.('[data-teardown]');
   if (td) { td.disabled = true; tearDown(td.closest('[data-card]').dataset.card); return; }
+  const rs = e.target.closest?.('[data-resume]');
+  if (rs) { rs.disabled = true; resume(rs.closest('[data-card]').dataset.card); return; }
   const rd = e.target.closest?.('[data-redeploy]');
   if (rd) { rd.disabled = true; redeploy(rd.closest('[data-card]').dataset.card); return; }
   const rw = e.target.closest?.('[data-rework]');
@@ -689,7 +703,8 @@ function renderHead() {
   const previewBtn = live?.live && live.url ? `<a class="button" id="preview-btn" href="${esc(live.url)}" target="_blank" rel="noopener">Open preview</a>` : '';
   if (j.stage === 'ready') actions = `${previewBtn}${j.pr?.url ? `<a class="button" id="pr-btn" href="${esc(j.pr.url)}" target="_blank" rel="noopener">Open PR #${esc(j.pr.number)}</a>` : ''}<button class="primary" id="merge-btn">Merge (Done)</button><button class="danger" id="discard-btn">Discard</button>`;
   const prBtn = j.pr?.url ? `<a class="button" id="pr-btn" href="${esc(j.pr.url)}" target="_blank" rel="noopener">Open PR #${esc(j.pr.number)}</a>` : '';
-  if (j.stage === 'blocked') actions = `${previewBtn}${prBtn}${blockedFromDeploy(j) ? '<button class="primary" id="redeploy-btn">Retry deploy</button>' : ''}<button class="danger" id="discard-btn">Discard</button>`;
+  if (j.stage === 'blocked') actions = `${previewBtn}${prBtn}${usageLimited(j) ? '' : blockedFromDeploy(j) ? '<button class="primary" id="redeploy-btn">Retry deploy</button>' : ''}<button class="danger" id="discard-btn">Discard</button>`;
+  if (usageLimited(j)) actions = `<button class="primary" id="resume-btn">Resume</button>${actions}`;
   const gate = j.gate ? Object.entries(j.gate).filter(([k]) => k !== 'at' && k !== 'sha').map(([k, v]) => `${k}=${v}`).join(' ') + (j.gate.sha ? ` · ${j.gate.sha.slice(0, 7)}` : '') : '';
   const rework = j.stage === 'ready' || j.stage === 'blocked' ? `<div class="rework"><textarea id="rework-note" rows="2" placeholder="Rework: what should change? The note goes to the builder.">${esc(reworkDraft)}</textarea>
     <div class="actions"><button id="rework-btn">Rework</button></div></div>` : '';
@@ -719,6 +734,10 @@ function renderHead() {
     if (await move(j.id, 'done')) closeModal();
   });
   $('#discard-btn', h)?.addEventListener('click', () => move(j.id, 'discarded'));
+  $('#resume-btn', h)?.addEventListener('click', async (e) => {
+    const b = e.currentTarget; b.disabled = true;
+    if (await resume(j.id)) closeModal(); else b.disabled = false;
+  });
   $('#redeploy-btn', h)?.addEventListener('click', async (e) => {
     const b = e.currentTarget; b.disabled = true;
     if (await redeploy(j.id)) closeModal(); else b.disabled = false;

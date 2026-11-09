@@ -51,7 +51,8 @@ Run `F status` and print its output verbatim.
 ## `/factory run <id> <stateDir> <factory.ps1>`
 
 Preconditions, set up by runner.ps1: the job is in `build` (or in `deploy`, when a human redeployed
-it: then skip straight to step 5), the current directory is the job's temp clone of its target with
+it: then skip straight to step 5; or, when the runner continues this session after a usage limit,
+in the stage it stopped in: carry on from that step), the current directory is the job's temp clone of its target with
 branch `factory/<id>` checked out, and `FACTORY_JOB=<id>`. Check them with `F status -Json` and
 `git branch --show-current`; if any is wrong, give up.
 
