@@ -3167,6 +3167,22 @@ Describe 'First-Error' {
         First-Error $log | Should -Be 'Error: creating Flexible Server (Subscription: "s-1" Flexible Server Name: "psql-1"): polling failed: the Azure API returned the following error: Message: "Specified SKU is not supported in this region. Please choose a different SKU."'
     }
 
+    It 'adds the wrapped "Error while installing" paragraph to a provider-install failure (J-029 deploy 2)' {
+        $log = @(
+            "2026-11-08T11:59:34.9384951Z $e[31m╷$e[0m$e[0m"
+            "2026-11-08T11:59:34.9385901Z $e[31m│$e[0m $e[0m$e[1m$e[31mError: $e[0m$e[0m$e[1mFailed to install provider$e[0m"
+            "2026-11-08T11:59:34.9386293Z $e[31m│$e[0m $e[0m"
+            "2026-11-08T11:59:34.9386752Z $e[31m│$e[0m $e[0m$e[0mError while installing azure/azapi v2.12.0: could not query provider"
+            "2026-11-08T11:59:34.9387351Z $e[31m│$e[0m $e[0mregistry for registry.terraform.io/azure/azapi: failed to retrieve"
+            "2026-11-08T11:59:34.9388015Z $e[31m│$e[0m $e[0mauthentication checksums for provider: the request failed after 2 attempts,"
+            "2026-11-08T11:59:34.9388484Z $e[31m│$e[0m $e[0mplease try again later: Get"
+            "2026-11-08T11:59:34.9389964Z $e[31m│$e[0m $e[0mcontext deadline exceeded (Client.Timeout exceeded while awaiting headers)"
+            "2026-11-08T11:59:34.9390395Z $e[31m╵$e[0m$e[0m"
+            '2026-11-08T11:59:34.9411801Z ##[error]Process completed with exit code 1.'
+        ) -join "`n"
+        First-Error $log | Should -Be 'Error: Failed to install provider: Error while installing azure/azapi v2.12.0: could not query provider registry for registry.terraform.io/azure/azapi: failed to retrieve authentication checksums for provider: the request failed after 2 attempts, please try again later: Get context deadline exceeded (Client.Timeout exceeded while awaiting headers)'
+    }
+
     It 'falls back to the generic exit line when nothing better is there' {
         First-Error "deploy`n2026-10-24T17:02:07.3340748Z ##[error]Process completed with exit code 1." | Should -Be 'Process completed with exit code 1.'
     }
