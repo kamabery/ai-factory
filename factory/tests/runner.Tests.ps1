@@ -14,6 +14,11 @@ BeforeAll {
     function Job([string]$id) { (Board).jobs | Where-Object { $_.id -eq $id } }
     function Events { Get-Content (Join-Path $env:FACTORY_HOME 'events.jsonl') | ForEach-Object { $_ | ConvertFrom-Json -AsHashtable -DateKind String } }
     function Run-Runner { & pwsh -NoProfile -File $script:Runner 2>&1 | Out-String }
+    # Claude Code's Bash rules as headless-settings.json states them: '*' matches anything, and deny wins.
+    function Test-Allowed($p, [string]$cmd) {
+        $hits = { param($rules) @($rules | Where-Object { $_ -match '^Bash\((.*)\)$' -and $cmd -like $Matches[1] }) }
+        -not (& $hits $p.deny) -and [bool](& $hits $p.allow)
+    }
 
     function New-ApprovedJob([string]$title, [string]$target = $script:Repo) {
         $idea = F new-idea "idea for $title" -Target $script:Repo
@@ -316,6 +321,33 @@ if ($held) { $held.Dispose() }
             $p.additionalDirectories | Should -Contain $workspace
             $rule = ($workspace -replace '^([A-Za-z]):', { '/' + $_.Groups[1].Value.ToLowerInvariant() })
             $p.deny | Should -Contain "Edit(/$rule/**)"
+        }
+
+        It 'lets the devops agent run offline Terraform with -chdir, and still never apply, plan or destroy' {
+            New-ApprovedJob 'A' | Out-Null
+            Set-FakeClaude
+            Run-Runner | Out-Null
+            $p = (Get-Content (Join-Path $env:FACTORY_HOME 'headless-settings.json') -Raw | ConvertFrom-Json).permissions
+            foreach ($cmd in 'terraform -chdir=IaC init -backend=false', 'terraform -chdir=IaC validate',
+                'terraform -chdir=IaC test -var-file=envs/ephemeral.tfvars', 'terraform -chdir=IaC fmt -check') {
+                Test-Allowed $p $cmd | Should -BeTrue -Because $cmd
+            }
+            # A wildcard in -chdir=* matches spaces, so a smuggled apply must be denied, not just unmatched.
+            foreach ($cmd in 'terraform -chdir=IaC apply -auto-approve', 'terraform -chdir=IaC plan', 'terraform -chdir=IaC destroy',
+                'terraform -chdir=IaC init', 'terraform -chdir=IaC apply -auto-approve validate', 'terraform -chdir=IaC destroy -auto-approve fmt') {
+                Test-Allowed $p $cmd | Should -BeFalse -Because $cmd
+            }
+        }
+
+        It 'lets the approver read a failed deploy''s log, and says so in its prompt (J-029)' {
+            New-ApprovedJob 'A' | Out-Null
+            Set-FakeClaude
+            Run-Runner | Out-Null
+            $p = (Get-Content (Join-Path $env:FACTORY_HOME 'headless-settings.json') -Raw | ConvertFrom-Json).permissions
+            $abs = $script:Factory -replace '\\', '/'
+            Test-Allowed $p "pwsh -NoProfile -File $abs deploy-log J-001" | Should -BeTrue
+            Get-Content (Join-Path (Split-Path $script:Scripts -Parent) 'plugin/agents/approver.md') -Raw |
+                Should -Match 'factory\.ps1> deploy-log <id>'
         }
 
         It 'loads the factory plugin and the template workspace as plugins' {

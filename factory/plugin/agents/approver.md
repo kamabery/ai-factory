@@ -31,6 +31,9 @@ Write `<job>/decision.md`, following the `decision.md` template (absolute path f
   `<api>/openapi/v1.json`. The API's own address answers 401 behind a Static Web App, so a 401 there
   means nothing. An idle preview scales to zero and answers its first request 500 after about 45 s,
   which is why it retries. A preview that still does not answer is an ESCALATE, with what you saw.
+- When the job had a failed deploy attempt, read its log with `pwsh -NoProfile -File <factory.ps1> deploy-log <id>`,
+  with the path written out in full, and quote it rather than infer what happened. `gh` is denied to you.
+  Only failed attempts leave a log; a passing attempt's evidence is `deploy.md` and your own smoke test.
 - Review every commit `deploy.md` lists under "Commits after review" (`git show <sha>`): the four
   reviewers never saw them. One that changes application behaviour rather than infrastructure is
   an ESCALATE.

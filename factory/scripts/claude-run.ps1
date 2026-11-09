@@ -27,6 +27,8 @@ $AllowCommands = @(
     # Offline Terraform for the devops agent (no backend, so no state and no credentials), and curl for
     # the approver's smoke test of the preview. Never apply, plan or destroy: factory.ps1 deploys.
     'terraform init -backend=false*', 'terraform validate*', 'terraform test*', 'terraform fmt*', 'curl *',
+    # The same with -chdir, as the devops agent runs them from the work directory; the deny list fences the wildcard.
+    'terraform -chdir=* init -backend=false*', 'terraform -chdir=* validate*', 'terraform -chdir=* test*', 'terraform -chdir=* fmt*',
     'git status*', 'git diff*', 'git log*', 'git show*', 'git add *', 'git commit *', 'git branch*', 'git rev-parse*', 'git ls-files*',
     # Both only add a commit on the job branch; a rework may ask for a revert (J-022).
     'git revert *', 'git rm *',
@@ -37,6 +39,7 @@ $AllowCommands = @(
 )
 # The environment may hold credentials the human never meant an agent to read, so reading it is denied too.
 $DenyCommands = @('git push*', 'git merge main*', 'git merge origin*', 'git rebase*', 'git reset --hard*', 'git checkout main*', 'git switch main*', 'git branch -D*', 'git worktree*',
+    'terraform * apply*', 'terraform * plan*', 'terraform * destroy*',
     'printenv*', 'env*', 'Get-ChildItem env:*', 'Get-Item env:*', 'Get-Content env:*')
 
 . (Join-Path $PSScriptRoot 'env-file.ps1')

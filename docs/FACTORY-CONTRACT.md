@@ -1255,10 +1255,11 @@ longer running. Otherwise it loops:
    (`claude-run.ps1` builds this command for both scripts).
    - `headless-settings.json` `permissions.allow` lets agents run the toolchain (`dotnet`, `npm`,
      `npx`, `node`, `aspire`, `aspire-addon`, `terraform init -backend=false`, `terraform validate`,
-     `terraform test`, `terraform fmt`, and `curl` for the approver's smoke test), git reads and commits (`add`, `commit`, `rm`, `revert`), one merge (`git merge --no-edit factory/base`,
+     `terraform test`, `terraform fmt`, each also as `terraform -chdir=<dir> …`, and `curl` for the approver's smoke test), git reads and commits (`add`, `commit`, `rm`, `revert`), one merge (`git merge --no-edit factory/base`,
      and `git merge --abort`), and read-only shell commands, in both the Bash and the
      PowerShell tool; any other merge is unmatched and so refused, and `deny` blocks `git push`, `git merge main`/`origin…`, `rebase`, `reset --hard`, switching to
-     `main` and `git worktree`, and reading the environment (`printenv`, `env`, and
+     `main` and `git worktree`, `terraform … apply`/`plan`/`destroy` (a `-chdir=*` rule's wildcard would
+     otherwise match `terraform -chdir=x apply … validate`), and reading the environment (`printenv`, `env`, and
      `Get-ChildItem`/`Get-Item`/`Get-Content` on `env:`), which may hold credentials the human never meant an agent to read. `additionalDirectories` makes `factory/templates` and the template
      workspace readable. The allowlist also holds the absolute
      `factory.ps1` path. The skill calls `factory.ps1` by that absolute path with no
