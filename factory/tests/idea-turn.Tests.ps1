@@ -326,16 +326,26 @@ if (($args -join ' ') -notmatch 'get-access-token --resource https://ai\.azure\.
         Set-Replies (Reply @((Text 'ok')))
         $dir = New-Session
         $fs = [IO.File]::Open((Join-Path $dir 'session.json'), 'Open', 'Read', 'Read')
-        # Release only once the writer is retrying (its temp file exists), and well inside its ~2 s of
-        # retries. A fixed 700 ms from now raced the child pwsh's start on a loaded CI runner.
-        $job = Start-ThreadJob -ArgumentList $fs, $dir {
-            param($f, $d)
-            $until = [DateTime]::UtcNow.AddSeconds(60)
-            while (-not (Get-ChildItem $d -Filter 'session.json.*.tmp') -and [DateTime]::UtcNow -lt $until) { Start-Sleep -Milliseconds 20 }
-            Start-Sleep -Milliseconds 300
-            $f.Dispose()
+        # Release once the writer is retrying (its temp file exists), well inside its ~2 s of retries.
+        # Compiled, on a plain .NET thread: a thread job first builds a runspace, which on a loaded CI
+        # runner took longer than the writer's retries (PR #7), as did a fixed 700 ms sleep before it.
+        if (-not ('ReleaseWhenRetried' -as [type])) {
+            Add-Type -TypeDefinition @'
+using System; using System.IO; using System.Threading; using System.Threading.Tasks;
+public static class ReleaseWhenRetried {
+    public static Task Start(FileStream held, string dir) {
+        return Task.Run(() => {
+            var until = DateTime.UtcNow.AddSeconds(60);
+            while (Directory.GetFiles(dir, "session.json.*.tmp").Length == 0 && DateTime.UtcNow < until) Thread.Sleep(20);
+            Thread.Sleep(300);
+            held.Dispose();
+        });
+    }
+}
+'@
         }
-        try { Run-Turn } finally { $job | Wait-Job | Remove-Job; $fs.Dispose() }
+        $release = [ReleaseWhenRetried]::Start($fs, $dir)
+        try { Run-Turn } finally { $release.Wait(65000) | Out-Null; $fs.Dispose() }
         (Session).status | Should -Be 'idle'
         @(Chat).Count | Should -Be 2
     }
