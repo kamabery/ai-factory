@@ -671,6 +671,10 @@ those lines and nothing else; if one is missing or malformed, the script treats 
 }
 ```
 
+- **Key order is fixed.** A factory with no `board.json` yet starts from `version`, `ideas`, `jobs`,
+  in that order; keys added later follow in the order they were added, and every write keeps the
+  file's order. `status -Json` prints the board in that order (an empty board as `version`, `ideas`,
+  `jobs`), so two runs print the same text.
 - `reviews.*` is one of `pending | running | PASS | CHANGES`, and it resets to `pending` whenever
   a new round starts.
 - `roundStart` is the branch head when the current round's build began, recorded by `checkout`.

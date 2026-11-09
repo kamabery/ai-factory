@@ -234,7 +234,8 @@ function Load-Board {
     if ((State-IsAzure) -and $Command -ne 'state-migrate') {
         try { if ((Sync-Board) -eq 'changed') { $null = Pull-State } } catch { Fail "$($_.Exception.Message)" }
     }
-    if (-not (Test-Path $BoardPath)) { return @{ version = 2; ideas = @(); jobs = @() } }
+    # Ordered: a plain hashtable's key order changes from one process to the next (contract, "board.json").
+    if (-not (Test-Path $BoardPath)) { return [ordered]@{ version = 2; ideas = @(); jobs = @() } }
     $b = Get-Content $BoardPath -Raw | ConvertFrom-Json -AsHashtable -DateKind String
     if (-not $b.ContainsKey('ideas')) { $b.ideas = @() }
     $b
