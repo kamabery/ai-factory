@@ -14,6 +14,11 @@ BeforeAll {
     function Job([string]$id) { (Board).jobs | Where-Object { $_.id -eq $id } }
     function Events { Get-Content (Join-Path $env:FACTORY_HOME 'events.jsonl') | ForEach-Object { $_ | ConvertFrom-Json -AsHashtable -DateKind String } }
     function Run-Runner { & pwsh -NoProfile -File $script:Runner 2>&1 | Out-String }
+    # Claude Code's Bash rules as headless-settings.json states them: '*' matches anything, and deny wins.
+    function Test-Allowed($p, [string]$cmd) {
+        $hits = { param($rules) @($rules | Where-Object { $_ -match '^Bash\((.*)\)$' -and $cmd -like $Matches[1] }) }
+        -not (& $hits $p.deny) -and [bool](& $hits $p.allow)
+    }
 
     function New-ApprovedJob([string]$title, [string]$target = $script:Repo) {
         $idea = F new-idea "idea for $title" -Target $script:Repo
@@ -36,12 +41,15 @@ BeforeAll {
 `$building = @((& `$f status -Json | ConvertFrom-Json).jobs | Where-Object { `$_.stage -in 'build','review','approve','gate' })
 `$stage = ((& `$f status -Json | ConvertFrom-Json).jobs | Where-Object id -eq `$id).stage
 Add-Content (Join-Path `$env:FACTORY_HOME 'fake.log') "`$id building=`$(`$building.Count) stage=`$stage cwd=`$((Get-Location).Path) branch=`$(git branch --show-current)"
+Add-Content (Join-Path `$env:FACTORY_HOME 'fake.log') "`$id resume=`$env:FACTORY_CLAUDE_RESUME"
 `$runs = Join-Path `$env:FACTORY_HOME "jobs/`$id"
 '{"type":"system","subtype":"init"}'
 Start-Sleep -Milliseconds 1500
 `$live = @(Get-ChildItem `$runs -Filter 'run-*.jsonl' | Where-Object { (Get-Content `$_.FullName -Raw) -match 'init' }).Count -gt 0
 Add-Content (Join-Path `$env:FACTORY_HOME 'fake.log') "`$id live=`$live"
 if ('$mode' -eq 'crash') { exit 1 }
+# J-027 run 1's result line, trimmed: the subscription's 5-hour limit.
+if ('$mode' -eq 'usage-limit') { '{"type":"result","subtype":"success","is_error":true,"api_error_status":429,"api_error":"usage_limit_reached","result":"You''ve hit your 5-hour limit · resets 12:30pm (America/New_York)","session_id":"sess-027","total_cost_usd":0.38,"duration_ms":10}'; exit 1 }
 if ('$mode' -eq 'api-error') { '{"type":"result","is_error":true,"result":"Credit balance is too low","total_cost_usd":0,"duration_ms":10}'; exit 1 }
 if ('$mode' -eq 'stall') { '{"type":"result","total_cost_usd":0.1,"duration_ms":10}'; exit 0 }
 Add-Content "`$id.txt" ([guid]::NewGuid())
@@ -318,6 +326,33 @@ if ($held) { $held.Dispose() }
             $p.deny | Should -Contain "Edit(/$rule/**)"
         }
 
+        It 'lets the devops agent run offline Terraform with -chdir, and still never apply, plan or destroy' {
+            New-ApprovedJob 'A' | Out-Null
+            Set-FakeClaude
+            Run-Runner | Out-Null
+            $p = (Get-Content (Join-Path $env:FACTORY_HOME 'headless-settings.json') -Raw | ConvertFrom-Json).permissions
+            foreach ($cmd in 'terraform -chdir=IaC init -backend=false', 'terraform -chdir=IaC validate',
+                'terraform -chdir=IaC test -var-file=envs/ephemeral.tfvars', 'terraform -chdir=IaC fmt -check') {
+                Test-Allowed $p $cmd | Should -BeTrue -Because $cmd
+            }
+            # A wildcard in -chdir=* matches spaces, so a smuggled apply must be denied, not just unmatched.
+            foreach ($cmd in 'terraform -chdir=IaC apply -auto-approve', 'terraform -chdir=IaC plan', 'terraform -chdir=IaC destroy',
+                'terraform -chdir=IaC init', 'terraform -chdir=IaC apply -auto-approve validate', 'terraform -chdir=IaC destroy -auto-approve fmt') {
+                Test-Allowed $p $cmd | Should -BeFalse -Because $cmd
+            }
+        }
+
+        It 'lets the approver read a failed deploy''s log, and says so in its prompt (J-029)' {
+            New-ApprovedJob 'A' | Out-Null
+            Set-FakeClaude
+            Run-Runner | Out-Null
+            $p = (Get-Content (Join-Path $env:FACTORY_HOME 'headless-settings.json') -Raw | ConvertFrom-Json).permissions
+            $abs = $script:Factory -replace '\\', '/'
+            Test-Allowed $p "pwsh -NoProfile -File $abs deploy-log J-001" | Should -BeTrue
+            Get-Content (Join-Path (Split-Path $script:Scripts -Parent) 'plugin/agents/approver.md') -Raw |
+                Should -Match 'factory\.ps1> deploy-log <id>'
+        }
+
         It 'loads the factory plugin and the template workspace as plugins' {
             . (Join-Path $script:Scripts 'claude-run.ps1')
             $dirs = Get-PluginDirs
@@ -394,6 +429,36 @@ if ($held) { $held.Dispose() }
             Run-Runner | Out-Null
             (Job $id).flag.reason | Should -Be 'escalated'
             (Job $id).flag.detail | Should -Match '^claude exited with exit 1: Credit balance is too low; see run-1\.jsonl$'
+        }
+
+        It 'flags a usage limit usage-limit, not escalated, and stops the drain without publishing (J-027)' {
+            $a = New-ApprovedJob 'A'
+            $b = New-ApprovedJob 'B'
+            Set-FakeClaude 'usage-limit'
+            Run-Runner | Out-Null
+            $j = Job $a
+            $j.stage | Should -Be 'ready'
+            $j.flag.reason | Should -Be 'usage-limit'
+            $j.flag.detail | Should -Be "You've hit your 5-hour limit · resets 12:30pm (America/New_York)"
+            $j.flag.stage | Should -Be 'build'
+            $j.flag.session | Should -Be 'sess-027'
+            $j['pr'] | Should -BeNullOrEmpty
+            Test-Path (Join-Path $env:FACTORY_HOME "lessons/$a.json") | Should -BeFalse
+            (Job $b).stage | Should -Be 'approved'
+            Get-Content (Join-Path $env:FACTORY_HOME 'runner.log') | Select-Object -Last 1 | Should -Match ' exit usage-limit$'
+        }
+
+        It 'continues the stopped claude session when the human resumes the job' {
+            $id = New-ApprovedJob 'A'
+            Set-FakeClaude 'usage-limit'
+            Run-Runner | Out-Null
+            F resume $id | Out-Null
+            Set-FakeClaude
+            Run-Runner | Out-Null
+            (Job $id).stage | Should -Be 'ready'
+            (Job $id).flag | Should -BeNullOrEmpty
+            Get-Content (Join-Path $env:FACTORY_HOME 'fake.log') | Where-Object { $_ -match "^$id resume=" } |
+                Should -Be @("$id resume=", "$id resume=sess-027")
         }
 
         It 'runs the gate itself when claude dies after the approver approved' {

@@ -1,0 +1,76 @@
+# The factory's own suites, as they stand: Pester on both state backends and the dashboard's
+# Playwright check against simulate.ps1. Everything runs against stubs (GitHub, HCP, blob, claude),
+# so no secrets and no cloud. Roadmap spec 01 widens this to three OSes.
+name: suites
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # A private repo's windows-latest runner has 2 cores, so more processes on one VM only add
+  # overhead (85 units took 53 min there). Parallelism comes from machines: four shards, each its
+  # own VM, splitting the units by run-all.ps1's deterministic assignment.
+  pester:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Git identity for the test repos
+        run: |
+          git config --global user.email ci@factory.test
+          git config --global user.name factory-ci
+          git config --global init.defaultBranch main
+      - name: Pester 6
+        shell: pwsh
+        run: Install-Module Pester -MinimumVersion 6.0.0 -Force -Scope CurrentUser -SkipPublisherCheck
+      # Every test block in its own process, plus factory.Tests.ps1 on the azure backend (blob stub).
+      - name: Pester shard ${{ matrix.shard }} of 4, local and azure
+        shell: pwsh
+        run: pwsh -NoProfile -File factory/tests/run-all.ps1 -Shard ${{ matrix.shard }}/4 -ResultDir pester-results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pester-results-${{ matrix.shard }}
+          path: pester-results
+
+  playwright:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: factory/tests/dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - name: Git identity for the simulator's repos
+        run: |
+          git config --global user.email ci@factory.test
+          git config --global user.name factory-ci
+          git config --global init.defaultBranch main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: factory/tests/dashboard/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-results
+          # The traces, and the simulator's state (runner.log, events.jsonl, board.json, tools.jsonl),
+          # so a slow board move can be traced to what else was running.
+          path: |
+            factory/tests/dashboard/test-results
+            .factory-runs-sim
+            !.factory-runs-sim/work
+            !.factory-runs-sim/github

@@ -1,6 +1,6 @@
 # 00: Phase 0 close-out
 
-**Status:** not started. **Branch:** `feature/00-phase0-closeout`.
+**Status:** in progress (2026-11-08). All five in-repo items built and green locally, one commit each; next: push, PR, CI green, then the other-repo items. Housekeeping already done (only `main` exists). **Branch:** `feature/00-phase0-closeout`.
 
 **Why:** the port reproduces the PowerShell behaviour. These follow-ups from PR #1
 (`docs/PLAN-PR1-PROOFS.md`, Results) change that behaviour, so they land first and the oracle

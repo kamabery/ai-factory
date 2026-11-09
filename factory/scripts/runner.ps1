@@ -93,9 +93,12 @@ try {
             break
         }
 
-        # A redeployed job resumes at deploy; everything else starts at build.
-        $resume = (Get-StatusJob $id).PSObject.Properties['resume']
-        $to = if ($resume -and $resume.Value -eq 'deploy') { 'deploy' } else { 'build' }
+        # A redeployed job resumes at deploy, and a resumed one at the stage a usage limit stopped it in,
+        # continuing that claude session; everything else starts at build.
+        $sj = Get-StatusJob $id
+        $resume = $sj.PSObject.Properties['resume']
+        $session = if ($sj.PSObject.Properties['resumeSession'] -and $sj.resumeSession) { "$($sj.resumeSession)" } else { '' }
+        $to = if ($resume -and $resume.Value -in 'build', 'review', 'deploy', 'approve') { $resume.Value } else { 'build' }
         F set-stage $id $to -By runner | Out-Null
         if ($LASTEXITCODE -ne 0) { $how = "fatal: set-stage $id $to refused"; break }
         Log "take $id"
@@ -126,7 +129,11 @@ try {
             Push-Location $wt
             try {
                 $state = $env:FACTORY_HOME.Replace('\', '/')
-                $run = Invoke-ClaudeStream "/factory:factory run $id $state $($Factory.Replace('\', '/'))" (Join-Path $jobDir "run-$n.jsonl") -childEnv $childEnv
+                $runCmd = "/factory:factory run $id $state $($Factory.Replace('\', '/'))"
+                $prompt = if ($session) {
+                    "A usage limit stopped this run, and it has reset. Continue ``$runCmd`` from where you stopped: read the job's stage with ``status -Json`` first, and re-run the current step's agent if its file is missing."
+                } else { $runCmd }
+                $run = Invoke-ClaudeStream $prompt (Join-Path $jobDir "run-$n.jsonl") -childEnv $childEnv -resumeSession $session
                 $code = $run.Code
                 $result = $run.Result
             } finally {
@@ -138,6 +145,16 @@ try {
             if ($result -and $result.PSObject.Properties['total_cost_usd']) {
                 $ms = if ($result.PSObject.Properties['duration_ms']) { $result.duration_ms } else { 0 }
                 F set-cost $id ([string]::Format([Globalization.CultureInfo]::InvariantCulture, '{0}', $result.total_cost_usd)) $ms | Out-Null
+            }
+
+            # A usage limit (the subscription's, or a Foundry 429) is no one's decision: flag it with the
+            # session to continue, and stop, since the next job would hit the same limit. next holds the queue.
+            $limited = $result -and (($result.PSObject.Properties['api_error'] -and $result.api_error -eq 'usage_limit_reached') -or
+                ($result.PSObject.Properties['api_error_status'] -and "$($result.api_error_status)" -eq '429'))
+            if ($limited -and (Stage $id) -in 'build', 'review', 'deploy', 'approve' -and $result.PSObject.Properties['session_id']) {
+                $text = if ($result.PSObject.Properties['result']) { "$($result.result)" } else { 'usage limit' }
+                F set-stage $id ready -By runner -Reason usage-limit -Detail $text -Session $result.session_id | Out-Null
+                if ($LASTEXITCODE -eq 0) { $how = 'usage-limit'; break }
             }
 
             # The approver approved and only the gate is left; run it rather than escalate.

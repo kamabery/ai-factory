@@ -222,6 +222,28 @@ Describe 'board writes' {
         $p.ExitCode | Should -Be 0
         (Job $id).stage | Should -Be 'approved'
     }
+
+    It 'refuses a command that cannot take the board lock in time, rather than running unlocked' {
+        $id = New-BacklogJob
+        # Another factory.ps1 holding the board: the same named mutex, from another process.
+        $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($env:FACTORY_HOME.ToLowerInvariant()))).Substring(0, 16)
+        $ready = Join-Path $TestDrive "held-$hash"
+        $holder = Start-Process pwsh -PassThru -WindowStyle Hidden -ArgumentList '-NoProfile', '-Command',
+            "`$m = [Threading.Mutex]::new(`$false, 'factory-board-$hash'); `$null = `$m.WaitOne(); Set-Content '$ready' x; Start-Sleep 30"
+        try {
+            $deadline = (Get-Date).AddSeconds(15)
+            while (-not (Test-Path $ready) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 100 }
+            Test-Path $ready | Should -BeTrue
+            $env:FACTORY_BOARD_LOCK_SECONDS = '1'
+            $err = & pwsh -NoProfile -File $script:Factory approve $id 2>&1 | Out-String
+            $LASTEXITCODE | Should -Not -Be 0
+            $err | Should -Match 'board lock refused: another factory\.ps1 has held the board for over 1 s'
+        } finally {
+            Remove-Item Env:FACTORY_BOARD_LOCK_SECONDS -ErrorAction SilentlyContinue
+            Stop-Process -Id $holder.Id -Force -ErrorAction SilentlyContinue
+        }
+        (Job $id).stage | Should -Be 'backlog'
+    }
 }
 
 Describe 'illegal transitions' {
@@ -1199,6 +1221,91 @@ Describe 'human moves from ready' {
         F set-stage $id build -By runner | Out-Null
         F discard $id | Out-Null
         $LASTEXITCODE | Should -Not -Be 0
+    }
+}
+
+Describe 'usage limit' {
+    It 'flags a job usage-limit, not escalated, with the stage it stopped in and its session' {
+        $id = New-ApprovedJob
+        Move-ToReview $id
+        F set-stage $id ready -By runner -Reason usage-limit -Detail "You've hit your 5-hour limit" -Session 'sess-1' | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        $j = Job $id
+        $j.stage | Should -Be 'ready'
+        $j.flag.reason | Should -Be 'usage-limit'
+        $j.flag.detail | Should -Be "You've hit your 5-hour limit"
+        $j.flag.stage | Should -Be 'review'
+        $j.flag.session | Should -Be 'sess-1'
+        (Events | Where-Object { $_.kind -eq 'stage' -and $_.job -eq $id })[-1].reason | Should -Be 'usage-limit'
+    }
+
+    It 'refuses a usage-limit flag with no session, since there would be nothing to resume' {
+        $id = New-ApprovedJob
+        F set-stage $id build -By runner | Out-Null
+        F set-stage $id ready -By runner -Reason usage-limit -Detail 'limit' 2>$null | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        (Job $id).stage | Should -Be 'build'
+    }
+
+    It 'holds the queue while any job is flagged usage-limit, so the next job does not hit the same limit' {
+        $a = New-ApprovedJob 'A'
+        Start-Sleep -Milliseconds 20
+        $b = New-ApprovedJob 'B'
+        F set-stage $a build -By runner | Out-Null
+        F set-stage $a ready -By runner -Reason usage-limit -Detail 'limit' -Session 's' | Out-Null
+        F next | Should -BeNullOrEmpty
+        F next -NeedsCanary | Should -BeNullOrEmpty
+        F set-stage $b build -By runner 2>$null | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        (Job $b).stage | Should -Be 'approved'
+    }
+
+    It 'resume queues the job back at the stage it stopped in, keeping its round, reviews and roundStart' {
+        $id = New-ApprovedJob
+        F set-stage $id build -By runner | Out-Null
+        F checkout $id | Out-Null
+        $start = (Job $id).roundStart
+        $start | Should -Not -BeNullOrEmpty
+        F set-stage $id ready -By runner -Reason usage-limit -Detail 'limit' -Session 'sess-2' | Out-Null
+        F resume $id | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        $j = Job $id
+        $j.stage | Should -Be 'approved'
+        $j.flag | Should -BeNullOrEmpty
+        $j.resume | Should -Be 'build'
+        $j.resumeSession | Should -Be 'sess-2'
+        F next | Should -Be $id
+        F set-stage $id build -By runner | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        $j = Job $id
+        $j.stage | Should -Be 'build'
+        $j.round | Should -Be 1
+        $j.roundStart | Should -Be $start
+        $j['resume'] | Should -BeNullOrEmpty
+        $j['resumeSession'] | Should -BeNullOrEmpty
+    }
+
+    It 'a job resumed in review goes back to review, not build, with its reviews as they were' {
+        $id = New-ApprovedJob
+        Move-ToReview $id
+        F set-review $id code PASS | Out-Null
+        F set-stage $id ready -By runner -Reason usage-limit -Detail 'limit' -Session 's' | Out-Null
+        F resume $id | Out-Null
+        F set-stage $id build -By runner 2>$null | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        F set-stage $id review -By runner | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        (Job $id).stage | Should -Be 'review'
+        (Job $id).reviews.code | Should -Be 'PASS'
+    }
+
+    It 'resume refuses a job that is not flagged usage-limit' {
+        $id = New-ApprovedJob
+        F set-stage $id build -By runner | Out-Null
+        F set-stage $id ready -Reason escalated -Detail 'gave up' | Out-Null
+        F resume $id 2>$null | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        (Job $id).stage | Should -Be 'ready'
     }
 }
 
@@ -3165,6 +3272,22 @@ Describe 'First-Error' {
             '╵'
         ) -join "`n"
         First-Error $log | Should -Be 'Error: creating Flexible Server (Subscription: "s-1" Flexible Server Name: "psql-1"): polling failed: the Azure API returned the following error: Message: "Specified SKU is not supported in this region. Please choose a different SKU."'
+    }
+
+    It 'adds the wrapped "Error while installing" paragraph to a provider-install failure (J-029 deploy 2)' {
+        $log = @(
+            "2026-11-08T11:59:34.9384951Z $e[31m╷$e[0m$e[0m"
+            "2026-11-08T11:59:34.9385901Z $e[31m│$e[0m $e[0m$e[1m$e[31mError: $e[0m$e[0m$e[1mFailed to install provider$e[0m"
+            "2026-11-08T11:59:34.9386293Z $e[31m│$e[0m $e[0m"
+            "2026-11-08T11:59:34.9386752Z $e[31m│$e[0m $e[0m$e[0mError while installing azure/azapi v2.12.0: could not query provider"
+            "2026-11-08T11:59:34.9387351Z $e[31m│$e[0m $e[0mregistry for registry.terraform.io/azure/azapi: failed to retrieve"
+            "2026-11-08T11:59:34.9388015Z $e[31m│$e[0m $e[0mauthentication checksums for provider: the request failed after 2 attempts,"
+            "2026-11-08T11:59:34.9388484Z $e[31m│$e[0m $e[0mplease try again later: Get"
+            "2026-11-08T11:59:34.9389964Z $e[31m│$e[0m $e[0mcontext deadline exceeded (Client.Timeout exceeded while awaiting headers)"
+            "2026-11-08T11:59:34.9390395Z $e[31m╵$e[0m$e[0m"
+            '2026-11-08T11:59:34.9411801Z ##[error]Process completed with exit code 1.'
+        ) -join "`n"
+        First-Error $log | Should -Be 'Error: Failed to install provider: Error while installing azure/azapi v2.12.0: could not query provider registry for registry.terraform.io/azure/azapi: failed to retrieve authentication checksums for provider: the request failed after 2 attempts, please try again later: Get context deadline exceeded (Client.Timeout exceeded while awaiting headers)'
     }
 
     It 'falls back to the generic exit line when nothing better is there' {

@@ -683,6 +683,45 @@ test.describe.serial('factory dashboard', () => {
     await expect.poll(() => calls.at(-1)).toEqual({ url: '/api/jobs/J-301/move', body: { to: 'approved', note: 'drop the raw colour' } });
   });
 
+  test('a card stopped on a usage limit offers Resume, says what it means, and holds the queue', async ({ page }) => {
+    const at = (m: number) => new Date(Date.UTC(2026, 10, 1, 12, m)).toISOString();
+    const j = (id: string, stage: string, m: number, extra = {}) => ({
+      id, stage, round: 1, title: `job ${id}`, target: 'sim/sandbox', createdAt: at(m), approvedAt: at(m), updatedAt: at(m), history: [], ...extra,
+    });
+    const limit = { reason: 'usage-limit', detail: "You've hit your 5-hour limit · resets 12:30pm", stage: 'review', session: 's-1' };
+    const jobs = [
+      j('J-340', 'blocked', 1, { flag: limit, history: [{ ts: at(2), from: 'review', to: 'blocked', by: 'runner' }] }),
+      j('J-341', 'ready', 2, { flag: { ...limit, stage: 'approve' }, history: [{ ts: at(3), from: 'approve', to: 'ready', by: 'runner' }] }),
+      j('J-342', 'approved', 3),
+    ];
+    await page.route('**/api/ideate/config', (r) => r.fulfill({ json: { enabled: false, deploys: true } }));
+    await page.route('**/state/board.json', (r) => r.fulfill({ body: JSON.stringify({ jobs, ideas: [] }) }));
+    await page.route('**/state/events.jsonl', (r) => r.fulfill({ body: '' }));
+    const calls: string[] = [];
+    await page.route(/\/api\/jobs\/J-34\d\/resume$/, (r) => {
+      calls.push(new URL(r.request().url()).pathname);
+      return r.fulfill({ json: { ok: true, message: 'ok' } });
+    });
+
+    await page.goto('/');
+    const blocked = column(page, 'building').locator('[data-card="J-340"]');
+    const ready = column(page, 'ready').locator('[data-card="J-341"]');
+    await expect(blocked.locator('[data-flag]')).toHaveText('usage-limit');
+    await expect(blocked.locator('[data-resume]')).toHaveText('Resume');
+    await expect(blocked.locator('[data-redeploy]')).toHaveCount(0);
+    await expect(ready.locator('[data-resume]')).toHaveText('Resume');
+    await expect(card(page, 'J-342').locator('[data-wait]')).toHaveText('held: usage limit on J-340');
+
+    await blocked.locator('[data-resume]').click();
+    await expect(modal(page)).toBeHidden();
+    await expect.poll(() => calls).toEqual(['/api/jobs/J-340/resume']);
+
+    await ready.click();
+    await expect(modal(page).locator('[data-flagbox]')).toContainText('the same claude session');
+    await modal(page).locator('#resume-btn').click();
+    await expect.poll(() => calls.at(-1)).toBe('/api/jobs/J-341/resume');
+  });
+
   test('Approve closes the modal at once, spins on the card until it lands, and cannot be sent twice', async ({ page }) => {
     const at = new Date(Date.UTC(2026, 10, 1, 12, 0)).toISOString();
     const j = (id: string) => ({ id, stage: 'backlog', round: 0, title: `job ${id}`, target: 'sim/sandbox', createdAt: at, updatedAt: at, history: [] });

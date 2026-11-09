@@ -38,6 +38,9 @@ export const factoryEnv = {
 export default defineConfig({
   testDir: '.',
   timeout: 120_000,
+  // A dashboard move runs factory.ps1 synchronously, which starts a pwsh: about 1 s here, but a
+  // rework took 5.4 s on GitHub's windows-latest (PR #3's first CI run) and missed the 5 s default.
+  expect: { timeout: 20_000 },
   workers: 1,
   reporter: 'list',
   use: { baseURL: `http://localhost:${port}`, trace: 'retain-on-failure' },

@@ -27,6 +27,8 @@ $AllowCommands = @(
     # Offline Terraform for the devops agent (no backend, so no state and no credentials), and curl for
     # the approver's smoke test of the preview. Never apply, plan or destroy: factory.ps1 deploys.
     'terraform init -backend=false*', 'terraform validate*', 'terraform test*', 'terraform fmt*', 'curl *',
+    # The same with -chdir, as the devops agent runs them from the work directory; the deny list fences the wildcard.
+    'terraform -chdir=* init -backend=false*', 'terraform -chdir=* validate*', 'terraform -chdir=* test*', 'terraform -chdir=* fmt*',
     'git status*', 'git diff*', 'git log*', 'git show*', 'git add *', 'git commit *', 'git branch*', 'git rev-parse*', 'git ls-files*',
     # Both only add a commit on the job branch; a rework may ask for a revert (J-022).
     'git revert *', 'git rm *',
@@ -37,6 +39,7 @@ $AllowCommands = @(
 )
 # The environment may hold credentials the human never meant an agent to read, so reading it is denied too.
 $DenyCommands = @('git push*', 'git merge main*', 'git merge origin*', 'git rebase*', 'git reset --hard*', 'git checkout main*', 'git switch main*', 'git branch -D*', 'git worktree*',
+    'terraform * apply*', 'terraform * plan*', 'terraform * destroy*',
     'printenv*', 'env*', 'Get-ChildItem env:*', 'Get-Item env:*', 'Get-Content env:*')
 
 . (Join-Path $PSScriptRoot 'env-file.ps1')
@@ -74,8 +77,9 @@ function Write-HeadlessSettings([string] $stateDir) {
 
 # Runs one pass in the current directory. Returns @{ Code; Result } where Result is the parsed
 # final "type":"result" line (or the last JSON line carrying total_cost_usd), or $null.
-# $childEnv (from Get-ProviderEnv) is set for claude only and restored afterwards.
-function Invoke-ClaudeStream([string] $prompt, [string] $log, [string[]] $addDirs = @(), [Collections.IDictionary] $childEnv = @{}) {
+# $childEnv (from Get-ProviderEnv) is set for claude only and restored afterwards. $resumeSession
+# continues that claude session (a job resumed after a usage limit); a fake claude sees it as FACTORY_CLAUDE_RESUME.
+function Invoke-ClaudeStream([string] $prompt, [string] $log, [string[]] $addDirs = @(), [Collections.IDictionary] $childEnv = @{}, [string] $resumeSession = '') {
     $stateDir = $env:FACTORY_HOME
     $settings = Write-HeadlessSettings $stateDir
     New-Item -ItemType Directory -Force (Split-Path $log -Parent) | Out-Null
@@ -101,11 +105,13 @@ function Invoke-ClaudeStream([string] $prompt, [string] $log, [string[]] $addDir
     }
     try {
         if ($env:FACTORY_CLAUDE_CMD) {
-            & pwsh -NoProfile -Command $env:FACTORY_CLAUDE_CMD 2>&1 | & $sink
+            $env:FACTORY_CLAUDE_RESUME = $resumeSession
+            try { & pwsh -NoProfile -Command $env:FACTORY_CLAUDE_CMD 2>&1 | & $sink } finally { Remove-Item Env:FACTORY_CLAUDE_RESUME -ErrorAction SilentlyContinue }
         } else {
             $dirs = @($stateDir) + $addDirs | ForEach-Object { '--add-dir'; $_ }
             $plugins = Get-PluginDirs | ForEach-Object { '--plugin-dir'; $_ }
-            & claude -p $prompt @plugins --settings $settings @dirs `
+            $resume = if ($resumeSession) { '--resume', $resumeSession } else { @() }
+            & claude -p $prompt @resume @plugins --settings $settings @dirs `
                 --output-format stream-json --verbose --permission-mode acceptEdits 2>&1 | & $sink
         }
         $code = $LASTEXITCODE

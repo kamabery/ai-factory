@@ -385,11 +385,14 @@ has merged), and closing the session deletes the clone.
 | blocked | discarded | human `discard <id>`, as from `ready` | |
 | ready | approved | human `redeploy <id>`, for a job that reached `ready` from `deploy` before `blocked` existed (flag `github-permission`, `deploy-failed` or `escalated`). Sets `resume: "deploy"` and `approvedAt`, and `deploy.attempts` back to 0 | |
 | approved | deploy | runner; the job has `resume: "deploy"` and is next in the queue (as for `build`). Clears `resume`; `/factory run` then starts at its deploy step | |
+| approved | build / review / deploy / approve | runner; the job was queued by `resume`, its `resume` names this stage, and it is next in the queue. Clears `resume` and `resumeSession`, keeps `roundStart` and the reviews; the runner then continues the stopped claude session (see [Runner](#runner)) | |
 | approve | gate | `decision.md` first line is `Decision: APPROVE` | |
 | approve | ready | `Decision: ESCALATE` | `escalated` |
 | gate | ready | every gate command exited 0 (no flag), or any one did not. Run by the orchestrator, or by the runner when claude ended with the job in `gate` | `gate-failed` |
 | build / review / deploy | blocked | the job is deployable, and the orchestrator gives up or the runner's `claude` process ends with the job still here | `escalated` |
 | build / review / deploy / approve | ready | the job is not deployable (or is in `approve`, so its preview is up), and the orchestrator gives up or the runner's `claude` process ends with the job still here | `escalated` |
+| build / review / deploy / approve | blocked / ready | the runner's `claude` stopped on a usage limit (see [Runner](#runner)): `set-stage <id> ready -By runner -Reason usage-limit -Detail <result text> -Session <session id>`. `blocked` or `ready` as for `escalated`. The flag also holds `stage` (where it stopped) and `session` | `usage-limit` |
+| ready / blocked | approved | human `resume <id>`, when the flag is `usage-limit`. Sets `resume` to the flag's `stage`, `resumeSession` to its `session`, and `approvedAt`; round, reviews, `deploy.attempts` and `deployFixes` are unchanged | |
 | ready | done | human `merge`, or `sync-prs` after the human merged the PR on GitHub; see [Gate and merge](#gate-and-merge). Merges the PR (or records the GitHub merge) and deletes the work directory. A bootstrap job's merge moves its idea `waiting` → `drafting` and prints `released <ideaId>` | |
 | ready | ready | human `merge` refused: nothing to merge, uncommitted changes in the work directory, PR not mergeable / red gate | `merge-blocked` / `gate-failed` |
 | ready | approved | human `rework <id> <note>`; writes `jobs/<id>/rework-<n>.md`, round += 1, `deployFixes` back to 0, sets `approvedAt`. A `Scope +:` line in the note widens the spec (see [Build checks](#build-checks)) | |
@@ -412,10 +415,13 @@ stays in the Building column, so Ready for review means "there is a live preview
 not counted as building: the runner takes the next Approved job while a job is blocked, and the
 blocked job keeps its work directory, its PR (the runner publishes it) and its preview, which HCP's
 auto-destroy timer removes after 24 hours. Its flag is one of `max-rounds`, `deploy-fix-rounds`,
-`deploy-failed`, `environment`, `github-permission`, `out-of-scope`, `spec-stale` or `escalated`.
+`deploy-failed`, `environment`, `github-permission`, `out-of-scope`, `spec-stale`, `escalated` or
+`usage-limit`.
 
-The human has three ways out:
+The human has four ways out:
 
+- **Resume** (`resume`), for `usage-limit` only, once the limit has reset: the job goes back to the
+  stage it stopped in and the runner continues the same claude session, so nothing is re-run.
 - **Retry deploy** (`redeploy`), once the cause is fixed. Only for a job blocked from `deploy`; one
   blocked from `build` or `review` never had a passing round to deploy.
 - **Rework** with a note: a new round, as from Ready for review.
@@ -674,7 +680,8 @@ those lines and nothing else; if one is missing or malformed, the script treats 
 - `gate` is `null` until the gate runs, then `{ "build": 0, "test": 0, "ui": 0, "sha": "<branch head>", "at": "..." }`
   (process exit codes).
 - `flag` is `null` or `{ "reason": "<code from the table>", "detail": "<one line>" }`. Only a
-  `ready` or `blocked` job carries one.
+  `ready` or `blocked` job carries one. A `usage-limit` flag also has `"stage"` (the Building stage
+  claude stopped in) and `"session"` (claude's `session_id`).
 - `deployFixes` is the number of rounds started by `deploy-fix` since the last rework, 0..2; absent
   means 0. When the approver escalates, `read-decision` copies the decision's
   `## Escalation reason` section into the flag: its first line is `detail`, and the whole section
@@ -684,7 +691,9 @@ those lines and nothing else; if one is missing or malformed, the script treats 
   from `git diff --name-status --no-renames <sha>^1 <sha>` in the work directory after fetching the merge.
 - `pr` is `null` (or absent) until `publish` opens the job's pull request.
 - `resume` is absent (or `null`) except on an Approved job queued by `redeploy`, where it is `"deploy"`:
-  the runner moves that job to `deploy` instead of `build`, and clears it.
+  the runner moves that job to `deploy` instead of `build`, and clears it. A job queued by `resume`
+  has the stage it stopped in (`build`, `review`, `deploy` or `approve`) and `resumeSession`, the
+  claude session to continue; the runner moves it to that stage and clears both.
 - `deploy` is `null` (or absent) until the first `deploy`, then
   `{ "env": "j001", "workspace": "<repo>-j001", "workspaceId": "ws-...", "status": "applying|up|failed|destroying|down", "attempts": 1, "sha": "<deployed head>", "run": "<GitHub run url>", "urls": { "frontend": "...", "api": "...", "health": "..." }, "appliedAt": "...", "destroyAt": "...", "destroyStartedAt": "...", "destroyError": null, "destroyFailures": 0 }`. The last three exist once a destroy has started; a successful destroy clears the error and the count.
   `urls.frontend` is null for an API-only target. `destroyAt` is HCP's auto-destroy time; after it
@@ -809,7 +818,12 @@ The cap applies only to the container. Local files are kept.
 State resolves from `$env:FACTORY_HOME`, else `<main checkout>/.factory-runs` (found through
 `git rev-parse --git-common-dir` from this repo; the runner sets both for agents in a work directory). Writes to `board.json` are
 atomic (a temp file, then a rename; the rename is retried for up to 2 s while a reader such as
-`serve.ps1` holds the file). A refused command exits non-zero with a one-line reason on
+`serve.ps1` holds the file). Every command holds the board lock, a mutex named for the state
+directory, for its whole run, except around a long step (a gate command, a deploy or canary poll),
+after which it re-takes the lock and re-reads the board. A command that cannot take the lock within
+30 s (`FACTORY_BOARD_LOCK_SECONDS`) is refused (`board lock refused: another factory.ps1 has held
+the board for over <n> s`) rather than run unlocked, where its save could overwrite another
+command's. A refused command exits non-zero with a one-line reason on
 stderr and leaves the board unchanged.
 
 | Command | Used by |
@@ -822,10 +836,11 @@ stderr and leaves the board unchanged.
 | `rework <id> <note>` · `discard <id>` (both from `ready` or `blocked`) · `merge <id>` · `purge` | serve.ps1 (human drags, the blocked card's buttons, and **Clear**) |
 | `gate-check <id> [<name>]` (runs the spec's gate commands, or the one named, in the job's work directory exactly as `gate` does, and records nothing on the board; prints the output and exits with the first non-zero code; see [Gate and merge](#gate-and-merge)) · `provenance <id>` (prints this round's template-sourced paths) | the builder, the reviewers, the approver, `/factory run` |
 | `sync-prs` (moves each `ready` job whose PR was merged on GitHub to `done`; prints their ids) | serve.ps1 (PR sync) |
-| `next` (prints the next runnable approved id, or nothing; a deployable job is runnable only after a canary pass for the current fingerprint, and `next -NeedsCanary` prints `canary` when that is all that holds it back) · `checkout <id>` (creates the GitHub repo if needed, then clones or reuses `<work>\jobs\<id>` on `factory/<id>`, fetches, and points `factory/base` at the base branch; prints the work directory) · `publish <id>` (`ready` or `blocked`: pushes `factory/<id>` and opens the job's PR if it has none; prints the PR url) · `set-cost <id> <usd> <ms>` | runner.ps1 |
-| `set-stage <id> <to> [-By] [-Reason] [-Detail]` · `set-review <id> <role> <state>` · `read-reviews <id>` · `read-decision <id>` · `gate <id>` | `/factory run` |
-| `deploy <id>` (deploy only) · `deploy-log <id>` (prints the last failed attempt's log) · `deploy-fix <id> -File <diagnosis>` · `block <id> -Detail <line>` (both deploy only, after a failed attempt) | `/factory run`, the devops agent |
+| `next` (prints the next runnable approved id, or nothing; nothing at all while any job is flagged `usage-limit`, since the limit holds for every job until the human resumes; a deployable job is runnable only after a canary pass for the current fingerprint, and `next -NeedsCanary` prints `canary` when that is all that holds it back) · `checkout <id>` (creates the GitHub repo if needed, then clones or reuses `<work>\jobs\<id>` on `factory/<id>`, fetches, and points `factory/base` at the base branch; prints the work directory) · `publish <id>` (`ready` or `blocked`: pushes `factory/<id>` and opens the job's PR if it has none; prints the PR url) · `set-cost <id> <usd> <ms>` | runner.ps1 |
+| `set-stage <id> <to> [-By] [-Reason] [-Detail] [-Session]` · `set-review <id> <role> <state>` · `read-reviews <id>` · `read-decision <id>` · `gate <id>` | `/factory run` |
+| `deploy <id>` (deploy only) · `deploy-log <id>` (prints the last failed attempt's log) · `deploy-fix <id> -File <diagnosis>` · `block <id> -Detail <line>` (both deploy only, after a failed attempt) | `/factory run`, the devops agent (`deploy-log` also the approver) |
 | `redeploy <id>` (`blocked` from `deploy`, or `ready` from `deploy` before `blocked` existed: back to Approved with `resume: deploy` and a fresh attempt budget once the cause is fixed; the runner resumes it at deploy) | serve.ps1 (**Retry deploy**), a human |
+| `resume <id>` (`ready` or `blocked` with flag `usage-limit`: back to Approved, to continue its claude session in the stage it stopped in) | serve.ps1 (**Resume**), a human |
 | `canary [-Force]` (see [Canary](#canary)) | runner.ps1 (before a deployable job), serve.ps1 (**Run canary**), a human |
 | `destroy <id>` (any stage; a no-op without a preview) · `qa-login <id>` (prints the preview's QA user and password) | serve.ps1 (**Tear down**, **QA login**), and `merge`/`discard` |
 | `sweep` · `canary-destroy` (see [Deploy](#deploy) and [Canary](#canary)) | serve.ps1 at startup and runner.ps1 when it drains; `canary` and `sweep` start `canary-destroy` |
@@ -1194,6 +1209,7 @@ and a refused move snaps the card back and shows the message.
 | `POST /api/jobs/<id>/move` `{ "to": "done" }` | `merge` | |
 | `POST /api/jobs/<id>/move` `{ "to": "discarded" }` | `discard` | |
 | `POST /api/jobs/<id>/redeploy` | `redeploy` | **Retry deploy** on a blocked card; starts the runner |
+| `POST /api/jobs/<id>/resume` | `resume` | **Resume** on a card flagged `usage-limit`; starts the runner |
 | `POST /api/canary` | `canary -Force`, started detached | **Run canary** on the canary banner; 409 while `canary.lock` is held. The banner reads `/state/canary.json` and shows the error and the log link |
 | `POST /api/purge` | `purge` | |
 | `POST /api/jobs/<id>/destroy` | `destroy`, started detached | **Tear down** on a card with a live preview; answers at once, the card shows `destroying` until the board says `down` |
@@ -1242,7 +1258,7 @@ longer running. Otherwise it loops:
 1. `factory.ps1 next -NeedsCanary`. If it prints `canary`, the runner runs `factory.ps1 canary` and
    logs the outcome; after a pass it goes back to step 1, after a failure it takes only what plain
    `next` returns. If nothing comes back, it deletes the lock and exits.
-2. It calls `factory.ps1 set-stage <id> build -By runner`, then `factory.ps1 checkout <id>`, which
+2. It calls `factory.ps1 set-stage <id> build -By runner` (or the stage named by the job's `resume`), then `factory.ps1 checkout <id>`, which
    creates the GitHub repo if needed and clones or reuses `<work>\jobs\<id>` on `factory/<id>` (the
    pushed branch when the job is reworked, otherwise a new one from `origin/main`). It then fetches
    `origin` and points `refs/remotes/factory/base` at the job's base branch as it is now (`main`, or
@@ -1255,10 +1271,11 @@ longer running. Otherwise it loops:
    (`claude-run.ps1` builds this command for both scripts).
    - `headless-settings.json` `permissions.allow` lets agents run the toolchain (`dotnet`, `npm`,
      `npx`, `node`, `aspire`, `aspire-addon`, `terraform init -backend=false`, `terraform validate`,
-     `terraform test`, `terraform fmt`, and `curl` for the approver's smoke test), git reads and commits (`add`, `commit`, `rm`, `revert`), one merge (`git merge --no-edit factory/base`,
+     `terraform test`, `terraform fmt`, each also as `terraform -chdir=<dir> …`, and `curl` for the approver's smoke test), git reads and commits (`add`, `commit`, `rm`, `revert`), one merge (`git merge --no-edit factory/base`,
      and `git merge --abort`), and read-only shell commands, in both the Bash and the
      PowerShell tool; any other merge is unmatched and so refused, and `deny` blocks `git push`, `git merge main`/`origin…`, `rebase`, `reset --hard`, switching to
-     `main` and `git worktree`, and reading the environment (`printenv`, `env`, and
+     `main` and `git worktree`, `terraform … apply`/`plan`/`destroy` (a `-chdir=*` rule's wildcard would
+     otherwise match `terraform -chdir=x apply … validate`), and reading the environment (`printenv`, `env`, and
      `Get-ChildItem`/`Get-Item`/`Get-Content` on `env:`), which may hold credentials the human never meant an agent to read. `additionalDirectories` makes `factory/templates` and the template
      workspace readable. The allowlist also holds the absolute
      `factory.ps1` path. The skill calls `factory.ps1` by that absolute path with no
@@ -1278,7 +1295,14 @@ longer running. Otherwise it loops:
    non-zero or not, it escalates the job (`set-stage <id> ready -Reason escalated`, which lands a
    deployable job outside `approve` and `gate` in `blocked`). That way the queue never stalls. When claude's
    result line is an error (`is_error`), its text ends the flag detail (`claude exited with exit 1:
-   Credit balance is too low; see run-<n>.jsonl`), so the card says why. Once the job is
+   Credit balance is too low; see run-<n>.jsonl`), so the card says why. A **usage limit** is not an
+   escalation: when the result line has `api_error` `usage_limit_reached` (the subscription's limit)
+   or `api_error_status` 429 (a Foundry quota), the runner flags the job `usage-limit` with the
+   result text and its `session_id`, skips `publish` and `lesson` for it (the job is unfinished), and
+   ends the drain (`exit usage-limit`); `next` then holds the queue until the human resumes. A job
+   queued by `resume` runs as `claude -p --resume <resumeSession> "<continue prompt>"` with the same
+   plugins and settings, in the same work directory, so the orchestrator picks up where it stopped.
+   Once the job is
    in `ready` or `blocked`, it calls `factory.ps1 publish <id>`; a failed publish is logged (`publish <id>:
    <message>`) and leaves the job as it is, since `merge` publishes again. Then it calls
    `factory.ps1 lesson <id>` ([Lessons](#lessons)); a failure there is logged the same way. The runner runs
@@ -1289,7 +1313,7 @@ longer running. Otherwise it loops:
 6. It appends to `<stateDir>/runner.log`, one timestamped line each: `start pid=<pid>`,
    `take <id>`, `checkout <id> failed: <message>` (the job is then escalated with detail
    `work dir: <message>`), `claude <id> exit=<code> result=<yes|no>`, `stage <id> <stage>`,
-   `error <id>: <message>` followed by the stack, and how it ended: `exit drained`, `exit fatal: <message>`,
+   `error <id>: <message>` followed by the stack, and how it ended: `exit drained`, `exit usage-limit`, `exit fatal: <message>`,
    or `exit stopped` (interrupted, e.g. its console closed, before the loop finished).
 
 **Watchdog.** `serve.ps1` checks the board every 10 seconds (`-WatchdogSeconds`). If a job is in

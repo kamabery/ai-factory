@@ -26,7 +26,8 @@ param(
     [switch] $Json,
     [switch] $Force,
     [switch] $Full,
-    [switch] $NeedsCanary
+    [switch] $NeedsCanary,
+    [string] $Session
 )
 
 $ErrorActionPreference = 'Stop'
@@ -207,7 +208,11 @@ $Mutex = [Threading.Mutex]::new($false, "factory-board-$hash")
 # The board lock: the mutex serializes this machine, and in azure the lease on locks/board serializes
 # machines. -Seconds -1 waits as long as it takes (re-taking it after a gate, deploy or canary).
 function Enter-BoardLock([int] $Seconds = 30) {
-    try { $null = $Mutex.WaitOne($(if ($Seconds -lt 0) { -1 } else { $Seconds * 1000 })) } catch [Threading.AbandonedMutexException] { }
+    if ($Seconds -ge 0 -and $env:FACTORY_BOARD_LOCK_SECONDS) { $Seconds = [int]$env:FACTORY_BOARD_LOCK_SECONDS }
+    # A holder that died leaves the mutex abandoned, and ours. Timing out must refuse: running on
+    # unlocked, this command's save could overwrite another's.
+    $got = try { $Mutex.WaitOne($(if ($Seconds -lt 0) { -1 } else { $Seconds * 1000 })) } catch [Threading.AbandonedMutexException] { $true }
+    if (-not $got) { Fail "board lock refused: another factory.ps1 has held the board for over $Seconds s" }
     if (-not (State-IsAzure)) { return }
     $wait = if ($env:FACTORY_STATE_LOCK_SECONDS) { [int]$env:FACTORY_STATE_LOCK_SECONDS } elseif ($Seconds -lt 0) { 600 } else { $Seconds }
     try { $script:BoardLease = Enter-StateLease 'board' $wait } catch { $Mutex.ReleaseMutex(); Fail "$($_.Exception.Message)" }
@@ -407,8 +412,12 @@ function Read-FirstLine([string] $path) {
     $line.TrimEnd()
 }
 
+# A usage limit holds for every job, so the queue waits for the human's resume (see "Runner").
+function Usage-Limited { [bool]($Board.jobs | Where-Object { $_['flag'] -and $_.flag.reason -eq 'usage-limit' }) }
+
 function Next-Runnable {
     if ($Board.jobs | Where-Object { $_.stage -in $Building }) { return $null }
+    if (Usage-Limited) { return $null }
     $Board.jobs | Where-Object { $_.stage -eq 'approved' } |
         Sort-Object { $_.approvedAt }, { $_.id } | Select-Object -First 1
 }
@@ -436,6 +445,7 @@ function Is-Next($j) {
 # 'canary' when a deployable job is held back only because no canary has run for these inputs.
 function Next-Gated([bool] $needsCanary) {
     if ($Board.jobs | Where-Object { $_.stage -in $Building }) { return $null }
+    if (Usage-Limited) { return $null }
     $queue = @($Board.jobs | Where-Object { $_.stage -eq 'approved' } | Sort-Object { $_.approvedAt }, { $_.id })
     $state = $null
     foreach ($j in $queue) {
@@ -1077,6 +1087,17 @@ try {
             Move-Job $j 'approved' 'human'
         }
 
+        'resume' {
+            $j = Get-Job $Arg1
+            Require-Stage $j 'ready', 'blocked' 'resume'
+            if (-not ($j['flag'] -and $j.flag.reason -eq 'usage-limit')) { Fail "resume refused: $($j.id) is not flagged usage-limit (rework, redeploy or discard it)" }
+            # The orchestrator continues its own session where the limit stopped it; nothing is re-run.
+            $j.resume = $j.flag.stage
+            $j.resumeSession = $j.flag.session
+            $j.approvedAt = Now
+            Move-Job $j 'approved' 'human'
+        }
+
         'deploy-log' {
             $j = Get-Job $Arg1
             $logs = @(Get-ChildItem (JobDir $j.id) -Filter 'deploy-*.log' -ErrorAction SilentlyContinue | Sort-Object { [int]($_.BaseName -replace '\D', '') })
@@ -1146,6 +1167,16 @@ try {
             $to = $Arg2
             $by_ = if ($By) { $By } else { 'orchestrator' }
             switch ("$($j.stage)->$to") {
+                { $j.stage -eq 'approved' -and $j['resumeSession'] -and $to -in 'build', 'review', 'deploy', 'approve' } {
+                    # Queued by resume: back to the stage the usage limit stopped it in, as it was.
+                    if (-not (Is-Next $j)) { Fail "approved->$to refused: $($j.id) is not next in the queue, or a job is already building" }
+                    if ($j.resume -ne $to) { Fail "approved->$to refused: $($j.id) was resumed; it resumes at $($j.resume)" }
+                    $start = $j['roundStart']
+                    $j.resume = $null; $j.resumeSession = $null
+                    Move-Job $j $to $by_
+                    if ($start) { $j.roundStart = $start; Save-Board $Board }
+                    break
+                }
                 'approved->build' {
                     if (-not (Is-Next $j)) { Fail "approved->build refused: $($j.id) is not next in the queue, or a job is already building" }
                     if ($j['resume']) { Fail "approved->build refused: $($j.id) was redeployed; it resumes at $($j.resume)" }
@@ -1206,7 +1237,14 @@ try {
                     $j.stage
                 }
                 default {
-                    if ($to -eq 'ready' -and $j.stage -in $Building -and $Reason -eq 'escalated') {
+                    if ($to -eq 'ready' -and $j.stage -in 'build', 'review', 'deploy', 'approve' -and $Reason -eq 'usage-limit') {
+                        if (-not $Session) { Fail "usage-limit refused: $($j.id) needs -Session, the claude session to resume" }
+                        $from = $j.stage
+                        Move-Job $j (Escalation-Stage $j) $by_ 'usage-limit' $Detail
+                        $j.flag.stage = $from
+                        $j.flag.session = $Session
+                        Save-Board $Board
+                    } elseif ($to -eq 'ready' -and $j.stage -in $Building -and $Reason -eq 'escalated') {
                         Move-Job $j (Escalation-Stage $j) $by_ 'escalated' $Detail
                     } else {
                         Fail "transition $($j.stage)->$to refused (use the dedicated command, or see FACTORY-CONTRACT.md)"
