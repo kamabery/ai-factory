@@ -298,6 +298,12 @@ function Terraform-Error($boxed, [int] $at) {
     $blank = 0..($box.Count - 1) | Where-Object { -not $box[$_] } | Select-Object -First 1
     $summary = @($box[0..($(if ($blank) { $blank } else { $box.Count }) - 1)] | Where-Object { $_ }) -join ' '
     $detail = @($box | Where-Object { $_ -match '^(RESPONSE \d|ERROR CODE: |Message: )' })
+    # A provider-install failure's cause is a paragraph that Terraform wraps (J-029's registry timeout).
+    $install = 0..($box.Count - 1) | Where-Object { $box[$_] -match '^Error while installing ' } | Select-Object -First 1
+    if ($null -ne $install) {
+        $end = 0..($box.Count - 1) | Where-Object { $_ -gt $install -and -not $box[$_] } | Select-Object -First 1
+        $detail = @(@($box[$install..($(if ($end) { $end } else { $box.Count }) - 1)]) -join ' ') + $detail
+    }
     if ($detail) { "$($summary.TrimEnd(':')): $($detail -join '; ')" } else { $summary }
 }
 
