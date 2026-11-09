@@ -42,7 +42,9 @@ and `...\build-your-own-ai-software-factory-with-claude-code.md`. How to build t
   made by a human session, not by `/factory`.
 - **Previews are never production.** The deploy stage applies only `j<NNN>` previews; dev and
   staging are ready to deploy by hand, and nothing in the factory deploys prod.
-- **Tests are seen red before green.** The factory scripts are tested with Pester
+- **Tests are seen red before green**, and follow `docs/TESTING.md`: unit-first .NET (DI, NSubstitute,
+  AutoFixture, coverage gates), Pester as the port's oracle, and Playwright as a smoke set on every PR
+  with the whole suite on demand. The factory scripts are tested with Pester
   (`Invoke-Pester factory/tests`) and the dashboard with a Playwright check against `simulate.ps1`.
 
 ## Commands
@@ -52,7 +54,9 @@ pwsh factory/scripts/serve.ps1               # dashboard on a random localhost p
 pwsh factory/scripts/idea.ps1 <owner/name|I-NNN> # CLI fallback for the dashboard's New idea: grill -> brief -> specs -> you approve
 pwsh factory/scripts/runner.ps1              # drains the Approved queue; serve.ps1 starts it for you (after step 2)
 Invoke-Pester factory/tests                  # control-plane, runner, idea-turn and serve tests (after steps 1-2)
-pwsh factory/tests/run-all.ps1               # the same plus the azure backend run, one process per file in parallel; what CI runs
+pwsh factory/tests/run-all.ps1               # the same plus the azure backend run, one process per Pester block in parallel
+cd factory/tests/dashboard; npx playwright test --grep @smoke   # the dashboard smoke set every PR runs; drop --grep for the whole suite
+gh workflow run full.yml -f suites=all       # the whole Pester and Playwright suites in CI (docs/TESTING.md)
 $env:FACTORY_TEST_STATE='azure'; Invoke-Pester factory/tests/factory.Tests.ps1   # the same on the azure state backend (blob stub)
 pwsh factory/scripts/factory.ps1 state-migrate | allow-ip | prune   # FACTORY_STATE=azure: state in Blob storage (docs/STATE.md)
 pwsh factory/scripts/setup-platform.ps1                # the shared platform previews run on, ~$18/month (docs/DEPLOY.md)
