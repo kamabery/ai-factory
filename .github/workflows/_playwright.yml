@@ -39,8 +39,9 @@ jobs:
         env:
           GREP: ${{ inputs.grep }}
         run: if ($env:GREP) { npx playwright test --grep $env:GREP } else { npx playwright test }
+      # Always: a passing run's timeline (how long a move waited, and on what) is evidence too.
       - uses: actions/upload-artifact@v4
-        if: failure()
+        if: always()
         with:
           name: playwright-results
           # .factory-runs-sim is a dot-folder, which upload-artifact v4.4+ skips unless told.
