@@ -208,7 +208,11 @@ $Mutex = [Threading.Mutex]::new($false, "factory-board-$hash")
 # The board lock: the mutex serializes this machine, and in azure the lease on locks/board serializes
 # machines. -Seconds -1 waits as long as it takes (re-taking it after a gate, deploy or canary).
 function Enter-BoardLock([int] $Seconds = 30) {
-    try { $null = $Mutex.WaitOne($(if ($Seconds -lt 0) { -1 } else { $Seconds * 1000 })) } catch [Threading.AbandonedMutexException] { }
+    if ($Seconds -ge 0 -and $env:FACTORY_BOARD_LOCK_SECONDS) { $Seconds = [int]$env:FACTORY_BOARD_LOCK_SECONDS }
+    # A holder that died leaves the mutex abandoned, and ours. Timing out must refuse: running on
+    # unlocked, this command's save could overwrite another's.
+    $got = try { $Mutex.WaitOne($(if ($Seconds -lt 0) { -1 } else { $Seconds * 1000 })) } catch [Threading.AbandonedMutexException] { $true }
+    if (-not $got) { Fail "board lock refused: another factory.ps1 has held the board for over $Seconds s" }
     if (-not (State-IsAzure)) { return }
     $wait = if ($env:FACTORY_STATE_LOCK_SECONDS) { [int]$env:FACTORY_STATE_LOCK_SECONDS } elseif ($Seconds -lt 0) { 600 } else { $Seconds }
     try { $script:BoardLease = Enter-StateLease 'board' $wait } catch { $Mutex.ReleaseMutex(); Fail "$($_.Exception.Message)" }

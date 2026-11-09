@@ -222,6 +222,28 @@ Describe 'board writes' {
         $p.ExitCode | Should -Be 0
         (Job $id).stage | Should -Be 'approved'
     }
+
+    It 'refuses a command that cannot take the board lock in time, rather than running unlocked' {
+        $id = New-BacklogJob
+        # Another factory.ps1 holding the board: the same named mutex, from another process.
+        $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($env:FACTORY_HOME.ToLowerInvariant()))).Substring(0, 16)
+        $ready = Join-Path $TestDrive "held-$hash"
+        $holder = Start-Process pwsh -PassThru -WindowStyle Hidden -ArgumentList '-NoProfile', '-Command',
+            "`$m = [Threading.Mutex]::new(`$false, 'factory-board-$hash'); `$null = `$m.WaitOne(); Set-Content '$ready' x; Start-Sleep 30"
+        try {
+            $deadline = (Get-Date).AddSeconds(15)
+            while (-not (Test-Path $ready) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 100 }
+            Test-Path $ready | Should -BeTrue
+            $env:FACTORY_BOARD_LOCK_SECONDS = '1'
+            $err = & pwsh -NoProfile -File $script:Factory approve $id 2>&1 | Out-String
+            $LASTEXITCODE | Should -Not -Be 0
+            $err | Should -Match 'board lock refused: another factory\.ps1 has held the board for over 1 s'
+        } finally {
+            Remove-Item Env:FACTORY_BOARD_LOCK_SECONDS -ErrorAction SilentlyContinue
+            Stop-Process -Id $holder.Id -Force -ErrorAction SilentlyContinue
+        }
+        (Job $id).stage | Should -Be 'backlog'
+    }
 }
 
 Describe 'illegal transitions' {
