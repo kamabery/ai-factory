@@ -89,7 +89,12 @@ $run = {
     [pscustomobject]@{
         Passed = $r.PassedCount; Failed = $r.FailedCount; Skipped = $r.SkippedCount; Seconds = [int]$sw.Elapsed.TotalSeconds
         FailedTests = @($r.Failed | ForEach-Object { $_.ExpandedPath })
-        RunError = if ($r.Result -eq 'Failed' -and $r.FailedCount -eq 0) { "$($r.FailedBlocksCount) block(s) failed to run" } else { $null }
+        # A failed run with no failed test is a block or the file's own BeforeAll/AfterAll erroring:
+        # name what threw, since the verbosity is None.
+        RunError = if ($r.Result -eq 'Failed' -and $r.FailedCount -eq 0) {
+            $errs = @(@($r.FailedBlocks) + @($r.FailedContainers) | ForEach-Object { $_.ErrorRecord } | Where-Object { $_ } | ForEach-Object { "$($_.Exception.Message)" })
+            "$($r.FailedBlocksCount) block(s) and $($r.FailedContainersCount) file(s) failed to run: $(if ($errs) { $errs -join ' | ' } else { 'no error recorded' })"
+        } else { $null }
     }
 }
 

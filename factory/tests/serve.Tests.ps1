@@ -61,7 +61,13 @@ BeforeAll {
             '-StateDir', $script:State, '-EnvFile', $envFile -PassThru -WindowStyle Hidden
         Wait-Http "http://localhost:$script:Port/"
     }
-    function Stop-Serve { if ($script:Serve -and -not $script:Serve.HasExited) { Stop-Process -Id $script:Serve.Id -Force } }
+    # The whole tree: serve.ps1 starts the runner detached, and a runner (or its git) left running in
+    # the job's work dir kept Pester from deleting TestDrive ("Framework failed", PR #7).
+    function Stop-Serve {
+        if (-not $script:Serve -or $script:Serve.HasExited) { return }
+        if ($IsWindows) { & taskkill /T /F /PID $script:Serve.Id 2>&1 | Out-Null } else { Stop-Process -Id $script:Serve.Id -Force }
+        $script:Serve.WaitForExit(10000) | Out-Null
+    }
     function Api([string] $method, [string] $path, $body, [string] $type = 'application/json') {
         $b = if ($null -eq $body) { $null } elseif ($type -eq 'application/json') { $body | ConvertTo-Json -Depth 10 } else { $body }
         $r = Invoke-WebRequest -Method $method "http://localhost:$script:Port$path" -Body $b -ContentType $type -SkipHttpErrorCheck

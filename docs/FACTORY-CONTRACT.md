@@ -819,8 +819,9 @@ State resolves from `$env:FACTORY_HOME`, else `<main checkout>/.factory-runs` (f
 `git rev-parse --git-common-dir` from this repo; the runner sets both for agents in a work directory). Writes to `board.json` are
 atomic (a temp file, then a rename; the rename is retried for up to 2 s while a reader such as
 `serve.ps1` holds the file). Every command holds the board lock, a mutex named for the state
-directory, for its whole run, except around a long step (a gate command, a deploy or canary poll),
-after which it re-takes the lock and re-reads the board. A command that cannot take the lock within
+directory, for its whole run, except around a long step (a gate command, a deploy or canary poll,
+or `checkout`'s clone and fetch of the job's work directory, which nothing else touches while the
+job is in an active stage), after which it re-takes the lock and re-reads the board. A command that cannot take the lock within
 30 s (`FACTORY_BOARD_LOCK_SECONDS`) is refused (`board lock refused: another factory.ps1 has held
 the board for over <n> s`) rather than run unlocked, where its save could overwrite another
 command's. A refused command exits non-zero with a one-line reason on

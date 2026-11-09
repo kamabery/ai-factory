@@ -326,8 +326,26 @@ if (($args -join ' ') -notmatch 'get-access-token --resource https://ai\.azure\.
         Set-Replies (Reply @((Text 'ok')))
         $dir = New-Session
         $fs = [IO.File]::Open((Join-Path $dir 'session.json'), 'Open', 'Read', 'Read')
-        $job = Start-ThreadJob -ArgumentList $fs { param($f) Start-Sleep -Milliseconds 700; $f.Dispose() }
-        try { Run-Turn } finally { $job | Wait-Job | Remove-Job; $fs.Dispose() }
+        # Release once the writer is retrying (its temp file exists), well inside its ~2 s of retries.
+        # Compiled, on a plain .NET thread: a thread job first builds a runspace, which on a loaded CI
+        # runner took longer than the writer's retries (PR #7), as did a fixed 700 ms sleep before it.
+        if (-not ('ReleaseWhenRetried' -as [type])) {
+            Add-Type -TypeDefinition @'
+using System; using System.IO; using System.Threading; using System.Threading.Tasks;
+public static class ReleaseWhenRetried {
+    public static Task Start(FileStream held, string dir) {
+        return Task.Run(() => {
+            var until = DateTime.UtcNow.AddSeconds(60);
+            while (Directory.GetFiles(dir, "session.json.*.tmp").Length == 0 && DateTime.UtcNow < until) Thread.Sleep(20);
+            Thread.Sleep(300);
+            held.Dispose();
+        });
+    }
+}
+'@
+        }
+        $release = [ReleaseWhenRetried]::Start($fs, $dir)
+        try { Run-Turn } finally { $release.Wait(65000) | Out-Null; $fs.Dispose() }
         (Session).status | Should -Be 'idle'
         @(Chat).Count | Should -Be 2
     }

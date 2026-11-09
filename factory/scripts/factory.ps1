@@ -930,15 +930,28 @@ try {
 
         'checkout' {
             $j = Get-Job $Arg1
-            $err = Ensure-Clone $j.id
-            if ($err) { Fail $err }
-            # factory/base is the job's base branch as it is now, for the builder to merge in: agents
-            # have no PAT to fetch with, and a branch cut before another job merged is stale (J-022).
             $wt = WorkDir $j
-            $r = Invoke-GitAuth $wt fetch -q origin
-            if ($r.Code -ne 0) { Fail "checkout: fetch failed: $($r.Out)" }
-            $r = Invoke-Git $wt update-ref refs/remotes/factory/base "refs/remotes/origin/$(Base-Branch $j)"
-            if ($r.Code -ne 0) { Fail "checkout: cannot set factory/base: $($r.Out)" }
+            # The clone and fetch are a long step: the board is released around them, so a dashboard
+            # move doesn't wait them out (CI: ~12 s) or, on a big repo, time out on the lock.
+            Exit-BoardLock
+            try {
+                $err = Ensure-Clone $j.id
+                # factory/base is the job's base branch as it is now, for the builder to merge in: agents
+                # have no PAT to fetch with, and a branch cut before another job merged is stale (J-022).
+                if (-not $err) {
+                    $r = Invoke-GitAuth $wt fetch -q origin
+                    if ($r.Code -ne 0) { $err = "checkout: fetch failed: $($r.Out)" }
+                }
+                if (-not $err) {
+                    $r = Invoke-Git $wt update-ref refs/remotes/factory/base "refs/remotes/origin/$(Base-Branch $j)"
+                    if ($r.Code -ne 0) { $err = "checkout: cannot set factory/base: $($r.Out)" }
+                }
+            } finally {
+                Enter-BoardLock -1
+                $script:Board = Load-Board
+            }
+            if ($err) { Fail $err }
+            $j = Get-Job $Arg1
             # The round's start, for the provenance check: the first checkout of a build round only.
             if ($j.stage -eq 'build' -and -not $j['roundStart']) {
                 $j.roundStart = (Invoke-Git $wt rev-parse HEAD).Out
