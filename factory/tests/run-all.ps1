@@ -16,6 +16,7 @@
   pwsh factory/tests/run-all.ps1 -ResultDir out     # also NUnit XML per unit
   pwsh factory/tests/run-all.ps1 -Shard 2/4         # the second of four shards (split a run across machines)
   pwsh factory/tests/run-all.ps1 -Tag Ported        # the ported commands' blocks, on PowerShell and on .NET
+  pwsh factory/tests/run-all.ps1 -Impl dotnet       # everything, with the ported commands on .NET (FACTORY_IMPL)
 #>
 param(
     # The tests mostly wait on process starts and git, not CPU, so one unit per core.
@@ -28,7 +29,9 @@ param(
     # Print the units this run would take, and exit.
     [switch] $List,
     # Only the blocks with this tag, each run twice: FACTORY_IMPL=ps and dotnet (roadmap spec 01).
-    [string] $Tag
+    [string] $Tag,
+    # Without -Tag: the implementation every unit runs (FACTORY_IMPL); the default is PowerShell's.
+    [ValidateSet('ps', 'dotnet')] [string] $Impl
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
@@ -54,7 +57,7 @@ foreach ($file in Get-ChildItem $PSScriptRoot -Filter '*.Tests.ps1') {
         foreach ($u in Get-Units $root) {
             if ($Tag -and $u.Tags -notcontains $Tag) { continue }
             foreach ($s in $states) {
-                foreach ($impl in $(if ($Tag) { 'ps', 'dotnet' } else { '' })) {
+                foreach ($impl in $(if ($Tag) { 'ps', 'dotnet' } elseif ($Impl) { $Impl } else { '' })) {
                     $label = "$($file.Name) | $($u.Path) | $s" + $(if ($impl) { " | $impl" })
                     $units += [pscustomobject]@{ File = $file.FullName; Name = $file.Name; Filter = $u.Filter; Path = $u.Path; State = $s; Impl = $impl; Tests = $u.Tests; Label = $label
                         Last = if ($lastTimes.ContainsKey($label)) { [int]$lastTimes[$label] } else { $u.Tests } }
@@ -81,7 +84,7 @@ if ($Shard) {
 if ($List) { $units | ForEach-Object { '{0,5} {1,4}  {2}' -f $_.Last, $_.Tests, $_.Label }; exit 0 }
 if ($Tag -and -not $units) { throw "no test block is tagged '$Tag'" }
 # FACTORY_IMPL=dotnet runs the CLI factory.ps1 forwards to; build it once, before the units start.
-if ($Tag) {
+if ($Tag -or $Impl -eq 'dotnet') {
     dotnet build (Join-Path $repo 'src/factory/Factory.Cli/Factory.Cli.csproj') -v q -nologo
     if ($LASTEXITCODE) { throw 'dotnet build of Factory.Cli failed' }
 }

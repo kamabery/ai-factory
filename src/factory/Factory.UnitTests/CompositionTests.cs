@@ -8,27 +8,36 @@ namespace Factory.UnitTests;
 
 public class CompositionTests
 {
+    private static CliEnvironment Host(Dictionary<string, string?>? env = null, string newLine = "\n") =>
+        new(env ?? [], "w", newLine, "/appdata", "/tmp", "/nowhere");
+
     [Fact]
     public void The_container_builds_validated_and_resolves_every_service()
     {
-        var services = new ServiceCollection().AddFactoryCli(new Dictionary<string, string?>(), "/", "\n", "/appdata");
+        var services = new ServiceCollection().AddFactoryCli(Host());
 
         using var provider = Composition.Build(services);
 
         foreach (var d in services.Where(d => !d.ServiceType.IsGenericTypeDefinition))
             Assert.NotNull(provider.GetRequiredService(d.ServiceType));
-        Assert.Contains(provider.GetServices<ICommand>(), c => c.Name == "status");
+        Assert.Equal(
+            ["approve", "edit-spec", "event", "purge", "read-decision", "read-reviews", "rework", "set-review", "set-stage", "status"],
+            provider.GetServices<ICommand>().Select(c => c.Name).Order());
     }
 
     [Fact]
     public void Binds_the_factory_settings_from_the_environment()
     {
-        var env = new Dictionary<string, string?> { ["FACTORY_HOME"] = "h", ["FACTORY_REPO"] = "r", ["FACTORY_ENV_FILE"] = "e" };
+        var env = new Dictionary<string, string?>
+        {
+            ["FACTORY_HOME"] = "h", ["FACTORY_REPO"] = "r", ["FACTORY_ENV_FILE"] = "e", ["FACTORY_WORK"] = "wk",
+            ["FACTORY_TEMPLATES"] = "t", ["FACTORY_SCRIPTS"] = "s",
+        };
 
-        using var provider = Composition.Build(new ServiceCollection().AddFactoryCli(env, "w", "\r\n", "/appdata"));
+        using var provider = Composition.Build(new ServiceCollection().AddFactoryCli(Host(env, "\r\n")));
 
         var o = provider.GetRequiredService<IOptions<FactoryOptions>>().Value;
-        Assert.Equal(("h", "r", "w", "e"), (o.Home, o.Repo, o.WorkingDirectory, o.EnvFile));
+        Assert.Equal(("h", "r", "w", "e", "wk", "t", "s", "/tmp"), (o.Home, o.Repo, o.WorkingDirectory, o.EnvFile, o.Work, o.Templates, o.Scripts, o.TempPath));
         Assert.Equal("\r\n", provider.GetRequiredService<IOptions<CliOptions>>().Value.NewLine);
     }
 
@@ -42,7 +51,7 @@ public class CompositionTests
             ["FACTORY_AZ_CMD"] = "a", ["IDENTITY_ENDPOINT"] = "ie", ["IDENTITY_HEADER"] = "ih",
         };
 
-        using var provider = Composition.Build(new ServiceCollection().AddFactoryCli(env, "w", "\n", "/appdata"));
+        using var provider = Composition.Build(new ServiceCollection().AddFactoryCli(Host(env)));
 
         var o = provider.GetRequiredService<IOptions<StateOptions>>().Value;
         Assert.Equal(("azure", "u", "9", "t", "l", "1", "2", "a", "ie", "ih"),
@@ -50,10 +59,11 @@ public class CompositionTests
     }
 
     [Fact]
-    public void The_token_cache_defaults_to_the_app_data_folder()
+    public void The_token_cache_defaults_to_the_app_data_folder_and_empty_settings_count_as_unset()
     {
-        using var provider = Composition.Build(new ServiceCollection().AddFactoryCli(new Dictionary<string, string?>(), "w", "\n", "/appdata"));
+        using var provider = Composition.Build(new ServiceCollection().AddFactoryCli(Host(new() { ["FACTORY_LOCAL_DIR"] = "", ["FACTORY_HOME"] = "" })));
 
         Assert.Equal(Path.Combine("/appdata", "ai-factory"), provider.GetRequiredService<IOptions<StateOptions>>().Value.LocalDir);
+        Assert.Null(provider.GetRequiredService<IOptions<FactoryOptions>>().Value.Home);
     }
 }

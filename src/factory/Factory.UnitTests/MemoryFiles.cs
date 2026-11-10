@@ -37,5 +37,20 @@ public sealed class MemoryFiles : IFileStore
             .OrderBy(kv => kv.Key, StringComparer.Ordinal)
             .Select(kv => new LocalFile(kv.Key, kv.Value.Bytes.Length, kv.Value.Ticks))];
 
+    public bool DirectoryExists(string path) =>
+        Directories.Contains(path, StringComparer.OrdinalIgnoreCase) || _files.Keys.Any(k => k.StartsWith(path + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Paths <see cref="DeleteDirectory"/> refuses, as a locked file would.</summary>
+    public HashSet<string> Locked { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public void DeleteDirectory(string path)
+    {
+        if (Locked.Contains(path)) throw new IOException($"The process cannot access the file because it is being used by another process: '{path}'");
+        foreach (var k in _files.Keys.Where(k => k.StartsWith(path + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList()) _files.Remove(k);
+        Directories.RemoveAll(d => string.Equals(d, path, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public void CopyFile(string from, string to) => Set(to, ReadBytes(from) ?? throw new FileNotFoundException(from));
+
     private void Set(string path, byte[] bytes) => _files[path] = (bytes, ++_clock);
 }

@@ -25,4 +25,12 @@ public interface IFileStore
 
     /// <summary>Every file under <paramref name="root"/>, hidden ones too; empty when the folder does not exist.</summary>
     IReadOnlyList<LocalFile> Files(string root);
+
+    bool DirectoryExists(string path);
+
+    /// <summary>Deletes a folder and everything in it, read-only files too (git's objects); a missing one is fine. Throws on a locked file.</summary>
+    void DeleteDirectory(string path);
+
+    /// <summary>Copies a file over <paramref name="to"/>, creating its folder.</summary>
+    void CopyFile(string from, string to);
 }

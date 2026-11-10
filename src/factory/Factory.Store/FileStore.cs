@@ -48,4 +48,21 @@ public sealed class FileStore : IFileStore
         var all = new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = 0, IgnoreInaccessible = true };
         return [.. d.EnumerateFiles("*", all).Select(f => new LocalFile(f.FullName, f.Length, f.LastWriteTimeUtc.Ticks))];
     }
+
+    public bool DirectoryExists(string path) => Directory.Exists(path);
+
+    public void DeleteDirectory(string path)
+    {
+        var d = new DirectoryInfo(path);
+        if (!d.Exists) return;
+        foreach (var f in d.EnumerateFiles("*", new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = 0 }))
+            if (f.IsReadOnly) f.IsReadOnly = false;
+        d.Delete(true);
+    }
+
+    public void CopyFile(string from, string to)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(to))!);
+        File.Copy(from, to, true);
+    }
 }

@@ -57,6 +57,7 @@ pwsh factory/scripts/runner.ps1              # drains the Approved queue; serve.
 Invoke-Pester factory/tests                  # control-plane, runner, idea-turn and serve tests (after steps 1-2)
 pwsh factory/tests/run-all.ps1               # the same plus the azure backend run, one process per Pester block in parallel
 pwsh factory/tests/run-all.ps1 -Tag Ported -NoAzure   # the ported commands' Pester blocks, on PowerShell and on .NET (FACTORY_IMPL)
+pwsh factory/tests/run-all.ps1 -Impl dotnet           # the whole Pester suite with the ported commands on .NET
 pwsh src/factory/test.ps1                    # the .NET port: unit + integration tests, tier counts, coverage gates
 cd factory/tests/dashboard; npx playwright test --grep @smoke   # the dashboard smoke set; drop --grep for the whole suite
 $env:FACTORY_TEST_STATE='azure'; Invoke-Pester factory/tests/factory.Tests.ps1   # the same on the azure state backend (blob stub)

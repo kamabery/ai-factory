@@ -1,6 +1,6 @@
 # 03: Factory.Store, file and blob backends
 
-**Status:** built on its branch (2026-11-10), not yet merged. D2 taken as recommended: the file and
+**Status:** done, merged in PR #11 (2026-11-10). D2 taken as recommended: the file and
 blob backends ported as they are, EF Core in 13. Proven locally: 334 .NET tests (303 unit, 31
 integration, 23 of them new against `blob-stub.ps1`), gates Core 98.0%, Store 98.7%, Cli 94.2%; the
 `Ported` Pester blocks pass under both implementations on both backends, including the whole of

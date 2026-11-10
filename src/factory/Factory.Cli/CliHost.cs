@@ -8,8 +8,9 @@ public static class CliHost
     public static int Run(IReadOnlyList<string> args, IReadOnlyDictionary<string, string?> env, string workingDirectory,
         TextWriter stdout, TextWriter stderr)
     {
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        using var provider = Composition.Build(new ServiceCollection().AddFactoryCli(env, workingDirectory, stdout.NewLine, appData));
+        var host = new CliEnvironment(env, workingDirectory, stdout.NewLine,
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), Path.GetTempPath(), AppContext.BaseDirectory);
+        using var provider = Composition.Build(new ServiceCollection().AddFactoryCli(host));
         var r = provider.GetRequiredService<CliApp>().Run(args);
         foreach (var line in r.Out) stdout.WriteLine(line);
         foreach (var line in r.Err) stderr.WriteLine(line);

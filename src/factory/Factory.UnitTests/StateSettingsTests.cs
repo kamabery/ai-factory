@@ -18,7 +18,7 @@ public class StateSettingsTests
         paths.EnvFile.Returns(envFile is null ? null : "x.env");
         var files = Substitute.For<IFileStore>();
         files.ReadText("x.env").Returns(envFile);
-        return new StateSettings(Options.Create(o), paths, files);
+        return new StateSettings(Options.Create(o), paths, new DotEnv(paths, files));
     }
 
     [Fact]
@@ -60,12 +60,12 @@ public class StateSettingsTests
     }
 
     [Fact]
-    public void Reads_env_once()
+    public void Reads_env_once_through_DotEnv()
     {
         var paths = Substitute.For<IFactoryPaths>();
         paths.EnvFile.Returns("x.env");
         var files = Substitute.For<IFileStore>();
-        var s = new StateSettings(Options.Create(new StateOptions()), paths, files);
+        var s = new StateSettings(Options.Create(new StateOptions()), paths, new DotEnv(paths, files));
 
         _ = s.IsAzure;
         _ = s.Cap;

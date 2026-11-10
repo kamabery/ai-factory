@@ -69,6 +69,34 @@ public class FileStoreTests
     }
 
     [Fact]
+    public void Deletes_a_folder_with_read_only_files_in_it_and_a_missing_one_is_fine()
+    {
+        using var dir = new TempDir();
+        Directory.CreateDirectory(dir["clone/.git/objects"]);
+        File.WriteAllText(dir["clone/.git/objects/ab"], "x");
+        File.SetAttributes(dir["clone/.git/objects/ab"], FileAttributes.ReadOnly);
+
+        Assert.True(_store.DirectoryExists(dir["clone"]));
+        _store.DeleteDirectory(dir["clone"]);
+        _store.DeleteDirectory(dir["clone"]);
+
+        Assert.False(_store.DirectoryExists(dir["clone"]));
+    }
+
+    [Fact]
+    public void Copies_a_file_over_another_creating_its_folder()
+    {
+        using var dir = new TempDir();
+        File.WriteAllText(dir["a.md"], "one");
+
+        _store.CopyFile(dir["a.md"], dir["x/y/b.md"]);
+        File.WriteAllText(dir["a.md"], "two");
+        _store.CopyFile(dir["a.md"], dir["x/y/b.md"]);
+
+        Assert.Equal("two", File.ReadAllText(dir["x/y/b.md"]));
+    }
+
+    [Fact]
     public void Appends_utf8_without_a_byte_order_mark()
     {
         using var dir = new TempDir();

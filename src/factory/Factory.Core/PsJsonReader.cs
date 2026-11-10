@@ -9,7 +9,7 @@ namespace Factory.Core;
 /// a missing key is null, strings compare without case (PowerShell's -eq, -in), and a value interpolates
 /// as PowerShell prints it.
 /// </summary>
-internal static class PsJsonReader
+public static class PsJsonReader
 {
     public static bool Is(string? a, string? b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 

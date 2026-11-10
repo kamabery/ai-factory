@@ -98,7 +98,7 @@ touches and put the counts in the PR description:
 | The PR touches | Run |
 | --- | --- |
 | `src/factory/**` | `pwsh src/factory/test.ps1` (unit + integration, tier counts, coverage gates) |
-| `factory/scripts/**`, `factory/plugin/**`, `factory/tests/*.ps1`, `factory/tests/fixtures/**` or `src/factory/**` | `pwsh factory/tests/run-all.ps1` (the whole Pester suite, local and azure, about 18 minutes). While porting, `-Tag Ported` is the quick loop |
+| `factory/scripts/**`, `factory/plugin/**`, `factory/tests/*.ps1`, `factory/tests/fixtures/**` or `src/factory/**` | `pwsh factory/tests/run-all.ps1` (the whole Pester suite, local and azure, about 18 minutes). While porting, `-Tag Ported` is the quick loop, and a PR that forwards a command also runs `-Impl dotnet` (every caller of it, on .NET) |
 | the dashboard or `serve.ps1` | the Playwright `@smoke` set; the whole suite for dashboard work |
 | only `docs/**` or root `*.md` | nothing |
 
@@ -109,6 +109,7 @@ cd factory/tests/dashboard; npx playwright test --grep @smoke   # the smoke set
 cd factory/tests/dashboard; npx playwright test                 # the whole e2e suite
 pwsh factory/tests/run-all.ps1                                  # the whole Pester suite, in parallel
 pwsh factory/tests/run-all.ps1 -Tag Ported -NoAzure              # the ported commands' blocks, FACTORY_IMPL=ps and dotnet
+pwsh factory/tests/run-all.ps1 -Impl dotnet                      # the whole suite with the ported commands on .NET
 pwsh src/factory/test.ps1                                        # .NET unit + integration, tier counts, coverage gates
 ```
 

@@ -5,7 +5,7 @@ using Microsoft.Extensions.Options;
 
 namespace Factory.Store;
 
-/// <summary>FACTORY_HOME, else &lt;main checkout&gt;/.factory-runs (factory.ps1's Get-MainRoot).</summary>
+/// <summary>FACTORY_HOME, else &lt;main checkout&gt;/.factory-runs (factory.ps1's Get-MainRoot), and the folders around it.</summary>
 public sealed class FactoryPaths(IOptions<FactoryOptions> options, IGitClient git) : IFactoryPaths
 {
     private readonly FactoryOptions _o = options.Value;
@@ -18,6 +18,17 @@ public sealed class FactoryPaths(IOptions<FactoryOptions> options, IGitClient gi
     // factory.ps1 refuses outside a repository even with FACTORY_HOME set, because it always looks for .env;
     // here a missing main checkout only means no .env.
     public string? EnvFile => !string.IsNullOrEmpty(_o.EnvFile) ? _o.EnvFile : MainRootOrNull() is { } root ? Path.Combine(root, ".env") : null;
+
+    public string JobDir(string id) => Path.Combine(Home, "jobs", id);
+
+    public string WorkDir(string id) => Path.Combine(string.IsNullOrEmpty(_o.Work) ? Path.Combine(_o.TempPath, "ai-factory") : _o.Work, "jobs", id);
+
+    public string ScriptsDir => !string.IsNullOrEmpty(_o.Scripts) ? _o.Scripts
+        : throw new FactoryException("cannot find factory/scripts above the .NET CLI; set FACTORY_SCRIPTS");
+
+    // factory/scripts -> factory -> the repo -> its parent, where template-projects sits beside it.
+    public string TemplatesRoot => !string.IsNullOrEmpty(_o.Templates) ? _o.Templates
+        : Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetFullPath(ScriptsDir))!)!)!, "template-projects");
 
     private string Resolve()
     {
