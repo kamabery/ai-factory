@@ -13,8 +13,9 @@
 .EXAMPLE
   pwsh factory/tests/run-all.ps1                    # everything, local + azure
   pwsh factory/tests/run-all.ps1 -NoAzure -Throttle 4
-  pwsh factory/tests/run-all.ps1 -ResultDir out     # also NUnit XML per unit (CI)
-  pwsh factory/tests/run-all.ps1 -Shard 2/4         # the second of four shards (a CI matrix job)
+  pwsh factory/tests/run-all.ps1 -ResultDir out     # also NUnit XML per unit
+  pwsh factory/tests/run-all.ps1 -Shard 2/4         # the second of four shards (split a run across machines)
+  pwsh factory/tests/run-all.ps1 -Tag Ported        # the ported commands' blocks, on PowerShell and on .NET
 #>
 param(
     # The tests mostly wait on process starts and git, not CPU, so one unit per core.
@@ -25,7 +26,9 @@ param(
     # to the shard with the least time so far), so the n shards together run every unit once.
     [string] $Shard,
     # Print the units this run would take, and exit.
-    [switch] $List
+    [switch] $List,
+    # Only the blocks with this tag, each run twice: FACTORY_IMPL=ps and dotnet (roadmap spec 01).
+    [string] $Tag
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
@@ -36,7 +39,7 @@ try { if (Test-Path $timesPath) { $lastTimes = Get-Content $timesPath -Raw | Con
 # The units a block splits into: { Filter (a FullName pattern, or $null for the whole file), Tests }.
 function Get-Units($block) {
     if ($block.Blocks.Count -and -not $block.Tests.Count) { foreach ($b in $block.Blocks) { Get-Units $b }; return }
-    [pscustomobject]@{ Filter = "$([Management.Automation.WildcardPattern]::Escape($block.ExpandedPath)).*"; Path = $block.ExpandedPath; Tests = [int](Get-NestedCount $block) }
+    [pscustomobject]@{ Filter = "$([Management.Automation.WildcardPattern]::Escape($block.ExpandedPath)).*"; Path = $block.ExpandedPath; Tests = [int](Get-NestedCount $block); Tags = @($block.Tag) }
 }
 function Get-NestedCount($block) { @($block.Tests).Count + (@($block.Blocks | ForEach-Object { Get-NestedCount $_ }) | Measure-Object -Sum).Sum }
 
@@ -49,11 +52,14 @@ foreach ($file in Get-ChildItem $PSScriptRoot -Filter '*.Tests.ps1') {
     $states = @('local') + $(if (-not $NoAzure -and $file.Name -eq 'factory.Tests.ps1') { 'azure' })
     foreach ($root in $found.Containers[0].Blocks) {
         foreach ($u in Get-Units $root) {
+            if ($Tag -and $u.Tags -notcontains $Tag) { continue }
             foreach ($s in $states) {
-                $label = "$($file.Name) | $($u.Path) | $s"
-                $units += [pscustomobject]@{ File = $file.FullName; Name = $file.Name; Filter = $u.Filter; Path = $u.Path; State = $s; Tests = $u.Tests; Label = $label
-                    Last = if ($lastTimes.ContainsKey($label)) { [int]$lastTimes[$label] } else { $u.Tests } }
-                $expected[$s] += $u.Tests
+                foreach ($impl in $(if ($Tag) { 'ps', 'dotnet' } else { '' })) {
+                    $label = "$($file.Name) | $($u.Path) | $s" + $(if ($impl) { " | $impl" })
+                    $units += [pscustomobject]@{ File = $file.FullName; Name = $file.Name; Filter = $u.Filter; Path = $u.Path; State = $s; Impl = $impl; Tests = $u.Tests; Label = $label
+                        Last = if ($lastTimes.ContainsKey($label)) { [int]$lastTimes[$label] } else { $u.Tests } }
+                    $expected[$s] += $u.Tests
+                }
             }
         }
     }
@@ -73,11 +79,18 @@ if ($Shard) {
     foreach ($u in $units) { $expected[$u.State] += $u.Tests }
 }
 if ($List) { $units | ForEach-Object { '{0,5} {1,4}  {2}' -f $_.Last, $_.Tests, $_.Label }; exit 0 }
+if ($Tag -and -not $units) { throw "no test block is tagged '$Tag'" }
+# FACTORY_IMPL=dotnet runs the CLI factory.ps1 forwards to; build it once, before the units start.
+if ($Tag) {
+    dotnet build (Join-Path $repo 'src/factory/Factory.Cli/Factory.Cli.csproj') -v q -nologo
+    if ($LASTEXITCODE) { throw 'dotnet build of Factory.Cli failed' }
+}
 if ($ResultDir) { New-Item -ItemType Directory -Force $ResultDir | Out-Null; $ResultDir = (Resolve-Path $ResultDir).Path }
 
 $run = {
-    param($path, $filter, $state, $resultFile)
+    param($path, $filter, $state, $resultFile, $impl)
     if ($state -eq 'azure') { $env:FACTORY_TEST_STATE = 'azure' } else { Remove-Item Env:FACTORY_TEST_STATE -ErrorAction SilentlyContinue }
+    if ($impl) { $env:FACTORY_IMPL = $impl } else { Remove-Item Env:FACTORY_IMPL -ErrorAction SilentlyContinue }
     $c = New-PesterConfiguration
     $c.Run.Path = $path
     $c.Run.PassThru = $true
@@ -106,8 +119,8 @@ $n = 0
 while ($pending.Count -or $running.Count) {
     while ($pending.Count -and $running.Count -lt $Throttle) {
         $u = $pending.Dequeue(); $n++
-        $xml = if ($ResultDir) { Join-Path $ResultDir ("{0:000}-{1}-{2}.xml" -f $n, ($u.Name -replace '\.Tests\.ps1$', ''), $u.State) }
-        $job = Start-Job -ScriptBlock $run -ArgumentList $u.File, $u.Filter, $u.State, $xml -WorkingDirectory $repo
+        $xml = if ($ResultDir) { Join-Path $ResultDir ("{0:000}-{1}-{2}{3}.xml" -f $n, ($u.Name -replace '\.Tests\.ps1$', ''), $u.State, $(if ($u.Impl) { "-$($u.Impl)" })) }
+        $job = Start-Job -ScriptBlock $run -ArgumentList $u.File, $u.Filter, $u.State, $xml, $u.Impl -WorkingDirectory $repo
         $running[$job.Id] = $u
     }
     $done = Wait-Job -Job @(Get-Job -Id @($running.Keys)) -Any

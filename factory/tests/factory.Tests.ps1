@@ -1676,10 +1676,67 @@ Describe 'bookkeeping' {
         git -C $wa rev-parse factory/base | Should -Be (RGit rev-parse main)
         git -C $wa branch --show-current | Should -Be "factory/$a"
     }
+}
 
-    It 'status -Json prints the board' {
+# Ported to .NET (roadmap spec 01): run-all.ps1 -Tag Ported runs this block with FACTORY_IMPL=ps and dotnet.
+Describe 'status' -Tag 'Ported' {
+    BeforeAll {
+        # Every line, as one string: in process, PowerShell returns the JSON as one string, the .NET CLI as lines.
+        function Out-Text { (@(F @args) -join "`n") -replace "`r", '' }
+        function Write-Board([string]$json) {
+            New-Item -ItemType Directory -Force $env:FACTORY_HOME | Out-Null
+            [IO.File]::WriteAllText((Join-Path $env:FACTORY_HOME 'board.json'), $json)
+        }
+    }
+
+    It 'says the board is empty, and creates FACTORY_HOME' {
+        Out-Text status | Should -Be 'board is empty'
+        $LASTEXITCODE | Should -Be 0
+        Test-Path $env:FACTORY_HOME | Should -BeTrue
+    }
+
+    It 'with no board, -Json prints the empty board' {
+        Out-Text status -Json | Should -Be "{`n  `"version`": 2,`n  `"ideas`": [],`n  `"jobs`": []`n}"
+    }
+
+    # Writes board.json by hand, which the azure backend refuses: the container has no such board.
+    It 'lists open ideas, then jobs that are not discarded, with their flag' -Skip:($env:FACTORY_TEST_STATE -eq 'azure') {
+        Write-Board '{"version":2,"ideas":[{"id":"I-001","status":"drafting","text":"find books — fast"},{"id":"I-002","status":"done","text":"x"}],
+            "jobs":[{"id":"J-001","stage":"backlog","round":0,"title":"Search","flag":null},{"id":"J-002","stage":"discarded","round":1,"title":"gone"},
+            {"id":"J-003","stage":"ready","round":12,"title":"Merge it","flag":{"reason":"base moved"}}]}'
+        Out-Text status | Should -Be ("I-001  idea:drafting find books — fast`nJ-001  backlog    r0 Search`nJ-003  ready      r12 Merge it [base moved]")
+    }
+
+    It 'status -Json prints the board exactly as factory.ps1 saved it' {
         New-BacklogJob | Out-Null
         (F status -Json | ConvertFrom-Json).jobs[0].id | Should -Be 'J-001'
+        Out-Text status -Json | Should -Be ((Get-Content (Join-Path $env:FACTORY_HOME 'board.json') -Raw).TrimEnd() -replace "`r", '')
+    }
+}
+
+Describe 'implementations' {
+    AfterEach { Remove-Item Env:FACTORY_IMPL, Env:FACTORY_CLI -ErrorAction SilentlyContinue }
+
+    # On the azure backend status stays in PowerShell (contract, "Implementations"), so nothing is forwarded.
+    It 'FACTORY_IMPL=dotnet sends a ported command to the .NET CLI, and refuses when it is not built' -Skip:($env:FACTORY_TEST_STATE -eq 'azure') {
+        $env:FACTORY_IMPL = 'dotnet'
+        $env:FACTORY_CLI = Join-Path $TestDrive 'missing/Factory.Cli.dll'
+        $err = & pwsh -NoProfile -File $script:Factory status 2>&1 | ForEach-Object { "$_" }
+        $LASTEXITCODE | Should -Be 1
+        "$err" | Should -Be "factory: FACTORY_IMPL=dotnet, but the .NET CLI is not built at $env:FACTORY_CLI (dotnet build src/factory)"
+    }
+
+    It 'keeps a command that is not ported in PowerShell' {
+        $env:FACTORY_IMPL = 'dotnet'
+        $env:FACTORY_CLI = Join-Path $TestDrive 'missing/Factory.Cli.dll'
+        F new-idea 'still powershell' -Target $script:Repo | Should -Be 'I-001'
+    }
+
+    It 'refuses an unknown FACTORY_IMPL' {
+        $env:FACTORY_IMPL = 'java'
+        $err = & pwsh -NoProfile -File $script:Factory status 2>&1 | ForEach-Object { "$_" }
+        $LASTEXITCODE | Should -Be 1
+        "$err" | Should -Be "factory: FACTORY_IMPL 'java' must be ps or dotnet"
     }
 }
 

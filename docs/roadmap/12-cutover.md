@@ -4,9 +4,9 @@
 
 ## Scope
 
-1. The full Pester suite is green with `FACTORY_IMPL=dotnet` on Windows, Linux and macOS in CI, with
+1. The full Pester suite is green with `FACTORY_IMPL=dotnet` on Windows, Linux and macOS (by hand: no CI), with
    no PowerShell fallbacks left, and so are the integration tests on all three and the whole
-   Playwright suite (`full.yml`).
+   Playwright suite.
 2. **The plugin calls `factory`**: agents, skills and hooks (`factory/plugin/**`) replace
    `pwsh -File …/factory.ps1` with `factory`, and `hook-event.ps1` becomes `factory event` reading
    the hook JSON from stdin. Update the permission allow rules.

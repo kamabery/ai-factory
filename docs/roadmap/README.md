@@ -5,7 +5,7 @@ session can pick up one at a time. The rationale and the decisions table live in
 `C:\Users\kamab\.claude\plans\grill-me-on-the-silly-yao.md`; this folder is the work.
 
 **Where things stand (2026-11-09):** spec 00 is done (PR #3, template-projects PR #6, J-032 as
-todoapp-two PR #12), and spec 19 (test strategy and CI tiers) is merged (PR #5). Next: spec 01. Last green
+todoapp-two PR #12), and spec 19 (test strategy and CI tiers) is merged (PR #5). Spec 01 is built on its branch, proven locally. Last green
 suites: Pester 429 local, 229 azure; Playwright 41. Reordered 2026-11-09 so previews come last (see
 below).
 
@@ -73,7 +73,7 @@ calls `lesson`. Spec numbers are names, not the order; sessions are one at a tim
 - **Tests follow `docs/TESTING.md`** (spec 19): unit-first, red before green, the coverage gates
   (90% Core, 70% elsewhere). A ported command's Pester cases are pushed down to unit tests on the
   service plus a few integration tests per command, and its `Describe` blocks are tagged `Ported`
-  and run both ways. The full Pester suite runs on demand (`full.yml`) and before 12.
+  and run both ways. The full Pester suite runs locally before every PR that touches the scripts or `src/factory` (no CI).
 - **`docs/FACTORY-CONTRACT.md` changes first.** A port reproduces the contract; it does not change
   it. A behaviour change found mid-port is its own commit, contract first.
 - **A command counts as ported** when its Pester tests pass with `FACTORY_IMPL=dotnet`, its xUnit

@@ -1,6 +1,19 @@
 # 01: .NET skeleton, CI and the oracle switch
 
-**Status:** not started. **Branch:** `feature/01-dotnet-skeleton`. **Depends on:** 19.
+**Status:** built on its branch (2026-11-09), not yet merged. Proven locally: 41 .NET tests (33 unit, 8
+integration), gates Core 100%, Store 100%, Cli 92%; `status` Pester blocks pass with `FACTORY_IMPL=ps`
+and `dotnet`; the full Pester suite passes (436 local, 236 azure); `aspire run` starts the AppHost.
+PR #8. **Branch:** `feature/01-dotnet-skeleton`. **Depends on:** 19.
+
+**Deviations (2026-11-09):**
+- One switch, `FACTORY_IMPL`, default `ps`. The Pester helpers keep calling `factory.ps1`, which
+  forwards ported commands when it is `dotnet`; the default flips at cutover (12).
+- Tests run on Microsoft.Testing.Platform (xUnit v3 4.x requires it on the .NET 10 SDK; `global.json`
+  at the repo root), so coverage is Microsoft.Testing.Extensions.CodeCoverage, not coverlet.
+- No CI (Kurt, 2026-11-09): the repo has no test workflows, and tests run locally before a PR
+  (`docs/TESTING.md`, "Before a PR"). "On all three OSes in CI" is dropped: Windows, locally.
+- Found mid-port: the empty board's key order was random per process (an unordered hashtable).
+  Fixed in PowerShell and the contract first: `version`, `ideas`, `jobs`.
 
 ## Goal
 
@@ -27,7 +40,7 @@ can run against either implementation. One trivial command proves the loop.
 - **First ported command: `status [-Json]`.** It is read-only and touches the board format, so it
   proves path resolution (`FACTORY_HOME`, else `<main checkout>/.factory-runs` through
   `git rev-parse --git-common-dir`) and JSON shape.
-- **CI** (`suites.yml`, beside the Playwright smoke set): unit tests on `windows-latest`,
+- ~~**CI**~~ (superseded: no CI, see "Deviations") (`suites.yml`, beside the Playwright smoke set): unit tests on `windows-latest`,
   `ubuntu-latest` and `macos-latest`; integration tests on `ubuntu-latest` (all three in
   `full.yml`). `run-all.ps1 -Tag Ported` runs the ported commands' `Describe` blocks with
   `FACTORY_IMPL=ps` and `dotnet` on Windows and Linux, in place of the 4 shards on port PRs; the
@@ -35,7 +48,7 @@ can run against either implementation. One trivial command proves the loop.
 
 ## Done when
 
-- `status` Pester tests pass under both implementations, and on all three OSes in CI.
+- `status` Pester tests pass under both implementations (locally, on Windows; no CI).
 - `status` has unit tests on its service (fakes via `[AutoNSubData]`) and one integration test of
   the CLI's exact output, each seen red, then green, and the coverage gates pass.
 - `aspire run` starts the (empty) AppHost.

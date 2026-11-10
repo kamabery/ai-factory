@@ -10,24 +10,24 @@ how much code a test covers.
 
 Today the suite is an inverted pyramid. Every Pester test runs `factory.ps1` in a real git repo
 against HTTP stubs, so all 658 Pester runs (429 local, 229 on the azure backend) are integration
-tests, and there are no unit tests. That is why the full Pester suite needs four Windows VMs and
-about 16 minutes.
+tests, and there are no unit tests. That is why the full Pester suite takes about 18 minutes
+even run in parallel.
 
 The PowerShell is not reworked for unit tests: it is being retired (roadmap spec 12), and until then
 Pester is the **oracle** the .NET port is held to. The .NET code is built unit-first from its first
 line (spec 01).
 
-**Target shape:** about 80% unit, 15% integration and 5% end to end, by test count. CI reports the
+**Target shape:** about 80% unit, 15% integration and 5% end to end, by test count. `test.ps1` reports the
 counts per tier; coverage is the gate, not the ratio.
 
 ## Tiers
 
 | Tier | May touch | Where | Runs |
 | --- | --- | --- | --- |
-| **Unit** (small) | memory only: no file system, process, network, real clock or environment variables | `Factory.UnitTests` (xUnit v3) | every PR, on Windows, Linux and macOS |
-| **Integration** (medium) | temp directories, git, child processes, localhost stubs (GitHub, HCP, blob, Anthropic) | `Factory.IntegrationTests` (xUnit v3) | every PR on Linux; all three OSes on demand and before cutover |
-| **End to end** (large) | the dashboard in a browser against `simulate.ps1` | `factory/tests/dashboard` (Playwright) | the `@smoke` set on every PR; the whole suite on demand |
-| **Pester** (legacy oracle, integration) | as integration | `factory/tests/*.Tests.ps1` | PRs that touch the scripts; on demand; retired at 12 |
+| **Unit** (small) | memory only: no file system, process, network, real clock or environment variables | `Factory.UnitTests` (xUnit v3) | locally, before every PR that touches `src/factory` |
+| **Integration** (medium) | temp directories, git, child processes, localhost stubs (GitHub, HCP, blob, Anthropic) | `Factory.IntegrationTests` (xUnit v3) | locally, before every PR that touches `src/factory` |
+| **End to end** (large) | the dashboard in a browser against `simulate.ps1` | `factory/tests/dashboard` (Playwright) | locally: the `@smoke` set before a PR that touches the dashboard or `serve.ps1`; the whole suite on demand |
+| **Pester** (legacy oracle, integration) | as integration | `factory/tests/*.Tests.ps1` | locally, before a PR that touches the scripts, plugin, Pester tests or `src/factory`; retired at 12 |
 
 A test that needs a temp directory is an integration test, even if it is fast. Put it in the
 integration project.
@@ -82,27 +82,31 @@ Spec 12's mapping file names, for every Pester case, the unit or integration tes
 
 | Gate | Where | Bar |
 | --- | --- | --- |
-| Coverage (coverlet, line) | every PR, from spec 01 | **90%** on `Factory.Core`, **70%** on every other project with logic. `Factory.AppHost` and `Factory.ServiceDefaults` are excluded |
+| Coverage (Microsoft.Testing.Extensions.CodeCoverage, line, unit and integration merged; `src/factory/test.ps1`) | before every PR, from spec 01 | **90%** on `Factory.Core`, **70%** on every other project with logic. `Factory.AppHost` and `Factory.ServiceDefaults` are excluded |
 | Mutation score (Stryker.NET) | on demand, `Factory.Core` | not a gate; each port spec records the score in its Status line |
-| Tier counts | every PR | reported in the run summary, not a gate |
+| Tier counts | before every PR | printed by `test.ps1`, not a gate |
 
-## CI
+## Before a PR (no CI)
 
-| Workflow | When | Runs |
-| --- | --- | --- |
-| `suites.yml` | every PR and push to `main`, except docs-only (`docs/**`, root `*.md`) | the Playwright `@smoke` set (5 tests, one VM); from 01, also the .NET unit and integration jobs |
-| `pester.yml` | PRs and pushes that touch `factory/scripts/**`, `factory/plugin/**`, `factory/tests/*.ps1`, `factory/tests/fixtures/**` | the full Pester suite, 4 shards. From 01, port PRs run the `Ported` blocks both ways instead |
-| `full.yml` | **Run workflow** (`gh workflow run full.yml -f suites=all\|playwright\|pester`), or a PR labelled `e2e` (Playwright) or `full` (Pester), rerun on each push | the whole Playwright suite and/or the whole Pester suite |
+The factory's tests run **locally, not in CI**: GitHub Actions minutes cost too much for a solo
+project (2026-11-09). The repo has no test workflows. Before opening a PR, run what the change
+touches and put the counts in the PR description:
 
-`_pester.yml` and `_playwright.yml` are the reusable jobs these call.
+| The PR touches | Run |
+| --- | --- |
+| `src/factory/**` | `pwsh src/factory/test.ps1` (unit + integration, tier counts, coverage gates) |
+| `factory/scripts/**`, `factory/plugin/**`, `factory/tests/*.ps1`, `factory/tests/fixtures/**` or `src/factory/**` | `pwsh factory/tests/run-all.ps1` (the whole Pester suite, local and azure, about 18 minutes). While porting, `-Tag Ported` is the quick loop |
+| the dashboard or `serve.ps1` | the Playwright `@smoke` set; the whole suite for dashboard work |
+| only `docs/**` or root `*.md` | nothing |
 
 ## Commands
 
 ```powershell
-cd factory/tests/dashboard; npx playwright test --grep @smoke   # the smoke set (what every PR runs)
+cd factory/tests/dashboard; npx playwright test --grep @smoke   # the smoke set
 cd factory/tests/dashboard; npx playwright test                 # the whole e2e suite
 pwsh factory/tests/run-all.ps1                                  # the whole Pester suite, in parallel
-gh workflow run full.yml -f suites=all                           # both full suites in CI
+pwsh factory/tests/run-all.ps1 -Tag Ported -NoAzure              # the ported commands' blocks, FACTORY_IMPL=ps and dotnet
+pwsh src/factory/test.ps1                                        # .NET unit + integration, tier counts, coverage gates
 ```
 
 A Playwright test joins the smoke set with `{ tag: '@smoke' }`. Keep the set to the critical paths

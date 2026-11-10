@@ -671,6 +671,10 @@ those lines and nothing else; if one is missing or malformed, the script treats 
 }
 ```
 
+- **Key order is fixed.** A factory with no `board.json` yet starts from `version`, `ideas`, `jobs`,
+  in that order; keys added later follow in the order they were added, and every write keeps the
+  file's order. `status -Json` prints the board in that order (an empty board as `version`, `ideas`,
+  `jobs`), so two runs print the same text.
 - `reviews.*` is one of `pending | running | PASS | CHANGES`, and it resets to `pending` whenever
   a new round starts.
 - `roundStart` is the branch head when the current round's build began, recorded by `checkout`.
@@ -826,6 +830,19 @@ job is in an active stage), after which it re-takes the lock and re-reads the bo
 the board for over <n> s`) rather than run unlocked, where its save could overwrite another
 command's. A refused command exits non-zero with a one-line reason on
 stderr and leaves the board unchanged.
+
+### Implementations
+
+The control plane is being ported to .NET (`src/factory`, roadmap specs 01–12) command by command.
+`FACTORY_IMPL` picks the implementation: `ps` (the default) runs everything in `factory.ps1`;
+`dotnet` makes `factory.ps1` **forward** each ported command to the .NET CLI
+(`artifacts/bin/Factory.Cli/debug/Factory.Cli.dll` after `dotnet build src/factory`, or
+`FACTORY_CLI`): the same arguments, the same environment, and the CLI's stdout, stderr and exit code
+as its own. Any other value is refused (`FACTORY_IMPL '<v>' must be ps or dotnet`), as is
+`dotnet` when the CLI is not built. Callers never change: agents, `serve.ps1` and the runner keep
+calling `factory.ps1`. A ported command must match this contract byte for byte, and its Pester
+blocks (tagged `Ported`) pass under both implementations. Ported so far: `status` (the `local`
+state backend; with `FACTORY_STATE=azure` it stays in PowerShell until spec 03).
 
 | Command | Used by |
 | --- | --- |

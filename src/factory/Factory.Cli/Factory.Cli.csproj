@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>factory</ToolCommandName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Factory.Core\Factory.Core.csproj" />
+    <ProjectReference Include="..\Factory.Store\Factory.Store.csproj" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+  </ItemGroup>
+</Project>

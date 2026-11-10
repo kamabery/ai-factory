@@ -75,6 +75,25 @@ $EventsPath = Join-Path $Home_ 'events.jsonl'
 . (Join-Path $PSScriptRoot 'state.ps1')
 try { Initialize-State -StateHome $Home_ -EnvFile (EnvFilePath) } catch { Fail "$($_.Exception.Message)" }
 
+# Strangler routing (contract, "Implementations"): with FACTORY_IMPL=dotnet a ported command runs in
+# the .NET CLI, with the same arguments and environment. The azure backend is not ported yet (spec 03).
+$Ported = @('status')
+if ($env:FACTORY_IMPL -and $env:FACTORY_IMPL -notin 'ps', 'dotnet') { Fail "FACTORY_IMPL '$env:FACTORY_IMPL' must be ps or dotnet" }
+if ($env:FACTORY_IMPL -eq 'dotnet' -and $Command -in $Ported -and -not (State-IsAzure)) {
+    $cli = if ($env:FACTORY_CLI) { $env:FACTORY_CLI } else { [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../artifacts/bin/Factory.Cli/debug/Factory.Cli.dll')) }
+    if (-not (Test-Path $cli)) { Fail "FACTORY_IMPL=dotnet, but the .NET CLI is not built at $cli (dotnet build src/factory)" }
+    $fwd = @($Command)
+    foreach ($a in $Arg1, $Arg2, $Arg3) { if (-not $a) { break }; $fwd += $a }
+    foreach ($k in $PSBoundParameters.Keys | Where-Object { $_ -notin 'Command', 'Arg1', 'Arg2', 'Arg3' }) {
+        $v = $PSBoundParameters[$k]
+        if ($v -is [switch]) { if ($v) { $fwd += "-$k" } } else { $fwd += "-$k", "$v" }
+    }
+    # The CLI writes UTF-8 whatever the console's code page; read it back as UTF-8.
+    $enc = [Console]::OutputEncoding
+    try { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); & dotnet $cli @fwd } finally { [Console]::OutputEncoding = $enc }
+    exit $LASTEXITCODE
+}
+
 # A job's local clone of its target, where it builds and is gated; deleted at done or discarded.
 function WorkRoot {
     if ($env:FACTORY_WORK) { return $env:FACTORY_WORK }
@@ -234,7 +253,8 @@ function Load-Board {
     if ((State-IsAzure) -and $Command -ne 'state-migrate') {
         try { if ((Sync-Board) -eq 'changed') { $null = Pull-State } } catch { Fail "$($_.Exception.Message)" }
     }
-    if (-not (Test-Path $BoardPath)) { return @{ version = 2; ideas = @(); jobs = @() } }
+    # Ordered: a plain hashtable's key order changes from one process to the next (contract, "board.json").
+    if (-not (Test-Path $BoardPath)) { return [ordered]@{ version = 2; ideas = @(); jobs = @() } }
     $b = Get-Content $BoardPath -Raw | ConvertFrom-Json -AsHashtable -DateKind String
     if (-not $b.ContainsKey('ideas')) { $b.ideas = @() }
     $b
