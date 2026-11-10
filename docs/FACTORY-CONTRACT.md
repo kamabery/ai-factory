@@ -841,8 +841,11 @@ The control plane is being ported to .NET (`src/factory`, roadmap specs 01–12)
 as its own. Any other value is refused (`FACTORY_IMPL '<v>' must be ps or dotnet`), as is
 `dotnet` when the CLI is not built. Callers never change: agents, `serve.ps1` and the runner keep
 calling `factory.ps1`. A ported command must match this contract byte for byte, and its Pester
-blocks (tagged `Ported`) pass under both implementations. Ported so far: `status` (the `local`
-state backend; with `FACTORY_STATE=azure` it stays in PowerShell until spec 03).
+blocks (tagged `Ported`) pass under both implementations. A forwarded command takes the same board
+lock as `factory.ps1` (the mutex named for the state directory, and in `azure` the lease on
+`locks/board`) and keeps the same `.sync.json`, so the two implementations never write the board at
+once and either can follow the other on one state directory. Ported so far: `status`, on both state
+backends.
 
 | Command | Used by |
 | --- | --- |

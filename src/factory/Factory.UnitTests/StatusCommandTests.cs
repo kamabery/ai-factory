@@ -11,21 +11,21 @@ namespace Factory.UnitTests;
 public class StatusCommandTests
 {
     [Theory, AutoNSubData]
-    public void Prints_the_text_report([Frozen] IBoardReader board, StatusCommand sut)
+    public void Prints_the_text_report(IBoardSession session, StatusCommand sut)
     {
-        board.Load().Returns(Board.Empty());
+        session.Board.Returns(Board.Empty());
 
-        Assert.Equal(CommandResult.Ok("board is empty").Out, sut.Run(CommandArgs.Parse(["status"])).Out);
+        Assert.Equal(CommandResult.Ok("board is empty").Out, sut.Run(CommandArgs.Parse(["status"]), session).Out);
     }
 
     [Theory, AutoNSubData]
     public void Json_prints_the_board_as_one_block_with_the_platform_newline(
-        [Frozen] IBoardReader board, [Frozen] IOptions<CliOptions> options, StatusCommand sut)
+        IBoardSession session, [Frozen] IOptions<CliOptions> options, StatusCommand sut)
     {
-        board.Load().Returns(Board.Empty());
+        session.Board.Returns(Board.Empty());
         options.Value.Returns(new CliOptions { NewLine = "\r\n" });
 
-        var r = sut.Run(CommandArgs.Parse(["status", "-Json"]));
+        var r = sut.Run(CommandArgs.Parse(["status", "-Json"]), session);
 
         Assert.Equal(0, r.ExitCode);
         Assert.Equal(["{\r\n  \"version\": 2,\r\n  \"ideas\": [],\r\n  \"jobs\": []\r\n}"], r.Out);

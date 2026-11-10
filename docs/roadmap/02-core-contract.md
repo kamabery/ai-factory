@@ -1,8 +1,10 @@
 # 02: Factory.Core, contract types and rules
 
-**Status:** built on its branch (2026-11-10), not yet merged. Proven locally: 246 .NET tests (238 unit,
-8 integration), gates Core 98%, Store 100%, Cli 92%; a sanitized real `board.json` (CRLF, 93 KB) and
-`events.jsonl` (1,331 lines) round-trip byte for byte. **Branch:** `feature/02-core`. **Depends on:** 01.
+**Status:** done, merged in PR #10 (2026-11-10), with Kurt's review folded in: one type per file,
+interfaces in each project's `Abstractions` namespace, and `Json` renamed `PsJsonReader`. Proven
+locally: 246 .NET tests (238 unit, 8 integration), gates Core 98%, Store 100%, Cli 92%; a sanitized real
+`board.json` (CRLF, 93 KB) and `events.jsonl` (1,331 lines) round-trip byte for byte. **Branch:**
+`feature/02-core`. **Depends on:** 01.
 
 **Deviations (2026-11-10):**
 - **The board stays a JSON document.** `Job`, `Idea`, `Flag` and `Deploy` are typed views over

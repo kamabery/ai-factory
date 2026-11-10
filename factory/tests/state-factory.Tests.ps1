@@ -28,7 +28,9 @@ BeforeAll {
 
 AfterAll { Stop-BlobStub; Stop-GitHubStub }
 
-Describe 'factory.ps1 on azure' {
+# Ported (roadmap spec 03): run-all.ps1 -Tag Ported runs this block with FACTORY_IMPL=ps and dotnet, so the
+# .NET status shares one container, lease and .sync.json with factory.ps1's other commands.
+Describe 'factory.ps1 on azure' -Tag 'Ported' {
 
 BeforeEach {
     $script:Repo = "test/repo-$([guid]::NewGuid().ToString('N').Substring(0,8))"

@@ -10,8 +10,8 @@ public class FactoryPathsTests
 {
     private static readonly string Root = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "fx"));
 
-    private static FactoryPaths Paths(IGitClient git, string? home = null, string? repo = null) =>
-        new(Options.Create(new FactoryOptions { Home = home, Repo = repo, WorkingDirectory = Path.Combine(Root, "cwd") }), git);
+    private static FactoryPaths Paths(IGitClient git, string? home = null, string? repo = null, string? envFile = null) =>
+        new(Options.Create(new FactoryOptions { Home = home, Repo = repo, EnvFile = envFile, WorkingDirectory = Path.Combine(Root, "cwd") }), git);
 
     [Theory, AutoNSubData]
     public void FACTORY_HOME_wins_and_git_is_not_asked(IGitClient git)
@@ -22,6 +22,7 @@ public class FactoryPathsTests
 
         Assert.Equal(home, paths.Home);
         Assert.Equal(Path.Combine(home, "board.json"), paths.BoardPath);
+        Assert.Equal(Path.Combine(home, "events.jsonl"), paths.EventsPath);
         git.DidNotReceiveWithAnyArgs().CommonDir(default!);
     }
 
@@ -58,5 +59,21 @@ public class FactoryPathsTests
 
         var e = Assert.Throws<FactoryException>(() => Paths(git).Home);
         Assert.Equal("not inside a git repository", e.Message);
+    }
+
+    [Theory, AutoNSubData]
+    public void The_env_file_is_FACTORY_ENV_FILE_else_the_main_checkouts(IGitClient git)
+    {
+        Assert.Equal("x.env", Paths(git, envFile: "x.env").EnvFile);
+        Assert.Equal(Path.Combine(Root, "repo", ".env"), Paths(git, repo: Path.Combine(Root, "repo")).EnvFile);
+        git.DidNotReceiveWithAnyArgs().CommonDir(default!);
+    }
+
+    [Theory, AutoNSubData]
+    public void Outside_a_repository_there_is_no_env_file(IGitClient git)
+    {
+        git.CommonDir(Arg.Any<string>()).Returns((string?)null);
+
+        Assert.Null(Paths(git, home: Path.Combine(Root, "state")).EnvFile);
     }
 }

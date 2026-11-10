@@ -76,10 +76,11 @@ $EventsPath = Join-Path $Home_ 'events.jsonl'
 try { Initialize-State -StateHome $Home_ -EnvFile (EnvFilePath) } catch { Fail "$($_.Exception.Message)" }
 
 # Strangler routing (contract, "Implementations"): with FACTORY_IMPL=dotnet a ported command runs in
-# the .NET CLI, with the same arguments and environment. The azure backend is not ported yet (spec 03).
+# the .NET CLI, with the same arguments and environment, on either state backend. It is forwarded before
+# the board lock is taken: the CLI takes the same mutex (and in azure the same lease) itself.
 $Ported = @('status')
 if ($env:FACTORY_IMPL -and $env:FACTORY_IMPL -notin 'ps', 'dotnet') { Fail "FACTORY_IMPL '$env:FACTORY_IMPL' must be ps or dotnet" }
-if ($env:FACTORY_IMPL -eq 'dotnet' -and $Command -in $Ported -and -not (State-IsAzure)) {
+if ($env:FACTORY_IMPL -eq 'dotnet' -and $Command -in $Ported) {
     $cli = if ($env:FACTORY_CLI) { $env:FACTORY_CLI } else { [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../artifacts/bin/Factory.Cli/debug/Factory.Cli.dll')) }
     if (-not (Test-Path $cli)) { Fail "FACTORY_IMPL=dotnet, but the .NET CLI is not built at $cli (dotnet build src/factory)" }
     $fwd = @($Command)
