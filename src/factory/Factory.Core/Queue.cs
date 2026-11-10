@@ -3,23 +3,6 @@ using System.Text.Json.Nodes;
 
 namespace Factory.Core;
 
-/// <summary>What canary.json says about the current fingerprint.</summary>
-public enum CanaryState { None, Pass, Failed }
-
-public static class Canary
-{
-    /// <summary>
-    /// <c>Pass</c> or <c>Failed</c> when canary.json records that for the current fingerprint, else <c>None</c>
-    /// (never run, run for other inputs, or still running). The fingerprint is only computed when there is a record.
-    /// </summary>
-    public static CanaryState State(JsonObject? canary, Func<string> fingerprint)
-    {
-        if (canary is null || !Json.Is(Json.Str(canary["fingerprint"]), fingerprint())) return CanaryState.None;
-        var status = Json.Str(canary["status"]);
-        return Json.Is(status, "pass") ? CanaryState.Pass : Json.Is(status, "failed") ? CanaryState.Failed : CanaryState.None;
-    }
-}
-
 /// <summary>The Approved queue: one job builds at a time, oldest approval first (contract, "Runner" and "Canary").</summary>
 public static class Queue
 {

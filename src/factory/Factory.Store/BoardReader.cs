@@ -1,12 +1,9 @@
 using System.Text.Json.Nodes;
 using Factory.Core;
+using Factory.Core.Abstractions;
+using Factory.Store.Abstractions;
 
 namespace Factory.Store;
-
-public interface IBoardReader
-{
-    JsonObject Load();
-}
 
 /// <summary>
 /// Reads board.json from the local state folder (the file backend; the blob backend is spec 03). No lock:

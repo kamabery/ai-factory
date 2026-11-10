@@ -1,5 +1,6 @@
+using Factory.Cli.Abstractions;
 using Factory.Core;
-using Factory.Store;
+using Factory.Store.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace Factory.Cli;

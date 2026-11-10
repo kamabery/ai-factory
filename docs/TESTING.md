@@ -45,6 +45,9 @@ integration project.
   `DateTime.Now`, `Console` or a static file API.
 - **Rules as pure functions.** `Factory.Core` (spec 02) holds the contract as types and functions
   with no I/O. Services orchestrate; Core decides.
+- **One type per file**, named after the type, tests included. Each project's interfaces, and the
+  records their members take or return, live in its `Abstractions` folder and namespace
+  (`Factory.Core.Abstractions`, `Factory.Store.Abstractions`, `Factory.Cli.Abstractions`).
 
 ## Unit test conventions
 

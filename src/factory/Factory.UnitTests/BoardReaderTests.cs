@@ -1,6 +1,8 @@
 using AutoFixture.Xunit3;
 using Factory.Core;
+using Factory.Core.Abstractions;
 using Factory.Store;
+using Factory.Store.Abstractions;
 using NSubstitute;
 
 namespace Factory.UnitTests;
