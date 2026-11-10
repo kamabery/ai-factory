@@ -847,7 +847,8 @@ lock as `factory.ps1` (the mutex named for the state directory, and in `azure` t
 once and either can follow the other on one state directory. `factory.ps1` sets `FACTORY_SCRIPTS` to
 its own folder for the CLI, which hashes the deploy scripts there into the canary fingerprint, as
 `factory.ps1` does. Ported so far, on both state backends: `status`, `approve`, `edit-spec`,
-`rework`, `purge`, `set-stage`, `set-review`, `read-reviews`, `read-decision` and `event`.
+`rework`, `purge`, `set-stage`, `set-review`, `read-reviews`, `read-decision`, `event`, `new-idea`,
+`add-spec`, `idea-done`, `idea-abandon`, `check-target`, `clone-target` and `list-repos`.
 
 | Command | Used by |
 | --- | --- |

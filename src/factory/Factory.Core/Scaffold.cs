@@ -27,6 +27,22 @@ public static partial class Scaffold
         return null;
     }
 
+    /// <summary>
+    /// factory.ps1's Scaffold-Commands: the commands that scaffold a project from the templates, in order. A
+    /// bootstrap job's builder and the canary run the same ones; auth comes after the front end it reads.
+    /// </summary>
+    public static IReadOnlyList<string> Commands(JsonObject sc)
+    {
+        List<string> cmds = [$"dotnet new aspire-base -n {PsJsonReader.Text(sc["name"])} -o . --dbProvider {PsJsonReader.Text(sc["db"])} --resource {PsJsonReader.Text(sc["resource"])}"];
+        var ui = PsJsonReader.Str(sc["ui"]);
+        if (PsJsonReader.Is(ui, "react")) cmds.Add("aspire-addon add ui-react");
+        else if (PsJsonReader.Is(ui, "blazor")) cmds.Add("aspire-addon add ui-blazor --web true --maui false");
+        else if (PsJsonReader.Is(ui, "blazor-maui")) cmds.Add("aspire-addon add ui-blazor --web true --maui true");
+        if (PsJsonReader.Truthy(sc["events"])) cmds.Add("aspire-addon add events");
+        if (PsJsonReader.Truthy(sc["auth"])) cmds.Add("aspire-addon add auth");
+        return cmds;
+    }
+
     private static bool IsBool(JsonNode? n) => n is JsonValue v && v.GetValueKind() is JsonValueKind.True or JsonValueKind.False;
 
     [GeneratedRegex("^[a-z][a-z0-9]*$")] private static partial Regex Name();

@@ -98,7 +98,8 @@ touches and put the counts in the PR description:
 | The PR touches | Run |
 | --- | --- |
 | `src/factory/**` | `pwsh src/factory/test.ps1` (unit + integration, tier counts, coverage gates) |
-| `factory/scripts/**`, `factory/plugin/**`, `factory/tests/*.ps1`, `factory/tests/fixtures/**` or `src/factory/**` | `pwsh factory/tests/run-all.ps1` (the whole Pester suite, local and azure, about 18 minutes). While porting, `-Tag Ported` is the quick loop, and a PR that forwards a command also runs `-Impl dotnet` (every caller of it, on .NET) |
+| a port (specs 04–11): `src/factory/**`, plus in PowerShell only `$Ported` in `factory.ps1`, `Ported` tags and test edits for them | `run-all.ps1 -Tag Ported` (the ported blocks both ways, local and azure, about 10 minutes) and `run-all.ps1 -Impl dotnet` (every caller, on .NET, about 30 minutes). Not the plain run: nothing it runs changed (decided 2026-11-10) |
+| PowerShell that is not forwarded: `factory/scripts/**`, `factory/plugin/**`, `factory/tests/*.ps1`, `factory/tests/fixtures/**` | `pwsh factory/tests/run-all.ps1` (the whole Pester suite, local and azure, about 30 minutes); a port that also does this runs it as well |
 | the dashboard or `serve.ps1` | the Playwright `@smoke` set; the whole suite for dashboard work |
 | only `docs/**` or root `*.md` | nothing |
 

@@ -16,6 +16,8 @@ public sealed class ProcessRunner : IProcessRunner
             RedirectStandardInput = true,
             UseShellExecute = false,
         };
+        // Nobody is there to answer a prompt: a refused GitHub credential must fail, not wait (github.ps1 sets the same).
+        psi.Environment["GIT_TERMINAL_PROMPT"] = "0";
         foreach (var a in arguments) psi.ArgumentList.Add(a);
         using var p = Process.Start(psi)!;
         p.StandardInput.Close();

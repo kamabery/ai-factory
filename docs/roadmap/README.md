@@ -4,10 +4,9 @@ This turns the approved replatform roadmap (2026-10-23, revised 2026-11-08) into
 session can pick up one at a time. The rationale and the decisions table live in
 `C:\Users\kamab\.claude\plans\grill-me-on-the-silly-yao.md`; this folder is the work.
 
-**Where things stand (2026-11-09):** spec 00 is done (PR #3, template-projects PR #6, J-032 as
-todoapp-two PR #12), and spec 19 (test strategy and CI tiers) is merged (PR #5). Spec 01 is built on its branch, proven locally. Last green
-suites: Pester 429 local, 229 azure; Playwright 41. Reordered 2026-11-09 so previews come last (see
-below).
+**Where things stand (2026-11-10):** specs 00, 19 and 01–04 are merged (04 in PR #12). Spec 05 is
+built on its branch, proven locally. Last green suites: .NET 453 unit, 45 integration; Pester on
+.NET (`-Impl dotnet`) 437 local, 235 azure. Reordered 2026-11-09 so previews come last (see below).
 
 ## Run order
 
@@ -73,7 +72,9 @@ calls `lesson`. Spec numbers are names, not the order; sessions are one at a tim
 - **Tests follow `docs/TESTING.md`** (spec 19): unit-first, red before green, the coverage gates
   (90% Core, 70% elsewhere). A ported command's Pester cases are pushed down to unit tests on the
   service plus a few integration tests per command, and its `Describe` blocks are tagged `Ported`
-  and run both ways. The full Pester suite runs locally before every PR that touches the scripts or `src/factory` (no CI).
+  and run both ways. Before a port's PR, locally (no CI): `test.ps1`, `run-all.ps1 -Tag Ported` and
+  `run-all.ps1 -Impl dotnet`; the plain `run-all.ps1` only when the spec also changes PowerShell that
+  is not forwarded (`docs/TESTING.md`, "Before a PR", decided 2026-11-10).
 - **`docs/FACTORY-CONTRACT.md` changes first.** A port reproduces the contract; it does not change
   it. A behaviour change found mid-port is its own commit, contract first.
 - **A command counts as ported** when its Pester tests pass with `FACTORY_IMPL=dotnet`, its xUnit
