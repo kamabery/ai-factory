@@ -5,10 +5,11 @@ using System.Text.Json.Nodes;
 namespace Factory.Core;
 
 /// <summary>
-/// Reads JSON as factory.ps1 reads its hashtables: a missing key is null, strings compare without case
-/// (PowerShell's -eq, -in), and a value interpolates as PowerShell prints it.
+/// Reads board and event values as factory.ps1 reads its hashtables (<see cref="PsJson"/> writes them):
+/// a missing key is null, strings compare without case (PowerShell's -eq, -in), and a value interpolates
+/// as PowerShell prints it.
 /// </summary>
-internal static class Json
+internal static class PsJsonReader
 {
     public static bool Is(string? a, string? b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 

@@ -10,8 +10,8 @@ public static class Canary
     /// </summary>
     public static CanaryState State(JsonObject? canary, Func<string> fingerprint)
     {
-        if (canary is null || !Json.Is(Json.Str(canary["fingerprint"]), fingerprint())) return CanaryState.None;
-        var status = Json.Str(canary["status"]);
-        return Json.Is(status, "pass") ? CanaryState.Pass : Json.Is(status, "failed") ? CanaryState.Failed : CanaryState.None;
+        if (canary is null || !PsJsonReader.Is(PsJsonReader.Str(canary["fingerprint"]), fingerprint())) return CanaryState.None;
+        var status = PsJsonReader.Str(canary["status"]);
+        return PsJsonReader.Is(status, "pass") ? CanaryState.Pass : PsJsonReader.Is(status, "failed") ? CanaryState.Failed : CanaryState.None;
     }
 }

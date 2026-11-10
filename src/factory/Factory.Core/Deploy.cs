@@ -6,8 +6,8 @@ namespace Factory.Core;
 public sealed class Deploy(JsonObject node)
 {
     public JsonObject Node { get; } = node;
-    public string? Status => Json.Str(Node["status"]);
-    public int Attempts => Json.Int(Node["attempts"]);
-    public string? DestroyStartedAt => Json.Str(Node["destroyStartedAt"]);
-    public int DestroyFailures => Json.Int(Node["destroyFailures"]);
+    public string? Status => PsJsonReader.Str(Node["status"]);
+    public int Attempts => PsJsonReader.Int(Node["attempts"]);
+    public string? DestroyStartedAt => PsJsonReader.Str(Node["destroyStartedAt"]);
+    public int DestroyFailures => PsJsonReader.Int(Node["destroyFailures"]);
 }

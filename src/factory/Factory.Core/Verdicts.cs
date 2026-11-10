@@ -40,7 +40,7 @@ public static partial class Verdicts
         }
         if (missing.Count > 0) throw new FactoryException($"no verdict from: {string.Join(", ", missing)}", 2) { KeepChanges = true };
 
-        var changes = Stages.Roles.Where(r => Json.Is(Json.Str(reviews[r]), "CHANGES")).ToList();
+        var changes = Stages.Roles.Where(r => PsJsonReader.Is(PsJsonReader.Str(reviews[r]), "CHANGES")).ToList();
         if (changes.Count == 0)
         {
             if (job.IsBootstrap)

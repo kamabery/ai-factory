@@ -6,7 +6,7 @@ namespace Factory.Core;
 public sealed class Idea(JsonObject node)
 {
     public JsonObject Node { get; } = node;
-    public string Id => Json.Text(Node["id"]);
-    public string? Status => Json.Str(Node["status"]);
-    public string? Target => Json.Str(Node["target"]);
+    public string Id => PsJsonReader.Text(Node["id"]);
+    public string? Status => PsJsonReader.Str(Node["status"]);
+    public string? Target => PsJsonReader.Str(Node["target"]);
 }

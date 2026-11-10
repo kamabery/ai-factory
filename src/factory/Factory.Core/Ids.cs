@@ -10,10 +10,10 @@ public static partial class Ids
     public static string Next(JsonObject board, string prefix, JsonArray items)
     {
         if (board["seq"] is not JsonObject seq) board["seq"] = seq = [];
-        var max = Json.Int(seq[prefix]);
+        var max = PsJsonReader.Int(seq[prefix]);
         var id = new Regex($"^{Regex.Escape(prefix)}-(\\d+)$", RegexOptions.IgnoreCase);
         foreach (var x in items)
-            if (id.Match(Json.Text(x?["id"])) is { Success: true } m) max = Math.Max(max, int.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture));
+            if (id.Match(PsJsonReader.Text(x?["id"])) is { Success: true } m) max = Math.Max(max, int.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture));
         seq[prefix] = max + 1;
         return $"{prefix}-{max + 1:D3}";
     }

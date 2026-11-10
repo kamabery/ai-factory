@@ -49,7 +49,7 @@ public static class Transitions
     public static bool Allows(string from, string to, string? reason)
     {
         if (string.IsNullOrEmpty(reason)) reason = null;
-        return Rows.Any(r => Json.In(from, r.From) && Json.In(to, r.To) && r.Reason == reason);
+        return Rows.Any(r => PsJsonReader.In(from, r.From) && PsJsonReader.In(to, r.To) && r.Reason == reason);
     }
 
     /// <summary>
@@ -75,7 +75,7 @@ public static class Transitions
             n["flag"] = flag;
         }
         // Every move into build starts a round; checkout records the new round's start.
-        if (Json.Is(to, Stages.Build) && Json.Truthy(n["roundStart"])) n["roundStart"] = null;
+        if (PsJsonReader.Is(to, Stages.Build) && PsJsonReader.Truthy(n["roundStart"])) n["roundStart"] = null;
         // @($j.history) + entry: a job with no history array gets a leading null.
         var history = n["history"] is JsonArray old ? new JsonArray([.. old.Select(h => h?.DeepClone())]) : new JsonArray((JsonNode?)null);
         history.Add(new JsonObject { ["ts"] = ts, ["from"] = from, ["to"] = to, ["by"] = by });
@@ -91,14 +91,14 @@ public static class Transitions
     /// a passing preview parks in blocked; one in approve or gate has its preview up, so it goes to ready.
     /// </summary>
     public static string EscalationStage(Job job, bool deploysOn) =>
-        IsDeployable(job, deploysOn) && Json.In(job.Stage, Stages.Build, Stages.Review, Stages.Deploy) ? Stages.Blocked : Stages.Ready;
+        IsDeployable(job, deploysOn) && PsJsonReader.In(job.Stage, Stages.Build, Stages.Review, Stages.Deploy) ? Stages.Blocked : Stages.Ready;
 
     /// <summary>Deploys are on (<c>HCP_ORG</c>) and the job is not a bootstrap.</summary>
     public static bool IsDeployable(Job job, bool deploysOn) => deploysOn && !job.IsBootstrap;
 
     public static void RequireStage(Job job, string[] stages, string what)
     {
-        if (!Json.In(job.Stage, stages))
+        if (!PsJsonReader.In(job.Stage, stages))
             throw new FactoryException($"{what} refused: {job.Id} is in '{job.Stage}', needs {string.Join('|', stages)}");
     }
 

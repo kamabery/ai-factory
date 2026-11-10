@@ -23,7 +23,7 @@ public static class Board
     /// <summary>The job with this id, or a refusal (<c>no job J-NNN</c>).</summary>
     public static Job Job(this JsonObject board, string id) => board.FindJob(id) ?? throw new FactoryException($"no job {id}");
 
-    public static Job? FindJob(this JsonObject board, string? id) => board.Jobs().FirstOrDefault(j => Json.Is(j.Id, id));
+    public static Job? FindJob(this JsonObject board, string? id) => board.Jobs().FirstOrDefault(j => PsJsonReader.Is(j.Id, id));
 
     private static IEnumerable<JsonObject> Items(JsonObject board, string key) =>
         board[key] is JsonArray a ? a.OfType<JsonObject>() : [];

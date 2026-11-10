@@ -6,11 +6,11 @@ namespace Factory.Core;
 public sealed class Flag(JsonObject node)
 {
     public JsonObject Node { get; } = node;
-    public string Reason => Json.Text(Node["reason"]);
-    public string? Detail => Json.Str(Node["detail"]);
-    public string? Why => Json.Str(Node["why"]);
+    public string Reason => PsJsonReader.Text(Node["reason"]);
+    public string? Detail => PsJsonReader.Str(Node["detail"]);
+    public string? Why => PsJsonReader.Str(Node["why"]);
     /// <summary>usage-limit only: the Building stage claude stopped in.</summary>
-    public string? Stage => Json.Str(Node["stage"]);
+    public string? Stage => PsJsonReader.Str(Node["stage"]);
     /// <summary>usage-limit only: claude's session id.</summary>
-    public string? Session => Json.Str(Node["session"]);
+    public string? Session => PsJsonReader.Str(Node["session"]);
 }

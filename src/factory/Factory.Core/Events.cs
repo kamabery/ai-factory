@@ -18,6 +18,6 @@ public static class Events
 
     public static void RequireKind(string? kind)
     {
-        if (!Json.In(kind, Kinds)) throw new FactoryException($"unknown event kind '{kind}'");
+        if (!PsJsonReader.In(kind, Kinds)) throw new FactoryException($"unknown event kind '{kind}'");
     }
 }
