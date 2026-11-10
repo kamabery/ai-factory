@@ -1,6 +1,23 @@
 # 02: Factory.Core, contract types and rules
 
-**Status:** not started. **Branch:** `feature/02-core`. **Depends on:** 01.
+**Status:** built on its branch (2026-11-10), not yet merged. Proven locally: 246 .NET tests (238 unit,
+8 integration), gates Core 98%, Store 100%, Cli 92%; a sanitized real `board.json` (CRLF, 93 KB) and
+`events.jsonl` (1,331 lines) round-trip byte for byte. **Branch:** `feature/02-core`. **Depends on:** 01.
+
+**Deviations (2026-11-10):**
+- **The board stays a JSON document.** `Job`, `Idea`, `Flag` and `Deploy` are typed views over
+  `JsonObject`, not records, so unknown keys and each job's own key order survive a write (the contract's
+  "every write keeps the file's order"). `Transitions.Move` therefore updates the job in place and
+  returns its `stage` event, as `Move-Job` does, rather than returning a new job.
+- **Rules are pure; their inputs come from the caller.** The canary fingerprint (file hashes, HCP) is a
+  `Func<string>`, verdicts and decisions arrive as text, and merge step 0 takes git's output. The
+  set-stage orchestration (build checks 1–3 in order), `rework`, `redeploy` and `resume` are command
+  bodies and land in 04 on top of `Glob`, `SpecText`, `Verdicts` and `MergeRules`.
+- **Case.** Comparisons ignore case wherever `factory.ps1` used `-eq`, `-in` or `-match`, and stay exact
+  where it used `-ceq` / `-cmatch` (verdict and rating lines).
+- **Contract fix.** The escalation row now lists `gate` (factory.ps1 already escalated a gate that could
+  not run); the table is checked against a hand-written copy of the contract's rows.
+- **Coverage** skips source-generator output (`*.g.cs`, `[GeneratedRegex]`), which otherwise put Core at 84%.
 
 ## Goal
 

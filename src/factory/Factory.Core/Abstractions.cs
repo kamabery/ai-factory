@@ -4,6 +4,9 @@ namespace Factory.Core;
 public sealed class FactoryException(string message, int exitCode = 1) : Exception(message)
 {
     public int ExitCode { get; } = exitCode;
+
+    /// <summary>The command saves the board before it refuses (read-reviews keeps the verdicts it read).</summary>
+    public bool KeepChanges { get; init; }
 }
 
 /// <summary>The file system, as far as the factory's state needs it.</summary>

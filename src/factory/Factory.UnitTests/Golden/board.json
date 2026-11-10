@@ -1,0 +1,3071 @@
+{
+  "ideas": [
+    {
+      "id": "I-011",
+      "text": "Simple todo app: create, edit, complete, archive and delete todos",
+      "target": "owner/todoapp-two",
+      "scaffold": {
+        "name": "todoapp",
+        "resource": "Todo",
+        "db": "postgres",
+        "ui": "react",
+        "events": false,
+        "auth": false
+      },
+      "status": "done",
+      "jobs": [
+        "J-018",
+        "J-019"
+      ],
+      "createdAt": "2026-10-23T21:10:13.475Z"
+    },
+    {
+      "id": "I-012",
+      "text": "Tags on todo items",
+      "target": "owner/todoapp-two",
+      "scaffold": null,
+      "status": "done",
+      "jobs": [
+        "J-020"
+      ],
+      "createdAt": "2026-10-26T11:51:20.150Z"
+    },
+    {
+      "id": "I-013",
+      "text": "Make todoapp a multi-user system with authentication",
+      "target": "owner/todoapp-two",
+      "scaffold": null,
+      "base": null,
+      "status": "done",
+      "jobs": [
+        "J-021",
+        "J-022"
+      ],
+      "createdAt": "2026-10-26T21:02:02.841Z"
+    },
+    {
+      "id": "I-014",
+      "text": "Cap preview log ingestion",
+      "target": "owner/todoapp-two",
+      "scaffold": null,
+      "base": null,
+      "status": "abandoned",
+      "jobs": [
+        "J-023"
+      ],
+      "createdAt": "2026-11-01T20:40:35.754Z"
+    },
+    {
+      "id": "I-015",
+      "text": "Empty-state message on the todo list",
+      "target": "owner/todoapp-two",
+      "scaffold": null,
+      "base": null,
+      "status": "done",
+      "jobs": [
+        "J-024"
+      ],
+      "createdAt": "2026-11-03T12:07:22.752Z"
+    },
+    {
+      "id": "I-016",
+      "text": "Show the number of active todos in the Todos heading, e.g. Todos (3)",
+      "target": "owner/todoapp-two",
+      "scaffold": null,
+      "base": null,
+      "status": "done",
+      "jobs": [
+        "J-025"
+      ],
+      "createdAt": "2026-11-03T20:12:51.896Z"
+    },
+    {
+      "id": "I-017",
+      "text": "Front-end-only deploys: skip Terraform when only src/ui changed since the last apply",
+      "target": "owner/todoapp-two",
+      "scaffold": null,
+      "base": null,
+      "status": "done",
+      "jobs": [
+        "J-026"
+      ],
+      "createdAt": "2026-11-05T12:33:40.239Z"
+    },
+    {
+      "id": "I-018",
+      "text": "Completed todo count in the Archive heading",
+      "target": "owner/todoapp-two",
+      "scaffold": null,
+      "base": null,
+      "status": "done",
+      "jobs": [
+        "J-027"
+      ],
+      "createdAt": "2026-11-07T14:18:51.562Z"
+    },
+    {
+      "id": "I-019",
+      "text": "Throwaway target that proves block, redeploy and preview isolation on the shared platform (docs/PLAN-PR1-PROOFS.md)",
+      "target": "owner/factory-proof",
+      "scaffold": {
+        "name": "proof",
+        "resource": "Item",
+        "db": "postgres",
+        "ui": "react",
+        "events": false,
+        "auth": true
+      },
+      "base": null,
+      "status": "abandoned",
+      "jobs": [
+        "J-028"
+      ],
+      "createdAt": "2026-11-07T17:35:15.313Z"
+    },
+    {
+      "id": "I-020",
+      "text": "Index Items by quantity without locking the table",
+      "target": "owner/factory-proof",
+      "scaffold": null,
+      "base": null,
+      "status": "done",
+      "jobs": [
+        "J-029"
+      ],
+      "createdAt": "2026-11-07T18:04:58.301Z"
+    },
+    {
+      "id": "I-021",
+      "text": "Item count in the Items heading",
+      "target": "owner/factory-proof",
+      "scaffold": null,
+      "base": null,
+      "status": "done",
+      "jobs": [
+        "J-030"
+      ],
+      "createdAt": "2026-11-07T18:05:09.921Z"
+    },
+    {
+      "id": "I-022",
+      "text": "CONTRIBUTING.md for todoapp-two: the live proof that cloud mode (Foundry) runs a whole job",
+      "target": "owner/todoapp-two",
+      "scaffold": null,
+      "base": null,
+      "status": "done",
+      "jobs": [
+        "J-031"
+      ],
+      "createdAt": "2026-11-08T20:31:54.462Z"
+    },
+    {
+      "id": "I-023",
+      "text": "Download my active todos as a CSV from the Todos page",
+      "target": "owner/todoapp-two",
+      "scaffold": null,
+      "base": null,
+      "status": "abandoned",
+      "jobs": [],
+      "createdAt": "2026-11-08T22:26:47.770Z"
+    },
+    {
+      "id": "I-024",
+      "text": "IaC docs: describe /health as mapped in every environment (stale after 866ab95)",
+      "target": "owner/todoapp-two",
+      "scaffold": null,
+      "base": null,
+      "status": "done",
+      "jobs": [
+        "J-032"
+      ],
+      "createdAt": "2026-11-09T19:19:37.981Z"
+    }
+  ],
+  "version": 2,
+  "jobs": [
+    {
+      "id": "J-018",
+      "idea": "I-011",
+      "kind": "bootstrap",
+      "title": "Bootstrap todoapp from template-projects",
+      "stage": "done",
+      "round": 3,
+      "branch": "factory/J-018",
+      "target": "owner/todoapp-two",
+      "provider": "subscription",
+      "pr": {
+        "number": 1,
+        "url": "https://github.com/owner/todoapp-two/pull/1"
+      },
+      "reviews": {
+        "security": "PASS",
+        "code": "PASS",
+        "ux": "PASS",
+        "ui": "PASS"
+      },
+      "decision": "APPROVE",
+      "gate": {
+        "build": 0,
+        "test": 0,
+        "apphost": 0,
+        "infra": 0,
+        "ui": 0,
+        "sha": "6e0ab8a6aee50d5464612fe434ceadd545969c1b",
+        "at": "2026-10-23T21:49:16.544Z"
+      },
+      "flag": null,
+      "merged": {
+        "sha": "8df0096470d653dc19c7719b2cb9178006ee88fb",
+        "repo": "owner/todoapp-two",
+        "pr": "https://github.com/owner/todoapp-two/pull/1",
+        "added": [
+          ".aspire/Directory.Packages.props",
+          ".aspire/apphost.cs",
+          ".aspire/apphost.run.json",
+          ".aspire/appsettings.Development.json",
+          ".aspire/appsettings.json",
+          ".aspirestarter.json",
+          ".dockerignore",
+          ".github/workflows/deploy.yml",
+          ".gitignore",
+          "CLAUDE.md",
+          "Directory.Build.props",
+          "Directory.Packages.props",
+          "IaC/.terraform.lock.hcl",
+          "IaC/README.md",
+          "IaC/RESOURCE-MAP.md",
+          "IaC/backend.tf",
+          "IaC/containerapp.api.tf",
+          "IaC/containerapps.tf",
+          "IaC/database.tf",
+          "IaC/envs/dev.tfvars",
+          "IaC/envs/ephemeral.tfvars",
+          "IaC/envs/staging.tfvars",
+          "IaC/frontend.react.tf",
+          "IaC/guards.tf",
+          "IaC/identity.tf",
+          "IaC/keyvault.tf",
+          "IaC/locals.tf",
+          "IaC/main.tf",
+          "IaC/modules/database-postgres/main.tf",
+          "IaC/modules/database-postgres/outputs.tf",
+          "IaC/modules/database-postgres/variables.tf",
+          "IaC/observability.tf",
+          "IaC/outputs.tf",
+          "IaC/providers.tf",
+          "IaC/registry.tf",
+          "IaC/tests/ephemeral.tftest.hcl",
+          "IaC/variables.tf",
+          "IaC/versions.tf",
+          "README.md",
+          "aspire.config.json",
+          "contracts/api.openapi.json",
+          "docs/ADDING-A-RESOURCE.md",
+          "docs/DESIGN.md",
+          "nuget.config",
+          "src/todoapp.api.migrations.postgres/Migrations/20260911180529_InitialCreate.Designer.cs",
+          "src/todoapp.api.migrations.postgres/Migrations/20260911180529_InitialCreate.cs",
+          "src/todoapp.api.migrations.postgres/Migrations/AppDbContextModelSnapshot.cs",
+          "src/todoapp.api.migrations.postgres/todoapp.api.migrations.postgres.csproj",
+          "src/todoapp.api/Controllers/AuthController.cs",
+          "src/todoapp.api/Controllers/ClientTelemetryController.cs",
+          "src/todoapp.api/Controllers/HarnessController.cs",
+          "src/todoapp.api/Controllers/TodosController.cs",
+          "src/todoapp.api/Data/AppDbContextFactory.cs",
+          "src/todoapp.api/Dockerfile",
+          "src/todoapp.api/Program.cs",
+          "src/todoapp.api/Properties/launchSettings.json",
+          "src/todoapp.api/Services/HarnessFaultInjector.cs",
+          "src/todoapp.api/Startup/AuthConfigurator.cs",
+          "src/todoapp.api/Startup/CorsConfigurator.cs",
+          "src/todoapp.api/Startup/NumericUnionTransformer.cs",
+          "src/todoapp.api/Startup/PersistenceConfigurator.cs",
+          "src/todoapp.api/appsettings.Development.json",
+          "src/todoapp.api/appsettings.json",
+          "src/todoapp.api/todoapp.api.csproj",
+          "src/todoapp.api/todoapp.api.http",
+          "src/todoapp.data/AppDbContext.cs",
+          "src/todoapp.data/DatabaseProvider.cs",
+          "src/todoapp.data/Repositories/EfRepository.cs",
+          "src/todoapp.data/Repositories/IRepository.cs",
+          "src/todoapp.data/Todo.cs",
+          "src/todoapp.data/TodoSeeder.cs",
+          "src/todoapp.data/todoapp.data.csproj",
+          "src/todoapp.servicedefaults/Extensions.cs",
+          "src/todoapp.servicedefaults/SerilogExtensions.cs",
+          "src/todoapp.servicedefaults/todoapp.servicedefaults.csproj",
+          "src/ui/react/.gitattributes",
+          "src/ui/react/.gitignore",
+          "src/ui/react/.oxlintrc.json",
+          "src/ui/react/README.md",
+          "src/ui/react/index.html",
+          "src/ui/react/package-lock.json",
+          "src/ui/react/package.json",
+          "src/ui/react/public/favicon.svg",
+          "src/ui/react/public/icon-maskable.svg",
+          "src/ui/react/scripts/check-design-tokens.mjs",
+          "src/ui/react/src/components/styleguide/parts.tsx",
+          "src/ui/react/src/components/ui/alert.tsx",
+          "src/ui/react/src/components/ui/badge.tsx",
+          "src/ui/react/src/components/ui/breadcrumb.tsx",
+          "src/ui/react/src/components/ui/button.tsx",
+          "src/ui/react/src/components/ui/card.tsx",
+          "src/ui/react/src/components/ui/checkbox.tsx",
+          "src/ui/react/src/components/ui/dialog.tsx",
+          "src/ui/react/src/components/ui/field.tsx",
+          "src/ui/react/src/components/ui/input.tsx",
+          "src/ui/react/src/components/ui/nav.tsx",
+          "src/ui/react/src/components/ui/radio.tsx",
+          "src/ui/react/src/components/ui/select.tsx",
+          "src/ui/react/src/components/ui/skeleton.tsx",
+          "src/ui/react/src/components/ui/spinner.tsx",
+          "src/ui/react/src/components/ui/switch.tsx",
+          "src/ui/react/src/components/ui/table.tsx",
+          "src/ui/react/src/components/ui/tabs.tsx",
+          "src/ui/react/src/components/ui/textarea.tsx",
+          "src/ui/react/src/components/ui/toast.tsx",
+          "src/ui/react/src/db/collections.ts",
+          "src/ui/react/src/index.css",
+          "src/ui/react/src/lib/api.generated.ts",
+          "src/ui/react/src/lib/api.ts",
+          "src/ui/react/src/lib/auth.ts",
+          "src/ui/react/src/lib/cn.ts",
+          "src/ui/react/src/lib/query-client.ts",
+          "src/ui/react/src/lib/telemetry.ts",
+          "src/ui/react/src/main.tsx",
+          "src/ui/react/src/routeTree.gen.ts",
+          "src/ui/react/src/routes/__root.tsx",
+          "src/ui/react/src/routes/index.tsx",
+          "src/ui/react/src/routes/styleguide.tsx",
+          "src/ui/react/src/routes/todos.tsx",
+          "src/ui/react/src/store/preferences.ts",
+          "src/ui/react/src/vite-env.d.ts",
+          "src/ui/react/tsconfig.app.json",
+          "src/ui/react/tsconfig.json",
+          "src/ui/react/tsconfig.node.json",
+          "src/ui/react/vite.config.ts",
+          "tests/todoapp.api.tests/Harness/AuthTests.cs",
+          "tests/todoapp.api.tests/Harness/ClientTelemetryControllerTests.cs",
+          "tests/todoapp.api.tests/Harness/ContractTests.cs",
+          "tests/todoapp.api.tests/Harness/LoggingConfigurationTests.cs",
+          "tests/todoapp.api.tests/Harness/TodoSeederTests.cs",
+          "tests/todoapp.api.tests/Harness/TodosControllerTests.cs",
+          "tests/todoapp.api.tests/Infrastructure/ApiFactory.cs",
+          "tests/todoapp.api.tests/Infrastructure/AssemblyInfo.cs",
+          "tests/todoapp.api.tests/Infrastructure/TestCategories.cs",
+          "tests/todoapp.api.tests/todoapp.api.tests.csproj",
+          "todoapp.slnx"
+        ],
+        "modified": []
+      },
+      "approvedAt": "2026-10-23T21:44:51.152Z",
+      "costUsd": 6.1901,
+      "durationMs": 681747,
+      "createdAt": "2026-10-23T21:10:13.564Z",
+      "updatedAt": "2026-10-24T12:29:45.197Z",
+      "history": [
+        {
+          "ts": "2026-10-23T21:10:23.544Z",
+          "from": "backlog",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-10-23T21:10:24.399Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-10-23T21:14:23.610Z",
+          "from": "build",
+          "to": "ready",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-23T21:17:14.921Z",
+          "from": "ready",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-10-23T21:17:15.778Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-10-23T21:22:53.867Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-23T21:25:08.066Z",
+          "from": "review",
+          "to": "ready",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-23T21:29:13.134Z",
+          "from": "ready",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-10-23T21:29:14.013Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-10-23T21:34:01.386Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-23T21:35:26.146Z",
+          "from": "review",
+          "to": "deploy",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-23T21:36:00.125Z",
+          "from": "deploy",
+          "to": "ready",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-23T21:40:53.315Z",
+          "from": "ready",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-10-23T21:42:11.455Z",
+          "from": "approved",
+          "to": "deploy",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-10-23T21:43:15.842Z",
+          "from": "deploy",
+          "to": "ready",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-23T21:44:51.158Z",
+          "from": "ready",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-10-23T21:45:01.829Z",
+          "from": "approved",
+          "to": "deploy",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-10-23T21:45:23.111Z",
+          "from": "deploy",
+          "to": "approve",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-23T21:48:43.222Z",
+          "from": "approve",
+          "to": "gate",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-23T21:49:16.669Z",
+          "from": "gate",
+          "to": "ready",
+          "by": "gate"
+        },
+        {
+          "ts": "2026-10-24T12:29:45.197Z",
+          "from": "ready",
+          "to": "done",
+          "by": "human"
+        }
+      ],
+      "deploy": {
+        "env": "j018",
+        "workspace": "todoapp-two-j018",
+        "workspaceId": "ws-zbQwvfRoTBCpBtX9",
+        "status": "down",
+        "attempts": 3,
+        "sha": "6e0ab8a6aee50d5464612fe434ceadd545969c1b",
+        "run": null,
+        "urls": null,
+        "appliedAt": null,
+        "destroyAt": null,
+        "destroyStartedAt": "2026-11-06T19:58:25.283Z",
+        "destroyError": null,
+        "destroyFailures": 0
+      },
+      "resume": null
+    },
+    {
+      "id": "J-019",
+      "idea": "I-011",
+      "kind": "feature",
+      "title": "Todo list with create, edit, complete-to-archive, restore and delete",
+      "stage": "done",
+      "round": 4,
+      "branch": "factory/J-019",
+      "target": "owner/todoapp-two",
+      "provider": "subscription",
+      "pr": {
+        "number": 2,
+        "url": "https://github.com/owner/todoapp-two/pull/2"
+      },
+      "reviews": {
+        "security": "PASS",
+        "code": "PASS",
+        "ux": "PASS",
+        "ui": "PASS"
+      },
+      "decision": "APPROVE",
+      "gate": {
+        "build": 0,
+        "test": 0,
+        "ui-build": 0,
+        "ui-lint": 0,
+        "ui-test": 0,
+        "sha": "f7151b2be7efd26680fe90535d1765e44adb4532",
+        "at": "2026-10-25T20:06:00.978Z"
+      },
+      "flag": null,
+      "merged": {
+        "sha": "0767dbca03c1fe323a2eef1d6b56ab0f868aac01",
+        "repo": "owner/todoapp-two",
+        "pr": "https://github.com/owner/todoapp-two/pull/2",
+        "added": [
+          "src/todoapp.api.migrations.postgres/Migrations/20261024125443_ReshapeTodoForTodoList.Designer.cs",
+          "src/todoapp.api.migrations.postgres/Migrations/20261024125443_ReshapeTodoForTodoList.cs",
+          "src/todoapp.api/Controllers/TodoContracts.cs",
+          "src/ui/react/public/staticwebapp.config.json",
+          "src/ui/react/src/components/todos/pager.tsx",
+          "src/ui/react/src/components/todos/search.ts",
+          "src/ui/react/src/components/todos/todo-dialog.tsx",
+          "src/ui/react/src/components/todos/todo-item.tsx",
+          "src/ui/react/src/components/todos/todo-list-screen.tsx",
+          "src/ui/react/src/components/todos/use-todo-mutations.ts",
+          "src/ui/react/src/routes/archive.tsx",
+          "src/ui/react/src/test/app.tsx",
+          "src/ui/react/src/test/setup.ts",
+          "src/ui/react/src/test/staticwebapp-config.test.ts",
+          "src/ui/react/src/test/todos.test.tsx",
+          "src/ui/react/vitest.config.ts",
+          "tests/todoapp.api.tests/Harness/PostgresMigrationTests.cs"
+        ],
+        "modified": [
+          ".github/workflows/deploy.yml",
+          "CLAUDE.md",
+          "IaC/envs/ephemeral.tfvars",
+          "IaC/keyvault.tf",
+          "IaC/main.tf",
+          "IaC/providers.tf",
+          "IaC/variables.tf",
+          "README.md",
+          "contracts/api.openapi.json",
+          "src/todoapp.api.migrations.postgres/Migrations/AppDbContextModelSnapshot.cs",
+          "src/todoapp.api/Controllers/TodosController.cs",
+          "src/todoapp.api/Program.cs",
+          "src/todoapp.api/Startup/PersistenceConfigurator.cs",
+          "src/todoapp.data/AppDbContext.cs",
+          "src/todoapp.data/Todo.cs",
+          "src/ui/react/package-lock.json",
+          "src/ui/react/package.json",
+          "src/ui/react/src/db/collections.ts",
+          "src/ui/react/src/lib/api.generated.ts",
+          "src/ui/react/src/lib/api.ts",
+          "src/ui/react/src/routeTree.gen.ts",
+          "src/ui/react/src/routes/__root.tsx",
+          "src/ui/react/src/routes/index.tsx",
+          "src/ui/react/src/routes/todos.tsx",
+          "tests/todoapp.api.tests/Harness/TodosControllerTests.cs",
+          "tests/todoapp.api.tests/todoapp.api.tests.csproj"
+        ]
+      },
+      "approvedAt": "2026-10-25T17:22:54.189Z",
+      "costUsd": 11.2504,
+      "durationMs": 6529229,
+      "createdAt": "2026-10-24T12:49:58.311Z",
+      "updatedAt": "2026-10-25T21:34:10.597Z",
+      "history": [
+        {
+          "ts": "2026-10-24T12:49:58.886Z",
+          "from": "backlog",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-10-24T12:49:59.859Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-10-24T13:03:42.227Z",
+          "from": "build",
+          "to": "ready",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-10-24T13:04:18.425Z",
+          "from": "ready",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-10-24T13:04:19.707Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-10-24T13:04:25.179Z",
+          "from": "build",
+          "to": "ready",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-10-24T13:17:53.196Z",
+          "from": "ready",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-10-24T13:17:54.168Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-10-24T13:22:19.486Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-24T13:23:20.333Z",
+          "from": "review",
+          "to": "deploy",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-24T13:24:31.604Z",
+          "from": "deploy",
+          "to": "ready",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-24T16:56:22.568Z",
+          "from": "ready",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-10-24T16:56:30.853Z",
+          "from": "approved",
+          "to": "deploy",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-10-24T16:57:36.066Z",
+          "from": "deploy",
+          "to": "ready",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-24T17:00:00.269Z",
+          "from": "ready",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-10-24T17:00:02.011Z",
+          "from": "approved",
+          "to": "deploy",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-10-24T17:02:23.665Z",
+          "from": "deploy",
+          "to": "ready",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-24T17:10:14.270Z",
+          "from": "ready",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-10-24T17:10:17.202Z",
+          "from": "approved",
+          "to": "deploy",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-10-24T17:28:47.608Z",
+          "from": "deploy",
+          "to": "ready",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-25T16:03:59.363Z",
+          "from": "ready",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-10-25T16:04:09.025Z",
+          "from": "approved",
+          "to": "deploy",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-10-25T16:39:46.868Z",
+          "from": "deploy",
+          "to": "approve",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-25T16:41:31.399Z",
+          "from": "approve",
+          "to": "ready",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-25T17:22:54.196Z",
+          "from": "ready",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-10-25T19:31:31.780Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-10-25T19:37:34.739Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-25T19:38:36.022Z",
+          "from": "review",
+          "to": "deploy",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-25T20:02:52.057Z",
+          "from": "deploy",
+          "to": "approve",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-25T20:04:43.817Z",
+          "from": "approve",
+          "to": "gate",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-25T20:06:01.081Z",
+          "from": "gate",
+          "to": "ready",
+          "by": "gate"
+        },
+        {
+          "ts": "2026-10-25T21:34:10.597Z",
+          "from": "ready",
+          "to": "done",
+          "by": "human"
+        }
+      ],
+      "deploy": {
+        "env": "j019",
+        "workspace": "todoapp-two-j019",
+        "workspaceId": "ws-sSYWFHoZZRb7P5BH",
+        "status": "down",
+        "attempts": 1,
+        "sha": "f7151b2be7efd26680fe90535d1765e44adb4532",
+        "run": "https://github.com/owner/todoapp-two/actions/runs/40227023246",
+        "urls": null,
+        "appliedAt": "2026-10-25T20:02:52.049Z",
+        "destroyAt": "2026-10-26T19:59:00Z"
+      },
+      "resume": null
+    },
+    {
+      "id": "J-020",
+      "idea": "I-012",
+      "kind": "feature",
+      "title": "Tags on todo items, with a tag list page and tag filters",
+      "stage": "done",
+      "round": 1,
+      "branch": "factory/J-020",
+      "target": "owner/todoapp-two",
+      "provider": "subscription",
+      "pr": {
+        "number": 3,
+        "url": "https://github.com/owner/todoapp-two/pull/3"
+      },
+      "reviews": {
+        "security": "PASS",
+        "code": "PASS",
+        "ux": "PASS",
+        "ui": "PASS"
+      },
+      "decision": "APPROVE",
+      "gate": {
+        "build": 0,
+        "api-test": 0,
+        "ui-build": 0,
+        "ui-lint": 0,
+        "ui-test": 0,
+        "sha": "497b05638f1c449f971fc75f30bd8546910b94fa",
+        "at": "2026-10-26T13:50:32.083Z"
+      },
+      "flag": null,
+      "merged": {
+        "sha": "3703135eeb7e9b30e174c20c87269412a88fed16",
+        "repo": "owner/todoapp-two",
+        "pr": "https://github.com/owner/todoapp-two/pull/3",
+        "added": [
+          "src/todoapp.api.migrations.postgres/Migrations/20261026131048_AddTags.Designer.cs",
+          "src/todoapp.api.migrations.postgres/Migrations/20261026131048_AddTags.cs",
+          "src/todoapp.api/Controllers/TagContracts.cs",
+          "src/todoapp.api/Controllers/TagResolver.cs",
+          "src/todoapp.api/Controllers/TagsController.cs",
+          "src/todoapp.data/Tag.cs",
+          "src/ui/react/src/components/todos/tag-field.tsx",
+          "src/ui/react/src/components/todos/tag-filter-banner.tsx",
+          "src/ui/react/src/components/todos/tags-link.tsx",
+          "src/ui/react/src/components/todos/use-tag-mutations.ts",
+          "src/ui/react/src/components/ui/autocomplete.tsx",
+          "src/ui/react/src/components/ui/badge-colours.ts",
+          "src/ui/react/src/components/ui/colour-picker.tsx",
+          "src/ui/react/src/components/ui/tag-chip.tsx",
+          "src/ui/react/src/components/ui/tag-colours.ts",
+          "src/ui/react/src/routes/tags.tsx",
+          "src/ui/react/src/test/tags.test.tsx",
+          "tests/todoapp.api.tests/Harness/TagsControllerTests.cs"
+        ],
+        "modified": [
+          "contracts/api.openapi.json",
+          "src/todoapp.api.migrations.postgres/Migrations/AppDbContextModelSnapshot.cs",
+          "src/todoapp.api/Controllers/TodoContracts.cs",
+          "src/todoapp.api/Controllers/TodosController.cs",
+          "src/todoapp.data/AppDbContext.cs",
+          "src/todoapp.data/Todo.cs",
+          "src/ui/react/src/components/todos/search.ts",
+          "src/ui/react/src/components/todos/todo-dialog.tsx",
+          "src/ui/react/src/components/todos/todo-item.tsx",
+          "src/ui/react/src/components/todos/todo-list-screen.tsx",
+          "src/ui/react/src/components/todos/use-todo-mutations.ts",
+          "src/ui/react/src/components/ui/badge.tsx",
+          "src/ui/react/src/db/collections.ts",
+          "src/ui/react/src/lib/api.generated.ts",
+          "src/ui/react/src/lib/api.ts",
+          "src/ui/react/src/routeTree.gen.ts",
+          "src/ui/react/src/routes/archive.tsx",
+          "src/ui/react/src/routes/styleguide.tsx",
+          "src/ui/react/src/routes/todos.tsx",
+          "src/ui/react/src/test/app.tsx",
+          "tests/todoapp.api.tests/Harness/TodosControllerTests.cs"
+        ]
+      },
+      "approvedAt": "2026-10-26T12:09:28.009Z",
+      "costUsd": 7.7892,
+      "durationMs": 1623941,
+      "createdAt": "2026-10-26T12:09:26.310Z",
+      "updatedAt": "2026-10-26T16:58:29.793Z",
+      "history": [
+        {
+          "ts": "2026-10-26T12:09:28.014Z",
+          "from": "backlog",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-10-26T13:02:46.159Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-10-26T13:22:34.640Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-26T13:23:51.265Z",
+          "from": "review",
+          "to": "deploy",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-26T13:47:41.685Z",
+          "from": "deploy",
+          "to": "approve",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-26T13:47:50.429Z",
+          "from": "approve",
+          "to": "approve",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-26T13:49:17.688Z",
+          "from": "approve",
+          "to": "gate",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-26T13:50:32.369Z",
+          "from": "gate",
+          "to": "ready",
+          "by": "gate"
+        },
+        {
+          "ts": "2026-10-26T16:58:29.793Z",
+          "from": "ready",
+          "to": "done",
+          "by": "human"
+        }
+      ],
+      "deploy": {
+        "env": "j020",
+        "workspace": "todoapp-two-j020",
+        "workspaceId": "ws-waCJaeS7aqwhFHJ8",
+        "status": "down",
+        "attempts": 1,
+        "sha": "497b05638f1c449f971fc75f30bd8546910b94fa",
+        "run": "https://github.com/owner/todoapp-two/actions/runs/40330291931",
+        "urls": null,
+        "appliedAt": "2026-10-26T13:47:50.228Z",
+        "destroyAt": "2026-10-27T13:44:43Z"
+      }
+    },
+    {
+      "id": "J-021",
+      "idea": "I-013",
+      "kind": "feature",
+      "title": "Private todos and tags per user, a sign-in-only screen, a welcome, and the admin page",
+      "stage": "done",
+      "round": 1,
+      "branch": "factory/J-021",
+      "base": null,
+      "target": "owner/todoapp-two",
+      "provider": "subscription",
+      "pr": {
+        "number": 4,
+        "url": "https://github.com/owner/todoapp-two/pull/4"
+      },
+      "reviews": {
+        "security": "PASS",
+        "code": "PASS",
+        "ux": "PASS",
+        "ui": "PASS"
+      },
+      "decision": "APPROVE",
+      "gate": {
+        "build": 0,
+        "test": 0,
+        "ui-build": 0,
+        "ui-lint": 0,
+        "ui-test": 0,
+        "sha": "a779ebf1e49532902767bc26714c1e091882067c",
+        "at": "2026-10-28T10:58:02.265Z"
+      },
+      "flag": null,
+      "merged": {
+        "sha": "eed31c2d0d7b37d709706d805539cef65bcd06b7",
+        "repo": "owner/todoapp-two",
+        "pr": "https://github.com/owner/todoapp-two/pull/4",
+        "added": [
+          "src/todoapp.api.migrations.postgres/Migrations/20261028101806_PrivateTodosPerUser.Designer.cs",
+          "src/todoapp.api.migrations.postgres/Migrations/20261028101806_PrivateTodosPerUser.cs",
+          "src/todoapp.api/Controllers/AccountContracts.cs",
+          "src/todoapp.api/Controllers/AdminController.cs",
+          "src/todoapp.api/Controllers/Caller.cs",
+          "src/todoapp.api/Controllers/MeController.cs",
+          "src/todoapp.data/AppUser.cs",
+          "src/ui/react/src/routes/admin.tsx",
+          "src/ui/react/src/test/admin.test.tsx",
+          "src/ui/react/src/test/auth.test.tsx",
+          "tests/todoapp.api.tests/Harness/AdminTests.cs",
+          "tests/todoapp.api.tests/Harness/OwnershipTests.cs",
+          "tests/todoapp.api.tests/Infrastructure/SignedInApi.cs"
+        ],
+        "modified": [
+          "CLAUDE.md",
+          "README.md",
+          "contracts/api.openapi.json",
+          "src/todoapp.api.migrations.postgres/Migrations/AppDbContextModelSnapshot.cs",
+          "src/todoapp.api/Controllers/TagResolver.cs",
+          "src/todoapp.api/Controllers/TagsController.cs",
+          "src/todoapp.api/Controllers/TodosController.cs",
+          "src/todoapp.api/Startup/AuthConfigurator.cs",
+          "src/todoapp.data/AppDbContext.cs",
+          "src/todoapp.data/Tag.cs",
+          "src/todoapp.data/Todo.cs",
+          "src/ui/react/src/components/todos/todo-list-screen.tsx",
+          "src/ui/react/src/db/collections.ts",
+          "src/ui/react/src/lib/api.generated.ts",
+          "src/ui/react/src/lib/api.ts",
+          "src/ui/react/src/lib/auth.ts",
+          "src/ui/react/src/routeTree.gen.ts",
+          "src/ui/react/src/routes/__root.tsx",
+          "src/ui/react/src/routes/todos.tsx",
+          "src/ui/react/src/test/app.tsx",
+          "src/ui/react/src/test/setup.ts",
+          "src/ui/react/src/test/todos.test.tsx",
+          "tests/todoapp.api.tests/Harness/AuthTests.cs"
+        ]
+      },
+      "approvedAt": "2026-10-28T10:08:35.655Z",
+      "costUsd": 7.2857,
+      "durationMs": 2978199,
+      "createdAt": "2026-10-28T10:08:33.453Z",
+      "updatedAt": "2026-10-28T11:15:20.905Z",
+      "history": [
+        {
+          "ts": "2026-10-28T10:08:35.659Z",
+          "from": "backlog",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-10-28T10:08:40.933Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-10-28T10:28:39.579Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-28T10:30:22.717Z",
+          "from": "review",
+          "to": "deploy",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-28T10:54:29.029Z",
+          "from": "deploy",
+          "to": "approve",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-28T10:56:34.334Z",
+          "from": "approve",
+          "to": "gate",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-28T10:58:02.597Z",
+          "from": "gate",
+          "to": "ready",
+          "by": "gate"
+        },
+        {
+          "ts": "2026-10-28T11:15:20.905Z",
+          "from": "ready",
+          "to": "done",
+          "by": "human"
+        }
+      ],
+      "deploy": {
+        "env": "j021",
+        "workspace": "todoapp-two-j021",
+        "workspaceId": "ws-tYmxdnXC6fwPzoq4",
+        "status": "down",
+        "attempts": 1,
+        "sha": "a779ebf1e49532902767bc26714c1e091882067c",
+        "run": "https://github.com/owner/todoapp-two/actions/runs/40672706654",
+        "urls": null,
+        "appliedAt": "2026-10-28T10:54:28.751Z",
+        "destroyAt": "2026-10-29T10:51:07Z"
+      }
+    },
+    {
+      "id": "J-022",
+      "idea": "I-013",
+      "kind": "feature",
+      "title": "Sign-in that works under aspire run and in Azure",
+      "stage": "done",
+      "round": 11,
+      "branch": "factory/J-022",
+      "base": null,
+      "target": "owner/todoapp-two",
+      "provider": "subscription",
+      "pr": {
+        "number": 5,
+        "url": "https://github.com/owner/todoapp-two/pull/5"
+      },
+      "reviews": {
+        "security": "PASS",
+        "code": "PASS",
+        "ux": "PASS",
+        "ui": "PASS"
+      },
+      "decision": "APPROVE",
+      "gate": {
+        "build": 0,
+        "test": 0,
+        "iac-test": 0,
+        "sha": "23836baae88ee6d965ca8191cdfd2f7b76fda610",
+        "at": "2026-11-01T16:16:12.945Z"
+      },
+      "flag": null,
+      "merged": {
+        "sha": "f9dda26f0cfd612fd541518cea4f55257f531b5e",
+        "repo": "owner/todoapp-two",
+        "pr": "https://github.com/owner/todoapp-two/pull/5",
+        "added": [
+          ".aspire/keycloak/app-realm.json",
+          "IaC/auth.entra-external.tf",
+          "IaC/auth.redirects.react.tf",
+          "IaC/tests/auth.tftest.hcl"
+        ],
+        "modified": [
+          ".aspire/apphost.cs",
+          ".aspirestarter.json",
+          "IaC/containerapp.api.tf",
+          "IaC/envs/dev.tfvars",
+          "IaC/envs/ephemeral.tfvars",
+          "IaC/envs/staging.tfvars",
+          "README.md",
+          "src/ui/react/index.html",
+          "src/ui/react/src/lib/auth.ts",
+          "src/ui/react/src/routes/__root.tsx",
+          "src/ui/react/src/routes/archive.tsx",
+          "src/ui/react/src/routes/todos.tsx",
+          "src/ui/react/src/test/admin.test.tsx",
+          "src/ui/react/src/test/auth.test.tsx",
+          "src/ui/react/src/test/tags.test.tsx",
+          "src/ui/react/src/test/todos.test.tsx",
+          "src/ui/react/vite.config.ts"
+        ]
+      },
+      "approvedAt": "2026-11-01T15:58:07.325Z",
+      "costUsd": 27.0905,
+      "durationMs": 14221847,
+      "createdAt": "2026-10-28T10:08:49.439Z",
+      "updatedAt": "2026-11-01T16:19:14.272Z",
+      "history": [
+        {
+          "ts": "2026-10-28T10:08:51.505Z",
+          "from": "backlog",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-10-28T10:58:41.238Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-10-28T11:05:51.552Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-28T11:06:54.298Z",
+          "from": "review",
+          "to": "deploy",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-28T11:57:59.821Z",
+          "from": "deploy",
+          "to": "ready",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-30T12:42:48.856Z",
+          "from": "ready",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-10-30T12:42:55.603Z",
+          "from": "approved",
+          "to": "deploy",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-10-30T12:54:22.937Z",
+          "from": "deploy",
+          "to": "approve",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-30T12:57:07.342Z",
+          "from": "approve",
+          "to": "ready",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-30T13:09:31.949Z",
+          "from": "ready",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-10-30T13:09:45.694Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-10-30T13:12:28.514Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-30T13:13:19.455Z",
+          "from": "review",
+          "to": "deploy",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-30T13:29:41.616Z",
+          "from": "deploy",
+          "to": "ready",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-30T13:59:44.083Z",
+          "from": "ready",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-10-30T15:07:45.296Z",
+          "from": "approved",
+          "to": "deploy",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-10-30T15:18:56.723Z",
+          "from": "deploy",
+          "to": "ready",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-31T18:55:49.133Z",
+          "from": "ready",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-10-31T18:55:59.971Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-10-31T19:06:41.277Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-31T19:07:49.556Z",
+          "from": "review",
+          "to": "deploy",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-31T19:38:45.889Z",
+          "from": "deploy",
+          "to": "approve",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-31T19:41:34.950Z",
+          "from": "approve",
+          "to": "gate",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-31T19:42:00.606Z",
+          "from": "gate",
+          "to": "ready",
+          "by": "gate"
+        },
+        {
+          "ts": "2026-10-31T19:54:49.678Z",
+          "from": "ready",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-10-31T19:54:59.141Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-10-31T19:56:54.622Z",
+          "from": "build",
+          "to": "ready",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-31T19:58:50.766Z",
+          "from": "ready",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-10-31T19:58:58.274Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-10-31T20:01:16.711Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-31T20:02:13.905Z",
+          "from": "review",
+          "to": "deploy",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-31T20:12:42.762Z",
+          "from": "deploy",
+          "to": "approve",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-31T20:24:07.421Z",
+          "from": "approve",
+          "to": "gate",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-10-31T20:24:28.070Z",
+          "from": "gate",
+          "to": "ready",
+          "by": "gate"
+        },
+        {
+          "ts": "2026-11-01T00:01:59.914Z",
+          "from": "ready",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-11-01T00:02:09.134Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-11-01T00:05:41.236Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T00:07:19.684Z",
+          "from": "review",
+          "to": "deploy",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T00:16:58.462Z",
+          "from": "deploy",
+          "to": "approve",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T00:19:01.516Z",
+          "from": "approve",
+          "to": "gate",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T00:19:22.174Z",
+          "from": "gate",
+          "to": "ready",
+          "by": "gate"
+        },
+        {
+          "ts": "2026-11-01T13:46:46.981Z",
+          "from": "ready",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-11-01T13:46:55.978Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-11-01T13:51:02.361Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T13:51:47.335Z",
+          "from": "review",
+          "to": "deploy",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T14:01:38.263Z",
+          "from": "deploy",
+          "to": "approve",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T14:03:05.889Z",
+          "from": "approve",
+          "to": "gate",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T14:03:42.381Z",
+          "from": "gate",
+          "to": "ready",
+          "by": "gate"
+        },
+        {
+          "ts": "2026-11-01T14:27:23.646Z",
+          "from": "ready",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-11-01T14:27:34.434Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-11-01T14:35:58.857Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T14:37:21.411Z",
+          "from": "review",
+          "to": "deploy",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T14:47:59.369Z",
+          "from": "deploy",
+          "to": "approve",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T14:49:56.785Z",
+          "from": "approve",
+          "to": "ready",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T15:18:17.278Z",
+          "from": "ready",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-11-01T15:18:29.206Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-11-01T15:20:04.928Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T15:21:45.245Z",
+          "from": "review",
+          "to": "deploy",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T15:31:39.245Z",
+          "from": "deploy",
+          "to": "approve",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T15:33:49.993Z",
+          "from": "approve",
+          "to": "gate",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T15:34:22.123Z",
+          "from": "gate",
+          "to": "ready",
+          "by": "gate"
+        },
+        {
+          "ts": "2026-11-01T15:35:45.311Z",
+          "from": "ready",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-11-01T15:35:58.054Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-11-01T15:39:44.428Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T15:40:54.373Z",
+          "from": "review",
+          "to": "deploy",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T15:51:34.797Z",
+          "from": "deploy",
+          "to": "approve",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T15:53:43.590Z",
+          "from": "approve",
+          "to": "gate",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T15:54:35.794Z",
+          "from": "gate",
+          "to": "ready",
+          "by": "gate"
+        },
+        {
+          "ts": "2026-11-01T15:58:07.332Z",
+          "from": "ready",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-11-01T15:58:18.675Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-11-01T16:00:36.186Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T16:02:02.137Z",
+          "from": "review",
+          "to": "deploy",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T16:13:01.960Z",
+          "from": "deploy",
+          "to": "approve",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T16:15:31.347Z",
+          "from": "approve",
+          "to": "gate",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T16:16:13.285Z",
+          "from": "gate",
+          "to": "ready",
+          "by": "gate"
+        },
+        {
+          "ts": "2026-11-01T16:19:14.272Z",
+          "from": "ready",
+          "to": "done",
+          "by": "human"
+        }
+      ],
+      "deploy": {
+        "env": "j022",
+        "workspace": "todoapp-two-j022",
+        "workspaceId": "ws-QbGnmkg2BETugF6j",
+        "status": "down",
+        "attempts": 1,
+        "sha": "23836baae88ee6d965ca8191cdfd2f7b76fda610",
+        "run": "https://github.com/owner/todoapp-two/actions/runs/41324247182",
+        "urls": null,
+        "appliedAt": "2026-11-01T16:13:01.741Z",
+        "destroyAt": "2026-11-02T16:02:29Z"
+      },
+      "resume": null
+    },
+    {
+      "id": "J-023",
+      "idea": "I-014",
+      "kind": "feature",
+      "title": "Cap preview log ingestion at 0.5 GB a day",
+      "stage": "done",
+      "round": 1,
+      "branch": "factory/J-023",
+      "base": null,
+      "target": "owner/todoapp-two",
+      "provider": "subscription",
+      "pr": {
+        "number": 6,
+        "url": "https://github.com/owner/todoapp-two/pull/6"
+      },
+      "reviews": {
+        "security": "PASS",
+        "code": "PASS",
+        "ux": "PASS",
+        "ui": "PASS"
+      },
+      "decision": "APPROVE",
+      "gate": {
+        "iac-test": 0,
+        "iac-fmt": 0,
+        "docs": 0,
+        "sha": "dc533a43d96911162a9d9361a18415739b97ff5b",
+        "at": "2026-11-01T22:37:10.114Z"
+      },
+      "flag": null,
+      "merged": {
+        "sha": "578df234fa1af7b32f2b2750d34ce668be9c592e",
+        "repo": "owner/todoapp-two",
+        "pr": "https://github.com/owner/todoapp-two/pull/6",
+        "added": [],
+        "modified": [
+          "IaC/README.md",
+          "IaC/envs/ephemeral.tfvars",
+          "IaC/observability.tf",
+          "IaC/tests/ephemeral.tftest.hcl",
+          "IaC/variables.tf"
+        ]
+      },
+      "approvedAt": "2026-11-01T21:34:30.235Z",
+      "costUsd": 2.4588,
+      "durationMs": 1783561,
+      "createdAt": "2026-11-01T20:42:54.071Z",
+      "updatedAt": "2026-11-02T18:48:53.476Z",
+      "history": [
+        {
+          "ts": "2026-11-01T20:43:34.167Z",
+          "from": "backlog",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-11-01T20:43:42.183Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-11-01T20:47:22.921Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T20:48:33.618Z",
+          "from": "review",
+          "to": "deploy",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T21:10:07.471Z",
+          "from": "deploy",
+          "to": "blocked",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T21:34:30.240Z",
+          "from": "blocked",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-11-01T22:34:12.913Z",
+          "from": "approved",
+          "to": "deploy",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-11-01T22:34:53.623Z",
+          "from": "deploy",
+          "to": "approve",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T22:37:00.728Z",
+          "from": "approve",
+          "to": "gate",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-01T22:37:10.441Z",
+          "from": "gate",
+          "to": "ready",
+          "by": "gate"
+        },
+        {
+          "ts": "2026-11-02T18:48:53.476Z",
+          "from": "ready",
+          "to": "done",
+          "by": "human"
+        }
+      ],
+      "deploy": {
+        "env": "j023",
+        "workspace": "todoapp-two-j023",
+        "workspaceId": "ws-6MQLxCvCpRp5FZwe",
+        "status": "down",
+        "attempts": 0,
+        "sha": "dc533a43d96911162a9d9361a18415739b97ff5b",
+        "run": "https://github.com/owner/todoapp-two/actions/runs/41348783205",
+        "urls": null,
+        "appliedAt": "2026-11-01T22:34:52.271Z",
+        "destroyAt": "2026-11-02T22:34:50Z",
+        "destroyStartedAt": "2026-11-06T19:58:25.967Z",
+        "destroyError": null,
+        "destroyFailures": 0
+      },
+      "resume": null
+    },
+    {
+      "id": "J-024",
+      "idea": "I-015",
+      "kind": "feature",
+      "title": "Empty-state message on the Todos list for a signed-in user",
+      "stage": "done",
+      "round": 1,
+      "branch": "factory/J-024",
+      "base": null,
+      "target": "owner/todoapp-two",
+      "provider": "subscription",
+      "pr": {
+        "number": 7,
+        "url": "https://github.com/owner/todoapp-two/pull/7"
+      },
+      "reviews": {
+        "security": "PASS",
+        "code": "PASS",
+        "ux": "PASS",
+        "ui": "PASS"
+      },
+      "decision": "APPROVE",
+      "gate": {
+        "ui-build": 0,
+        "ui-lint": 0,
+        "ui-test": 0,
+        "sha": "b65735381a30af56e51837a21d69f679c3731700",
+        "at": "2026-11-03T12:43:29.137Z"
+      },
+      "flag": null,
+      "merged": {
+        "sha": "0afe940a706ff2bbdb34e4ee8c4c0369a845b766",
+        "repo": "owner/todoapp-two",
+        "pr": "https://github.com/owner/todoapp-two/pull/7",
+        "added": [],
+        "modified": [
+          "src/ui/react/src/routes/todos.tsx",
+          "src/ui/react/src/test/todos.test.tsx"
+        ]
+      },
+      "approvedAt": "2026-11-03T12:10:00.995Z",
+      "costUsd": 2.0176,
+      "durationMs": 3582,
+      "createdAt": "2026-11-03T12:09:55.650Z",
+      "updatedAt": "2026-11-03T12:51:50.952Z",
+      "history": [
+        {
+          "ts": "2026-11-03T12:10:00.999Z",
+          "from": "backlog",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-11-03T12:10:13.019Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-11-03T12:13:48.815Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-03T12:15:02.469Z",
+          "from": "review",
+          "to": "deploy",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-03T12:41:43.775Z",
+          "from": "deploy",
+          "to": "approve",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-03T12:43:01.550Z",
+          "from": "approve",
+          "to": "gate",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-03T12:43:29.521Z",
+          "from": "gate",
+          "to": "ready",
+          "by": "gate"
+        },
+        {
+          "ts": "2026-11-03T12:51:50.952Z",
+          "from": "ready",
+          "to": "done",
+          "by": "human"
+        }
+      ],
+      "roundStart": "578df234fa1af7b32f2b2750d34ce668be9c592e",
+      "deploy": {
+        "env": "j024",
+        "workspace": "todoapp-two-j024",
+        "workspaceId": "ws-HysxpiAUEnz95URT",
+        "status": "down",
+        "attempts": 1,
+        "sha": "b65735381a30af56e51837a21d69f679c3731700",
+        "run": "https://github.com/owner/todoapp-two/actions/runs/41634188455",
+        "urls": null,
+        "appliedAt": "2026-11-03T12:41:43.546Z",
+        "destroyAt": "2026-11-04T12:35:46Z"
+      }
+    },
+    {
+      "id": "J-025",
+      "idea": "I-016",
+      "kind": "feature",
+      "title": "Active todo count in the Todos heading",
+      "stage": "done",
+      "round": 2,
+      "branch": "factory/J-025",
+      "base": null,
+      "target": "owner/todoapp-two",
+      "provider": "subscription",
+      "pr": {
+        "number": 8,
+        "url": "https://github.com/owner/todoapp-two/pull/8"
+      },
+      "reviews": {
+        "security": "PASS",
+        "code": "PASS",
+        "ux": "PASS",
+        "ui": "PASS"
+      },
+      "decision": "APPROVE",
+      "gate": {
+        "ui-build": 0,
+        "ui-lint": 0,
+        "ui-test": 0,
+        "sha": "858a568bd2492942a87726104bb3a907379ec9ce",
+        "at": "2026-11-04T15:05:14.286Z"
+      },
+      "flag": null,
+      "merged": {
+        "sha": "f18387a2ac51da1090ba29b463d6dec7c607beea",
+        "repo": "owner/todoapp-two",
+        "pr": "https://github.com/owner/todoapp-two/pull/8",
+        "added": [],
+        "modified": [
+          "src/ui/react/src/components/todos/todo-list-screen.tsx",
+          "src/ui/react/src/routes/todos.tsx",
+          "src/ui/react/src/test/tags.test.tsx",
+          "src/ui/react/src/test/todos.test.tsx"
+        ]
+      },
+      "approvedAt": "2026-11-04T14:26:32.433Z",
+      "costUsd": 3.2387,
+      "durationMs": 2372247,
+      "createdAt": "2026-11-03T20:12:58.180Z",
+      "updatedAt": "2026-11-04T15:35:27.716Z",
+      "history": [
+        {
+          "ts": "2026-11-03T20:57:07.520Z",
+          "from": "backlog",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-11-03T22:03:12.328Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-11-03T22:07:35.327Z",
+          "from": "build",
+          "to": "blocked",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-04T14:26:32.438Z",
+          "from": "blocked",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-11-04T14:26:47.904Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-11-04T14:29:13.253Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-04T14:30:47.608Z",
+          "from": "review",
+          "to": "deploy",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-04T15:02:40.822Z",
+          "from": "deploy",
+          "to": "approve",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-04T15:04:40.895Z",
+          "from": "approve",
+          "to": "gate",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-04T15:05:14.621Z",
+          "from": "gate",
+          "to": "ready",
+          "by": "gate"
+        },
+        {
+          "ts": "2026-11-04T15:35:27.716Z",
+          "from": "ready",
+          "to": "done",
+          "by": "human"
+        }
+      ],
+      "roundStart": "c835255339891d21bf9b2b5e50e4a5a0f38bdc36",
+      "deploy": {
+        "env": "j025",
+        "workspace": "todoapp-two-j025",
+        "workspaceId": "ws-8vJf4fQsLVzuxqhj",
+        "status": "down",
+        "attempts": 1,
+        "sha": "858a568bd2492942a87726104bb3a907379ec9ce",
+        "run": "https://github.com/owner/todoapp-two/actions/runs/41848383605",
+        "urls": null,
+        "appliedAt": "2026-11-04T15:02:40.486Z",
+        "destroyAt": "2026-11-05T14:51:20Z",
+        "destroyStartedAt": "2026-11-06T20:04:42.394Z",
+        "destroyError": null,
+        "destroyFailures": 0
+      }
+    },
+    {
+      "id": "J-026",
+      "idea": "I-017",
+      "kind": "feature",
+      "title": "Front-end-only deploys when nothing outside src/ui changed",
+      "stage": "done",
+      "round": 1,
+      "branch": "factory/J-026",
+      "base": null,
+      "target": "owner/todoapp-two",
+      "provider": "subscription",
+      "pr": {
+        "number": 9,
+        "url": "https://github.com/owner/todoapp-two/pull/9"
+      },
+      "reviews": {
+        "security": "PASS",
+        "code": "PASS",
+        "ux": "PASS",
+        "ui": "PASS"
+      },
+      "decision": "APPROVE",
+      "gate": {
+        "front-end-only-test": 0,
+        "sha": "59e5bb2a38375717dcea75589b55978c89d6965c",
+        "at": "2026-11-05T14:21:49.317Z"
+      },
+      "flag": null,
+      "merged": {
+        "sha": "1d5a34f5367e8c2589d6a84e1621fcc140952c20",
+        "repo": "owner/todoapp-two",
+        "pr": "https://github.com/owner/todoapp-two/pull/9",
+        "added": [
+          ".github/scripts/front-end-only.sh",
+          ".github/scripts/front-end-only.test.sh"
+        ],
+        "modified": [
+          ".github/workflows/deploy.yml"
+        ]
+      },
+      "approvedAt": "2026-11-05T12:36:53.024Z",
+      "costUsd": 3.253,
+      "durationMs": 2627592,
+      "createdAt": "2026-11-05T12:33:53.748Z",
+      "updatedAt": "2026-11-05T22:05:55.127Z",
+      "history": [
+        {
+          "ts": "2026-11-05T12:36:53.028Z",
+          "from": "backlog",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-11-05T13:38:20.536Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-11-05T13:45:00.879Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-05T13:46:44.828Z",
+          "from": "review",
+          "to": "deploy",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-05T14:19:14.427Z",
+          "from": "deploy",
+          "to": "approve",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-05T14:21:35.936Z",
+          "from": "approve",
+          "to": "gate",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-05T14:21:49.659Z",
+          "from": "gate",
+          "to": "ready",
+          "by": "gate"
+        },
+        {
+          "ts": "2026-11-05T22:05:55.127Z",
+          "from": "ready",
+          "to": "done",
+          "by": "human"
+        }
+      ],
+      "roundStart": "f18387a2ac51da1090ba29b463d6dec7c607beea",
+      "deploy": {
+        "env": "j026",
+        "workspace": "todoapp-two-j026",
+        "workspaceId": "ws-XmYT6z5wrxojfWyt",
+        "status": "down",
+        "attempts": 1,
+        "sha": "59e5bb2a38375717dcea75589b55978c89d6965c",
+        "run": "https://github.com/owner/todoapp-two/actions/runs/42038859218",
+        "urls": null,
+        "appliedAt": "2026-11-05T14:19:14.155Z",
+        "destroyAt": "2026-11-06T14:07:23Z"
+      }
+    },
+    {
+      "id": "J-027",
+      "idea": "I-018",
+      "kind": "feature",
+      "title": "Completed todo count in the Archive heading",
+      "stage": "done",
+      "round": 1,
+      "branch": "factory/J-027",
+      "base": null,
+      "target": "owner/todoapp-two",
+      "provider": "subscription",
+      "pr": {
+        "number": 10,
+        "url": "https://github.com/owner/todoapp-two/pull/10"
+      },
+      "reviews": {
+        "security": "PASS",
+        "code": "PASS",
+        "ux": "PASS",
+        "ui": "PASS"
+      },
+      "decision": "ESCALATE",
+      "gate": null,
+      "flag": null,
+      "merged": {
+        "sha": "5a65c835b31c733bf38a7a2b9e0fdb24d377ef1b",
+        "repo": "owner/todoapp-two",
+        "pr": "https://github.com/owner/todoapp-two/pull/10",
+        "added": [],
+        "modified": [
+          "CLAUDE.md",
+          "IaC/auth.entra-external.tf",
+          "src/todoapp.servicedefaults/Extensions.cs",
+          "src/ui/react/src/routes/archive.tsx",
+          "src/ui/react/src/test/tags.test.tsx",
+          "src/ui/react/src/test/todos.test.tsx",
+          "tests/todoapp.api.tests/Harness/TodosControllerTests.cs"
+        ]
+      },
+      "approvedAt": "2026-11-07T18:02:02.057Z",
+      "costUsd": 3.2925,
+      "durationMs": 4968309,
+      "createdAt": "2026-11-07T14:18:59.641Z",
+      "updatedAt": "2026-11-08T13:54:48.297Z",
+      "history": [
+        {
+          "ts": "2026-11-07T14:19:09.433Z",
+          "from": "backlog",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-11-07T14:34:32.424Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-11-07T14:38:26.062Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-07T14:39:45.252Z",
+          "from": "review",
+          "to": "deploy",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-07T15:28:50.326Z",
+          "from": "deploy",
+          "to": "blocked",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-11-07T17:31:48.717Z",
+          "from": "blocked",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-11-07T17:31:59.896Z",
+          "from": "approved",
+          "to": "deploy",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-11-07T17:48:31.978Z",
+          "from": "deploy",
+          "to": "blocked",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-07T18:02:02.062Z",
+          "from": "blocked",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-11-07T18:14:14.028Z",
+          "from": "approved",
+          "to": "deploy",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-11-07T18:27:03.418Z",
+          "from": "deploy",
+          "to": "approve",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-07T18:31:06.236Z",
+          "from": "approve",
+          "to": "ready",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-08T13:54:48.297Z",
+          "from": "ready",
+          "to": "done",
+          "by": "human"
+        }
+      ],
+      "roundStart": "1d5a34f5367e8c2589d6a84e1621fcc140952c20",
+      "deploy": {
+        "env": "j027",
+        "workspace": "todoapp-two-j027",
+        "workspaceId": "ws-5bvX8kmPw6hEfpjm",
+        "status": "down",
+        "attempts": 1,
+        "sha": "866ab95f53091a47dffbbc75dd2a0c15430a74c9",
+        "run": "https://github.com/owner/todoapp-two/actions/runs/42400320107",
+        "urls": null,
+        "appliedAt": "2026-11-07T18:27:03.145Z",
+        "destroyAt": "2026-11-08T18:14:54Z",
+        "destroyStartedAt": "2026-11-08T13:54:59.929Z",
+        "destroyError": null,
+        "destroyFailures": 0
+      },
+      "resume": null
+    },
+    {
+      "id": "J-028",
+      "idea": "I-019",
+      "kind": "bootstrap",
+      "title": "Bootstrap proof from template-projects",
+      "stage": "done",
+      "round": 1,
+      "branch": "factory/J-028",
+      "base": null,
+      "target": "owner/factory-proof",
+      "provider": "subscription",
+      "pr": {
+        "number": 1,
+        "url": "https://github.com/owner/factory-proof/pull/1"
+      },
+      "reviews": {
+        "security": "PASS",
+        "code": "PASS",
+        "ux": "PASS",
+        "ui": "PASS"
+      },
+      "decision": "APPROVE",
+      "gate": {
+        "build": 0,
+        "test": 0,
+        "apphost": 0,
+        "infra": 0,
+        "ui": 0,
+        "sha": "3f950cab329308326e8e0d1cace874cd9c09d8e5",
+        "at": "2026-11-07T17:59:43.047Z"
+      },
+      "flag": null,
+      "merged": {
+        "sha": "4ea0d1dc6a9a4a90df7a3920dc99e91b8a1f4610",
+        "repo": "owner/factory-proof",
+        "pr": "https://github.com/owner/factory-proof/pull/1",
+        "added": [
+          ".aspire/Directory.Packages.props",
+          ".aspire/apphost.cs",
+          ".aspire/apphost.run.json",
+          ".aspire/appsettings.Development.json",
+          ".aspire/appsettings.json",
+          ".aspire/keycloak/app-realm.json",
+          ".aspirestarter.json",
+          ".dockerignore",
+          ".gitattributes",
+          ".github/scripts/front-end-only.sh",
+          ".github/scripts/front-end-only.test.sh",
+          ".github/workflows/deploy.yml",
+          ".gitignore",
+          "CLAUDE.md",
+          "Directory.Build.props",
+          "Directory.Packages.props",
+          "IaC/.terraform.lock.hcl",
+          "IaC/README.md",
+          "IaC/RESOURCE-MAP.md",
+          "IaC/auth.entra-external.tf",
+          "IaC/auth.redirects.react.tf",
+          "IaC/backend.tf",
+          "IaC/containerapp.api.tf",
+          "IaC/containerapps.tf",
+          "IaC/database.tf",
+          "IaC/envs/dev.tfvars",
+          "IaC/envs/ephemeral.tfvars",
+          "IaC/envs/staging.tfvars",
+          "IaC/frontend.react.tf",
+          "IaC/guards.tf",
+          "IaC/identity.tf",
+          "IaC/keyvault.tf",
+          "IaC/locals.tf",
+          "IaC/main.tf",
+          "IaC/modules/database-postgres/main.tf",
+          "IaC/modules/database-postgres/outputs.tf",
+          "IaC/modules/database-postgres/variables.tf",
+          "IaC/moved.tf",
+          "IaC/observability.tf",
+          "IaC/outputs.tf",
+          "IaC/providers.tf",
+          "IaC/registry.tf",
+          "IaC/tests/auth.tftest.hcl",
+          "IaC/tests/ephemeral.tftest.hcl",
+          "IaC/tests/platform.tftest.hcl",
+          "IaC/variables.tf",
+          "IaC/versions.tf",
+          "README.md",
+          "aspire.config.json",
+          "contracts/api.openapi.json",
+          "docs/ADDING-A-RESOURCE.md",
+          "docs/DESIGN.md",
+          "nuget.config",
+          "proof.slnx",
+          "src/proof.api.migrations.postgres/Migrations/20260911180529_InitialCreate.Designer.cs",
+          "src/proof.api.migrations.postgres/Migrations/20260911180529_InitialCreate.cs",
+          "src/proof.api.migrations.postgres/Migrations/AppDbContextModelSnapshot.cs",
+          "src/proof.api.migrations.postgres/proof.api.migrations.postgres.csproj",
+          "src/proof.api/Controllers/AuthController.cs",
+          "src/proof.api/Controllers/ClientTelemetryController.cs",
+          "src/proof.api/Controllers/HarnessController.cs",
+          "src/proof.api/Controllers/ItemsController.cs",
+          "src/proof.api/Data/AppDbContextFactory.cs",
+          "src/proof.api/Dockerfile",
+          "src/proof.api/Program.cs",
+          "src/proof.api/Properties/launchSettings.json",
+          "src/proof.api/Services/HarnessFaultInjector.cs",
+          "src/proof.api/Startup/AuthConfigurator.cs",
+          "src/proof.api/Startup/CorsConfigurator.cs",
+          "src/proof.api/Startup/NumericUnionTransformer.cs",
+          "src/proof.api/Startup/PersistenceConfigurator.cs",
+          "src/proof.api/appsettings.Development.json",
+          "src/proof.api/appsettings.json",
+          "src/proof.api/proof.api.csproj",
+          "src/proof.api/proof.api.http",
+          "src/proof.data/AppDbContext.cs",
+          "src/proof.data/DatabaseProvider.cs",
+          "src/proof.data/Item.cs",
+          "src/proof.data/ItemSeeder.cs",
+          "src/proof.data/Repositories/EfRepository.cs",
+          "src/proof.data/Repositories/IRepository.cs",
+          "src/proof.data/proof.data.csproj",
+          "src/proof.servicedefaults/Extensions.cs",
+          "src/proof.servicedefaults/SerilogExtensions.cs",
+          "src/proof.servicedefaults/proof.servicedefaults.csproj",
+          "src/ui/react/.gitattributes",
+          "src/ui/react/.gitignore",
+          "src/ui/react/.oxlintrc.json",
+          "src/ui/react/README.md",
+          "src/ui/react/index.html",
+          "src/ui/react/package-lock.json",
+          "src/ui/react/package.json",
+          "src/ui/react/public/favicon.svg",
+          "src/ui/react/public/icon-maskable.svg",
+          "src/ui/react/public/staticwebapp.config.json",
+          "src/ui/react/scripts/check-design-tokens.mjs",
+          "src/ui/react/src/components/styleguide/parts.tsx",
+          "src/ui/react/src/components/ui/alert.tsx",
+          "src/ui/react/src/components/ui/badge.tsx",
+          "src/ui/react/src/components/ui/breadcrumb.tsx",
+          "src/ui/react/src/components/ui/button.tsx",
+          "src/ui/react/src/components/ui/card.tsx",
+          "src/ui/react/src/components/ui/checkbox.tsx",
+          "src/ui/react/src/components/ui/dialog.tsx",
+          "src/ui/react/src/components/ui/field.tsx",
+          "src/ui/react/src/components/ui/input.tsx",
+          "src/ui/react/src/components/ui/nav.tsx",
+          "src/ui/react/src/components/ui/radio.tsx",
+          "src/ui/react/src/components/ui/select.tsx",
+          "src/ui/react/src/components/ui/skeleton.tsx",
+          "src/ui/react/src/components/ui/spinner.tsx",
+          "src/ui/react/src/components/ui/switch.tsx",
+          "src/ui/react/src/components/ui/table.tsx",
+          "src/ui/react/src/components/ui/tabs.tsx",
+          "src/ui/react/src/components/ui/textarea.tsx",
+          "src/ui/react/src/components/ui/toast.tsx",
+          "src/ui/react/src/db/collections.ts",
+          "src/ui/react/src/index.css",
+          "src/ui/react/src/lib/api.generated.ts",
+          "src/ui/react/src/lib/api.ts",
+          "src/ui/react/src/lib/auth.ts",
+          "src/ui/react/src/lib/cn.ts",
+          "src/ui/react/src/lib/query-client.ts",
+          "src/ui/react/src/lib/telemetry.ts",
+          "src/ui/react/src/main.tsx",
+          "src/ui/react/src/routeTree.gen.ts",
+          "src/ui/react/src/routes/__root.tsx",
+          "src/ui/react/src/routes/index.tsx",
+          "src/ui/react/src/routes/items.tsx",
+          "src/ui/react/src/routes/styleguide.tsx",
+          "src/ui/react/src/store/preferences.ts",
+          "src/ui/react/src/vite-env.d.ts",
+          "src/ui/react/tsconfig.app.json",
+          "src/ui/react/tsconfig.json",
+          "src/ui/react/tsconfig.node.json",
+          "src/ui/react/vite.config.ts",
+          "tests/proof.api.tests/Harness/AuthTests.cs",
+          "tests/proof.api.tests/Harness/ClientTelemetryControllerTests.cs",
+          "tests/proof.api.tests/Harness/ContractTests.cs",
+          "tests/proof.api.tests/Harness/ItemSeederTests.cs",
+          "tests/proof.api.tests/Harness/ItemsControllerTests.cs",
+          "tests/proof.api.tests/Harness/LoggingConfigurationTests.cs",
+          "tests/proof.api.tests/Infrastructure/ApiFactory.cs",
+          "tests/proof.api.tests/Infrastructure/AssemblyInfo.cs",
+          "tests/proof.api.tests/Infrastructure/TestCategories.cs",
+          "tests/proof.api.tests/proof.api.tests.csproj"
+        ],
+        "modified": []
+      },
+      "approvedAt": "2026-11-07T17:35:22.513Z",
+      "costUsd": 3.4172,
+      "durationMs": 631896,
+      "createdAt": "2026-11-07T17:35:15.630Z",
+      "updatedAt": "2026-11-07T18:03:36.465Z",
+      "history": [
+        {
+          "ts": "2026-11-07T17:35:22.517Z",
+          "from": "backlog",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-11-07T17:49:16.057Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-11-07T17:54:23.907Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-07T17:57:54.172Z",
+          "from": "review",
+          "to": "approve",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-07T17:59:18.918Z",
+          "from": "approve",
+          "to": "gate",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-07T17:59:43.367Z",
+          "from": "gate",
+          "to": "ready",
+          "by": "gate"
+        },
+        {
+          "ts": "2026-11-07T18:03:36.465Z",
+          "from": "ready",
+          "to": "done",
+          "by": "human"
+        }
+      ],
+      "roundStart": "93fc7d34131ebd942a54115a9d784fbdf6e52caf"
+    },
+    {
+      "id": "J-029",
+      "idea": "I-020",
+      "kind": "feature",
+      "title": "Index Items by quantity without locking the table",
+      "stage": "done",
+      "round": 3,
+      "branch": "factory/J-029",
+      "base": null,
+      "target": "owner/factory-proof",
+      "provider": "subscription",
+      "pr": {
+        "number": 2,
+        "url": "https://github.com/owner/factory-proof/pull/2"
+      },
+      "reviews": {
+        "security": "PASS",
+        "code": "PASS",
+        "ux": "PASS",
+        "ui": "PASS"
+      },
+      "decision": "APPROVE",
+      "gate": {
+        "build": 0,
+        "test": 0,
+        "apphost": 0,
+        "infra": 0,
+        "ui": 0,
+        "sha": "d7aa9abc863d15742bea3628eecde3897f126f2d",
+        "at": "2026-11-08T13:05:47.098Z"
+      },
+      "flag": null,
+      "merged": {
+        "sha": "0412ef1649efcf85f95bf44c4344bf662d4286de",
+        "repo": "owner/factory-proof",
+        "pr": "https://github.com/owner/factory-proof/pull/2",
+        "added": [
+          "src/proof.api.migrations.postgres/Migrations/20261107183333_AddItemsQuantityIndex.Designer.cs",
+          "src/proof.api.migrations.postgres/Migrations/20261107183333_AddItemsQuantityIndex.cs"
+        ],
+        "modified": [
+          "IaC/envs/ephemeral.tfvars",
+          "src/proof.api.migrations.postgres/Migrations/AppDbContextModelSnapshot.cs",
+          "src/proof.data/AppDbContext.cs"
+        ]
+      },
+      "approvedAt": "2026-11-08T12:37:00.678Z",
+      "costUsd": 5.9477,
+      "durationMs": 3346072,
+      "createdAt": "2026-11-07T18:05:36.793Z",
+      "updatedAt": "2026-11-08T13:55:49.572Z",
+      "history": [
+        {
+          "ts": "2026-11-07T18:05:43.162Z",
+          "from": "backlog",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-11-07T18:31:45.491Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-11-07T18:36:07.257Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-07T18:37:13.773Z",
+          "from": "review",
+          "to": "deploy",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-07T18:49:51.945Z",
+          "from": "deploy",
+          "to": "approve",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-07T18:53:04.961Z",
+          "from": "approve",
+          "to": "ready",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-08T11:50:52.466Z",
+          "from": "ready",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-11-08T11:51:14.465Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-11-08T11:54:33.580Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-08T11:56:18.644Z",
+          "from": "review",
+          "to": "deploy",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-08T12:01:41.331Z",
+          "from": "deploy",
+          "to": "blocked",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-08T12:37:00.683Z",
+          "from": "blocked",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-11-08T12:37:19.475Z",
+          "from": "approved",
+          "to": "deploy",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-11-08T12:46:59.986Z",
+          "from": "deploy",
+          "to": "build",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-08T12:50:25.128Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-08T12:52:06.415Z",
+          "from": "review",
+          "to": "deploy",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-08T13:02:32.120Z",
+          "from": "deploy",
+          "to": "approve",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-08T13:05:05.562Z",
+          "from": "approve",
+          "to": "gate",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-08T13:05:47.448Z",
+          "from": "gate",
+          "to": "ready",
+          "by": "gate"
+        },
+        {
+          "ts": "2026-11-08T13:55:49.572Z",
+          "from": "ready",
+          "to": "done",
+          "by": "human"
+        }
+      ],
+      "roundStart": null,
+      "deploy": {
+        "env": "j029",
+        "workspace": "factory-proof-j029",
+        "workspaceId": "ws-UDguDXqdWL4MEzLs",
+        "status": "down",
+        "attempts": 1,
+        "sha": "d7aa9abc863d15742bea3628eecde3897f126f2d",
+        "run": "https://github.com/owner/factory-proof/actions/runs/42482270446",
+        "urls": null,
+        "appliedAt": "2026-11-08T13:02:31.832Z",
+        "destroyAt": "2026-11-09T12:52:30Z",
+        "destroyStartedAt": "2026-11-08T13:55:58.674Z",
+        "destroyError": null,
+        "destroyFailures": 0
+      },
+      "deployFixes": 1,
+      "resume": null
+    },
+    {
+      "id": "J-030",
+      "idea": "I-021",
+      "kind": "feature",
+      "title": "Item count in the Items heading",
+      "stage": "discarded",
+      "round": 1,
+      "branch": "factory/J-030",
+      "base": null,
+      "target": "owner/factory-proof",
+      "provider": "subscription",
+      "pr": {
+        "number": 3,
+        "url": "https://github.com/owner/factory-proof/pull/3"
+      },
+      "reviews": {
+        "security": "PASS",
+        "code": "PASS",
+        "ux": "PASS",
+        "ui": "PASS"
+      },
+      "decision": "APPROVE",
+      "gate": {
+        "build": 0,
+        "test": 0,
+        "apphost": 0,
+        "infra": 0,
+        "ui": 0,
+        "sha": "223c97760c225b8faff4ecedcae0e6fd61bfda4c",
+        "at": "2026-11-07T19:13:21.199Z"
+      },
+      "flag": null,
+      "merged": null,
+      "approvedAt": "2026-11-07T18:05:51.122Z",
+      "costUsd": 2.009,
+      "durationMs": 1181737,
+      "createdAt": "2026-11-07T18:05:44.771Z",
+      "updatedAt": "2026-11-08T13:57:02.029Z",
+      "history": [
+        {
+          "ts": "2026-11-07T18:05:51.127Z",
+          "from": "backlog",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-11-07T18:53:46.485Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-11-07T18:57:00.349Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-07T18:58:07.210Z",
+          "from": "review",
+          "to": "deploy",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-07T19:10:46.005Z",
+          "from": "deploy",
+          "to": "approve",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-07T19:12:40.156Z",
+          "from": "approve",
+          "to": "gate",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-07T19:13:21.530Z",
+          "from": "gate",
+          "to": "ready",
+          "by": "gate"
+        },
+        {
+          "ts": "2026-11-08T13:57:02.029Z",
+          "from": "ready",
+          "to": "discarded",
+          "by": "human"
+        }
+      ],
+      "roundStart": "4ea0d1dc6a9a4a90df7a3920dc99e91b8a1f4610",
+      "deploy": {
+        "env": "j030",
+        "workspace": "factory-proof-j030",
+        "workspaceId": "ws-FrSDoaHetwj65mxF",
+        "status": "down",
+        "attempts": 1,
+        "sha": "223c97760c225b8faff4ecedcae0e6fd61bfda4c",
+        "run": "https://github.com/owner/factory-proof/actions/runs/42403906583",
+        "urls": null,
+        "appliedAt": "2026-11-07T19:10:45.750Z",
+        "destroyAt": "2026-11-08T18:58:26Z",
+        "destroyStartedAt": "2026-11-08T12:27:47.965Z",
+        "destroyError": null,
+        "destroyFailures": 0
+      }
+    },
+    {
+      "id": "J-031",
+      "idea": "I-022",
+      "kind": "feature",
+      "title": "how to run the app and its tests",
+      "stage": "done",
+      "round": 2,
+      "branch": "factory/J-031",
+      "base": null,
+      "target": "owner/todoapp-two",
+      "pr": {
+        "number": 11,
+        "url": "https://github.com/owner/todoapp-two/pull/11"
+      },
+      "reviews": {
+        "security": "PASS",
+        "code": "PASS",
+        "ux": "PASS",
+        "ui": "PASS"
+      },
+      "decision": "APPROVE",
+      "gate": {
+        "contributing": 0,
+        "sha": "4d1660c8e75aadd7ac9973e411ccc538375a8921",
+        "at": "2026-11-08T22:17:43.791Z"
+      },
+      "flag": null,
+      "merged": {
+        "sha": "fdfc1f0d22f0accaeee05410b8e9d21abf1796ac",
+        "repo": "owner/todoapp-two",
+        "pr": "https://github.com/owner/todoapp-two/pull/11",
+        "added": [
+          "CONTRIBUTING.md"
+        ],
+        "modified": [
+          "README.md"
+        ]
+      },
+      "approvedAt": "2026-11-08T22:01:04.364Z",
+      "costUsd": 3.3322,
+      "durationMs": 2433001,
+      "createdAt": "2026-11-08T20:32:15.169Z",
+      "updatedAt": "2026-11-08T23:41:47.027Z",
+      "history": [
+        {
+          "ts": "2026-11-08T20:32:23.066Z",
+          "from": "backlog",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-11-08T20:44:57.224Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-11-08T20:47:02.209Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-08T20:48:07.902Z",
+          "from": "review",
+          "to": "deploy",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-08T21:13:03.262Z",
+          "from": "deploy",
+          "to": "approve",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-08T21:14:29.844Z",
+          "from": "approve",
+          "to": "gate",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-08T21:14:34.869Z",
+          "from": "gate",
+          "to": "ready",
+          "by": "gate"
+        },
+        {
+          "ts": "2026-11-08T22:01:04.371Z",
+          "from": "ready",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-11-08T22:01:22.430Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-11-08T22:03:27.266Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-08T22:04:53.174Z",
+          "from": "review",
+          "to": "deploy",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-08T22:15:37.469Z",
+          "from": "deploy",
+          "to": "approve",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-08T22:17:31.299Z",
+          "from": "approve",
+          "to": "gate",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-08T22:17:44.131Z",
+          "from": "gate",
+          "to": "ready",
+          "by": "gate"
+        },
+        {
+          "ts": "2026-11-08T23:41:47.027Z",
+          "from": "ready",
+          "to": "done",
+          "by": "human"
+        }
+      ],
+      "roundStart": "18832daee3a9000f04e65f0f7438dc968256d24e",
+      "deploy": {
+        "env": "j031",
+        "workspace": "todoapp-two-j031",
+        "workspaceId": "ws-rpQNfex6QWFiFCyK",
+        "status": "down",
+        "attempts": 1,
+        "sha": "4d1660c8e75aadd7ac9973e411ccc538375a8921",
+        "run": "https://github.com/owner/todoapp-two/actions/runs/42528439883",
+        "urls": null,
+        "appliedAt": "2026-11-08T22:15:37.218Z",
+        "destroyAt": "2026-11-09T22:05:19Z",
+        "destroyStartedAt": "2026-11-08T23:41:48.529Z",
+        "destroyError": null,
+        "destroyFailures": 0
+      },
+      "deployFixes": 0
+    },
+    {
+      "id": "J-032",
+      "idea": "I-024",
+      "kind": "feature",
+      "title": "IaC docs describe /health as it is mapped now",
+      "stage": "done",
+      "round": 1,
+      "branch": "factory/J-032",
+      "base": null,
+      "target": "owner/todoapp-two",
+      "pr": {
+        "number": 12,
+        "url": "https://github.com/owner/todoapp-two/pull/12"
+      },
+      "reviews": {
+        "security": "PASS",
+        "code": "PASS",
+        "ux": "PASS",
+        "ui": "PASS"
+      },
+      "decision": "APPROVE",
+      "gate": {
+        "tf-fmt": 0,
+        "tf-validate": 0,
+        "no-stale-health": 0,
+        "sha": "2b5225026c6cffa89373931659f14581e400f53e",
+        "at": "2026-11-09T20:03:54.085Z"
+      },
+      "flag": null,
+      "merged": {
+        "sha": "a9c5071ce89520a90459f2d12c3d386eafa8177d",
+        "repo": "owner/todoapp-two",
+        "pr": "https://github.com/owner/todoapp-two/pull/12",
+        "added": [],
+        "modified": [
+          "IaC/README.md",
+          "IaC/locals.tf",
+          "IaC/outputs.tf"
+        ]
+      },
+      "approvedAt": "2026-11-09T19:20:55.213Z",
+      "costUsd": 1.6564,
+      "durationMs": 2335890,
+      "createdAt": "2026-11-09T19:20:46.925Z",
+      "updatedAt": "2026-11-09T20:29:12.655Z",
+      "history": [
+        {
+          "ts": "2026-11-09T19:20:55.218Z",
+          "from": "backlog",
+          "to": "approved",
+          "by": "human"
+        },
+        {
+          "ts": "2026-11-09T19:22:18.169Z",
+          "from": "approved",
+          "to": "build",
+          "by": "runner"
+        },
+        {
+          "ts": "2026-11-09T19:24:30.081Z",
+          "from": "build",
+          "to": "review",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-09T19:25:34.624Z",
+          "from": "review",
+          "to": "deploy",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-09T20:02:25.696Z",
+          "from": "deploy",
+          "to": "approve",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-09T20:03:44.990Z",
+          "from": "approve",
+          "to": "gate",
+          "by": "orchestrator"
+        },
+        {
+          "ts": "2026-11-09T20:03:54.455Z",
+          "from": "gate",
+          "to": "ready",
+          "by": "gate"
+        },
+        {
+          "ts": "2026-11-09T20:29:12.655Z",
+          "from": "ready",
+          "to": "done",
+          "by": "human"
+        }
+      ],
+      "roundStart": "fdfc1f0d22f0accaeee05410b8e9d21abf1796ac",
+      "deploy": {
+        "env": "j032",
+        "workspace": "todoapp-two-j032",
+        "workspaceId": "ws-UJztcpQLCkYhCTBD",
+        "status": "down",
+        "attempts": 1,
+        "sha": "2b5225026c6cffa89373931659f14581e400f53e",
+        "run": "https://github.com/owner/todoapp-two/actions/runs/42683278453",
+        "urls": null,
+        "appliedAt": "2026-11-09T20:02:25.441Z",
+        "destroyAt": "2026-11-10T19:25:57Z",
+        "destroyStartedAt": "2026-11-09T22:27:58.700Z",
+        "destroyError": null,
+        "destroyFailures": 0
+      }
+    }
+  ],
+  "seq": {
+    "J": 32,
+    "I": 24
+  }
+}
