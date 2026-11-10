@@ -45,6 +45,9 @@ integration project.
   `DateTime.Now`, `Console` or a static file API.
 - **Rules as pure functions.** `Factory.Core` (spec 02) holds the contract as types and functions
   with no I/O. Services orchestrate; Core decides.
+- **One type per file**, named after the type, tests included. Each project's interfaces, and the
+  records their members take or return, live in its `Abstractions` folder and namespace
+  (`Factory.Core.Abstractions`, `Factory.Store.Abstractions`, `Factory.Cli.Abstractions`).
 
 ## Unit test conventions
 
@@ -82,7 +85,7 @@ Spec 12's mapping file names, for every Pester case, the unit or integration tes
 
 | Gate | Where | Bar |
 | --- | --- | --- |
-| Coverage (Microsoft.Testing.Extensions.CodeCoverage, line, unit and integration merged; `src/factory/test.ps1`) | before every PR, from spec 01 | **90%** on `Factory.Core`, **70%** on every other project with logic. `Factory.AppHost` and `Factory.ServiceDefaults` are excluded |
+| Coverage (Microsoft.Testing.Extensions.CodeCoverage, line, unit and integration merged; `src/factory/test.ps1`) | before every PR, from spec 01 | **90%** on `Factory.Core`, **70%** on every other project with logic. `Factory.AppHost` and `Factory.ServiceDefaults` are excluded, as is source-generator output (`*.g.cs`, such as `[GeneratedRegex]`'s) |
 | Mutation score (Stryker.NET) | on demand, `Factory.Core` | not a gate; each port spec records the score in its Status line |
 | Tier counts | before every PR | printed by `test.ps1`, not a gate |
 

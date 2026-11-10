@@ -16,5 +16,3 @@ public sealed class AutoNSubDataAttribute() : AutoDataAttribute(Create)
         return f;
     }
 }
-
-public sealed class InlineAutoNSubDataAttribute(params object?[] values) : InlineAutoDataAttribute(AutoNSubDataAttribute.Create, values);

@@ -19,13 +19,50 @@ public static class PsJson
         return sb.ToString();
     }
 
+    /// <summary><c>ConvertTo-Json -Compress</c>, as events.jsonl lines are written: no whitespace at all.</summary>
+    public static string WriteCompact(JsonNode? node)
+    {
+        var sb = new StringBuilder();
+        AppendCompact(sb, node);
+        return sb.ToString();
+    }
+
+    private static void AppendCompact(StringBuilder sb, JsonNode? node)
+    {
+        switch (node)
+        {
+            case JsonObject o:
+                sb.Append('{');
+                var first = true;
+                foreach (var (key, value) in o)
+                {
+                    if (!first) sb.Append(',');
+                    AppendString(sb, key);
+                    sb.Append(':');
+                    AppendCompact(sb, value);
+                    first = false;
+                }
+                sb.Append('}');
+                break;
+            case JsonArray a:
+                sb.Append('[');
+                for (var i = 0; i < a.Count; i++)
+                {
+                    if (i > 0) sb.Append(',');
+                    AppendCompact(sb, a[i]);
+                }
+                sb.Append(']');
+                break;
+            default:
+                AppendScalar(sb, node);
+                break;
+        }
+    }
+
     private static void Append(StringBuilder sb, JsonNode? node, string nl, int depth)
     {
         switch (node)
         {
-            case null:
-                sb.Append("null");
-                break;
             case JsonObject o when o.Count == 0:
                 sb.Append("{}");
                 break;
@@ -55,10 +92,16 @@ public static class PsJson
                 sb.Append(nl).Append(' ', depth * 2).Append(']');
                 break;
             default:
-                if (node.GetValueKind() == JsonValueKind.String) AppendString(sb, node.GetValue<string>());
-                else sb.Append(node.ToJsonString()); // numbers as written, true, false
+                AppendScalar(sb, node);
                 break;
         }
+    }
+
+    private static void AppendScalar(StringBuilder sb, JsonNode? node)
+    {
+        if (node is null) sb.Append("null");
+        else if (node.GetValueKind() == JsonValueKind.String) AppendString(sb, node.GetValue<string>());
+        else sb.Append(node.ToJsonString()); // numbers as written, true, false
     }
 
     private static void AppendString(StringBuilder sb, string s)

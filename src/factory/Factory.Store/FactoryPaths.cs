@@ -1,13 +1,9 @@
 using Factory.Core;
+using Factory.Core.Abstractions;
+using Factory.Store.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace Factory.Store;
-
-public interface IFactoryPaths
-{
-    string Home { get; }
-    string BoardPath { get; }
-}
 
 /// <summary>FACTORY_HOME, else &lt;main checkout&gt;/.factory-runs (factory.ps1's Get-MainRoot).</summary>
 public sealed class FactoryPaths(IOptions<FactoryOptions> options, IGitClient git) : IFactoryPaths

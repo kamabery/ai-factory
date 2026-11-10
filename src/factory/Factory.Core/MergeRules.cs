@@ -1,0 +1,70 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
+
+namespace Factory.Core;
+
+/// <summary>The gate and merge preconditions, and stacked jobs (contract, "Gate and merge", "Stacked jobs").</summary>
+public static partial class MergeRules
+{
+    /// <summary>A gate is green when every recorded command exited 0, at the branch's current head.</summary>
+    public static bool GateGreen(Job job, string? head)
+    {
+        if (job.Node["gate"] is not JsonObject gate) return false;
+        foreach (var (key, value) in gate)
+        {
+            if (PsJsonReader.In(key, "sha", "at")) continue;
+            var zero = value is JsonValue v && v.GetValueKind() == JsonValueKind.Number ? PsJsonReader.Number(v) == 0 : PsJsonReader.Text(value) == "0";
+            if (!zero) return false;
+        }
+        return PsJsonReader.Is(PsJsonReader.Str(gate["sha"]), head);
+    }
+
+    /// <summary>The job <paramref name="job"/> is stacked on, or null. A base purged from the board was finished, so it counts as merged.</summary>
+    public static Job? BaseJob(JsonObject board, Job job) => string.IsNullOrEmpty(job.Base) ? null : board.FindJob(job.Base);
+
+    /// <summary>Where the job's branch starts and its PR points: the base's branch while the base is unmerged, else main.</summary>
+    public static string BaseBranch(JsonObject board, Job job) =>
+        BaseJob(board, job) is { } b && !PsJsonReader.Is(b.Stage, Stages.Done) ? $"factory/{b.Id}" : "main";
+
+    /// <summary>Why job <paramref name="id"/> cannot be a base for work on <paramref name="target"/>, or null.</summary>
+    public static string? BaseError(JsonObject board, string target, string id)
+    {
+        if (board.FindJob(id) is not { } b) return $"no job {id}";
+        if (!PsJsonReader.Is(b.Target, target)) return $"{id} is on {b.Target}, not {target}";
+        if (PsJsonReader.In(b.Stage, Stages.Done, Stages.Discarded)) return $"{id} is {b.Stage}; start from main";
+        if (!PsJsonReader.Truthy(b.Node["pr"])) return $"{id} has no PR yet, so there is no branch to build on";
+        return null;
+    }
+
+    /// <summary><c>merge</c> refuses a stacked job while its base is not done.</summary>
+    public static void RequireBaseMerged(JsonObject board, Job job)
+    {
+        if (BaseJob(board, job) is { } b && !PsJsonReader.Is(b.Stage, Stages.Done))
+            throw new FactoryException($"merge refused: {job.Id} is stacked on {b.Id}; merge {b.Id} first");
+    }
+
+    /// <summary><c>discard</c> refuses a job that live jobs (not done or discarded) are stacked on.</summary>
+    public static void RequireNothingStacked(JsonObject board, Job job)
+    {
+        var kids = board.Jobs().Where(k => PsJsonReader.Is(k.Base, job.Id) && !PsJsonReader.In(k.Stage, Stages.Done, Stages.Discarded)).Select(k => k.Id).ToList();
+        if (kids.Count > 0)
+            throw new FactoryException($"discard refused: {string.Join(", ", kids)} stacked on {job.Id}; discard them first, or merge {job.Id}");
+    }
+
+    /// <summary>
+    /// Merge step 0: uncommitted changes in the work dir (<paramref name="dirty"/>, <c>git diff --name-only HEAD</c>)
+    /// or no commits beyond main (<paramref name="ahead"/>, <c>git rev-list --count</c>) block the merge. Null when neither.
+    /// </summary>
+    public static MergeBlock? WorkBlock(string jobId, string dirty, string ahead)
+    {
+        if (dirty.Length > 0)
+            return new MergeBlock($"uncommitted changes in the work dir: {string.Join(", ", NewLines().Split(dirty))}", "merge blocked: uncommitted changes");
+        if (!Ahead().IsMatch(ahead))
+            return new MergeBlock($"nothing to merge: factory/{jobId} adds no commits to main", "merge blocked: nothing to merge");
+        return null;
+    }
+
+    [GeneratedRegex(@"\r?\n")] private static partial Regex NewLines();
+    [GeneratedRegex(@"^[1-9]\d*$")] private static partial Regex Ahead();
+}

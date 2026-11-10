@@ -1,4 +1,4 @@
-using Factory.Core;
+using Factory.Core.Abstractions;
 
 namespace Factory.Store;
 

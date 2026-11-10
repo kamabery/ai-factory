@@ -1,0 +1,2 @@
+# Golden state files are compared byte for byte (CRLF board.json, LF events.jsonl): never convert them.
+src/factory/Factory.UnitTests/Golden/* -text
