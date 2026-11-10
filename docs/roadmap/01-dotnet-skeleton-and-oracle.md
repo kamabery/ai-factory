@@ -1,9 +1,9 @@
 # 01: .NET skeleton, CI and the oracle switch
 
-**Status:** built on its branch (2026-11-09), not yet merged. Proven locally: 41 .NET tests (33 unit, 8
+**Status:** done, merged in PR #8 (2026-11-10). Proven locally: 41 .NET tests (33 unit, 8
 integration), gates Core 100%, Store 100%, Cli 92%; `status` Pester blocks pass with `FACTORY_IMPL=ps`
 and `dotnet`; the full Pester suite passes (436 local, 236 azure); `aspire run` starts the AppHost.
-PR #8. **Branch:** `feature/01-dotnet-skeleton`. **Depends on:** 19.
+**Branch:** `feature/01-dotnet-skeleton`. **Depends on:** 19.
 
 **Deviations (2026-11-09):**
 - One switch, `FACTORY_IMPL`, default `ps`. The Pester helpers keep calling `factory.ps1`, which

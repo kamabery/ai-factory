@@ -1,6 +1,6 @@
 # 19: Test strategy and CI tiers
 
-**Status:** merged in PR #5 (2026-11-09). **CI tiers withdrawn the same day** (PR #8): Actions cost too much, so the test workflows are gone and tests run locally before a PR (`docs/TESTING.md`, "Before a PR"). Proven: the smoke tags (0 → 5, pass alone), actionlint, `full.yml` skipping without a label. Left: this docs-only close-out PR runs no suites, and a `full.yml` button run (41 + 4 shards). **Branch:** `feature/19-test-strategy`. **Depends on:** 00.
+**Status:** done, merged in PR #5 (2026-11-09). **CI tiers withdrawn the same day** (PR #8): Actions cost too much, so the test workflows are gone and tests run locally before a PR (`docs/TESTING.md`, "Before a PR"). Proven: the smoke tags (0 → 5, pass alone), actionlint, `full.yml` skipping without a label. Nothing left: the `full.yml` button run it still listed went with the workflows. **Branch:** `feature/19-test-strategy`. **Depends on:** 00.
 
 ## Why
 
