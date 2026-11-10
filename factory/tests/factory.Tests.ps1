@@ -1717,8 +1717,8 @@ Describe 'status' -Tag 'Ported' {
 Describe 'implementations' {
     AfterEach { Remove-Item Env:FACTORY_IMPL, Env:FACTORY_CLI -ErrorAction SilentlyContinue }
 
-    # On the azure backend status stays in PowerShell (contract, "Implementations"), so nothing is forwarded.
-    It 'FACTORY_IMPL=dotnet sends a ported command to the .NET CLI, and refuses when it is not built' -Skip:($env:FACTORY_TEST_STATE -eq 'azure') {
+    # On either state backend (contract, "Implementations").
+    It 'FACTORY_IMPL=dotnet sends a ported command to the .NET CLI, and refuses when it is not built' {
         $env:FACTORY_IMPL = 'dotnet'
         $env:FACTORY_CLI = Join-Path $TestDrive 'missing/Factory.Cli.dll'
         $err = & pwsh -NoProfile -File $script:Factory status 2>&1 | ForEach-Object { "$_" }

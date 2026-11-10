@@ -6,5 +6,23 @@ public interface IFileStore
     /// <summary>The file's text, or null when it does not exist.</summary>
     string? ReadText(string path);
 
+    /// <summary>The file's bytes, read without locking out writers or a rename; null when it does not exist.</summary>
+    byte[]? ReadBytes(string path);
+
     void EnsureDirectory(string path);
+
+    /// <summary>
+    /// Writes a temp file beside <paramref name="path"/>, then renames it over the target. The rename is retried
+    /// for up to 2 s while a reader that did not share delete (serve.ps1's /state/board.json) holds the file.
+    /// </summary>
+    void WriteAtomic(string path, byte[] bytes);
+
+    /// <summary>Appends UTF-8 text without a byte-order mark, creating the file if need be.</summary>
+    void AppendText(string path, string text);
+
+    /// <summary>Length and last-write time, or null when the file does not exist.</summary>
+    LocalFile? Stat(string path);
+
+    /// <summary>Every file under <paramref name="root"/>, hidden ones too; empty when the folder does not exist.</summary>
+    IReadOnlyList<LocalFile> Files(string root);
 }

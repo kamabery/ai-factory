@@ -1,6 +1,38 @@
 # 03: Factory.Store, file and blob backends
 
-**Status:** not started. **Branch:** `feature/03-store`. **Depends on:** 02. **Decision:** D2.
+**Status:** built on its branch (2026-11-10), not yet merged. D2 taken as recommended: the file and
+blob backends ported as they are, EF Core in 13. Proven locally: 334 .NET tests (303 unit, 31
+integration, 23 of them new against `blob-stub.ps1`), gates Core 98.0%, Store 98.7%, Cli 94.2%; the
+`Ported` Pester blocks pass under both implementations on both backends, including the whole of
+`state-factory.Tests.ps1` (two machines on one container, with the .NET `status` among
+`factory.ps1`'s commands). **Branch:** `feature/03-store`. **Depends on:** 02. **Decision:** D2.
+
+**Deviations (2026-11-10):**
+- **The named mutex stays.** `factory-board-<hash>` is a named mutex, and .NET named mutexes work
+  across processes on every OS. pwsh is a .NET process too, so while the port is part-way it is the
+  only lock that keeps a forwarded command and `factory.ps1` off the board at the same time. A lock
+  file would let both write at once. The contract's lease semantics hold unchanged.
+- **Blob REST over `HttpClient`, not the Azure SDK.** The SDK refuses a bearer token over plain
+  http, so it could not talk to the stub. `BlobClient` makes `state.ps1`'s calls one for one, with
+  the same retries and error text.
+- **The token chain is `state.ps1`'s, not `DefaultAzureCredential`.** It tries, in order,
+  `FACTORY_STATE_TOKEN`, the managed identity endpoint, the cached `az` token, then `az` itself
+  (or `FACTORY_AZ_CMD`). The cache file lets the next process skip `az`, which a per-process
+  credential cannot, and `FACTORY_AZ_CMD` is the tests' seam. `Azure.Identity` is for 18 (cloud
+  mode), where there is a real managed identity to prove it on.
+- **The store is a session.** `IFactoryStore.Open()` takes the lock and reads the board. The
+  `IBoardSession` it returns saves the board, adds events, and ends with `Close()` (the push, prune
+  and note) before `Dispose` releases the lock. `CliApp` runs every command inside a session, as
+  `factory.ps1`'s body does, so `ICommand.Run` takes the session. `TenantId` is `default`.
+- **Left for the specs that use them:**
+  - the lease keepers, to 07 (runner, canary, idea turns);
+  - `Sync-Events` and the dashboard's polling refresh, to 08;
+  - `state-migrate`, `state-pull`, `prune` and `allow-ip`, to 11;
+  - the agent-stop transcript copy, to 04 (`event`);
+  - re-taking the lock after a long step, to 06 and 09.
+- **No `.env` outside a repository.** `factory.ps1` refuses there even with `FACTORY_HOME` set,
+  because it always looks for `.env`. The CLI treats it as no `.env`.
+- **"Three OSes"** is now Windows, locally: tests run before a PR, never in CI.
 
 ## Goal
 
