@@ -208,7 +208,8 @@ Describe 'run mode and providers' {
     }
 }
 
-Describe 'board writes' {
+# Ported (roadmap spec 04): run-all.ps1 -Tag Ported runs this block with FACTORY_IMPL=ps and dotnet.
+Describe 'board writes' -Tag 'Ported' {
     It 'waits out a reader holding board.json (the dashboard poll) instead of failing the save' {
         $id = New-BacklogJob
         $path = Join-Path $env:FACTORY_HOME 'board.json'
@@ -275,7 +276,8 @@ Describe 'board writes' {
     }
 }
 
-Describe 'illegal transitions' {
+# Ported (roadmap spec 04): run-all.ps1 -Tag Ported runs this block with FACTORY_IMPL=ps and dotnet.
+Describe 'illegal transitions' -Tag 'Ported' {
     It 'refuses <from> -> <to> and leaves the board byte-for-byte unchanged' -ForEach @(
         @{ from = 'backlog'; to = 'done' }
         @{ from = 'backlog'; to = 'build' }
@@ -297,7 +299,8 @@ Describe 'illegal transitions' {
     }
 }
 
-Describe 'queue' {
+# Ported (roadmap spec 04): run-all.ps1 -Tag Ported runs this block with FACTORY_IMPL=ps and dotnet.
+Describe 'queue' -Tag 'Ported' {
     It 'next returns the oldest approved job, and nothing while a job is building' {
         $a = New-ApprovedJob 'A'
         Start-Sleep -Milliseconds 20
@@ -339,7 +342,8 @@ Describe 'queue' {
     }
 }
 
-Describe 'review routing' {
+# Ported (roadmap spec 04): run-all.ps1 -Tag Ported runs this block with FACTORY_IMPL=ps and dotnet.
+Describe 'review routing' -Tag 'Ported' {
     It 'four PASS moves review -> approve' {
         $id = New-ApprovedJob
         Move-ToReview $id
@@ -388,7 +392,8 @@ Describe 'review routing' {
     }
 }
 
-Describe 'decision' {
+# Ported (roadmap spec 04): run-all.ps1 -Tag Ported runs this block with FACTORY_IMPL=ps and dotnet.
+Describe 'decision' -Tag 'Ported' {
     It 'APPROVE moves approve -> gate' {
         $id = New-ApprovedJob
         Move-ToGate $id
@@ -614,7 +619,8 @@ Describe 'gate-check' {
     }
 }
 
-Describe 'scope check' {
+# Ported (roadmap spec 04): run-all.ps1 -Tag Ported runs this block with FACTORY_IMPL=ps and dotnet.
+Describe 'scope check' -Tag 'Ported' {
     BeforeEach {
         # J-022's Scope: In, prose and inline backticks after the glob included.
         $script:J022In = @(
@@ -723,7 +729,8 @@ Describe 'scope check' {
     }
 }
 
-Describe 'base moved' {
+# Ported (roadmap spec 04): run-all.ps1 -Tag Ported runs this block with FACTORY_IMPL=ps and dotnet.
+Describe 'base moved' -Tag 'Ported' {
     BeforeEach {
         # J-A of one idea taken to ready (gate green, PR open); its siblings are added by each test.
         function New-Sibling([string]$idea, [string]$title) { F add-spec $idea (New-Spec $title) }
@@ -840,7 +847,8 @@ Describe 'base moved' {
     }
 }
 
-Describe 'template provenance' {
+# Ported (roadmap spec 04): run-all.ps1 -Tag Ported runs this block with FACTORY_IMPL=ps and dotnet.
+Describe 'template provenance' -Tag 'Ported' {
     BeforeEach {
         function Commit-Files([string]$id, [hashtable]$files, [string]$subject) {
             $wt = Work $id
@@ -1199,7 +1207,8 @@ Describe 'publish and merge' {
     }
 }
 
-Describe 'human moves from ready' {
+# Ported (roadmap spec 04): run-all.ps1 -Tag Ported runs this block with FACTORY_IMPL=ps and dotnet.
+Describe 'human moves from ready' -Tag 'Ported' {
     It 'rework goes back to approved at round + 1 with the note on disk and the flag cleared' {
         $id = New-ApprovedJob
         F set-stage $id build -By runner | Out-Null
@@ -1253,7 +1262,8 @@ Describe 'human moves from ready' {
     }
 }
 
-Describe 'usage limit' {
+# Ported (roadmap spec 04): run-all.ps1 -Tag Ported runs this block with FACTORY_IMPL=ps and dotnet.
+Describe 'usage limit' -Tag 'Ported' {
     It 'flags a job usage-limit, not escalated, with the stage it stopped in and its session' {
         $id = New-ApprovedJob
         Move-ToReview $id
@@ -1338,7 +1348,8 @@ Describe 'usage limit' {
     }
 }
 
-Describe 'stacked jobs' {
+# Ported (roadmap spec 04): run-all.ps1 -Tag Ported runs this block with FACTORY_IMPL=ps and dotnet.
+Describe 'stacked jobs' -Tag 'Ported' {
     BeforeAll {
         # A job in ready with its PR open: what a session can pick as a base.
         function New-ReadyJob([string]$title = 'Base', [string]$file = 'base.txt') {
@@ -1504,7 +1515,8 @@ Describe 'abandon' {
     }
 }
 
-Describe 'purge' {
+# Ported (roadmap spec 04): run-all.ps1 -Tag Ported runs this block with FACTORY_IMPL=ps and dotnet.
+Describe 'purge' -Tag 'Ported' {
     It 'removes done and discarded jobs with their folders and branches, and keeps the rest' {
         $done = New-ApprovedJob 'D'
         Commit-OnBranch $done
@@ -1615,7 +1627,8 @@ Describe 'purge' {
     }
 }
 
-Describe 'bookkeeping' {
+# Ported (roadmap spec 04): run-all.ps1 -Tag Ported runs this block with FACTORY_IMPL=ps and dotnet.
+Describe 'bookkeeping' -Tag 'Ported' {
     It 'set-cost accumulates and appends a cost event' {
         $id = New-ApprovedJob
         F set-cost $id 1.5 1000 | Out-Null

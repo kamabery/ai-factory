@@ -844,8 +844,10 @@ calling `factory.ps1`. A ported command must match this contract byte for byte, 
 blocks (tagged `Ported`) pass under both implementations. A forwarded command takes the same board
 lock as `factory.ps1` (the mutex named for the state directory, and in `azure` the lease on
 `locks/board`) and keeps the same `.sync.json`, so the two implementations never write the board at
-once and either can follow the other on one state directory. Ported so far: `status`, on both state
-backends.
+once and either can follow the other on one state directory. `factory.ps1` sets `FACTORY_SCRIPTS` to
+its own folder for the CLI, which hashes the deploy scripts there into the canary fingerprint, as
+`factory.ps1` does. Ported so far, on both state backends: `status`, `approve`, `edit-spec`,
+`rework`, `purge`, `set-stage`, `set-review`, `read-reviews`, `read-decision` and `event`.
 
 | Command | Used by |
 | --- | --- |

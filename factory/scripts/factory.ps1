@@ -78,7 +78,7 @@ try { Initialize-State -StateHome $Home_ -EnvFile (EnvFilePath) } catch { Fail "
 # Strangler routing (contract, "Implementations"): with FACTORY_IMPL=dotnet a ported command runs in
 # the .NET CLI, with the same arguments and environment, on either state backend. It is forwarded before
 # the board lock is taken: the CLI takes the same mutex (and in azure the same lease) itself.
-$Ported = @('status')
+$Ported = @('status', 'approve', 'edit-spec', 'rework', 'purge', 'set-stage', 'set-review', 'read-reviews', 'read-decision', 'event')
 if ($env:FACTORY_IMPL -and $env:FACTORY_IMPL -notin 'ps', 'dotnet') { Fail "FACTORY_IMPL '$env:FACTORY_IMPL' must be ps or dotnet" }
 if ($env:FACTORY_IMPL -eq 'dotnet' -and $Command -in $Ported) {
     $cli = if ($env:FACTORY_CLI) { $env:FACTORY_CLI } else { [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../artifacts/bin/Factory.Cli/debug/Factory.Cli.dll')) }
@@ -89,6 +89,8 @@ if ($env:FACTORY_IMPL -eq 'dotnet' -and $Command -in $Ported) {
         $v = $PSBoundParameters[$k]
         if ($v -is [switch]) { if ($v) { $fwd += "-$k" } } else { $fwd += "-$k", "$v" }
     }
+    # The canary fingerprint hashes the deploy scripts beside this one, and the templates beside this repo.
+    $env:FACTORY_SCRIPTS = $PSScriptRoot
     # The CLI writes UTF-8 whatever the console's code page; read it back as UTF-8.
     $enc = [Console]::OutputEncoding
     try { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); & dotnet $cli @fwd } finally { [Console]::OutputEncoding = $enc }

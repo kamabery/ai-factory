@@ -1,13 +1,12 @@
 using System.Globalization;
 using Factory.Core;
-using Factory.Core.Abstractions;
 using Factory.Store.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace Factory.Store;
 
 /// <summary>state.ps1's Initialize-State: the environment, else .env, read once when first needed.</summary>
-public sealed class StateSettings(IOptions<StateOptions> options, IFactoryPaths paths, IFileStore files) : IStateSettings
+public sealed class StateSettings(IOptions<StateOptions> options, IFactoryPaths paths, IDotEnv dotEnv) : IStateSettings
 {
     private (bool Azure, string? Url, long Cap)? _resolved;
 
@@ -20,13 +19,7 @@ public sealed class StateSettings(IOptions<StateOptions> options, IFactoryPaths 
     private (bool, string?, long) Read()
     {
         var o = options.Value;
-        IReadOnlyDictionary<string, string>? env = null;
-        string? Setting(string? fromEnvironment, string name)
-        {
-            if (!string.IsNullOrEmpty(fromEnvironment)) return fromEnvironment;
-            env ??= EnvFile.Parse(paths.EnvFile is { } f ? files.ReadText(f) : null);
-            return env.TryGetValue(name, out var v) && v.Length > 0 ? v : null;
-        }
+        string? Setting(string? fromEnvironment, string name) => !string.IsNullOrEmpty(fromEnvironment) ? fromEnvironment : dotEnv.Get(name);
 
         var mode = Setting(o.State, "FACTORY_STATE") ?? "local";
         var azure = string.Equals(mode, "azure", StringComparison.OrdinalIgnoreCase);

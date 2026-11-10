@@ -320,7 +320,23 @@ Describe 'canary on azure' {
     }
 }
 
-Describe 'next and the canary' {
+# Ported (roadmap spec 04): set-stage reads canary.json, so a pass factory.ps1's canary records must count
+# for the .NET set-stage too, which only holds while both compute the same fingerprint.
+Describe 'next and the canary' -Tag 'Ported' {
+    It 'set-stage takes the head a passing canary released, and refuses a bootstrap queued behind it' {
+        $id = New-ApprovedJob
+        $out = F new-idea 'boot' -Target "test/boot-$([guid]::NewGuid().ToString('N').Substring(0,8))" -Scaffold '{"name":"todo","resource":"Todo","db":"sqlite","ui":"none","events":false}'
+        $boot = ($out -split ' ')[1]
+        F approve $boot | Out-Null
+        F canary | Out-Null
+        (Canary).status | Should -Be 'pass'
+
+        F set-stage $boot build -By runner | Out-Null
+        $LASTEXITCODE | Should -Not -Be 0
+        F set-stage $id build -By runner | Out-Null
+        $LASTEXITCODE | Should -Be 0
+    }
+
     It 'holds back a deployable job until a canary has passed for the current fingerprint' {
         $id = New-ApprovedJob
         F next | Should -BeNullOrEmpty
