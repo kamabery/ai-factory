@@ -52,5 +52,16 @@ public sealed class MemoryFiles : IFileStore
 
     public void CopyFile(string from, string to) => Set(to, ReadBytes(from) ?? throw new FileNotFoundException(from));
 
+    /// <summary>Lock files held now; <see cref="TryLock"/> refuses these.</summary>
+    public HashSet<string> Held { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public IDisposable? TryLock(string path)
+    {
+        if (!Held.Add(path)) return null;
+        return new Release(() => Held.Remove(path));
+    }
+
+    private sealed class Release(Action release) : IDisposable { public void Dispose() => release(); }
+
     private void Set(string path, byte[] bytes) => _files[path] = (bytes, ++_clock);
 }

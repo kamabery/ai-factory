@@ -158,4 +158,56 @@ public class GitHubClientTests
 
         Assert.Equal(["-c", "credential.helper=", "-c", $"http.extraHeader=Authorization: Basic {basic}"], Sut.GitAuth());
     }
+
+    [Fact]
+    public void CreateRepo_creates_under_the_user_when_it_is_the_owner_else_in_the_org()
+    {
+        var posts = new List<string>();
+        _http.Reply = r =>
+        {
+            if (r.Method == HttpMethod.Get) return Res(200, """{"login":"Me"}""");
+            posts.Add(r.RequestUri!.AbsolutePath + " " + r.Content!.ReadAsStringAsync().Result);
+            return Res(201, "{}");
+        };
+
+        Assert.Null(Sut.CreateRepo("me/app"));
+        Assert.Null(Sut.CreateRepo("org/app"));
+
+        Assert.Equal(["""/user/repos {"name":"app","private":true,"auto_init":false}""", """/orgs/org/repos {"name":"app","private":true,"auto_init":false}"""], posts);
+    }
+
+    [Fact]
+    public void CreateRepo_says_why_not()
+    {
+        _http.Reply = r => r.Method == HttpMethod.Get ? Res(401, """{"message":"Bad credentials"}""") : Res(201);
+        Assert.Equal("cannot create o/app: GitHub 401: Bad credentials", Sut.CreateRepo("o/app"));
+
+        _http.Reply = r => r.Method == HttpMethod.Get ? Res(200, """{"login":"o"}""") : Res(422, """{"message":"name already exists"}""");
+        Assert.Equal("cannot create o/app: GitHub 422: name already exists", Sut.CreateRepo("o/app"));
+    }
+
+    [Fact]
+    public void OpenPr_asks_for_the_open_PR_from_the_owners_branch()
+    {
+        string? asked = null;
+        _http.Reply = r => { asked = r.RequestUri!.PathAndQuery; return Res(200, """[{"number":7,"html_url":"https://gh/o/r/pull/7"}]"""); };
+
+        Assert.Equal(new PullRequest(7, "https://gh/o/r/pull/7"), Sut.OpenPr("o/r", "factory/J-001"));
+        Assert.Equal("/repos/o/r/pulls?state=open&head=o:factory/J-001", asked);
+
+        _http.Reply = _ => Res(200, "[]");
+        Assert.Null(Sut.OpenPr("o/r", "factory/J-001"));
+        _http.Reply = _ => Res(500, "{}");
+        Assert.Null(Sut.OpenPr("o/r", "factory/J-001"));
+    }
+
+    [Fact]
+    public void Pr_is_GitHubs_PR_or_null()
+    {
+        _http.Reply = _ => Res(200, """{"merged":true,"merge_commit_sha":"abc"}""");
+        Assert.Equal("abc", (string?)Sut.Pr("o/r", 3)!["merge_commit_sha"]);
+
+        _http.Reply = _ => Res(404, """{"message":"Not Found"}""");
+        Assert.Null(Sut.Pr("o/r", 3));
+    }
 }

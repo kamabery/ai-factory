@@ -228,4 +228,52 @@ public class FactoryStoreTests
         });
         _mutex.Received(1).Exit();
     }
+
+    [Fact]
+    public void Unlocked_releases_the_lock_for_the_work_then_waits_as_long_as_it_takes_and_reads_the_board_again()
+    {
+        _files.Put(Path.Combine(Home, "board.json"), Board("gate"));
+        using var s = Store().Open();
+        var order = new List<string>();
+        _mutex.When(m => m.Exit()).Do(_ => order.Add("exit"));
+        _mutex.Enter(-1).Returns(_ => { order.Add("enter -1"); return true; });
+
+        s.Unlocked(() =>
+        {
+            order.Add("work");
+            _files.Put(Path.Combine(Home, "board.json"), Board("ready"));
+        });
+
+        Assert.Equal(["exit", "work", "enter -1"], order);
+        Assert.Equal("ready", (string?)s.Board["jobs"]![0]!["stage"]);
+        s.Dispose();
+        _mutex.Received(2).Exit();
+    }
+
+    [Fact]
+    public void Azure_unlocked_frees_the_lease_and_takes_it_back_for_600_s_refreshing_the_board()
+    {
+        _blobs.AcquireLease("board", Arg.Any<int>()).Returns("lease-1", "lease-2");
+        _blobs.RenewLease("board", "lease-2").Returns(true);
+        using var s = Store(azure: true).Open();
+
+        s.Unlocked(() => _blobs.Received(1).ReleaseLease("board", "lease-1"));
+        s.Save();
+
+        _blobs.Received(1).AcquireLease("board", 600);
+        _sync.Received(2).SyncBoard();
+        _blobs.Received(1).RenewLease("board", "lease-2");
+    }
+
+    [Fact]
+    public void A_refused_relock_leaves_the_session_released_so_dispose_frees_nothing_twice()
+    {
+        using var s = Store().Open();
+        _mutex.Enter(-1).Returns(_ => throw new FactoryException("board lock refused"));
+
+        Assert.Throws<FactoryException>(() => s.Unlocked(() => { }));
+        s.Dispose();
+
+        _mutex.Received(1).Exit();
+    }
 }

@@ -53,6 +53,31 @@ public sealed class GitHubClient(HttpClient http, IDotEnv dotEnv, IGitHubCredent
         return r.Body is JsonArray a ? [.. a.Select(x => PsJsonReader.Text(x?["full_name"]))] : [];
     }
 
+    public string? CreateRepo(string target)
+    {
+        var parts = target.Split('/', 2);
+        var me = Send(HttpMethod.Get, "/user");
+        if (me.Status != 200) return $"cannot create {target}: {GitHubErrors.Text(me)}";
+        var path = PsJsonReader.Is(PsJsonReader.Str((me.Body as JsonObject)?["login"]), parts[0]) ? "/user/repos" : $"/orgs/{parts[0]}/repos";
+        var r = Send(HttpMethod.Post, path, new JsonObject { ["name"] = parts[1], ["private"] = true, ["auto_init"] = false });
+        return r.Status == 201 ? null : $"cannot create {target}: {GitHubErrors.Text(r)}";
+    }
+
+    public PullRequest? OpenPr(string target, string branch)
+    {
+        var owner = target.Split('/', 2)[0];
+        var r = Send(HttpMethod.Get, $"/repos/{target}/pulls?state=open&head={owner}:{branch}");
+        if (r.Status != 200) return null;
+        var pr = r.Body switch { JsonArray a => a.FirstOrDefault() as JsonObject, JsonObject o => o, _ => null };
+        return pr is null ? null : new PullRequest(PsJsonReader.Int(pr["number"]), PsJsonReader.Text(pr["html_url"]));
+    }
+
+    public JsonObject? Pr(string target, int number)
+    {
+        var r = Send(HttpMethod.Get, $"/repos/{target}/pulls/{number}");
+        return r.Status == 200 ? r.Body as JsonObject : null;
+    }
+
     public string CloneUrl(string target) => $"{GitBase}/{target}.git";
 
     public IReadOnlyList<string> GitAuth()

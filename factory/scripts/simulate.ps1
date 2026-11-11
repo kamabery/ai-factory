@@ -58,7 +58,8 @@ $stub = $null
 if (-not $env:FACTORY_ENV_FILE) {
     $l = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0); $l.Start(); $port = $l.LocalEndpoint.Port; $l.Stop()
     $base = Join-Path $StateDir 'github'
-    $stub = Start-Process pwsh -ArgumentList '-NoProfile', '-File', (Join-Path $repoRoot 'factory/tests/fixtures/github-stub.ps1'), '-Port', $port, '-GitBase', $base -PassThru -WindowStyle Hidden
+    $hidden = if ($IsWindows) { @{ WindowStyle = 'Hidden' } } else { @{} }   # -WindowStyle exists only on Windows
+    $stub = Start-Process pwsh -ArgumentList '-NoProfile', '-File', (Join-Path $repoRoot 'factory/tests/fixtures/github-stub.ps1'), '-Port', $port, '-GitBase', $base -PassThru @hidden
     $env:FACTORY_ENV_FILE = Join-Path $StateDir 'github.env'
     Set-Content $env:FACTORY_ENV_FILE @('GITHUB_TOKEN=sim', 'GITHUB_OWNER=sim', "GITHUB_API_URL=http://localhost:$port", "FACTORY_GIT_BASE=file:///$($base -replace '\\', '/')")
     $deadline = (Get-Date).AddSeconds(20)

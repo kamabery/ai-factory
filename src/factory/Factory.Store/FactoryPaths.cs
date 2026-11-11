@@ -21,7 +21,9 @@ public sealed class FactoryPaths(IOptions<FactoryOptions> options, IGitClient gi
 
     public string JobDir(string id) => Path.Combine(Home, "jobs", id);
 
-    public string WorkDir(string id) => Path.Combine(string.IsNullOrEmpty(_o.Work) ? Path.Combine(_o.TempPath, "ai-factory") : _o.Work, "jobs", id);
+    public string WorkRoot => string.IsNullOrEmpty(_o.Work) ? Path.Combine(_o.TempPath, "ai-factory") : _o.Work;
+
+    public string WorkDir(string id) => Path.Combine(WorkRoot, "jobs", id);
 
     public string ScriptsDir => !string.IsNullOrEmpty(_o.Scripts) ? _o.Scripts
         : throw new FactoryException("cannot find factory/scripts above the .NET CLI; set FACTORY_SCRIPTS");

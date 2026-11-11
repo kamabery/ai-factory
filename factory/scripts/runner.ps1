@@ -145,6 +145,8 @@ try {
             if ($result -and $result.PSObject.Properties['total_cost_usd']) {
                 $ms = if ($result.PSObject.Properties['duration_ms']) { $result.duration_ms } else { 0 }
                 F set-cost $id ([string]::Format([Globalization.CultureInfo]::InvariantCulture, '{0}', $result.total_cost_usd)) $ms | Out-Null
+                # A refused cost is an error finishing the job, on either implementation (a forwarded one exits, not throws).
+                if ($LASTEXITCODE) { throw "set-cost $id refused (exit $LASTEXITCODE)" }
             }
 
             # A usage limit (the subscription's, or a Foundry 429) is no one's decision: flag it with the

@@ -3,6 +3,7 @@
 # state.ps1, the azure state backend, against blob-stub.ps1. See "State backends" in the contract.
 
 BeforeAll {
+    . (Join-Path $PSScriptRoot 'fixtures/portable.ps1')   # -WindowStyle off Windows
     Set-StrictMode -Version 3   # as factory.ps1 and serve.ps1 run state.ps1
     . (Join-Path $PSScriptRoot 'fixtures\blob.ps1')
     Start-BlobStub -LeaseScale 0.05   # a 60 s lease lasts 3 s

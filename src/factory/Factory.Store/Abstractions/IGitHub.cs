@@ -14,6 +14,15 @@ public interface IGitHub
     /// <summary>Get-OwnedRepos: the credential's user's own repos as owner/name, newest push first, one page of 100.</summary>
     IReadOnlyList<string> OwnedRepos();
 
+    /// <summary>New-GitHubRepo: creates owner/name private and empty, under the credential's user if it is the owner, else in that org. Null, or why not.</summary>
+    string? CreateRepo(string target);
+
+    /// <summary>Get-OpenPr: the open PR from <paramref name="branch"/>, or null.</summary>
+    PullRequest? OpenPr(string target, string branch);
+
+    /// <summary>Get-Pr: PR <paramref name="number"/> as GitHub returns it (<c>merged</c>, <c>merge_commit_sha</c>, <c>head.sha</c>), or null.</summary>
+    System.Text.Json.Nodes.JsonObject? Pr(string target, int number);
+
     /// <summary>&lt;FACTORY_GIT_BASE, else https://github.com&gt;/owner/name.git</summary>
     string CloneUrl(string target);
 

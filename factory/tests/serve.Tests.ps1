@@ -3,6 +3,7 @@
 # The idea-session endpoints of serve.ps1, against the Anthropic stub. Each describe drives one
 # session from start to close, so its tests run in order.
 BeforeAll {
+    . (Join-Path $PSScriptRoot 'fixtures/portable.ps1')   # -WindowStyle off Windows
     $script:Scripts = Join-Path $PSScriptRoot '..\scripts' | Resolve-Path | Select-Object -ExpandProperty Path
     $script:Stub = Join-Path $PSScriptRoot 'fixtures\anthropic-stub.ps1' | Resolve-Path | Select-Object -ExpandProperty Path
     $script:Key = 'sk-ant-test-' + [guid]::NewGuid().ToString('N')
