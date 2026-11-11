@@ -1581,8 +1581,10 @@ Describe 'purge' -Tag 'Ported' {
         F set-stage $id build -By runner | Out-Null
         F set-stage $id ready -Reason escalated -Detail 'x' | Out-Null
         $wt = Work $id
-        $lock = [IO.File]::Open((Join-Path $wt 'feature.txt'), 'Open', 'Read', 'None')
-        try { F discard $id | Out-Null } finally { $lock.Dispose() }
+        # Windows refuses to delete a file held open; Linux and macOS delete it anyway, and refuse instead to
+        # delete from a folder that is not writable.
+        $lock = if ($IsWindows) { [IO.File]::Open((Join-Path $wt 'feature.txt'), 'Open', 'Read', 'None') } else { chmod a-w $wt }
+        try { F discard $id | Out-Null } finally { if ($IsWindows) { $lock.Dispose() } else { chmod u+w $wt } }
         $LASTEXITCODE | Should -Be 0
         (Job $id).stage | Should -Be 'discarded'
         Events | Where-Object { $_.kind -eq 'note' -and $_.detail -match 'work dir' } | Should -Not -BeNullOrEmpty

@@ -7,7 +7,7 @@
 #   integration  sync, then the .NET integration tests
 #   ported       sync, then Pester -Tag Ported (each block on PowerShell and on .NET)
 #   dotnet       sync, then the whole Pester suite on .NET (-Impl dotnet)
-#   diagnose     sync, then one small Pester block (abandon) with detailed output, to see why a run fails
+#   diagnose [b] sync, then one block of factory.Tests.ps1 (default abandon) with detailed output, to see why it fails
 #   versions     print the toolchain the suites run on
 # Run from Windows: wsl.exe -d Ubuntu -- bash /mnt/d/code/ai-factory/factory/tests/linux/run.sh <suite>
 set -euo pipefail
@@ -39,8 +39,12 @@ case "${1:-}" in
   integration) sync; cd "$dest/ai-factory/src/factory"; dotnet test Factory.IntegrationTests -v q ;;
   ported) sync; cd "$dest/ai-factory"; pwsh -NoProfile -File factory/tests/run-all.ps1 -Tag Ported ;;
   dotnet) sync; cd "$dest/ai-factory"; pwsh -NoProfile -File factory/tests/run-all.ps1 -Impl dotnet ;;
-  diagnose) sync; cd "$dest/ai-factory"
-    pwsh -NoProfile -Command '$c = New-PesterConfiguration; $c.Run.Path = "factory/tests/factory.Tests.ps1"; $c.Filter.FullName = "factory.ps1.abandon.*"; $c.Output.Verbosity = "Detailed"; Invoke-Pester -Configuration $c' ;;
+  diagnose)
+    # A block of factory.Tests.ps1 by name (letters, digits, spaces and dashes only: a filter, never a command).
+    block="${2:-abandon}"
+    [[ "$block" =~ ^[A-Za-z0-9\ -]+$ ]] || { echo "diagnose: '$block' is not a block name" >&2; exit 2; }
+    sync; cd "$dest/ai-factory"
+    BLOCK="$block" pwsh -NoProfile -Command '$c = New-PesterConfiguration; $c.Run.Path = "factory/tests/factory.Tests.ps1"; $c.Filter.FullName = "factory.ps1.$env:BLOCK.*"; $c.Output.Verbosity = "Detailed"; Invoke-Pester -Configuration $c' ;;
   versions) git --version; dotnet --version; pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()' ;;
   *) echo "usage: run.sh sync|unit|integration|ported|dotnet|diagnose|versions" >&2; exit 2 ;;
 esac

@@ -1,6 +1,7 @@
 # 06: Port the git commands, gate and merge
 
-**Status:** built on its branch (2026-11-11), Windows and Linux proven, macOS not. **Branch:**
+**Status:** built on its branch (2026-11-11), proven on Windows and Linux; macOS dropped from the
+"Done when" (Kurt, 2026-11-11). **Branch:**
 `feature/06-port-git`. **Depends on:** 05. Nine commands forwarded: `checkout`, `publish`, `gate`,
 `gate-check`, `provenance`, `merge`, `sync-prs`, `set-cost` and `next`. The build checks were already
 ported with `set-stage` (04), and the contract already said `<system temp>`. Proven locally:
@@ -9,12 +10,11 @@ ported with `set-stage` (04), and the contract already said `<system temp>`. Pro
   they lacked). Pester `-Tag Ported` both ways, local and azure; `-Impl dotnet` 437 local, 235 azure;
   the plain run 437 local, 235 azure; Playwright on .NET 41.
 - Linux (WSL Ubuntu 20.04, `factory/tests/linux/run.sh`): .NET 533 unit, 52 integration; `-Tag Ported`
-  308 of 312 local, 276 of 282 azure (2 skipped). Every block this spec names passes both ways. The two
-  tests still failing fail the same on PowerShell and .NET, in earlier specs' blocks: `purge` "removes a
-  work dir that merge or discard could not delete" (Linux deletes an open file, so the lock it simulates
-  never holds) and `targets` "the bootstrap spec's ui gate runs npm ci only when ..." (not yet
-  diagnosed). Both are follow-ups for whoever next needs the whole suite on Linux.
-- macOS: not run; there is no Mac to run it on.
+  312 local, 280 azure (+2 skipped), both ways. Getting there found one product bug, fixed in its own
+  commit: the bootstrap ui gate's `Get-Item` needed `-Force` for npm's hidden lockfile, or every Linux
+  gate reran `npm ci`. One earlier Linux run failed the `abandon` block once on .NET, local only; it did
+  not repeat.
+- macOS: out of scope (Kurt, 2026-11-11).
 
 What changed beyond the port:
 - The board session can release its lock around a long step (`IBoardSession.Unlocked`), as
@@ -27,7 +27,8 @@ What changed beyond the port:
   runner had dropped. The contract's runner step says so now.
 - The Pester suite runs on Linux: `fixtures/portable.ps1` drops `-WindowStyle` off Windows and gives a
   started child its own stdio (under `Start-Job` an inherited stdout is the job's channel), the gate
-  tests echo with `/bin/echo` there, and the checkout test's git hook is made executable.
+  tests echo with `/bin/echo` there, the checkout test's git hook is made executable, and the purge
+  test makes a work dir undeletable with a read-only folder there (Linux deletes an open file).
 
 ## Commands
 
@@ -50,4 +51,4 @@ moved).
 
 ## Done when
 
-The gate, merge, publish and checkout `Describe` blocks pass both ways on three OSes.
+The gate, merge, publish and checkout `Describe` blocks pass both ways on Windows and Linux.
