@@ -52,6 +52,8 @@ public static class Composition
         services.AddSingleton<IFactoryStore, FactoryStore>();
         services.AddSingleton<ICanary, CanaryCheck>();
         services.AddSingleton<ITemplateProvenance, TemplateProvenance>();
+        services.AddSingleton<IGitHubCredential, PatCredential>();
+        services.AddHttpClient<IGitHub, GitHubClient>();
 
         services.AddSingleton<ICommand, StatusCommand>();
         services.AddSingleton<ICommand, ApproveCommand>();
@@ -63,6 +65,13 @@ public static class Composition
         services.AddSingleton<ICommand, ReadReviewsCommand>();
         services.AddSingleton<ICommand, ReadDecisionCommand>();
         services.AddSingleton<ICommand, EventCommand>();
+        services.AddSingleton<ICommand, NewIdeaCommand>();
+        services.AddSingleton<ICommand, AddSpecCommand>();
+        services.AddSingleton<ICommand, IdeaDoneCommand>();
+        services.AddSingleton<ICommand, IdeaAbandonCommand>();
+        services.AddSingleton<ICommand, CheckTargetCommand>();
+        services.AddSingleton<ICommand, ListReposCommand>();
+        services.AddSingleton<ICommand, CloneTargetCommand>();
         services.AddSingleton<CliApp>();
         return services;
     }

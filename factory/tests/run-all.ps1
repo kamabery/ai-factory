@@ -57,9 +57,9 @@ foreach ($file in Get-ChildItem $PSScriptRoot -Filter '*.Tests.ps1') {
         foreach ($u in Get-Units $root) {
             if ($Tag -and $u.Tags -notcontains $Tag) { continue }
             foreach ($s in $states) {
-                foreach ($impl in $(if ($Tag) { 'ps', 'dotnet' } elseif ($Impl) { $Impl } else { '' })) {
-                    $label = "$($file.Name) | $($u.Path) | $s" + $(if ($impl) { " | $impl" })
-                    $units += [pscustomobject]@{ File = $file.FullName; Name = $file.Name; Filter = $u.Filter; Path = $u.Path; State = $s; Impl = $impl; Tests = $u.Tests; Label = $label
+                foreach ($unitImpl in $(if ($Tag) { 'ps', 'dotnet' } elseif ($Impl) { $Impl } else { '' })) {
+                    $label = "$($file.Name) | $($u.Path) | $s" + $(if ($unitImpl) { " | $unitImpl" })
+                    $units += [pscustomobject]@{ File = $file.FullName; Name = $file.Name; Filter = $u.Filter; Path = $u.Path; State = $s; Impl = $unitImpl; Tests = $u.Tests; Label = $label
                         Last = if ($lastTimes.ContainsKey($label)) { [int]$lastTimes[$label] } else { $u.Tests } }
                     $expected[$s] += $u.Tests
                 }

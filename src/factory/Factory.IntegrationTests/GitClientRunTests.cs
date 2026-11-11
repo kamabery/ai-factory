@@ -21,6 +21,12 @@ public sealed class GitClientRunTests : IDisposable
     }
 
     [Fact]
+    public void Git_never_prompts_for_a_credential()
+    {
+        Assert.Equal("0", _git.Run(_dir.Path, "-c", "alias.p=!echo $GIT_TERMINAL_PROMPT", "p").Out);
+    }
+
+    [Fact]
     public void A_folder_that_does_not_exist_is_gits_error_not_an_exception()
     {
         var r = _git.Run(_dir["missing"], "status");

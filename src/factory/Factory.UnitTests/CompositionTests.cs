@@ -21,7 +21,7 @@ public class CompositionTests
         foreach (var d in services.Where(d => !d.ServiceType.IsGenericTypeDefinition))
             Assert.NotNull(provider.GetRequiredService(d.ServiceType));
         Assert.Equal(
-            ["approve", "edit-spec", "event", "purge", "read-decision", "read-reviews", "rework", "set-review", "set-stage", "status"],
+            ["add-spec", "approve", "check-target", "clone-target", "edit-spec", "event", "idea-abandon", "idea-done", "list-repos", "new-idea", "purge", "read-decision", "read-reviews", "rework", "set-review", "set-stage", "status"],
             provider.GetServices<ICommand>().Select(c => c.Name).Order());
     }
 

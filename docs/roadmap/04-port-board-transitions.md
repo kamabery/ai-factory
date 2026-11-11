@@ -1,6 +1,6 @@
 # 04: Port the board and transition commands
 
-**Status:** built on its branch (2026-11-10), not yet merged. Nine commands forwarded: `approve`,
+**Status:** done, merged in PR #12 (2026-11-10). Nine commands forwarded: `approve`,
 `edit-spec`, `rework`, `purge`, `set-stage`, `set-review`, `read-reviews`, `read-decision` and
 `event`. Proven locally:
 - 422 .NET tests (383 unit, 39 integration), gates Core 99.0%, Store 97.4%, Cli 98.0%; ten deliberate

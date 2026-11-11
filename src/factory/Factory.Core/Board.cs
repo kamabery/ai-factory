@@ -23,6 +23,10 @@ public static class Board
     /// <summary>The job with this id, or a refusal (<c>no job J-NNN</c>).</summary>
     public static Job Job(this JsonObject board, string id) => board.FindJob(id) ?? throw new FactoryException($"no job {id}");
 
+    /// <summary>The idea with this id, or a refusal (<c>no idea I-NNN</c>).</summary>
+    public static Idea Idea(this JsonObject board, string id) =>
+        board.Ideas().FirstOrDefault(i => PsJsonReader.Is(i.Id, id)) ?? throw new FactoryException($"no idea {id}");
+
     public static Job? FindJob(this JsonObject board, string? id) => board.Jobs().FirstOrDefault(j => PsJsonReader.Is(j.Id, id));
 
     private static IEnumerable<JsonObject> Items(JsonObject board, string key) =>

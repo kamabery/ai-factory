@@ -126,7 +126,8 @@ AfterEach {
     Remove-Item Env:FACTORY_HOME, Env:FACTORY_WORK, Env:FACTORY_ENV_FILE, Env:FACTORY_GATE_CMDS -ErrorAction SilentlyContinue
 }
 
-Describe 'ideas and specs' {
+# Ported (roadmap spec 05): run-all.ps1 -Tag Ported runs this block with FACTORY_IMPL=ps and dotnet.
+Describe 'ideas and specs' -Tag 'Ported' {
     It 'allocates I-001, then J-001 and J-002 in backlog, titled from the spec heading' {
         $idea = F new-idea 'find books fast' -Target $script:Repo
         $idea | Should -Be 'I-001'
@@ -1485,7 +1486,8 @@ Describe 'stacked jobs' -Tag 'Ported' {
     }
 }
 
-Describe 'abandon' {
+# Ported (roadmap spec 05): run-all.ps1 -Tag Ported runs this block with FACTORY_IMPL=ps and dotnet.
+Describe 'abandon' -Tag 'Ported' {
     It 'idea-abandon hides a drafting, waiting or failed idea, leaves its jobs, and purge clears it' {
         $a = F new-idea 'drafting one' -Target $script:Repo
         $job = F add-spec $a (New-Spec 'Left alone')
@@ -1742,7 +1744,8 @@ Describe 'implementations' {
     It 'keeps a command that is not ported in PowerShell' {
         $env:FACTORY_IMPL = 'dotnet'
         $env:FACTORY_CLI = Join-Path $TestDrive 'missing/Factory.Cli.dll'
-        F new-idea 'still powershell' -Target $script:Repo | Should -Be 'I-001'
+        F next | Should -BeNullOrEmpty
+        $LASTEXITCODE | Should -Be 0
     }
 
     It 'refuses an unknown FACTORY_IMPL' {
@@ -1880,7 +1883,8 @@ Describe 'evaluations' {
     }
 }
 
-Describe 'targets' {
+# Ported (roadmap spec 05): run-all.ps1 -Tag Ported runs this block with FACTORY_IMPL=ps and dotnet.
+Describe 'targets' -Tag 'Ported' {
     BeforeEach {
         $script:New = "test/target-$([guid]::NewGuid().ToString('N').Substring(0,8))"
     }

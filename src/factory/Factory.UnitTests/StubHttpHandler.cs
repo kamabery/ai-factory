@@ -6,11 +6,15 @@ namespace Factory.UnitTests;
 public sealed class StubHttpHandler : HttpMessageHandler
 {
     public Func<HttpRequestMessage, string> Respond { get; set; } = _ => "{}";
+
+    /// <summary>When set, builds the whole response (status, headers), and <see cref="Respond"/> is not used.</summary>
+    public Func<HttpRequestMessage, HttpResponseMessage>? Reply { get; set; }
     public int Calls { get; private set; }
 
     protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         Calls++;
+        if (Reply is not null) return Reply(request);
         return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Respond(request)) };
     }
 
