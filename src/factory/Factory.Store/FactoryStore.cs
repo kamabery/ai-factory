@@ -17,17 +17,17 @@ public sealed class FactoryStore(
 {
     public string TenantId => "default";
 
-    public IBoardSession Open()
+    public IBoardSession Open(bool refresh = true)
     {
         files.EnsureDirectory(paths.Home);   // factory.ps1 creates FACTORY_HOME on every command
         var seconds = Seconds(options.Value.BoardLockSeconds) ?? 30;
-        var (lease, board) = Lock(seconds, Seconds(options.Value.StateLockSeconds) ?? seconds);
+        var (lease, board) = Lock(seconds, Seconds(options.Value.StateLockSeconds) ?? seconds, refresh);
         // Re-taking it after a gate or a clone waits as long as it takes; in azure the lease waits 600 s.
         return new BoardSession(paths, files, mutex, blobs, sync, clock, settings.IsAzure, lease, board,
-            () => Lock(-1, Seconds(options.Value.StateLockSeconds) ?? 600));
+            () => Lock(-1, Seconds(options.Value.StateLockSeconds) ?? 600, refresh));
     }
 
-    private (string? Lease, JsonObject Board) Lock(int seconds, int leaseWait)
+    private (string? Lease, JsonObject Board) Lock(int seconds, int leaseWait, bool refresh)
     {
         // Timing out must refuse: running on unlocked, this command's save could overwrite another's.
         if (!mutex.Enter(seconds)) throw new FactoryException($"board lock refused: another factory.ps1 has held the board for over {seconds} s");
@@ -39,7 +39,7 @@ public sealed class FactoryStore(
                 lease = blobs.AcquireLease("board", leaseWait)
                     ?? throw new FactoryException($"state lock refused: another machine has held the board (locks/board) for over {leaseWait} s");
                 // The container's board wins; when it changed, so may everything else.
-                if (sync.SyncBoard() == BoardSync.Changed) sync.Pull();
+                if (refresh && sync.SyncBoard() == BoardSync.Changed) sync.Pull();
             }
             var text = files.ReadText(paths.BoardPath);
             return (lease, text is null ? Board.Empty() : Board.Parse(text));

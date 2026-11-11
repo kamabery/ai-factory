@@ -1766,7 +1766,8 @@ Describe 'implementations' {
     }
 }
 
-Describe 'evaluations' {
+# Ported (roadmap spec 11): run-all.ps1 -Tag Ported runs this block with FACTORY_IMPL=ps and dotnet.
+Describe 'evaluations' -Tag 'Ported' {
     It 'refuses a job that is not finished, or a file with no Rating line, and writes nothing' {
         $id = New-ApprovedJob
         F eval $id -File (Eval-File) | Out-Null
@@ -3202,7 +3203,8 @@ Describe 'deploy' {
     }
 }
 
-Describe 'lessons' {
+# Ported (roadmap spec 11): run-all.ps1 -Tag Ported runs this block with FACTORY_IMPL=ps and dotnet.
+Describe 'lessons' -Tag 'Ported' {
     BeforeAll {
         function Write-DeployReport([string]$id, [int]$round, [string]$gaps) {
             $dir = Join-Path (JobDir $id) "round-$round"

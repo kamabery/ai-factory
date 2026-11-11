@@ -40,4 +40,10 @@ public interface IJobWork
 
     /// <summary>Complete-Merge: what follows the PR's merge as <paramref name="sha"/>. Returns the lines it prints.</summary>
     IReadOnlyList<string> CompleteMerge(IBoardSession session, Job job, string sha);
+
+    /// <summary>Remove-JobWork: closes the job's open PR, deletes factory/&lt;id&gt; on GitHub, and deletes its work dir.</summary>
+    void RemoveJobWork(IBoardSession session, Job job);
+
+    /// <summary>Start-Destroy: a preview still up is destroyed by a detached <c>factory.ps1 destroy</c> (spec 09 ports it).</summary>
+    void StartDestroy(Job job);
 }

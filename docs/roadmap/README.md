@@ -4,9 +4,10 @@ This turns the approved replatform roadmap (2026-10-23, revised 2026-11-08) into
 session can pick up one at a time. The rationale and the decisions table live in
 `C:\Users\kamab\.claude\plans\grill-me-on-the-silly-yao.md`; this folder is the work.
 
-**Where things stand (2026-11-11):** specs 00, 19 and 01–05 are merged (05 in PR #13). Spec 06 is
-built on its branch, proven on Windows and Linux (WSL); macOS is out of scope. Last green suites: .NET 533 unit,
-52 integration; Pester on .NET (`-Impl dotnet`) 437 local, 235 azure. Reordered 2026-11-09 so
+**Where things stand (2026-11-11):** specs 00, 19 and 01–06 are merged (06 in PR #14). Spec 11 is
+built on its branch, proven on Windows and Linux (WSL); macOS is out of scope. Every command but
+spec 09's deploy set now runs on .NET. Last green suites: .NET 571 unit, 52 integration; Pester on
+.NET (`-Impl dotnet`) 437 local, 235 azure. Reordered 2026-11-09 so
 previews come last (see below).
 
 ## Run order

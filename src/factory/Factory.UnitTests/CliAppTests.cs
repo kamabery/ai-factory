@@ -14,16 +14,25 @@ public class CliAppTests
 
     public CliAppTests()
     {
-        _store.Open().Returns(_session);
+        _store.Open(Arg.Any<bool>()).Returns(_session);
         _session.Close().Returns([]);
     }
 
-    private static ICommand Command(string name, CommandResult result)
+    private static ICommand Command(string name, CommandResult result, bool refreshes = true)
     {
         var c = Substitute.For<ICommand>();
         c.Name.Returns(name);
+        c.RefreshesBoard.Returns(refreshes);
         c.Run(Arg.Any<CommandArgs>(), Arg.Any<IBoardSession>()).Returns(result);
         return c;
+    }
+
+    [Fact]
+    public void Opens_the_board_unrefreshed_for_a_command_that_says_so()
+    {
+        new CliApp([Command("state-migrate", CommandResult.Ok(), refreshes: false)], _store).Run(["state-migrate"]);
+
+        _store.Received(1).Open(false);
     }
 
     [Fact]

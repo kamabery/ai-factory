@@ -226,8 +226,18 @@ public sealed partial class JobWork(
         return [$"released {idea.Id}"];
     }
 
-    /// <summary>deploy.ps1's Start-Destroy: a preview still up is destroyed by a detached <c>factory.ps1 destroy</c> (spec 09 ports it).</summary>
-    private void StartDestroy(Job job)
+    public void RemoveJobWork(IBoardSession session, Job job)
+    {
+        if (job.Target is { } t && SpecText.TargetError(t) is null)
+        {
+            if (github.OpenPr(t, $"factory/{job.Id}") is { } pr)
+                github.Send(HttpMethod.Patch, $"/repos/{t}/pulls/{pr.Number}", new JsonObject { ["state"] = "closed" });
+            github.Send(HttpMethod.Delete, $"/repos/{t}/git/refs/heads/factory/{job.Id}");
+        }
+        WorkDirs.Remove(paths, files, session, job, clock);
+    }
+
+    public void StartDestroy(Job job)
     {
         var status = PsJsonReader.Str(job.Node["deploy"]?["status"]);
         if (status is null || PsJsonReader.In(status, "down", "destroying")) return;

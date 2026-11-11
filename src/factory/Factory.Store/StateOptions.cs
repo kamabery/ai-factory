@@ -35,4 +35,13 @@ public sealed class StateOptions
     public string? IdentityEndpoint { get; set; }
 
     public string? IdentityHeader { get; set; }
+
+    /// <summary>FACTORY_STORAGE_ACCOUNT: the state storage account allow-ip opens, else the container URL's host.</summary>
+    public string? StorageAccount { get; set; }
+
+    /// <summary>FACTORY_STATE_RG: its resource group, else rg-factory-state.</summary>
+    public string? StateGroup { get; set; }
+
+    /// <summary>FACTORY_IP_URL: where allow-ip asks for this machine's public IP (tests), else api.ipify.org.</summary>
+    public string? IpUrl { get; set; }
 }

@@ -25,4 +25,16 @@ public interface IStateSync
 
     /// <summary>Rolls the container back under its cap, in the contract's order.</summary>
     PruneResult Prune(IEnumerable<Job> jobs);
+
+    /// <summary>
+    /// Sync-Events: rebuilds events.jsonl from the month blobs when this month's changed, or on a cache that has never
+    /// listed them. True when it rewrote the file.
+    /// </summary>
+    bool SyncEvents();
+
+    /// <summary>
+    /// Invoke-StateMigrate: the one-time upload of an existing FACTORY_HOME, events by month, then the files, then the
+    /// board (last, so an interrupted migrate can run again). Returns how many blobs it wrote.
+    /// </summary>
+    int Migrate();
 }

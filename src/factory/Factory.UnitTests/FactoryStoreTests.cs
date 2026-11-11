@@ -276,4 +276,14 @@ public class FactoryStoreTests
 
         _mutex.Received(1).Exit();
     }
+
+    [Fact]
+    public void Azure_opened_without_refresh_skips_the_container_board_and_so_does_its_relock()
+    {
+        using var s = Store(azure: true).Open(refresh: false);
+        s.Unlocked(() => { });
+
+        _blobs.Received(2).AcquireLease("board", Arg.Any<int>());
+        _sync.DidNotReceive().SyncBoard();
+    }
 }

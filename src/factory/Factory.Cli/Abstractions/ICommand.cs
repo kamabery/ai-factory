@@ -6,5 +6,8 @@ namespace Factory.Cli.Abstractions;
 public interface ICommand
 {
     string Name { get; }
+
+    /// <summary>Whether the board is refreshed from the container before the command runs (azure); state-migrate's is not.</summary>
+    bool RefreshesBoard => true;
     CommandResult Run(CommandArgs args, IBoardSession session);
 }

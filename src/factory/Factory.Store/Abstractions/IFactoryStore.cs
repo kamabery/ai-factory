@@ -10,5 +10,8 @@ public interface IFactoryStore
     /// Takes the board lock (the machine's mutex, and in azure the lease on <c>locks/board</c>) and reads the
     /// board, refreshing it from the container first in azure. Refuses with factory.ps1's one-line reasons.
     /// </summary>
-    IBoardSession Open();
+    /// <param name="refresh">
+    /// In azure, refresh the board from the container first; only state-migrate, whose container has no board yet, does not.
+    /// </param>
+    IBoardSession Open(bool refresh = true);
 }

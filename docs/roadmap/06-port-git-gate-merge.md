@@ -1,7 +1,7 @@
 # 06: Port the git commands, gate and merge
 
-**Status:** built on its branch (2026-11-11), proven on Windows and Linux; macOS dropped from the
-"Done when" (Kurt, 2026-11-11). **Branch:**
+**Status:** done, merged in PR #14 (2026-11-11), proven on Windows and Linux; macOS dropped from
+the "Done when" (Kurt, 2026-11-11). **Branch:**
 `feature/06-port-git`. **Depends on:** 05. Nine commands forwarded: `checkout`, `publish`, `gate`,
 `gate-check`, `provenance`, `merge`, `sync-prs`, `set-cost` and `next`. The build checks were already
 ported with `set-stage` (04), and the contract already said `<system temp>`. Proven locally:
