@@ -10,4 +10,10 @@ public interface IStateSettings
 
     /// <summary>FACTORY_STATE_CAP, default 1 GB.</summary>
     long Cap { get; }
+
+    /// <summary>FACTORY_STORAGE_ACCOUNT, else the container URL's first host label.</summary>
+    string? Account { get; }
+
+    /// <summary>FACTORY_STATE_RG, else rg-factory-state.</summary>
+    string Group { get; }
 }

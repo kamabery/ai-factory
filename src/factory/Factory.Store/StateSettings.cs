@@ -14,13 +14,18 @@ public sealed class StateSettings(IOptions<StateOptions> options, IFactoryPaths 
     public string? ContainerUrl => Resolve().Url;
     public long Cap => Resolve().Cap;
 
+    public string? Account =>
+        Setting(options.Value.StorageAccount, "FACTORY_STORAGE_ACCOUNT") ?? (ContainerUrl is { } u ? new Uri(u).Host.Split('.')[0] : null);
+
+    public string Group => Setting(options.Value.StateGroup, "FACTORY_STATE_RG") ?? "rg-factory-state";
+
+    private string? Setting(string? fromEnvironment, string name) => !string.IsNullOrEmpty(fromEnvironment) ? fromEnvironment : dotEnv.Get(name);
+
     private (bool Azure, string? Url, long Cap) Resolve() => _resolved ??= Read();
 
     private (bool, string?, long) Read()
     {
         var o = options.Value;
-        string? Setting(string? fromEnvironment, string name) => !string.IsNullOrEmpty(fromEnvironment) ? fromEnvironment : dotEnv.Get(name);
-
         var mode = Setting(o.State, "FACTORY_STATE") ?? "local";
         var azure = string.Equals(mode, "azure", StringComparison.OrdinalIgnoreCase);
         if (!azure && !string.Equals(mode, "local", StringComparison.OrdinalIgnoreCase))

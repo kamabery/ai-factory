@@ -848,12 +848,12 @@ lock as `factory.ps1` (the mutex named for the state directory, and in `azure` t
 `locks/board`) and keeps the same `.sync.json`, so the two implementations never write the board at
 once and either can follow the other on one state directory. `factory.ps1` sets `FACTORY_SCRIPTS` to
 its own folder for the CLI, which hashes the deploy scripts there into the canary fingerprint, as
-`factory.ps1` does. Ported so far, on both state backends: `status`, `approve`, `edit-spec`,
-`rework`, `purge`, `set-stage`, `set-review`, `read-reviews`, `read-decision`, `event`, `new-idea`,
-`add-spec`, `idea-done`, `idea-abandon`, `check-target`, `clone-target`, `list-repos`, `checkout`,
-`publish`, `gate`, `gate-check`, `provenance`, `merge`, `sync-prs`, `set-cost` and `next`. Until the
-deploy commands are ported (spec 09), a forwarded `merge` or `sync-prs` destroys a preview that is
-still up by starting `factory.ps1 destroy <id>` detached, as `factory.ps1` itself does.
+`factory.ps1` does. Ported, on both state backends: every command but the deploy set, which spec 09
+ports (`deploy`, `deploy-log`, `deploy-fix`, `block`, `redeploy`, `destroy`, `sweep`, `canary`,
+`canary-destroy`, `qa-login`). Until then, a forwarded `merge`, `sync-prs` or `discard` destroys a
+preview that is still up by starting `factory.ps1 destroy <id>` detached, as `factory.ps1` itself
+does. A forwarded `state-migrate` opens the board without first refreshing it from the container,
+which has none yet, as `factory.ps1` does.
 
 | Command | Used by |
 | --- | --- |

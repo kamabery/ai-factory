@@ -37,6 +37,9 @@ public static class Composition
             o.AzCmd = host.Get("FACTORY_AZ_CMD");
             o.IdentityEndpoint = host.Get("IDENTITY_ENDPOINT");
             o.IdentityHeader = host.Get("IDENTITY_HEADER");
+            o.StorageAccount = host.Get("FACTORY_STORAGE_ACCOUNT");
+            o.StateGroup = host.Get("FACTORY_STATE_RG");
+            o.IpUrl = host.Get("FACTORY_IP_URL");
         });
         services.Configure<CliOptions>(o => o.NewLine = host.NewLine);
 
@@ -51,6 +54,7 @@ public static class Composition
         services.AddHttpClient<IBlobClient, BlobClient>(c => c.Timeout = TimeSpan.FromSeconds(100));
         services.AddHttpClient<IHcpClient, HcpClient>();
         services.AddSingleton<IStateSync, StateSync>();
+        services.AddHttpClient<IStateFirewall, StateFirewall>(c => c.Timeout = TimeSpan.FromSeconds(15));
         services.AddSingleton<IBoardMutex, BoardMutex>();
         services.AddSingleton<IFactoryStore, FactoryStore>();
         services.AddSingleton<ICanary, CanaryCheck>();
@@ -87,6 +91,16 @@ public static class Composition
         services.AddSingleton<ICommand, SyncPrsCommand>();
         services.AddSingleton<ICommand, SetCostCommand>();
         services.AddSingleton<ICommand, NextCommand>();
+        services.AddSingleton<ICommand, EvalCommand>();
+        services.AddSingleton<ICommand, FeedbackCommand>();
+        services.AddSingleton<ICommand, LessonCommand>();
+        services.AddSingleton<ICommand, LessonMarkCommand>();
+        services.AddSingleton<ICommand, StateMigrateCommand>();
+        services.AddSingleton<ICommand, StatePullCommand>();
+        services.AddSingleton<ICommand, PruneCommand>();
+        services.AddSingleton<ICommand, AllowIpCommand>();
+        services.AddSingleton<ICommand, DiscardCommand>();
+        services.AddSingleton<ICommand, ResumeCommand>();
         services.AddSingleton<CliApp>();
         return services;
     }

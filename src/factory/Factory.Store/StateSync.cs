@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Factory.Core;
 using Factory.Core.Abstractions;
 using Factory.Store.Abstractions;
@@ -8,7 +9,7 @@ using Factory.Store.Abstractions;
 namespace Factory.Store;
 
 /// <summary>state.ps1's sync: FACTORY_HOME is the container's write-through cache (contract, "State backends").</summary>
-public sealed class StateSync(IFactoryPaths paths, IFileStore files, IBlobClient blobs, IStateSettings settings, TimeProvider clock) : IStateSync
+public sealed partial class StateSync(IFactoryPaths paths, IFileStore files, IBlobClient blobs, IStateSettings settings, TimeProvider clock) : IStateSync
 {
     private SyncManifest? _manifest;
 
@@ -111,6 +112,70 @@ public sealed class StateSync(IFactoryPaths paths, IFileStore files, IBlobClient
         m.Set("events/", new JsonObject { ["etag"] = "listed" });
         m.Save();
     }
+
+    public bool SyncEvents()
+    {
+        if (!settings.IsAzure) return false;
+        var m = Manifest;
+        var cur = Month(clock.GetUtcNow());
+        var etag = SyncManifest.Str(m[cur]?["etag"]);
+        var r = blobs.Read(cur, string.IsNullOrEmpty(etag) ? null : etag);
+        if (m["events/"] is not null && (r is null || r.NotModified)) return false;
+        var months = blobs.List("events/").OrderBy(b => b.Name, StringComparer.Ordinal).ToList();
+        m.Set("events/", new JsonObject { ["etag"] = "listed" });
+        if (months.Count == 0) { m.Save(); return false; }
+        using var all = new MemoryStream();
+        foreach (var b in months)
+        {
+            if (blobs.Read(b.Name) is not { Bytes: { } bytes } got) continue;
+            all.Write(bytes);
+            m.Set(b.Name, new JsonObject { ["etag"] = got.ETag, ["len"] = bytes.Length });
+        }
+        files.WriteAtomic(paths.EventsPath, all.ToArray());
+        m.Save();
+        return true;
+    }
+
+    public int Migrate()
+    {
+        if (blobs.Read("board.json") is not null) throw new FactoryException("state-migrate refused: the container already has a board.json");
+        var m = Manifest;
+        var n = 0;
+        if (files.ReadText(paths.EventsPath) is { } events)
+        {
+            var byMonth = new List<(string Month, StringBuilder Lines)>();
+            // ReadAllLines: \n, \r\n or \r end a line.
+            foreach (var line in events.ReplaceLineEndings("\n").Split('\n'))
+            {
+                if (line.Trim().Length == 0) continue;
+                var month = EventMonth().Match(line) is { Success: true } t ? t.Groups[1].Value : clock.GetUtcNow().ToString("yyyy-MM", CultureInfo.InvariantCulture);
+                var slot = byMonth.FindIndex(x => x.Month == month);
+                if (slot < 0) { byMonth.Add((month, new StringBuilder())); slot = byMonth.Count - 1; }
+                byMonth[slot].Lines.Append(line).Append('\n');
+            }
+            foreach (var (month, lines) in byMonth)
+            {
+                var name = $"events/{month}.jsonl";
+                blobs.Delete(name);   // a migrate that stopped before the board left this behind
+                var bytes = Encoding.UTF8.GetBytes(lines.ToString());
+                AppendResult? last = null;
+                // An append block is at most 4 MiB.
+                for (var at = 0; at < bytes.Length; at += AppendBlock) last = blobs.Append(name, bytes[at..Math.Min(bytes.Length, at + AppendBlock)]);
+                m.Set(name, new JsonObject { ["etag"] = last?.ETag, ["len"] = bytes.Length });
+                n++;
+            }
+            m.Set("events/", new JsonObject { ["etag"] = "listed" });
+        }
+        n += Push();
+        if (files.ReadText(paths.BoardPath) is { } board) { SaveBoard(Encoding.UTF8.GetBytes(board)); n++; }
+        return n;
+    }
+
+    private const int AppendBlock = 4 * 1024 * 1024;
+
+    private static string Month(DateTimeOffset now) => $"events/{now.ToString("yyyy-MM", CultureInfo.InvariantCulture)}.jsonl";
+
+    [GeneratedRegex(@"""ts""\s*:\s*""(\d{4}-\d{2})")] private static partial Regex EventMonth();
 
     public PruneResult Prune(IEnumerable<Job> jobs)
     {

@@ -17,7 +17,7 @@ public sealed class CliApp(IEnumerable<ICommand> commands, IFactoryStore store)
             var a = CommandArgs.Parse(args);
             var command = commands.FirstOrDefault(c => string.Equals(c.Name, a.Command, StringComparison.OrdinalIgnoreCase))
                 ?? throw new FactoryException($"unknown command '{a.Command}'");
-            using var session = store.Open();
+            using var session = store.Open(command.RefreshesBoard);
             CommandResult result;
             try { result = command.Run(a, session); }
             catch (FactoryException e) { result = Refusal(e); }
