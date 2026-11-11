@@ -1,6 +1,7 @@
 #Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '6.0.0' }
 
 BeforeAll {
+    . (Join-Path $PSScriptRoot 'fixtures/portable.ps1')   # -WindowStyle off Windows
     $script:Factory = Join-Path $PSScriptRoot '..\scripts\factory.ps1' | Resolve-Path | Select-Object -ExpandProperty Path
     . (Join-Path $PSScriptRoot 'fixtures\github.ps1')
     Start-GitHubStub
@@ -235,6 +236,7 @@ Describe 'board writes' -Tag 'Ported' {
         New-Item -ItemType Directory -Force $hooks | Out-Null
         [IO.File]::WriteAllText((Join-Path $hooks 'reference-transaction'),
             "#!/bin/sh`n[ `"`$1`" = committed ] || exit 0`ntouch '$($marker -replace '\\', '/')'`nsleep 3`n")
+        if (-not $IsWindows) { chmod +x (Join-Path $hooks 'reference-transaction') }   # git skips a hook it cannot execute
         $env:GIT_CONFIG_COUNT = '1'; $env:GIT_CONFIG_KEY_0 = 'core.hooksPath'; $env:GIT_CONFIG_VALUE_0 = $hooks
         try {
             $p = Start-Process pwsh -ArgumentList '-NoProfile', '-File', $script:Factory, 'checkout', $id -PassThru -WindowStyle Hidden
@@ -444,7 +446,8 @@ Describe 'decision' -Tag 'Ported' {
     }
 }
 
-Describe 'gate' {
+# Ported (roadmap spec 06): run-all.ps1 -Tag Ported runs this block with FACTORY_IMPL=ps and dotnet.
+Describe 'gate' -Tag 'Ported' {
     It 'green gate lands in ready with no flag and the branch sha recorded' {
         $id = New-ApprovedJob
         Commit-OnBranch $id
@@ -487,7 +490,8 @@ Describe 'gate' {
 
     It 'passes a native -name=value.ext argument whole, not split at the dot' {
         # J-022: pwsh handed terraform `-var-file=envs/ephemeral` and `.tfvars` as two arguments.
-        $env:FACTORY_GATE_CMDS = ConvertTo-Json -Compress @(@{ name = 'iac'; cmd = 'cmd /c echo -var-file=envs/ephemeral.tfvars; cmd /c echo ''-q=a.b''' })
+        $echo = if ($IsWindows) { 'cmd /c echo' } else { '/bin/echo' }
+        $env:FACTORY_GATE_CMDS = ConvertTo-Json -Compress @(@{ name = 'iac'; cmd = "$echo -var-file=envs/ephemeral.tfvars; $echo '-q=a.b'" })
         $id = New-ApprovedJob
         Commit-OnBranch $id
         Move-ToGate $id
@@ -498,7 +502,8 @@ Describe 'gate' {
     }
 }
 
-Describe 'gate-check' {
+# Ported (roadmap spec 06): run-all.ps1 -Tag Ported runs this block with FACTORY_IMPL=ps and dotnet.
+Describe 'gate-check' -Tag 'Ported' {
     BeforeEach {
         # A command that appends a line to a file outside the work tree, so a run is countable and the
         # tree stays clean.
@@ -536,7 +541,8 @@ Describe 'gate-check' {
     }
 
     It 'passes a native -name=value.ext argument whole, as gate does' {
-        $env:FACTORY_GATE_CMDS = ConvertTo-Json -Compress @(@{ name = 'iac'; cmd = 'cmd /c echo -var-file=envs/ephemeral.tfvars' })
+        $echo = if ($IsWindows) { 'cmd /c echo' } else { '/bin/echo' }
+        $env:FACTORY_GATE_CMDS = ConvertTo-Json -Compress @(@{ name = 'iac'; cmd = "$echo -var-file=envs/ephemeral.tfvars" })
         $id = New-BuildingJob
         F gate-check $id | Should -Contain '-var-file=envs/ephemeral.tfvars'
     }
@@ -1015,7 +1021,8 @@ Describe 'template provenance' -Tag 'Ported' {
     }
 }
 
-Describe 'publish and merge' {
+# Ported (roadmap spec 06): run-all.ps1 -Tag Ported runs this block with FACTORY_IMPL=ps and dotnet.
+Describe 'publish and merge' -Tag 'Ported' {
     It 'publish pushes the branch and opens one PR into main, and is idempotent' {
         $id = New-ApprovedJob 'Ship it'
         Commit-OnBranch $id
@@ -1574,8 +1581,10 @@ Describe 'purge' -Tag 'Ported' {
         F set-stage $id build -By runner | Out-Null
         F set-stage $id ready -Reason escalated -Detail 'x' | Out-Null
         $wt = Work $id
-        $lock = [IO.File]::Open((Join-Path $wt 'feature.txt'), 'Open', 'Read', 'None')
-        try { F discard $id | Out-Null } finally { $lock.Dispose() }
+        # Windows refuses to delete a file held open; Linux and macOS delete it anyway, and refuse instead to
+        # delete from a folder that is not writable.
+        $lock = if ($IsWindows) { [IO.File]::Open((Join-Path $wt 'feature.txt'), 'Open', 'Read', 'None') } else { chmod a-w $wt }
+        try { F discard $id | Out-Null } finally { if ($IsWindows) { $lock.Dispose() } else { chmod u+w $wt } }
         $LASTEXITCODE | Should -Be 0
         (Job $id).stage | Should -Be 'discarded'
         Events | Where-Object { $_.kind -eq 'note' -and $_.detail -match 'work dir' } | Should -Not -BeNullOrEmpty
@@ -1744,7 +1753,8 @@ Describe 'implementations' {
     It 'keeps a command that is not ported in PowerShell' {
         $env:FACTORY_IMPL = 'dotnet'
         $env:FACTORY_CLI = Join-Path $TestDrive 'missing/Factory.Cli.dll'
-        F next | Should -BeNullOrEmpty
+        # sweep stays in PowerShell until spec 09; with deploys off it prints nothing.
+        F sweep | Should -BeNullOrEmpty
         $LASTEXITCODE | Should -Be 0
     }
 
@@ -1994,7 +2004,7 @@ Describe 'targets' -Tag 'Ported' {
         $spec | Should -Match ([regex]::Escape('- build: `dotnet build todo.slnx`'))
         $spec | Should -Match ([regex]::Escape('- test: `dotnet test todo.slnx`'))
         $spec | Should -Match ([regex]::Escape('- apphost: `dotnet build .aspire/apphost.cs`'))
-        $spec | Should -Match ([regex]::Escape('- ui: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build`'))
+        $spec | Should -Match ([regex]::Escape('- ui: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item -Force node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build`'))
         $spec | Should -Not -Match '\{\{'
         F approve 'J-001' | Out-Null
         $LASTEXITCODE | Should -Be 0

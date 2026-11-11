@@ -21,7 +21,9 @@ public class CompositionTests
         foreach (var d in services.Where(d => !d.ServiceType.IsGenericTypeDefinition))
             Assert.NotNull(provider.GetRequiredService(d.ServiceType));
         Assert.Equal(
-            ["add-spec", "approve", "check-target", "clone-target", "edit-spec", "event", "idea-abandon", "idea-done", "list-repos", "new-idea", "purge", "read-decision", "read-reviews", "rework", "set-review", "set-stage", "status"],
+            ["add-spec", "approve", "check-target", "checkout", "clone-target", "edit-spec", "event", "gate", "gate-check", "idea-abandon", "idea-done",
+             "list-repos", "merge", "new-idea", "next", "provenance", "publish", "purge", "read-decision", "read-reviews", "rework", "set-cost",
+             "set-review", "set-stage", "status", "sync-prs"],
             provider.GetServices<ICommand>().Select(c => c.Name).Order());
     }
 
@@ -31,13 +33,15 @@ public class CompositionTests
         var env = new Dictionary<string, string?>
         {
             ["FACTORY_HOME"] = "h", ["FACTORY_REPO"] = "r", ["FACTORY_ENV_FILE"] = "e", ["FACTORY_WORK"] = "wk",
-            ["FACTORY_TEMPLATES"] = "t", ["FACTORY_SCRIPTS"] = "s",
+            ["FACTORY_TEMPLATES"] = "t", ["FACTORY_SCRIPTS"] = "s", ["FACTORY_GATE_CMDS"] = "g", ["FACTORY_GATE_CHECK_WAIT_MINUTES"] = "5",
+            ["FACTORY_MODE"] = "cloud",
         };
 
         using var provider = Composition.Build(new ServiceCollection().AddFactoryCli(Host(env, "\r\n")));
 
         var o = provider.GetRequiredService<IOptions<FactoryOptions>>().Value;
         Assert.Equal(("h", "r", "w", "e", "wk", "t", "s", "/tmp"), (o.Home, o.Repo, o.WorkingDirectory, o.EnvFile, o.Work, o.Templates, o.Scripts, o.TempPath));
+        Assert.Equal(("g", "5", "cloud"), (o.GateCmds, o.GateCheckWaitMinutes, o.Mode));
         Assert.Equal("\r\n", provider.GetRequiredService<IOptions<CliOptions>>().Value.NewLine);
     }
 

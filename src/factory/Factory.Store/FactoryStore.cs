@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json.Nodes;
 using Factory.Core;
 using Factory.Core.Abstractions;
 using Factory.Store.Abstractions;
@@ -19,23 +20,29 @@ public sealed class FactoryStore(
     public IBoardSession Open()
     {
         files.EnsureDirectory(paths.Home);   // factory.ps1 creates FACTORY_HOME on every command
-        var azure = settings.IsAzure;
         var seconds = Seconds(options.Value.BoardLockSeconds) ?? 30;
+        var (lease, board) = Lock(seconds, Seconds(options.Value.StateLockSeconds) ?? seconds);
+        // Re-taking it after a gate or a clone waits as long as it takes; in azure the lease waits 600 s.
+        return new BoardSession(paths, files, mutex, blobs, sync, clock, settings.IsAzure, lease, board,
+            () => Lock(-1, Seconds(options.Value.StateLockSeconds) ?? 600));
+    }
+
+    private (string? Lease, JsonObject Board) Lock(int seconds, int leaseWait)
+    {
         // Timing out must refuse: running on unlocked, this command's save could overwrite another's.
         if (!mutex.Enter(seconds)) throw new FactoryException($"board lock refused: another factory.ps1 has held the board for over {seconds} s");
         string? lease = null;
         try
         {
-            if (azure)
+            if (settings.IsAzure)
             {
-                var wait = Seconds(options.Value.StateLockSeconds) ?? seconds;
-                lease = blobs.AcquireLease("board", wait)
-                    ?? throw new FactoryException($"state lock refused: another machine has held the board (locks/board) for over {wait} s");
+                lease = blobs.AcquireLease("board", leaseWait)
+                    ?? throw new FactoryException($"state lock refused: another machine has held the board (locks/board) for over {leaseWait} s");
                 // The container's board wins; when it changed, so may everything else.
                 if (sync.SyncBoard() == BoardSync.Changed) sync.Pull();
             }
             var text = files.ReadText(paths.BoardPath);
-            return new BoardSession(paths, files, mutex, blobs, sync, clock, azure, lease, text is null ? Board.Empty() : Board.Parse(text));
+            return (lease, text is null ? Board.Empty() : Board.Parse(text));
         }
         catch
         {

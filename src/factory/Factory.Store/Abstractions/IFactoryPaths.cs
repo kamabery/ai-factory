@@ -12,6 +12,9 @@ public interface IFactoryPaths
     /// <summary>&lt;home&gt;/jobs/&lt;id&gt;: the job's spec, rounds and logs.</summary>
     string JobDir(string id);
 
+    /// <summary>FACTORY_WORK, else &lt;system temp&gt;/ai-factory: where jobs' clones (and a new repo's seed) live.</summary>
+    string WorkRoot { get; }
+
     /// <summary>&lt;work&gt;/jobs/&lt;id&gt;: the job's clone of its target, deleted at done or discarded.</summary>
     string WorkDir(string id);
 

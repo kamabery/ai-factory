@@ -79,7 +79,8 @@ try { Initialize-State -StateHome $Home_ -EnvFile (EnvFilePath) } catch { Fail "
 # the .NET CLI, with the same arguments and environment, on either state backend. It is forwarded before
 # the board lock is taken: the CLI takes the same mutex (and in azure the same lease) itself.
 $Ported = @('status', 'approve', 'edit-spec', 'rework', 'purge', 'set-stage', 'set-review', 'read-reviews', 'read-decision', 'event',
-    'new-idea', 'add-spec', 'idea-done', 'idea-abandon', 'check-target', 'clone-target', 'list-repos')
+    'new-idea', 'add-spec', 'idea-done', 'idea-abandon', 'check-target', 'clone-target', 'list-repos',
+    'checkout', 'publish', 'gate', 'gate-check', 'provenance', 'merge', 'sync-prs', 'set-cost', 'next')
 if ($env:FACTORY_IMPL -and $env:FACTORY_IMPL -notin 'ps', 'dotnet') { Fail "FACTORY_IMPL '$env:FACTORY_IMPL' must be ps or dotnet" }
 if ($env:FACTORY_IMPL -eq 'dotnet' -and $Command -in $Ported) {
     $cli = if ($env:FACTORY_CLI) { $env:FACTORY_CLI } else { [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../artifacts/bin/Factory.Cli/debug/Factory.Cli.dll')) }
@@ -160,7 +161,7 @@ function Bootstrap-Spec($sc, [string] $target) {
     $cmds = Scaffold-Commands $sc
     $gate = @("- build: ``dotnet build $n.slnx``", "- test: ``dotnet test $n.slnx``", '- apphost: `dotnet build .aspire/apphost.cs`',
               '- infra: `aspire-addon infra check`')
-    if ($sc.ui -eq 'react') { $gate += '- ui: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build`' }
+    if ($sc.ui -eq 'react') { $gate += '- ui: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item -Force node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build`' }
     $text = Get-Content (Join-Path (Split-Path $PSScriptRoot -Parent) 'templates/bootstrap.md') -Raw
     $values = @{
         name = $n; resource = $r; db = $sc.db; ui = $sc.ui; events = "$([bool]$sc.events)".ToLowerInvariant()

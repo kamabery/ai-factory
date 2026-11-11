@@ -65,4 +65,10 @@ public sealed class FileStore : IFileStore
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(to))!);
         File.Copy(from, to, true);
     }
+
+    public IDisposable? TryLock(string path)
+    {
+        try { return File.Open(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
+    }
 }

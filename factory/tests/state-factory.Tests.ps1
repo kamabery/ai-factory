@@ -4,6 +4,7 @@
 # stand in for two machines. See "State backends" in the contract.
 
 BeforeAll {
+    . (Join-Path $PSScriptRoot 'fixtures/portable.ps1')   # -WindowStyle off Windows
     $script:Factory = Join-Path $PSScriptRoot '..\scripts\factory.ps1' | Resolve-Path | Select-Object -ExpandProperty Path
     . (Join-Path $PSScriptRoot 'fixtures\github.ps1')
     . (Join-Path $PSScriptRoot 'fixtures\blob.ps1')

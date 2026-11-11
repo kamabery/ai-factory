@@ -1,6 +1,7 @@
 #Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '6.0.0' }
 
 BeforeAll {
+    . (Join-Path $PSScriptRoot 'fixtures/portable.ps1')   # -WindowStyle off Windows
     $script:Scripts = Join-Path $PSScriptRoot '..\scripts' | Resolve-Path | Select-Object -ExpandProperty Path
     $script:Factory = Join-Path $script:Scripts 'factory.ps1'
     $script:Runner = Join-Path $script:Scripts 'runner.ps1'

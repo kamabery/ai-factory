@@ -1,6 +1,34 @@
 # 06: Port the git commands, gate and merge
 
-**Status:** not started. **Branch:** `feature/06-port-git`. **Depends on:** 05.
+**Status:** built on its branch (2026-11-11), proven on Windows and Linux; macOS dropped from the
+"Done when" (Kurt, 2026-11-11). **Branch:**
+`feature/06-port-git`. **Depends on:** 05. Nine commands forwarded: `checkout`, `publish`, `gate`,
+`gate-check`, `provenance`, `merge`, `sync-prs`, `set-cost` and `next`. The build checks were already
+ported with `set-stage` (04), and the contract already said `<system temp>`. Proven locally:
+- Windows: .NET 533 unit, 52 integration (Core 99.7%, Store 97.6%, Cli 98.9%); fourteen deliberate
+  breaks, one per command rule, each turned a test red (two stayed green at first and got the tests
+  they lacked). Pester `-Tag Ported` both ways, local and azure; `-Impl dotnet` 437 local, 235 azure;
+  the plain run 437 local, 235 azure; Playwright on .NET 41.
+- Linux (WSL Ubuntu 20.04, `factory/tests/linux/run.sh`): .NET 533 unit, 52 integration; `-Tag Ported`
+  312 local, 280 azure (+2 skipped), both ways. Getting there found one product bug, fixed in its own
+  commit: the bootstrap ui gate's `Get-Item` needed `-Force` for npm's hidden lockfile, or every Linux
+  gate reran `npm ci`. One earlier Linux run failed the `abandon` block once on .NET, local only; it did
+  not repeat.
+- macOS: out of scope (Kurt, 2026-11-11).
+
+What changed beyond the port:
+- The board session can release its lock around a long step (`IBoardSession.Unlocked`), as
+  `Exit-BoardLock` / `Enter-BoardLock -1` did; the relock waits as long as it takes (the lease 600 s).
+- `destroy` (spec 09) still runs in PowerShell: `merge` and `sync-prs` start `factory.ps1 destroy`
+  detached. On Linux and macOS it goes through `/bin/sh` with its stdio on /dev/null; a test proved
+  the first launcher, a plain child, held its caller's output 8 s.
+- `runner.ps1` treats a refused `set-cost` as an error finishing the job. In-process, PowerShell's
+  `[double]::Parse` threw into the runner's catch; forwarded, the refusal is an exit code, which the
+  runner had dropped. The contract's runner step says so now.
+- The Pester suite runs on Linux: `fixtures/portable.ps1` drops `-WindowStyle` off Windows and gives a
+  started child its own stdio (under `Start-Job` an inherited stdout is the job's channel), the gate
+  tests echo with `/bin/echo` there, the checkout test's git hook is made executable, and the purge
+  test makes a work dir undeletable with a read-only folder there (Linux deletes an open file).
 
 ## Commands
 
@@ -23,4 +51,4 @@ moved).
 
 ## Done when
 
-The gate, merge, publish and checkout `Describe` blocks pass both ways on three OSes.
+The gate, merge, publish and checkout `Describe` blocks pass both ways on Windows and Linux.

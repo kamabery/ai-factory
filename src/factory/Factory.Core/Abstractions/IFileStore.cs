@@ -33,4 +33,10 @@ public interface IFileStore
 
     /// <summary>Copies a file over <paramref name="to"/>, creating its folder.</summary>
     void CopyFile(string from, string to);
+
+    /// <summary>
+    /// Opens (creating) <paramref name="path"/> shared with nobody: the lock is held until the result is disposed.
+    /// Null while another process holds it.
+    /// </summary>
+    IDisposable? TryLock(string path);
 }

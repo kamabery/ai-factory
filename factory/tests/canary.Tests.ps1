@@ -1,6 +1,7 @@
 #Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '6.0.0' }
 # The deploy canary: see "Canary" in docs/FACTORY-CONTRACT.md.
 BeforeAll {
+    . (Join-Path $PSScriptRoot 'fixtures/portable.ps1')   # -WindowStyle off Windows
     $script:Factory = Join-Path $PSScriptRoot '..\scripts\factory.ps1' | Resolve-Path | Select-Object -ExpandProperty Path
     . (Join-Path $PSScriptRoot 'fixtures\github.ps1')
     . (Join-Path $PSScriptRoot 'fixtures\blob.ps1')

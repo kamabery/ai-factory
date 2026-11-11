@@ -1,6 +1,7 @@
 #Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '6.0.0' }
 
 BeforeAll {
+    . (Join-Path $PSScriptRoot 'fixtures/portable.ps1')   # -WindowStyle off Windows
     $script:Turn = Join-Path $PSScriptRoot '..\scripts\idea-turn.ps1' | Resolve-Path | Select-Object -ExpandProperty Path
     $script:Stub = Join-Path $PSScriptRoot 'fixtures\anthropic-stub.ps1' | Resolve-Path | Select-Object -ExpandProperty Path
     $script:Key = 'sk-ant-test-' + [guid]::NewGuid().ToString('N')

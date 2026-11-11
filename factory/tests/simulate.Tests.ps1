@@ -1,5 +1,9 @@
 # The dashboard tests start with simulate.ps1 -Reset, while serve.ps1 is live on the same state
 # directory. 3 of 50 runs failed with "The directory is not empty" (see docs/PLAN-PR1-PROOFS.md).
+BeforeAll {
+    . (Join-Path $PSScriptRoot 'fixtures/portable.ps1')   # -WindowStyle off Windows
+}
+
 Describe 'simulate.ps1 -Reset' {
     It 'waits out something still holding the state directory, instead of failing the run' {
         $state = Join-Path $TestDrive 'sim'

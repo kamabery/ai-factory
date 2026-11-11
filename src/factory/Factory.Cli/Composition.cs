@@ -19,6 +19,9 @@ public static class Composition
             o.Work = host.Get("FACTORY_WORK");
             o.Templates = host.Get("FACTORY_TEMPLATES");
             o.Scripts = host.Get("FACTORY_SCRIPTS") ?? host.FindScripts();
+            o.GateCmds = host.Get("FACTORY_GATE_CMDS");
+            o.GateCheckWaitMinutes = host.Get("FACTORY_GATE_CHECK_WAIT_MINUTES");
+            o.Mode = host.Get("FACTORY_MODE");
             o.TempPath = host.TempPath;
             o.WorkingDirectory = host.WorkingDirectory;
         });
@@ -54,6 +57,9 @@ public static class Composition
         services.AddSingleton<ITemplateProvenance, TemplateProvenance>();
         services.AddSingleton<IGitHubCredential, PatCredential>();
         services.AddHttpClient<IGitHub, GitHubClient>();
+        services.AddSingleton<IGateShell, GateShell>();
+        services.AddSingleton<IFactoryLauncher, FactoryLauncher>();
+        services.AddSingleton<IJobWork, JobWork>();
 
         services.AddSingleton<ICommand, StatusCommand>();
         services.AddSingleton<ICommand, ApproveCommand>();
@@ -72,6 +78,15 @@ public static class Composition
         services.AddSingleton<ICommand, CheckTargetCommand>();
         services.AddSingleton<ICommand, ListReposCommand>();
         services.AddSingleton<ICommand, CloneTargetCommand>();
+        services.AddSingleton<ICommand, CheckoutCommand>();
+        services.AddSingleton<ICommand, PublishCommand>();
+        services.AddSingleton<ICommand, GateJobCommand>();
+        services.AddSingleton<ICommand, GateCheckCommand>();
+        services.AddSingleton<ICommand, ProvenanceCommand>();
+        services.AddSingleton<ICommand, MergeCommand>();
+        services.AddSingleton<ICommand, SyncPrsCommand>();
+        services.AddSingleton<ICommand, SetCostCommand>();
+        services.AddSingleton<ICommand, NextCommand>();
         services.AddSingleton<CliApp>();
         return services;
     }

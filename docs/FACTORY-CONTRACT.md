@@ -168,10 +168,12 @@ and `set-stage review` appends a `note` event saying so.
 
 A dependency install in a gate is guarded, so the gate does not reinstall on every run. For npm,
 that means `npm ci` runs only when `node_modules/.package-lock.json` (which npm writes at the end
-of an install) is missing or older than `package-lock.json`:
+of an install) is missing or older than `package-lock.json`. `Get-Item` needs `-Force` there: pwsh
+on Linux and macOS counts a dot-file as hidden, and without it the comparison sees `$null` and
+reinstalls on every run:
 
 ```
-- ui: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build`
+- ui: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item -Force node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build`
 ```
 
 ## Run mode and providers
@@ -848,7 +850,10 @@ once and either can follow the other on one state directory. `factory.ps1` sets 
 its own folder for the CLI, which hashes the deploy scripts there into the canary fingerprint, as
 `factory.ps1` does. Ported so far, on both state backends: `status`, `approve`, `edit-spec`,
 `rework`, `purge`, `set-stage`, `set-review`, `read-reviews`, `read-decision`, `event`, `new-idea`,
-`add-spec`, `idea-done`, `idea-abandon`, `check-target`, `clone-target` and `list-repos`.
+`add-spec`, `idea-done`, `idea-abandon`, `check-target`, `clone-target`, `list-repos`, `checkout`,
+`publish`, `gate`, `gate-check`, `provenance`, `merge`, `sync-prs`, `set-cost` and `next`. Until the
+deploy commands are ported (spec 09), a forwarded `merge` or `sync-prs` destroys a preview that is
+still up by starting `factory.ps1 destroy <id>` detached, as `factory.ps1` itself does.
 
 | Command | Used by |
 | --- | --- |
@@ -1312,7 +1317,8 @@ longer running. Otherwise it loops:
    - claude's output is read as UTF-8 whatever the console's codepage.
    - stderr goes to the same log, so a reader skips lines that are not JSON.
 4. It appends each stdout line to `jobs/<id>/run-<n>.jsonl` as it arrives, through one stream opened for the whole pass and shared for reading and writing (and `serve.ps1` reads state files shared the same way), so a reader can never fail the job. It calls `set-cost`
-   with `total_cost_usd` and `duration_ms` from the final `"type":"result"` line. If the job is
+   with `total_cost_usd` and `duration_ms` from the final `"type":"result"` line; a refused
+   `set-cost` is an error finishing that job (logged, the job escalated, the queue moves on). If the job is
    in `gate` afterwards, the approver has approved and only the gate is left, so the runner runs
    `factory.ps1 gate <id>` itself. A claude that dies at that point (out of credit, say) costs
    nothing. If the job is still in Building (and not `blocked`) after that, whether claude exited

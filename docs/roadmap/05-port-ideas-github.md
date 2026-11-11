@@ -1,6 +1,6 @@
 # 05: Port the idea and spec commands, and the GitHub client
 
-**Status:** built on its branch (2026-11-10), not yet merged. **Branch:** `feature/05-port-ideas`. **Depends on:** 04.
+**Status:** done, merged in PR #13 (2026-11-11). **Branch:** `feature/05-port-ideas`. **Depends on:** 04.
 Seven commands forwarded: `new-idea`, `add-spec`, `idea-done`, `idea-abandon`, `check-target`,
 `clone-target` and `list-repos`. Proven locally, under the new port rule (`docs/TESTING.md`):
 - 498 .NET tests (453 unit, 45 integration, the new ones against `github-stub.ps1`), gates Core

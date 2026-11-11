@@ -102,6 +102,7 @@ touches and put the counts in the PR description:
 | PowerShell that is not forwarded: `factory/scripts/**`, `factory/plugin/**`, `factory/tests/*.ps1`, `factory/tests/fixtures/**` | `pwsh factory/tests/run-all.ps1` (the whole Pester suite, local and azure, about 30 minutes); a port that also does this runs it as well |
 | the dashboard or `serve.ps1` | the Playwright `@smoke` set; the whole suite for dashboard work |
 | only `docs/**` or root `*.md` | nothing |
+| a spec whose "Done when" names Linux | in WSL: `factory/tests/linux/setup.sh` once (a user-local .NET 10 SDK, pwsh, Pester and git, no sudo), then `factory/tests/linux/run.sh unit`, `integration` or `ported`, which run on a copy of the working tree in `~/factory-test` |
 
 ## Commands
 

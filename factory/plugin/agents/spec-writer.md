@@ -37,7 +37,7 @@ id (the script assigns it).
   `Set-Location` first). They run with `pwsh -Command`, so make them non-interactive. Never give
   `npm ci` a gate line of its own, because it reinstalls everything on every gate run. Guard it in
   the first line that needs it, so it runs only when the lock has changed:
-  ``- ui-build: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build` ``
+  ``- ui-build: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item -Force node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build` ``
 - Every acceptance criterion is observable and names the test or command that proves it
   (a Gate command, a named test, a route to open).
 - **Scope** lists every path the builder may touch under `- In:`, one sub-bullet each, starting with a
