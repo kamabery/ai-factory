@@ -161,7 +161,7 @@ function Bootstrap-Spec($sc, [string] $target) {
     $cmds = Scaffold-Commands $sc
     $gate = @("- build: ``dotnet build $n.slnx``", "- test: ``dotnet test $n.slnx``", '- apphost: `dotnet build .aspire/apphost.cs`',
               '- infra: `aspire-addon infra check`')
-    if ($sc.ui -eq 'react') { $gate += '- ui: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build`' }
+    if ($sc.ui -eq 'react') { $gate += '- ui: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item -Force node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build`' }
     $text = Get-Content (Join-Path (Split-Path $PSScriptRoot -Parent) 'templates/bootstrap.md') -Raw
     $values = @{
         name = $n; resource = $r; db = $sc.db; ui = $sc.ui; events = "$([bool]$sc.events)".ToLowerInvariant()

@@ -2002,7 +2002,7 @@ Describe 'targets' -Tag 'Ported' {
         $spec | Should -Match ([regex]::Escape('- build: `dotnet build todo.slnx`'))
         $spec | Should -Match ([regex]::Escape('- test: `dotnet test todo.slnx`'))
         $spec | Should -Match ([regex]::Escape('- apphost: `dotnet build .aspire/apphost.cs`'))
-        $spec | Should -Match ([regex]::Escape('- ui: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build`'))
+        $spec | Should -Match ([regex]::Escape('- ui: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item -Force node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build`'))
         $spec | Should -Not -Match '\{\{'
         F approve 'J-001' | Out-Null
         $LASTEXITCODE | Should -Be 0

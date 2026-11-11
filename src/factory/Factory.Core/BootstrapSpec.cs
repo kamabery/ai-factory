@@ -6,7 +6,7 @@ namespace Factory.Core;
 /// <summary>factory.ps1's Bootstrap-Spec: factory/templates/bootstrap.md with the human's scaffold options filled in.</summary>
 public static partial class BootstrapSpec
 {
-    private const string UiGate = "- ui: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build`";
+    private const string UiGate = "- ui: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item -Force node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build`";
 
     /// <summary>The spec's lines, split as <c>-split "`r?`n"</c> splits them (a final newline leaves an empty last line).</summary>
     public static IReadOnlyList<string> Lines(JsonObject sc, string target, string template, string templatesRoot)

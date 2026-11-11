@@ -38,7 +38,7 @@ public class BootstrapSpecTests
             "- test: `dotnet test todo.slnx`",
             "- apphost: `dotnet build .aspire/apphost.cs`",
             "- infra: `aspire-addon infra check`",
-            "- ui: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build`",
+            "- ui: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item -Force node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build`",
             "## AC",
             "  - `dotnet new aspire-base -n todo -o . --dbProvider sqlite --resource Todo`",
             "  - `aspire-addon add ui-react`",

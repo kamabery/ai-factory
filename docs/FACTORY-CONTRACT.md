@@ -168,10 +168,12 @@ and `set-stage review` appends a `note` event saying so.
 
 A dependency install in a gate is guarded, so the gate does not reinstall on every run. For npm,
 that means `npm ci` runs only when `node_modules/.package-lock.json` (which npm writes at the end
-of an install) is missing or older than `package-lock.json`:
+of an install) is missing or older than `package-lock.json`. `Get-Item` needs `-Force` there: pwsh
+on Linux and macOS counts a dot-file as hidden, and without it the comparison sees `$null` and
+reinstalls on every run:
 
 ```
-- ui: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build`
+- ui: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item -Force node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build`
 ```
 
 ## Run mode and providers
