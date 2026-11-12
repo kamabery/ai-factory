@@ -9,7 +9,7 @@ public interface IServerSettings
     /// <summary>local or cloud (FACTORY_MODE, environment then .env, default local); null when FACTORY_MODE is invalid.</summary>
     string? Mode { get; }
 
-    /// <summary>Why idea sessions cannot start in this mode, or null when the mode's credential is configured.</summary>
+    /// <summary>Why idea sessions cannot start in this mode (cloud mode needs FACTORY_FOUNDRY_RESOURCE), or null when they can.</summary>
     string? IdeaBlocker { get; }
 
     /// <summary>FACTORY_IDEA_MODEL, else claude-opus-5-5.</summary>

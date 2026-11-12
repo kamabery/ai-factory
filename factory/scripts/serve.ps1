@@ -6,8 +6,7 @@
   (/state/...) and agent transcripts named by agent-start events. Every board write is one
   factory.ps1 call; this script holds no transition logic. After an approve or rework it starts
   runner.ps1 detached. Idea sessions (/api/sessions) store their conversation under sessions/<S>/,
-  and each assistant turn is a detached idea-turn.ps1. This script only checks that the .env has
-  a key; it never reads the key into the environment.
+  and each assistant turn is a detached idea-turn.ps1 (claude -p on the run mode's provider).
 #>
 param(
     [int] $Port = 0,   # 0: a random free port, printed at start
@@ -168,10 +167,10 @@ function Get-EnvValue([string] $name) {
 function Get-IdeaModel { (Get-EnvValue 'FACTORY_IDEA_MODEL') ?? 'claude-opus-5-5' }
 # The run mode (see "Run mode and providers"); $null when FACTORY_MODE is invalid.
 function Get-Mode { try { Get-FactoryMode $EnvFile } catch { $null } }
-# Why idea sessions cannot start in this mode, or $null when the mode's credential is configured.
+# Why idea sessions cannot start in this mode, or $null when they can: locally the subscription needs nothing.
 function Get-IdeaBlocker {
     switch (Get-Mode) {
-        'local' { if (-not (Get-EnvValue 'ANTHROPIC_API_KEY')) { "no ANTHROPIC_API_KEY in $EnvFile" } }
+        'local' { $null }
         'cloud' { if (-not (Get-LlmSetting 'FACTORY_FOUNDRY_RESOURCE' $EnvFile)) { "no FACTORY_FOUNDRY_RESOURCE (cloud mode)" } }
         default { "FACTORY_MODE must be local or cloud" }
     }

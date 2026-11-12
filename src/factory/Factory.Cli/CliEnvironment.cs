@@ -7,8 +7,12 @@ public sealed record CliEnvironment(
     string NewLine,
     string LocalAppData,
     string TempPath,
-    string BaseDirectory)
+    string BaseDirectory,
+    IReadOnlyList<string>? Self = null)
 {
+    /// <summary>How to start this CLI again: the executable, then the arguments before a command (the DLL under dotnet).</summary>
+    public IReadOnlyList<string> SelfCommand => Self ?? ["dotnet", Path.Combine(BaseDirectory, "Factory.Cli.dll")];
+
     public string? Get(string name) => Variables.GetValueOrDefault(name) is { Length: > 0 } v ? v : null;
 
     /// <summary>factory/scripts above <see cref="BaseDirectory"/> (the CLI's artifacts folder in this repo), or null.</summary>

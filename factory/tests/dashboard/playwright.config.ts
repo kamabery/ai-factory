@@ -11,11 +11,10 @@ export const stubPort = 4319;
 export const githubPort = 4320;
 const gitBase = path.join(simDir, 'github');
 
-// The .env serve.ps1 and simulate.ps1 read: fake keys, and both stubs. Written here because the
+// The .env serve.ps1 and simulate.ps1 read: a fake GitHub token, and the GitHub stub. Written here because the
 // GitHub stub's clone base is an absolute path.
 const envFile = path.join(os.tmpdir(), 'factory-playwright.env');
 writeFileSync(envFile, [
-  'ANTHROPIC_API_KEY=sk-ant-playwright-fake', `ANTHROPIC_BASE_URL=http://localhost:${stubPort}`,
   'GITHUB_TOKEN=gh-playwright-fake', 'GITHUB_OWNER=sim', `GITHUB_API_URL=http://localhost:${githubPort}`,
   `FACTORY_GIT_BASE=file:///${gitBase.replace(/\\/g, '/')}`,
   // Previews: the HCP token and API (the GitHub stub serves both), but no HCP_ORG, so deploys stay
@@ -33,6 +32,10 @@ export const factoryEnv = {
   FACTORY_ENV_FILE: envFile,
   FACTORY_GATE_CMDS: '[{"name":"build","cmd":"exit 0"},{"name":"test","cmd":"exit 0"},{"name":"ui","cmd":"exit 0"}]',
   FACTORY_CLAUDE_CMD: 'exit 0',
+  // Idea turns: claude-stub.ps1 stands in for claude and asks the Anthropic stub for each scripted reply (spec 10).
+  FACTORY_IDEA_CLAUDE_CMD: path.join(repo, 'factory/tests/fixtures/claude-stub.ps1'),
+  FACTORY_IDEA_STUB_URL: `http://localhost:${stubPort}`,
+  FACTORY_IDEA_STUB_STATE: path.join(simDir, 'claude-stub'),
 };
 
 export default defineConfig({

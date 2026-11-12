@@ -183,7 +183,7 @@ every `claude` pass and every dashboard idea turn talks to. Nothing chooses a pr
 
 | `FACTORY_MODE` | Provider | Credentials |
 | --- | --- | --- |
-| `local` (the default) | `subscription`: the `claude` CLI's own login | the human's claude.ai login; idea turns: `ANTHROPIC_API_KEY` in `.env` (interim, see below) |
+| `local` (the default) | `subscription`: the `claude` CLI's own login | the human's claude.ai login, for jobs and idea turns alike; no key |
 | `cloud` | `foundry`: Claude on Microsoft Foundry, resource `FACTORY_FOUNDRY_RESOURCE` | Microsoft Entra ID only (the Azure credential chain: `az login` on a machine, a managed identity when deployed); no key anywhere |
 
 - `FACTORY_MODE` is read from the process environment first, then `.env`, and is `local` when
@@ -192,7 +192,7 @@ every `claude` pass and every dashboard idea turn talks to. Nothing chooses a pr
 - A job's builder, reviewers and approver are subagents of its one `claude` pass, so they share the
   provider. The runner resolves it when it takes a job; a `provider` field left on a job by an older
   factory is ignored.
-- **local.** For the `claude` child the runner sets empty `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
+- **local.** For the `claude` child the runner (and an idea turn) sets empty `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
   `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_USE_FOUNDRY`, `ANTHROPIC_FOUNDRY_RESOURCE`,
   `ANTHROPIC_FOUNDRY_BASE_URL`, `ANTHROPIC_FOUNDRY_API_KEY` and `ANTHROPIC_FOUNDRY_AUTH_TOKEN`, and
   restores them afterwards. Any of them inherited from the human's environment (a Windows user
@@ -214,9 +214,9 @@ every `claude` pass and every dashboard idea turn talks to. Nothing chooses a pr
 - `costUsd` is `claude`'s own estimate from list prices whatever the provider; the `cost` event
   carries the resolved `provider` (`subscription` or `foundry`), so a Foundry bill can be reconciled
   against it.
-- Idea turns follow the same rule; see [Idea sessions](#idea-sessions-dashboard). Running local idea
-  turns on the subscription (through `claude -p`, with no API key) is for the .NET port; until then a
-  local idea turn uses `ANTHROPIC_API_KEY`.
+- Idea turns follow the same rule, through the same child environment: each turn is a `claude -p`
+  pass; see [Idea sessions](#idea-sessions-dashboard). Nothing in the factory reads an
+  `ANTHROPIC_API_KEY`.
 
 ## Ideas
 
@@ -269,49 +269,55 @@ board.ideas[] = { "id": "I-001", "text": "...", "target": "kamabery/todo-app",
 
 ## Idea sessions (dashboard)
 
-The dashboard's idea session runs the steps of [Ideas](#ideas) against the Claude API, not the
-`claude` CLI. Build, review, approve and gate still run on the CLI through the runner. A session is
-a conversation stored under `sessions/<S-NNN>/`. It is not on the board, and **the model never
-changes board state**: every board write in a session is a human click that `serve.ps1` turns into
-one `factory.ps1` call.
+The dashboard's idea session runs the steps of [Ideas](#ideas) on the `claude` CLI, headless, as jobs
+do; the [run mode](#run-mode-and-providers) picks the provider. A session is a conversation stored under
+`sessions/<S-NNN>/`. It is not on the board, and **the model never changes board state**: every board
+write in a session is a human click that the dashboard turns into one `factory.ps1` call.
 
-**The credential.** It follows the [run mode](#run-mode-and-providers). `FACTORY_IDEA_MODEL` in
-`.env` overrides the model in both modes (default `claude-opus-5-5`, which in cloud mode is the
-Foundry deployment name), and `ANTHROPIC_BASE_URL` the endpoint in both modes (tests point it at a stub).
-- **local:** the API key is `ANTHROPIC_API_KEY` in `.env` at the repo root (gitignored;
-  `.env.example` names the keys), sent as `x-api-key`. The key is read from the file into a local
-  variable by `idea-turn.ps1` and never set in the process environment, so a `claude` started by
-  the runner keeps using the subscription.
-- **cloud:** the endpoint is `https://<FACTORY_FOUNDRY_RESOURCE>.services.ai.azure.com/anthropic`,
-  and every request carries `Authorization: Bearer <token>`, an Entra token for
-  `https://ai.azure.com` from `az account get-access-token`, refreshed when it has under 10 minutes
-  left. No key is read or sent. Foundry has no server-side fallback, so the request carries no
-  `fallbacks` and no `server-side-fallback` beta.
-
-`serve.ps1` only checks that the mode's credential is configured (`ANTHROPIC_API_KEY` locally,
-`FACTORY_FOUNDRY_RESOURCE` in cloud mode). Without it, the dashboard shows the `idea.ps1` hint
-instead of **New idea**.
+**The provider.** Each turn's `claude` gets the run mode's child environment, exactly as a job's does:
+**local** is the subscription (no key is read or needed), **cloud** is Foundry
+(`CLAUDE_CODE_USE_FOUNDRY`, `FACTORY_FOUNDRY_RESOURCE` and the model pins), keyless through the Azure
+credential chain. `FACTORY_IDEA_MODEL` in `.env` overrides the model (default `claude-opus-5-5`, which
+in cloud mode is the Foundry deployment name). The dashboard checks only that the mode can run: cloud
+mode needs `FACTORY_FOUNDRY_RESOURCE`; without it, the dashboard shows the `idea.ps1` hint instead of
+**New idea**. `FACTORY_IDEA_CLAUDE_CMD` (a script run with `pwsh -File` and the same arguments) replaces
+`claude` for tests.
 
 **Turns.** Each assistant turn is a detached `factory/scripts/idea-turn.ps1 -Session <S> -StateDir
-<dir> -EnvFile <path>` process. It holds `sessions/<S>/turn.lock` (exclusive create) for the whole
-turn. While the lock is held, every session write endpoint answers 409. The turn streams the
-Messages API (`stream: true`) and appends what arrives to `stream.jsonl`, which is truncated when a
-turn starts. It loops over the model's tools until the model stops or calls a UI tool. Then it
-appends the finished messages to `chat.json`, adds the turn's cost to `session.json`, and releases
-the lock. The system prompt is assembled at turn time from `factory/plugin/prompts/idea-api.md`,
-the `grill` skill, the spec-writer agent and `factory/templates/brief.md` and `spec.md`.
+<dir> -EnvFile <path>` process, which runs `factory idea-turn <S>` (the .NET CLI) under every
+`FACTORY_IMPL`: there is no PowerShell turn. It holds `sessions/<S>/turn.lock` (exclusive create) for
+the whole turn, and in `azure` the lease on `locks/turn-<S>`. While the lock is held, every session
+write endpoint answers 409. It runs `claude -p --output-format stream-json --verbose
+--include-partial-messages --model <model> --effort high --system-prompt-file <file> --tools ""
+--strict-mcp-config --mcp-config <file> --allowedTools mcp__factory --setting-sources ""` with the
+prompt on stdin (never on the command line, where a `claude.cmd` shim would hand the human's words to
+`cmd.exe`), in the session's clone (`checkout`) when it has one, else the session folder. The first turn passes
+`--session-id <uuid>` and records it as `claudeSession` in `session.json`; every later turn passes
+`--resume <claudeSession>`. The prompt is the first message on the first turn; after that it is the
+user content `chat.json` gained since the last assistant message: an answer to a pending UI tool reads
+`The human answered <tool>: <answer>`, other text is sent as is, and with nothing new (a retry) it is
+`Continue.`. The turn appends streamed text to `stream.jsonl`, which is truncated when a turn starts,
+and each tool call as a `tool` line. When `claude` exits, it appends the turn's messages to `chat.json`
+in the Messages API's shape (tool names without their `mcp__factory__` prefix), adds the result's
+`total_cost_usd` to `session.json`, and releases the lock. A result with `is_error`, or a `claude` that
+exits without one, leaves the session in `error` with the reason. The system prompt is assembled at
+turn time from `factory/plugin/prompts/idea-api.md`, the `grill` skill, the spec-writer agent and
+`factory/templates/brief.md` and `spec.md`.
 
-**Tools.**
+**Tools.** `factory idea-mcp <S>` is a stdio MCP server, named `factory`, that each turn's `claude`
+starts; its tools are the only ones `claude` has. It writes `session.json` while the turn runs, and the
+turn re-reads it before its own last write.
 
 | Tool | Kind | Effect |
 | --- | --- | --- |
 | `read_file`, `list_dir`, `grep` | server, read-only | fenced to the session's clone of the target (`checkout`, when the target exists) and `factory/templates`; any other path is refused |
-| `submit_specs { specs: [{ k, markdown }] }` (1..5) · `revise_spec { k, markdown }` | server | write `ideas/<I>/spec-<k>.md`; refused until the brief is confirmed (the session has an idea) |
-| `ask_questions { questions }` (AskUserQuestion's shape) · `propose_scaffold { repo?, name, resource, db, ui, events }` (`repo`, a repo name, is required while the session has no target) · `submit_brief { markdown }` | UI | end the turn; `session.json.pending` holds the call until the human answers |
+| `submit_specs { specs: [{ k, markdown }] }` (1..5) · `revise_spec { k, markdown }` | server | write `ideas/<I>/spec-<k>.md` and the session's `specs`; refused until the brief is confirmed (the session has an idea) |
+| `ask_questions { questions }` (AskUserQuestion's shape) · `propose_scaffold { repo?, name, resource, db, ui, events }` (`repo`, a repo name, is required while the session has no target) · `submit_brief { markdown }` | UI | a valid call becomes `session.json.pending`, the model is told to end its turn, and any later tool call in the turn is refused; the human's answer is the next turn's prompt |
 
 ```
 sessions/<S>/session.json = { "id": "S-001", "target": "owner/name" | null, "text": "...", "newTarget": false,
   "checkout": "<work>\\sessions\\S-001" | null,
+  "claudeSession": "<uuid>" | null,
   "status": "running|idle|error|closed", "error": null, "model": "claude-opus-5-5", "costUsd": 0.12,
   "scaffold": null, "idea": "I-004", "bootstrap": null,
   "pending": { "id": "toolu_...", "name": "ask_questions", "input": { } } | null,
@@ -331,7 +337,8 @@ scaffold proposal, or the brief being corrected) and for free text with nothing 
 recorded there. Nothing deletes a session directory, so `purge` keeps it.
 
 `pendingResults` holds the results of server tools that ran in the same assistant message as a UI
-tool. They are sent with the human's answer in one user message.
+tool. `claude` has already seen them; they are kept so `chat.json` records them with the human's answer
+in one user message.
 
 **Session flow.** The human picks a target from their GitHub repos (`list-repos`), optionally a
 **base** (`main`, or an unmerged job on that target; see [Stacked jobs](#stacked-jobs)), and describes
@@ -1271,7 +1278,7 @@ and a refused move snaps the card back and shows the message.
 | `POST /api/lessons/<id>/mark` `{ status, session? }` | `lesson-mark` | |
 | `GET /api/evals` | (read-only) | every `evals/<id>.json`, newest job first; the markdown is at `/state/evals/<id>.md` |
 | `PUT /api/evals/<id>/feedback` (text/markdown) | `feedback` | the feedback is at `/state/evals/<id>.feedback.md` |
-| `GET /api/ideate/config` | (read-only) | `{ enabled, model, owner, templatesRepo, deploys, mode, provider }`; `enabled` means the mode's idea-turn credential is configured (see [Idea sessions](#idea-sessions-dashboard)); `mode` and `provider` are the [run mode](#run-mode-and-providers) and its provider, shown in the dashboard header; `owner` is `GITHUB_OWNER`; `templatesRepo` is `FACTORY_TEMPLATES_REPO`; `deploys` means `.env` has `HCP_ORG` (Approved cards' wait reasons); no key is ever returned |
+| `GET /api/ideate/config` | (read-only) | `{ enabled, model, owner, templatesRepo, deploys, mode, provider }`; `enabled` means the mode can run idea turns (always locally; cloud mode needs `FACTORY_FOUNDRY_RESOURCE`) (see [Idea sessions](#idea-sessions-dashboard)); `mode` and `provider` are the [run mode](#run-mode-and-providers) and its provider, shown in the dashboard header; `owner` is `GITHUB_OWNER`; `templatesRepo` is `FACTORY_TEMPLATES_REPO`; `deploys` means `.env` has `HCP_ORG` (Approved cards' wait reasons); no key is ever returned |
 | `GET /api/sessions` | (read-only) | every session that is not `closed`: `{ id, target, text, status, idea, bootstrap, costUsd, newTarget }` |
 | `GET /api/repos` | `list-repos` | the JSON array, for the New idea picker |
 | `POST /api/sessions` `{ target, text, base? }` or `{ new: true, text }` | `check-target` (not for `new`, which needs `GITHUB_OWNER`), then `clone-target [-Base]` | allocates `S-NNN`, writes `session.json` (with `base`) and the first message, which tells the model the clone is the base's unmerged branch, and starts a turn. The panel's **Base** list is `main` plus every job on the target that is not `done` or `discarded` and has a PR |

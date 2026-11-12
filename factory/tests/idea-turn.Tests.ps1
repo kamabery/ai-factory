@@ -1,10 +1,13 @@
 #Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '6.0.0' }
 
+# One idea turn (roadmap spec 10): idea-turn.ps1 forwards to the .NET CLI's idea-turn under every FACTORY_IMPL, which
+# runs claude -p with the idea tools as an MCP server. claude here is fixtures/claude-stub.ps1 (FACTORY_IDEA_CLAUDE_CMD):
+# it starts the real MCP server and asks anthropic-stub.ps1 for each scripted model reply, so the tools run for real.
 BeforeAll {
     . (Join-Path $PSScriptRoot 'fixtures/portable.ps1')   # -WindowStyle off Windows
     $script:Turn = Join-Path $PSScriptRoot '..\scripts\idea-turn.ps1' | Resolve-Path | Select-Object -ExpandProperty Path
     $script:Stub = Join-Path $PSScriptRoot 'fixtures\anthropic-stub.ps1' | Resolve-Path | Select-Object -ExpandProperty Path
-    $script:Key = 'sk-ant-test-' + [guid]::NewGuid().ToString('N')
+    $script:Claude = Join-Path $PSScriptRoot 'fixtures\claude-stub.ps1' | Resolve-Path | Select-Object -ExpandProperty Path
 
     $l = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0); $l.Start(); $script:Port = $l.LocalEndpoint.Port; $l.Stop()
     $script:StubDir = Join-Path $TestDrive 'stub'
@@ -15,6 +18,8 @@ BeforeAll {
         try { Invoke-WebRequest "http://localhost:$script:Port/" -TimeoutSec 1 | Out-Null; break }
         catch { if ((Get-Date) -gt $deadline) { throw 'stub did not start' }; Start-Sleep -Milliseconds 200 }
     }
+    $env:FACTORY_IDEA_CLAUDE_CMD = $script:Claude
+    $env:FACTORY_IDEA_STUB_URL = "http://localhost:$script:Port"
 
     function Json($o) { $o | ConvertTo-Json -Depth 30 }
     function Read-J([string] $p) { Get-Content $p -Raw | ConvertFrom-Json -AsHashtable -DateKind String }
@@ -30,6 +35,10 @@ BeforeAll {
     }
     function Request([int] $n) { Read-J (Join-Path $script:ReplyDir ('requests/{0:D3}.json' -f $n)) }
     function Requests { @(Get-ChildItem (Join-Path $script:ReplyDir 'requests') -Filter '*.json' -ErrorAction SilentlyContinue).Count }
+    # A tool result's text: claude passes MCP's content blocks.
+    function Result-Text($block) { (@($block.content) | ForEach-Object { if ($_ -is [string]) { $_ } else { $_.text } }) -join "`n" }
+    # What the last claude was given: args, prompt, cwd and the provider variables it saw.
+    function Last-Run { Read-J (Join-Path $env:FACTORY_IDEA_STUB_STATE 'last-run.json') }
 
     function Text([string] $t) { @{ type = 'text'; text = $t } }
     function ToolUse([string] $id, [string] $name, $in) { @{ type = 'tool_use'; id = $id; name = $name; input = $in } }
@@ -53,25 +62,38 @@ BeforeAll {
     function Chat { (Read-J (Join-Path $env:FACTORY_HOME 'sessions/S-001/chat.json')).messages }
     function Stream { Get-Content (Join-Path $env:FACTORY_HOME 'sessions/S-001/stream.jsonl') | ForEach-Object { $_ | ConvertFrom-Json -AsHashtable } }
     function Run-Turn([string] $envFile = $script:EnvFile) { & $script:Turn -Session S-001 -StateDir $env:FACTORY_HOME -EnvFile $envFile 6>$null 2>$null }
+    # What the dashboard does when the human answers the pending UI tool (serve's Add-Answer).
+    function Answer([string] $text) {
+        $dir = Join-Path $env:FACTORY_HOME 'sessions/S-001'
+        $s = Session
+        $chat = @(Chat)
+        $chat += @{ role = 'user'; content = @($s.pendingResults) + @{ type = 'tool_result'; tool_use_id = $s.pending.id; content = $text } }
+        $s.pending = $null; $s.pendingResults = @()
+        Set-Content (Join-Path $dir 'chat.json') (Json @{ messages = $chat })
+        Set-Content (Join-Path $dir 'session.json') (Json $s)
+    }
 }
 
 AfterAll {
     if ($script:StubProc -and -not $script:StubProc.HasExited) { Stop-Process -Id $script:StubProc.Id -Force }
+    Remove-Item Env:FACTORY_IDEA_CLAUDE_CMD, Env:FACTORY_IDEA_STUB_URL, Env:FACTORY_IDEA_STUB_STATE -ErrorAction SilentlyContinue
 }
 
 Describe 'idea-turn.ps1' {
     BeforeEach {
         $env:FACTORY_HOME = Join-Path $TestDrive "state-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
         New-Item -ItemType Directory -Force $env:FACTORY_HOME | Out-Null
+        $env:FACTORY_IDEA_STUB_STATE = Join-Path $TestDrive "claude-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
         $script:Target = Join-Path $TestDrive "target-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
         New-Item -ItemType Directory -Force (Join-Path $script:Target 'docs') | Out-Null
         Set-Content (Join-Path $script:Target 'README.md') 'the readme of the target'
         Set-Content (Join-Path $script:Target 'docs/DESIGN.md') "# Design`nUse the Button component."
         Set-Content (Join-Path $TestDrive 'outside.txt') 'secret outside the fence'
         $script:EnvFile = Join-Path $TestDrive "env-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
-        Set-Content $script:EnvFile "# test`nANTHROPIC_API_KEY=`"$script:Key`"`nANTHROPIC_BASE_URL=http://localhost:$script:Port"
-        Remove-Item Env:ANTHROPIC_API_KEY -ErrorAction SilentlyContinue
+        Set-Content $script:EnvFile '# test'
+        $env:ANTHROPIC_API_KEY = 'sk-ant-stray-in-the-environment'
     }
+    AfterEach { Remove-Item Env:ANTHROPIC_API_KEY -ErrorAction SilentlyContinue }
 
     It 'streams the reply, records it, and leaves a UI tool pending with the turn ended' {
         Set-Replies (Reply @((Text 'Hello there. A few questions first.'), (ToolUse 'tu1' 'ask_questions' $script:Ask)) 'tool_use')
@@ -85,6 +107,7 @@ Describe 'idea-turn.ps1' {
         $chat = Chat
         $chat.Count | Should -Be 2
         $chat[1].role | Should -Be 'assistant'
+        $chat[1].content[1].name | Should -Be 'ask_questions'
         $chat[1].content[1].input.questions[0].question | Should -Be 'Who uses it?'
         $st = @(Stream)
         (($st | Where-Object type -eq 'text').text -join '') | Should -Be 'Hello there. A few questions first.'
@@ -92,19 +115,35 @@ Describe 'idea-turn.ps1' {
         Test-Path (Join-Path $env:FACTORY_HOME 'sessions/S-001/turn.lock') | Should -BeFalse
     }
 
-    It 'sends the key from the env file as x-api-key, never puts it in the environment or on disk, and uses the default model' {
+    It 'runs claude headless with only the idea tools, the prompt on stdin, the default model and a new session' {
         Set-Replies (Reply @((Text 'ok')))
         New-Session | Out-Null
         Run-Turn
-        Get-Content (Join-Path $script:ReplyDir 'requests/001.key') -Raw | Should -Be $script:Key
-        Test-Path Env:ANTHROPIC_API_KEY | Should -BeFalse
-        foreach ($f in Get-ChildItem (Join-Path $env:FACTORY_HOME 'sessions/S-001') -File) {
-            Get-Content $f.FullName -Raw | Should -Not -Match ([regex]::Escape($script:Key))
-        }
-        $r = Request 1
-        $r.model | Should -Be 'claude-opus-5-5'
-        $r.stream | Should -BeTrue
-        (Session).model | Should -Be 'claude-opus-5-5'
+        $run = Last-Run
+        $a = $run.args -join ' '
+        $a | Should -Match '^-p '
+        $a | Should -Match '--output-format stream-json --verbose --include-partial-messages'
+        $a | Should -Match '--model claude-opus-5-5 --effort high'
+        $a | Should -Match '--strict-mcp-config --mcp-config \S+ --allowedTools mcp__factory'
+        $a | Should -Match '--session-id [0-9a-f-]{36}'
+        $a | Should -Not -Match '--resume'
+        $run.prompt | Should -Match 'Idea: a todo app'
+        $a | Should -Not -Match 'a todo app'
+        $run.cwd | Should -Be (Resolve-Path $script:Target).Path
+        (Request 1).tools.name | Should -Contain 'mcp__factory__read_file'
+        $s = Session
+        $s.model | Should -Be 'claude-opus-5-5'
+        $s.claudeSession | Should -Match '^[0-9a-f-]{36}$'
+    }
+
+    It 'locally the subscription runs it: no API key or Foundry variable reaches claude' {
+        Set-Replies (Reply @((Text 'ok')))
+        New-Session | Out-Null
+        Run-Turn
+        $e = (Last-Run).env
+        $e.ANTHROPIC_API_KEY | Should -BeNullOrEmpty
+        $e.CLAUDE_CODE_USE_FOUNDRY | Should -BeNullOrEmpty
+        $e.ANTHROPIC_FOUNDRY_RESOURCE | Should -BeNullOrEmpty
     }
 
     It 'FACTORY_IDEA_MODEL in the env file overrides the model' {
@@ -113,15 +152,15 @@ Describe 'idea-turn.ps1' {
         New-Session | Out-Null
         Run-Turn
         (Request 1).model | Should -Be 'claude-sonnet-5-5'
+        (Session).model | Should -Be 'claude-sonnet-5-5'
     }
 
-    It 'builds the system prompt from the preamble, the grill skill, the spec-writer and both templates, cached' {
+    It 'builds the system prompt from the preamble, the grill skill, the spec-writer and both templates' {
         Set-Replies (Reply @((Text 'ok')))
         New-Session | Out-Null
         Run-Turn
         $r = Request 1
-        $r.system[0].cache_control.type | Should -Be 'ephemeral'
-        $sys = $r.system[0].text
+        $sys = $r.system
         $sys | Should -Match 'idea session, in the dashboard'
         $sys | Should -Match 'rounds over a frontier'
         $sys | Should -Match 'You are the factory''s spec-writer'
@@ -129,7 +168,7 @@ Describe 'idea-turn.ps1' {
         $sys | Should -Match '# Spec:'
         $sys | Should -Not -Match '(?m)^name: grill'
         $names = $r.tools.name
-        foreach ($t in 'read_file', 'list_dir', 'grep', 'submit_specs', 'revise_spec', 'ask_questions', 'propose_scaffold', 'submit_brief') { $names | Should -Contain $t }
+        foreach ($t in 'read_file', 'list_dir', 'grep', 'submit_specs', 'revise_spec', 'ask_questions', 'propose_scaffold', 'submit_brief') { $names | Should -Contain "mcp__factory__$t" }
     }
 
     It 'runs a read-only tool on the target and loops until the model stops' {
@@ -139,22 +178,24 @@ Describe 'idea-turn.ps1' {
         (Requests) | Should -Be 2
         $last = (Request 2).messages[-1]
         $last.role | Should -Be 'user'
-        $last.content[0].type | Should -Be 'tool_result'
         $last.content[0].tool_use_id | Should -Be 'r1'
-        $last.content[0].content | Should -Match 'the readme of the target'
-        @(Chat).Count | Should -Be 4
+        Result-Text $last.content[0] | Should -Match 'the readme of the target'
+        $chat = @(Chat)
+        $chat.Count | Should -Be 4
+        $chat[1].content[0].name | Should -Be 'read_file'
+        $chat[2].content[0].content | Should -Match 'the readme of the target'
         (Session).pending | Should -BeNullOrEmpty
         (Stream | Where-Object type -eq 'tool').name | Should -Contain 'read_file'
     }
 
     It 'list_dir and grep work inside the target' {
-        Set-Replies (Reply @((ToolUse 'l1' 'list_dir' @{}), (ToolUse 'g1' 'grep' @{ pattern = 'Button' })) 'tool_use') (Reply @((Text 'ok')))
+        Set-Replies (Reply @((ToolUse 'l1' 'list_dir' @{}), (ToolUse 'g1' 'grep' @{ pattern = 'button' })) 'tool_use') (Reply @((Text 'ok')))
         New-Session | Out-Null
         Run-Turn
         $res = (Request 2).messages[-1].content
-        $res[0].content | Should -Match 'docs/'
-        $res[0].content | Should -Match 'README.md'
-        $res[1].content | Should -Match 'DESIGN.md:2'
+        Result-Text $res[0] | Should -Match 'docs/'
+        Result-Text $res[0] | Should -Match 'README.md'
+        Result-Text $res[1] | Should -Match 'DESIGN.md:2'
     }
 
     It 'refuses a read outside the target and the templates, whether by .. or an absolute path' {
@@ -163,7 +204,7 @@ Describe 'idea-turn.ps1' {
                              (ToolUse 'r3' 'read_file' @{ path = (Join-Path $PSScriptRoot '..\templates\spec.md') })) 'tool_use') (Reply @((Text 'ok')))
         New-Session | Out-Null
         Run-Turn
-        $res = (Request 2).messages[-1].content
+        $res = @(Chat)[2].content
         $res[0].is_error | Should -BeTrue
         $res[0].content | Should -Not -Match 'secret'
         $res[1].is_error | Should -BeTrue
@@ -178,8 +219,20 @@ Describe 'idea-turn.ps1' {
         New-Session -NoTarget | Out-Null
         Run-Turn
         (Request 2).messages[-1].content[0].is_error | Should -BeTrue
-        (Request 2).messages[-1].content[0].content | Should -Match 'repo'
+        Result-Text (Request 2).messages[-1].content[0] | Should -Match 'repo'
         (Session).pending.input.repo | Should -Be 'todo-app'
+        (Session).pending.id | Should -Be 'p2'
+    }
+
+    It 'a UI tool ends the turn: any tool after it is refused' {
+        Set-Replies (Reply @((ToolUse 'tu1' 'ask_questions' $script:Ask), (ToolUse 'r1' 'read_file' @{ path = 'README.md' })) 'tool_use') (Reply @((Text 'ok')))
+        New-Session | Out-Null
+        Run-Turn
+        $s = Session
+        $s.pending.id | Should -Be 'tu1'
+        $s.pendingResults[0].tool_use_id | Should -Be 'r1'
+        $s.pendingResults[0].is_error | Should -BeTrue
+        $s.pendingResults[0].content | Should -Match 'your turn ended with ask_questions'
     }
 
     It 'refuses submit_specs before the brief is confirmed, and writes the specs once there is an idea' {
@@ -191,6 +244,7 @@ Describe 'idea-turn.ps1' {
         @((Session).specs).Count | Should -Be 0
 
         Set-Replies (Reply @((ToolUse 's2' 'submit_specs' @{ specs = @(@{ k = 1; markdown = $spec }, @{ k = 2; markdown = ($spec -replace 'Add a todo', 'Check one off') }) })) 'tool_use') (Reply @((Text 'Two specs.')))
+        $env:FACTORY_IDEA_STUB_STATE = Join-Path $TestDrive "claude-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
         New-Session -idea 'I-001' | Out-Null
         Run-Turn
         Get-Content (Join-Path $env:FACTORY_HOME 'ideas/I-001/spec-2.md') -Raw | Should -Match '# Spec: Check one off'
@@ -217,10 +271,28 @@ Describe 'idea-turn.ps1' {
         $s.pending.id | Should -Be 'tu1'
         $s.pendingResults[0].tool_use_id | Should -Be 'r1'
         $s.pendingResults[0].content | Should -Match 'the readme'
+        @(Chat).Count | Should -Be 2
         (Requests) | Should -Be 1
     }
 
-    It 'adds the turn''s cost at the model''s prices, cache reads and writes included' {
+    It 'the next turn resumes the claude session with the human''s answer as its prompt' {
+        Set-Replies (Reply @((ToolUse 'tu1' 'ask_questions' $script:Ask)) 'tool_use') (Reply @((Text 'Thanks, just you then.')))
+        New-Session | Out-Null
+        Run-Turn
+        $first = (Session).claudeSession
+        Answer 'Just me'
+        Run-Turn
+        $run = Last-Run
+        ($run.args -join ' ') | Should -Match "--resume $first"
+        $run.prompt | Should -Be 'The human answered ask_questions: Just me'
+        (Session).claudeSession | Should -Be $first
+        (Request 2).messages[-1].content[0].text | Should -Be 'The human answered ask_questions: Just me'
+        $chat = @(Chat)
+        $chat[-1].content[0].text | Should -Be 'Thanks, just you then.'
+        $chat[-2].content[0].tool_use_id | Should -Be 'tu1'
+    }
+
+    It 'adds the turn''s cost from claude''s result' {
         Set-Replies (Reply @((Text 'ok')) 'end_turn' @{ input_tokens = 1000; cache_read_input_tokens = 2000; cache_creation_input_tokens = 400; output_tokens = 500 })
         New-Session | Out-Null
         Run-Turn
@@ -239,68 +311,43 @@ Describe 'idea-turn.ps1' {
         Test-Path (Join-Path $env:FACTORY_HOME 'sessions/S-001/turn.lock') | Should -BeFalse
     }
 
-    It 'no key in the env file is an error, and no request is made' {
-        Set-Content $script:EnvFile "ANTHROPIC_BASE_URL=http://localhost:$script:Port"
-        Set-Replies (Reply @((Text 'ok')))
-        New-Session | Out-Null
-        Run-Turn
-        (Session).error | Should -Match 'ANTHROPIC_API_KEY'
-        (Requests) | Should -Be 0
-    }
-
-    It 'locally sends the API key and asks for the server-side fallback' {
-        Set-Replies (Reply @((Text 'ok')))
-        New-Session | Out-Null
-        Run-Turn
-        $h = Read-J (Join-Path $script:ReplyDir 'requests/001.headers')
-        $h.authorization | Should -BeNullOrEmpty
-        $h.'anthropic-beta' | Should -Match 'server-side-fallback'
-        (Request 1).fallbacks | Should -Be 'default'
+    It 'a claude that exits without a result leaves the session in error' {
+        $broken = Join-Path $TestDrive 'broken-claude.ps1'
+        Set-Content $broken '[Console]::Error.WriteLine("claude: not logged in"); exit 1'
+        $env:FACTORY_IDEA_CLAUDE_CMD = $broken
+        try {
+            New-Session | Out-Null
+            Run-Turn
+        } finally { $env:FACTORY_IDEA_CLAUDE_CMD = $script:Claude }
+        $s = Session
+        $s.status | Should -Be 'error'
+        $s.error | Should -Match 'no result: claude: not logged in'
     }
 
     Context 'cloud mode (Foundry)' {
-        BeforeEach {
-            # The API key stays in .env to prove cloud mode never sends it.
-            Add-Content $script:EnvFile "FACTORY_MODE=cloud`nFACTORY_FOUNDRY_RESOURCE=fdy-test"
-            $env:FACTORY_FOUNDRY_TOKEN = 'entra-test-token'
-        }
-        AfterEach { Remove-Item Env:FACTORY_FOUNDRY_TOKEN, Env:FACTORY_AZ_CMD -ErrorAction SilentlyContinue }
+        BeforeEach { Add-Content $script:EnvFile "FACTORY_MODE=cloud`nFACTORY_FOUNDRY_RESOURCE=fdy-test" }
 
-        It 'sends an Entra bearer token and no API key, with no server-side fallback, to the default deployment' {
+        It 'hands claude the Foundry environment and no key, with the default deployments' {
             Set-Replies (Reply @((Text 'ok')))
             New-Session | Out-Null
             Run-Turn
             (Session).status | Should -Be 'idle'
-            $h = Read-J (Join-Path $script:ReplyDir 'requests/001.headers')
-            $h.authorization | Should -Be 'Bearer entra-test-token'
-            $h.'x-api-key' | Should -BeNullOrEmpty
-            $h.'anthropic-beta' | Should -Not -Match 'server-side-fallback'
-            $r = Request 1
-            $r.Keys | Should -Not -Contain 'fallbacks'
-            $r.model | Should -Be 'claude-opus-5-5'
+            $e = (Last-Run).env
+            $e.CLAUDE_CODE_USE_FOUNDRY | Should -Be '1'
+            $e.ANTHROPIC_FOUNDRY_RESOURCE | Should -Be 'fdy-test'
+            $e.ANTHROPIC_DEFAULT_OPUS_MODEL | Should -Be 'claude-opus-5-5'
+            $e.ANTHROPIC_API_KEY | Should -BeNullOrEmpty
+            (Request 1).model | Should -Be 'claude-opus-5-5'
         }
 
-        It 'gets the token from az for https://ai.azure.com when nothing overrides it' {
-            Remove-Item Env:FACTORY_FOUNDRY_TOKEN
-            $az = Join-Path $TestDrive 'az-token.ps1'
-            Set-Content $az @'
-if (($args -join ' ') -notmatch 'get-access-token --resource https://ai\.azure\.com') { [Console]::Error.WriteLine("unexpected az $args"); exit 1 }
-'{"accessToken":"from-az","expires_on":' + ([DateTimeOffset]::UtcNow.AddHours(1).ToUnixTimeSeconds()) + '}'
-'@
-            $env:FACTORY_AZ_CMD = $az
-            Set-Replies (Reply @((Text 'ok')))
-            New-Session | Out-Null
-            Run-Turn
-            (Read-J (Join-Path $script:ReplyDir 'requests/001.headers')).authorization | Should -Be 'Bearer from-az'
-        }
-
-        It 'is an error with no FACTORY_FOUNDRY_RESOURCE, and no request is made' {
-            Set-Content $script:EnvFile "ANTHROPIC_API_KEY=`"$script:Key`"`nANTHROPIC_BASE_URL=http://localhost:$script:Port`nFACTORY_MODE=cloud"
+        It 'is an error with no FACTORY_FOUNDRY_RESOURCE, and claude is not run' {
+            Set-Content $script:EnvFile 'FACTORY_MODE=cloud'
             Set-Replies (Reply @((Text 'ok')))
             New-Session | Out-Null
             Run-Turn
             (Session).error | Should -Match 'FACTORY_FOUNDRY_RESOURCE'
             (Requests) | Should -Be 0
+            Test-Path (Join-Path $env:FACTORY_IDEA_STUB_STATE 'last-run.json') | Should -BeFalse
         }
     }
 
@@ -309,7 +356,7 @@ if (($args -join ' ') -notmatch 'get-access-token --resource https://ai\.azure\.
         $dir = New-Session
         Set-Content (Join-Path $dir 'turn.lock') $PID
         Run-Turn
-        $LASTEXITCODE | Should -Not -Be 0
+        $LASTEXITCODE | Should -Be 3
         (Requests) | Should -Be 0
         Test-Path (Join-Path $dir 'turn.lock') | Should -BeTrue
     }
@@ -323,7 +370,12 @@ if (($args -join ' ') -notmatch 'get-access-token --resource https://ai\.azure\.
         (Session).status | Should -Be 'idle'
     }
 
-    It 'saves the session while a reader briefly holds session.json open, as serve.ps1 does when the dashboard polls' {
+    It 'is exit 2 for a session that does not exist' {
+        & $script:Turn -Session S-404 -StateDir $env:FACTORY_HOME -EnvFile $script:EnvFile 6>$null 2>$null
+        $LASTEXITCODE | Should -Be 2
+    }
+
+    It 'saves the session while a reader briefly holds session.json open, as the dashboard does when it polls' {
         Set-Replies (Reply @((Text 'ok')))
         $dir = New-Session
         $fs = [IO.File]::Open((Join-Path $dir 'session.json'), 'Open', 'Read', 'Read')
@@ -357,5 +409,6 @@ public static class ReleaseWhenRetried {
         Run-Turn
         (Session).status | Should -Be 'error'
         (Requests) | Should -Be 1
+        (Stream | Where-Object type -eq 'tool') | Should -BeNullOrEmpty
     }
 }

@@ -43,6 +43,8 @@ public static class Composition
             o.RenewSeconds = host.Get("FACTORY_STATE_RENEW_SECONDS");
         });
         services.Configure<CliOptions>(o => o.NewLine = host.NewLine);
+        services.Configure<LlmOptions>(o => o.Environment = host.Variables);
+        services.AddSingleton(host);
 
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<IFileStore, FileStore>();
@@ -102,6 +104,11 @@ public static class Composition
         services.AddSingleton<ICommand, AllowIpCommand>();
         services.AddSingleton<ICommand, DiscardCommand>();
         services.AddSingleton<ICommand, ResumeCommand>();
+        services.AddSingleton<ILlmProvider, LlmProvider>();
+        services.AddSingleton<IdeaFiles>();
+        services.AddSingleton<IIdeaClaude, IdeaClaude>();
+        services.AddSingleton<IStandaloneCommand, IdeaTurnCommand>();
+        services.AddSingleton<IStandaloneCommand, IdeaMcpCommand>();
         services.AddSingleton<CliApp>();
         return services;
     }

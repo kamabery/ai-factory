@@ -8,4 +8,10 @@ using var stdout = new StreamWriter(Console.OpenStandardOutput(), utf8) { AutoFl
 using var stderr = new StreamWriter(Console.OpenStandardError(), utf8) { AutoFlush = true };
 var env = Environment.GetEnvironmentVariables().Cast<DictionaryEntry>()
     .ToDictionary(e => (string)e.Key, e => (string?)e.Value, StringComparer.OrdinalIgnoreCase);
-return CliHost.Run(args, env, Environment.CurrentDirectory, stdout, stderr);
+using var stdin = new StreamReader(Console.OpenStandardInput(), utf8);
+// How to start this CLI again (the idea turn's MCP server): the apphost itself, or dotnet with this DLL.
+var exe = Environment.ProcessPath ?? "dotnet";
+IReadOnlyList<string> self = Path.GetFileNameWithoutExtension(exe).Equals("dotnet", StringComparison.OrdinalIgnoreCase)
+    ? [exe, typeof(CliHost).Assembly.Location]
+    : [exe];
+return CliHost.Run(args, env, Environment.CurrentDirectory, stdout, stderr, stdin, self);

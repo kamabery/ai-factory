@@ -4,7 +4,8 @@ This repo is **the factory**, a Claude Code software factory, as in the ZazenCod
 "Build Your Own AI Software Factory with Claude Code" video. It builds GitHub target repos, and new
 targets are scaffolded from `D:\code\template-projects`. A `/factory` skill orchestrates
 spec, build, four parallel reviewers and an approver; ideas are grilled and specced in a
-dashboard idea session on the Claude API (key in `.env`), or in the CLI fallback, an interactive
+dashboard idea session (`claude -p` on the run mode's provider, with the idea tools as an MCP server;
+no API key), or in the CLI fallback, an interactive
 `/factory:idea` session. The run mode picks the LLM: `local` (the default) runs jobs on the
 subscription, and `cloud` (`FACTORY_MODE=cloud`) runs jobs and idea turns on Claude in Microsoft
 Foundry, keyless through Entra ID (`docs/FOUNDRY.md`). Nothing picks a provider per job. Each job's branch is deployed to an ephemeral Azure preview

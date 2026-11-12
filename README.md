@@ -35,24 +35,23 @@ when the job reaches Done or is discarded.
 
 ### 2. Work out an idea with Claude
 
-Put your API key in `.env` at the repo root (copy `.env.example`; it is gitignored). Then press
-**New idea** in the Ideas column, give the target repo (`owner/name`; a repo that doesn't exist yet
-is created, private, and scaffolded first) and a sentence, and the whole session runs in
-the panel against the Claude API (`claude-opus-5-5` unless `FACTORY_IDEA_MODEL` says otherwise).
+Press **New idea** in the Ideas column, give the target repo (`owner/name`; a repo that doesn't exist
+yet is created, private, and scaffolded first) and a sentence, and the whole session runs in the
+panel on the `claude` CLI, headless, like a job (`claude-opus-5-5` unless `FACTORY_IDEA_MODEL` says
+otherwise). No API key is needed.
 Samples are in [factory/backlog.md](factory/backlog.md).
 
 Claude grills you in rounds of clickable questions until nothing in the idea is assumed, and reads
 the brief back for your yes. It then splits the brief into 1–5 small specs, and each spec card asks
 you to approve it, change it (edit it, or ask Claude), choose "not yet", or reject it. Approved
 specs land in **Approved** and the runner starts. "Not yet" goes to **Backlog**, and rejected specs
-never reach the board. The panel shows the session's API cost as it goes. Closing the browser loses
-nothing: the session's card reopens it.
+never reach the board. The panel shows the session's cost as it goes (`claude`'s own estimate).
+Closing the browser loses nothing: the session's card reopens it.
 
-Only the idea session uses the API key. Build, review, approve and gate run on the `claude` CLI and
-your subscription, as before, and the key is never put in the environment. That is the **local**
-run mode, the default. In **cloud** mode (`FACTORY_MODE=cloud`, set by a deployed factory) jobs and
-idea turns run on Claude in Microsoft Foundry through Entra ID, with no key at all; see
-[docs/FOUNDRY.md](docs/FOUNDRY.md). With no key, or if you prefer a terminal, the CLI session still works:
+Idea sessions and jobs run on the same provider. In the **local** run mode, the default, that is
+your subscription, through the `claude` CLI's own login. In **cloud** mode (`FACTORY_MODE=cloud`,
+set by a deployed factory) both run on Claude in Microsoft Foundry through Entra ID, with no key at
+all; see [docs/FOUNDRY.md](docs/FOUNDRY.md). If you prefer a terminal, the CLI session still works:
 
 ```powershell
 pwsh factory/scripts/idea.ps1 kamabery/todo-app   # or an I-NNN to resume one
