@@ -20,7 +20,8 @@ public static class RunnerComposition
             o.EnvFile = Get("FACTORY_ENV_FILE");
             o.Work = Get("FACTORY_WORK");
             o.Templates = Get("FACTORY_TEMPLATES");
-            o.Scripts = Get("FACTORY_SCRIPTS");
+            // runner.ps1 sets FACTORY_SCRIPTS; started directly (the AppHost), the runner finds it above its binaries.
+            o.Scripts = Get("FACTORY_SCRIPTS") ?? FactoryPaths.FindScripts(AppContext.BaseDirectory);
             o.TempPath = tempPath;
             o.WorkingDirectory = workingDirectory;
         });

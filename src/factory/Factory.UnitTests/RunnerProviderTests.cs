@@ -130,4 +130,16 @@ public class RunnerProviderTests
         Assert.Equal("5", provider.GetRequiredService<IOptions<Factory.Store.StateOptions>>().Value.RenewSeconds);
         Assert.Same(provider.GetRequiredService<LlmProvider>(), provider.GetRequiredService<Factory.Runner.Abstractions.ILlmProvider>());
     }
+
+    [Fact]
+    public void Started_without_FACTORY_SCRIPTS_the_runner_finds_factory_scripts_above_its_binaries()
+    {
+        // As the AppHost starts it: not through runner.ps1, which sets FACTORY_SCRIPTS.
+        var services = new ServiceCollection().AddFactoryRunner(new Dictionary<string, string?> { ["FACTORY_HOME"] = "h" }, "w", "/tmp", "/appdata", "local");
+
+        using var provider = services.BuildServiceProvider();
+
+        var scripts = provider.GetRequiredService<Factory.Store.Abstractions.IFactoryPaths>().ScriptsDir;
+        Assert.True(File.Exists(Path.Combine(scripts, "factory.ps1")), scripts);
+    }
 }
