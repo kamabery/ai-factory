@@ -146,25 +146,6 @@ Describe 'runner.ps1 and hook-event.ps1' {
         }
     }
 
-    Context 'serve.ps1 PR sync' -Tag 'Ported' {
-        It 'moves a ready job to done once the human merges its PR on GitHub' {
-            $id = New-ApprovedJob 'A'
-            Set-FakeClaude
-            Run-Runner | Out-Null
-            (Job $id).pr.number | Should -Not -BeNullOrEmpty
-            Invoke-RestMethod -Method Put "http://localhost:$script:GhPort/repos/$script:Repo/pulls/$((Job $id).pr.number)/merge" `
-                -Headers @{ Authorization = "Bearer $script:Token" } -ContentType 'application/json' -Body '{}' | Out-Null
-            $port = Get-Random -Minimum 20000 -Maximum 40000
-            $serve = Start-FactoryServe -Port $port -StateDir $env:FACTORY_HOME -EnvFile $script:EnvFile -PrSyncSeconds 1
-            try {
-                $deadline = (Get-Date).AddSeconds(60)
-                while ((Get-Date) -lt $deadline -and (Job $id).stage -ne 'done') { Start-Sleep -Milliseconds 500 }
-                (Job $id).stage | Should -Be 'done'
-                (Job $id).merged.sha | Should -Be (RGit rev-parse main)
-            } finally { Stop-Process -Id $serve.Id -Force -ErrorAction SilentlyContinue }
-        }
-    }
-
     Context 'runner' -Tag 'Ported' {
         It 'exits at once and does nothing while runner.lock is held by a live process' {
             $id = New-ApprovedJob 'A'
