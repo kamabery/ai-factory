@@ -1,5 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <ItemGroup>
     <ProjectReference Include="..\Factory.ServiceDefaults\Factory.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\Factory.Core\Factory.Core.csproj" />
+    <ProjectReference Include="..\Factory.Store\Factory.Store.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Factory.UnitTests" />
+    <InternalsVisibleTo Include="Factory.IntegrationTests" />
   </ItemGroup>
 </Project>

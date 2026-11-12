@@ -1,9 +1,16 @@
-<Project Sdk="Aspire.AppHost.Sdk/13.6.4">
+<Project Sdk="Aspire.AppHost.Sdk/13.6.5">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <AspireUseCliBundle>true</AspireUseCliBundle>
     <UserSecretsId>ba7a49e3-01b3-46a7-93d8-0d5b7636c0d6</UserSecretsId>
   </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Factory.Server\Factory.Server.csproj" />
+    <ProjectReference Include="..\Factory.Runner\Factory.Runner.csproj" />
+    <!-- Not a resource: built so factory.ps1 can forward to it (FACTORY_IMPL=dotnet). -->
+    <ProjectReference Include="..\Factory.Cli\Factory.Cli.csproj" IsAspireProjectResource="false" />
+  </ItemGroup>
 
 </Project>

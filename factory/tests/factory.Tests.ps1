@@ -2,6 +2,7 @@
 
 BeforeAll {
     . (Join-Path $PSScriptRoot 'fixtures/portable.ps1')   # -WindowStyle off Windows
+    . (Join-Path $PSScriptRoot 'fixtures/serve-process.ps1')   # Start-FactoryServe: serve.ps1, or the .NET server
     $script:Factory = Join-Path $PSScriptRoot '..\scripts\factory.ps1' | Resolve-Path | Select-Object -ExpandProperty Path
     . (Join-Path $PSScriptRoot 'fixtures\github.ps1')
     Start-GitHubStub
@@ -2940,8 +2941,7 @@ Describe 'deploy' {
             $id = New-FailedTeardown
             Remove-Item (Join-Path $script:GitBase 'destroy-fails')
             $l = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0); $l.Start(); $port = $l.LocalEndpoint.Port; $l.Stop()
-            $serve = Start-Process pwsh -ArgumentList '-NoProfile', '-File', (Join-Path (Split-Path $script:Factory) 'serve.ps1'), '-Port', $port,
-                '-StateDir', $env:FACTORY_HOME, '-EnvFile', $env:FACTORY_ENV_FILE -PassThru -WindowStyle Hidden
+            $serve = Start-FactoryServe -Port $port -StateDir $env:FACTORY_HOME -EnvFile $env:FACTORY_ENV_FILE
             try { Wait-Preview $id 'down' }
             finally { Stop-Process -Id $serve.Id -Force -ErrorAction SilentlyContinue; $serve.WaitForExit(10000) | Out-Null }
         }

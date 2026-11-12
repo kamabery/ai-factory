@@ -32,6 +32,17 @@ public sealed class FactoryPaths(IOptions<FactoryOptions> options, IGitClient gi
     public string TemplatesRoot => !string.IsNullOrEmpty(_o.Templates) ? _o.Templates
         : Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetFullPath(ScriptsDir))!)!)!, "template-projects");
 
+    /// <summary>factory/scripts in the nearest folder above <paramref name="from"/> that has factory.ps1, or null.</summary>
+    public static string? FindScripts(string from)
+    {
+        for (var d = new DirectoryInfo(from); d is not null; d = d.Parent)
+        {
+            var p = Path.Combine(d.FullName, "factory", "scripts");
+            if (File.Exists(Path.Combine(p, "factory.ps1"))) return p;
+        }
+        return null;
+    }
+
     private string Resolve()
     {
         if (!string.IsNullOrEmpty(_o.Home)) return _o.Home;

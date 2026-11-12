@@ -36,8 +36,11 @@ public sealed class FactoryLauncherTests : IDisposable
         var marker = _dir["ran.txt"];
         File.WriteAllText(Path.Combine(scripts, "factory.ps1"), $"Start-Sleep -Seconds 8; Set-Content -LiteralPath '{marker}' done");
         var bin = AppContext.BaseDirectory;
+        // Options comes from the shared ASP.NET Core framework (the server's tests reference it), not this bin.
+        var options = typeof(Options).Assembly.Location;
         var parent = string.Join("; ",
-            $"foreach ($d in 'Microsoft.Extensions.Options', 'Factory.Core', 'Factory.Store') {{ Add-Type -Path (Join-Path '{bin}' \"$d.dll\") }}",
+            $"Add-Type -Path '{options}'",
+            $"foreach ($d in 'Factory.Core', 'Factory.Store') {{ Add-Type -Path (Join-Path '{bin}' \"$d.dll\") }}",
             $"$o = [Microsoft.Extensions.Options.Options]::Create([Factory.Store.FactoryOptions]@{{ Scripts = '{scripts}' }})",
             "$paths = [Factory.Store.FactoryPaths]::new($o, [Factory.Store.GitClient]::new([Factory.Store.ProcessRunner]::new()))",
             "[Factory.Store.FactoryLauncher]::new($paths).StartDetached([string[]]@('destroy', 'J-001'))",
