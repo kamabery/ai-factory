@@ -44,4 +44,7 @@ public sealed class StateOptions
 
     /// <summary>FACTORY_IP_URL: where allow-ip asks for this machine's public IP (tests), else api.ipify.org.</summary>
     public string? IpUrl { get; set; }
+
+    /// <summary>FACTORY_STATE_RENEW_SECONDS: how often a held lease (the runner's) is renewed, default 20.</summary>
+    public string? RenewSeconds { get; set; }
 }

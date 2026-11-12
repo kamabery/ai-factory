@@ -1,6 +1,6 @@
 # 11: Port evals, lessons and state admin
 
-**Status:** built on its branch (2026-11-11), proven on Windows and Linux. **Branch:**
+**Status:** done, merged in PR #15 (2026-11-11), proven on Windows and Linux. **Branch:**
 `feature/11-port-evals`. **Depends on:** 04. Ten commands forwarded: the eight below, plus `discard`
 and `resume`, which no spec had taken (04 left `discard` for its destroy, which 06's detached
 launcher now starts; `resume` is a plain board command). `allow-ip` stays on `az` (or

@@ -35,6 +35,18 @@ if (-not $env:FACTORY_HOME) { $env:FACTORY_HOME = Join-Path $mainRoot '.factory-
 New-Item -ItemType Directory -Force $env:FACTORY_HOME | Out-Null
 $lock = Join-Path $env:FACTORY_HOME 'runner.lock'
 
+# Strangler routing (contract, "Implementations"): with FACTORY_IMPL=dotnet the .NET runner drains the queue
+# instead, on the same lock, log and state. It calls factory.ps1 as this script does.
+if ($env:FACTORY_IMPL -eq 'dotnet') {
+    $dll = if ($env:FACTORY_RUNNER) { $env:FACTORY_RUNNER } else { [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../artifacts/bin/Factory.Runner/debug/Factory.Runner.dll')) }
+    if (-not (Test-Path $dll)) { [Console]::Error.WriteLine("runner: FACTORY_IMPL=dotnet, but the .NET runner is not built at $dll (dotnet build src/factory)"); exit 1 }
+    $env:FACTORY_SCRIPTS = $PSScriptRoot
+    # The contract's default run mode for a factory started from PowerShell; FACTORY_MODE in the environment or .env wins.
+    if (-not $env:Factory__Mode) { $env:Factory__Mode = 'local' }
+    & dotnet $dll
+    exit $LASTEXITCODE
+}
+
 function Take-Lock {
     try {
         $fs = [IO.File]::Open($lock, 'CreateNew', 'Write', 'None')

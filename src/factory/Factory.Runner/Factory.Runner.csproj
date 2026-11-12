@@ -1,6 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk.Worker">
   <ItemGroup>
     <ProjectReference Include="..\Factory.ServiceDefaults\Factory.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\Factory.Core\Factory.Core.csproj" />
+    <ProjectReference Include="..\Factory.Store\Factory.Store.csproj" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="appsettings.Development.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
