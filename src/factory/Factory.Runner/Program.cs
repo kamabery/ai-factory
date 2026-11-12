@@ -1,5 +1,6 @@
 using System.Collections;
 using Factory.Runner;
+using Factory.Store;
 
 // The job runner (roadmap spec 07): runner.ps1, ported. runner.ps1 forwards here when FACTORY_IMPL=dotnet.
 // Its settings files sit beside it, wherever it is started from.

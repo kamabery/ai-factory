@@ -82,7 +82,7 @@ public sealed class ClaudeRunner(IFactoryPaths paths, IFileStore files, IOptions
             psi.Environment["FACTORY_CLAUDE_RESUME"] = resumeSession;
             return psi;
         }
-        var claude = new ProcessStartInfo(ClaudeExecutable());
+        var claude = new ProcessStartInfo(Factory.Store.ClaudeCli.Executable());
         var args = new List<string> { "-p", prompt };
         if (resumeSession.Length > 0) args.AddRange(["--resume", resumeSession]);
         // The factory's own plugin, and the template workspace as the aspire-starter plugin (boot-strap-app, enhance-app).
@@ -90,19 +90,6 @@ public sealed class ClaudeRunner(IFactoryPaths paths, IFileStore files, IOptions
         args.AddRange(["--settings", settings, "--add-dir", paths.Home, "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits"]);
         foreach (var a in args) claude.ArgumentList.Add(a);
         return claude;
-    }
-
-    /// <summary>claude from PATH: claude.exe, or the npm shim claude.cmd, on Windows; claude elsewhere.</summary>
-    private static string ClaudeExecutable()
-    {
-        if (!OperatingSystem.IsWindows()) return "claude";
-        foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
-            foreach (var name in new[] { "claude.exe", "claude.cmd" })
-            {
-                var full = Path.Combine(dir.Trim('"'), name);
-                if (File.Exists(full)) return full;
-            }
-        return "claude";
     }
 
     private static Action? ConsoleUtf8()
