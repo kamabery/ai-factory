@@ -12,7 +12,7 @@ public static class ServerComposition
     /// <param name="stateDir">--state-dir, else FACTORY_HOME, else the main checkout's .factory-runs.</param>
     /// <param name="scripts">factory/scripts: FACTORY_SCRIPTS, else found above this server's binaries.</param>
     public static IServiceCollection AddFactoryServer(this IServiceCollection services, IReadOnlyDictionary<string, string?> env,
-        string? stateDir, string scripts, string envFile, int port, int watchdogSeconds, int prSyncSeconds,
+        string? stateDir, string scripts, string envFile, int port, int watchdogSeconds, int prSyncSeconds, int parentPid,
         string workingDirectory, string tempPath, string localAppData)
     {
         string? Get(string name) => env.GetValueOrDefault(name) is { Length: > 0 } v ? v : null;
@@ -46,6 +46,7 @@ public static class ServerComposition
             o.DashboardDir = Path.GetFullPath(Path.Combine(scripts, "..", "dashboard"));
             o.WatchdogSeconds = watchdogSeconds;
             o.PrSyncSeconds = prSyncSeconds;
+            o.ParentPid = parentPid;
             o.StatePollSeconds = double.TryParse(Get("FACTORY_STATE_POLL_SECONDS"), System.Globalization.CultureInfo.InvariantCulture, out var poll) ? poll : 5;
             o.WorkRoot = work;
             o.Environment = env;
@@ -75,6 +76,8 @@ public static class ServerComposition
         services.AddSingleton<IdeaSessions>();
         services.AddSingleton<Watchdog>();
         services.AddHostedService(sp => sp.GetRequiredService<Watchdog>());
+        services.AddSingleton<ParentWatch>();
+        services.AddHostedService(sp => sp.GetRequiredService<ParentWatch>());
         return services;
     }
 }

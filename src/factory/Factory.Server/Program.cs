@@ -6,7 +6,8 @@ using Factory.Server.Abstractions;
 using Factory.Store.Abstractions;
 
 // The dashboard server (roadmap spec 08): serve.ps1, ported. serve.ps1 forwards here when FACTORY_IMPL=dotnet.
-// Arguments are serve.ps1's: --port, --state-dir, --env-file, --watchdog-seconds, --pr-sync-seconds.
+// Arguments are serve.ps1's: --port, --state-dir, --env-file, --watchdog-seconds, --pr-sync-seconds, and --parent-pid
+// from the forward, so the server stops with serve.ps1 (ParentWatch).
 var env = Environment.GetEnvironmentVariables().Cast<DictionaryEntry>()
     .ToDictionary(e => (string)e.Key, e => (string?)e.Value, StringComparer.OrdinalIgnoreCase);
 var cli = new ConfigurationBuilder().AddCommandLine(args).Build();
@@ -17,9 +18,10 @@ var envFile = Path.GetFullPath(cli["env-file"] is { Length: > 0 } e ? e : Path.C
 var port = int.TryParse(cli["port"], out var p) ? p : 0;
 var watchdog = int.TryParse(cli["watchdog-seconds"], out var w) ? w : 10;
 var prSync = int.TryParse(cli["pr-sync-seconds"], out var ps) ? ps : 30;
+var parentPid = int.TryParse(cli["parent-pid"], out var pp) ? pp : 0;
 var stateDir = cli["state-dir"] is { Length: > 0 } sd ? sd : null;
 
-void Compose(IServiceCollection services) => services.AddFactoryServer(env, stateDir, scripts, envFile, port, watchdog, prSync,
+void Compose(IServiceCollection services) => services.AddFactoryServer(env, stateDir, scripts, envFile, port, watchdog, prSync, parentPid,
     Environment.CurrentDirectory, Path.GetTempPath(), Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
 
 // --port 0 (the default) takes a free loopback port, so a second dashboard never collides with one already running.

@@ -16,6 +16,9 @@ public sealed class ServerOptions
 
     public int PrSyncSeconds { get; set; } = 30;
 
+    /// <summary>--parent-pid: serve.ps1's PID when it forwarded here; 0 when started directly (the AppHost, the tests).</summary>
+    public int ParentPid { get; set; }
+
     /// <summary>FACTORY_STATE_POLL_SECONDS (default 5): how often, at most, the azure cache refreshes one thing.</summary>
     public double StatePollSeconds { get; set; } = 5;
 

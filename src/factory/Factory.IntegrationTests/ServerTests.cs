@@ -27,7 +27,7 @@ public sealed class ServerTests : IAsyncLifetime
         builder.Logging.SetMinimumLevel(LogLevel.Warning);
         builder.WebHost.ConfigureKestrel(k => k.Listen(IPAddress.Loopback, 0));
         builder.Services.AddFactoryServer(new Dictionary<string, string?> { ["FACTORY_WORK"] = _dir["work"] }, Home, scripts, _dir[".env"],
-            0, 3600, 3600, _dir.Path, Path.GetTempPath(), _dir["appdata"]);
+            0, 3600, 3600, 0, _dir.Path, Path.GetTempPath(), _dir["appdata"]);
         _app = builder.Build();
         _app.MapDashboard();
         await _app.StartAsync();

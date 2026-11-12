@@ -869,7 +869,11 @@ parameters as `--port`, `--state-dir`, `--env-file`, `--watchdog-seconds` and `-
 keeps the [Dashboard API](#dashboard-api) as written: the same `serve.lock`, start line, endpoints,
 `{ ok, message }` text, watchdog, PR sync and startup `sweep`, and each write is still one
 `factory.ps1` call, so ported commands reach the CLI through `factory.ps1`'s own forwarding and the
-deploy set still runs in PowerShell. Unlike `serve.ps1`, it serves static reads (`/state`, `/vendor`,
+deploy set still runs in PowerShell. `serve.ps1` also passes `--parent-pid` with its own PID, and the
+server stops (releasing `serve.lock`) within about a second of that process ending, so killing
+`serve.ps1` alone never leaves an orphaned server; a reused PID with a different start time does not
+count as the parent. Started without `--parent-pid` (the AppHost), it does not watch. Unlike
+`serve.ps1`, it serves static reads (`/state`, `/vendor`,
 the page) concurrently, while `/api` requests still run one at a time. The AppHost
 (`src/factory/Factory.AppHost`) runs the server on port 4317 and a runner, both with
 `FACTORY_IMPL=dotnet`, and passes `FACTORY_HOME`, `FACTORY_ENV_FILE` (as `--env-file`), `FACTORY_MODE`,

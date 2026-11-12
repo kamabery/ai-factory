@@ -25,7 +25,8 @@ if ($env:FACTORY_IMPL -eq 'dotnet') {
     $dll = if ($env:FACTORY_SERVER) { $env:FACTORY_SERVER } else { [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../artifacts/bin/Factory.Server/debug/Factory.Server.dll')) }
     if (-not (Test-Path $dll)) { [Console]::Error.WriteLine("serve: FACTORY_IMPL=dotnet, but the .NET server is not built at $dll (dotnet build src/factory)"); exit 1 }
     $env:FACTORY_SCRIPTS = $PSScriptRoot
-    $argv = @('--port', $Port, '--watchdog-seconds', $WatchdogSeconds, '--pr-sync-seconds', $PrSyncSeconds)
+    # --parent-pid: the server stops when this script does, so killing serve.ps1 alone never orphans it.
+    $argv = @('--port', $Port, '--watchdog-seconds', $WatchdogSeconds, '--pr-sync-seconds', $PrSyncSeconds, '--parent-pid', $PID)
     if ($StateDir) { $argv += '--state-dir', $StateDir }
     if ($EnvFile) { $argv += '--env-file', $EnvFile }
     & dotnet $dll @argv

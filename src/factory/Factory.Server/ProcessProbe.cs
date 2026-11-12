@@ -13,4 +13,11 @@ public sealed class ProcessProbe : IProcessProbe
         try { using var p = Process.GetProcessById(pid); return !p.HasExited; }
         catch (Exception e) when (e is ArgumentException or InvalidOperationException) { return false; }
     }
+
+    public DateTime? StartTime(int pid)
+    {
+        if (pid <= 0) return null;
+        try { using var p = Process.GetProcessById(pid); return p.HasExited ? null : p.StartTime.ToUniversalTime(); }
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception) { return null; }
+    }
 }

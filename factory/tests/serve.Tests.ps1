@@ -148,6 +148,31 @@ Describe 'serve.ps1 port' -Tag 'Ported' {
             (Get-Content (Join-Path $state 'serve.lock'))[0] | Should -Be "$($third.Proc.Id)"
         } finally { $procs | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue } }
     }
+
+    It 'stops serving when serve.ps1 alone is killed, so a forwarded .NET server is never orphaned' {
+        # serve.ps1 itself, not Start-FactoryServe: with FACTORY_IMPL=dotnet it is the forward that is under test.
+        $state = Join-Path $TestDrive 'orphan-state'
+        New-Item -ItemType Directory -Force $state | Out-Null
+        $port = Free-Port
+        $serve = Start-Process pwsh -PassThru -WindowStyle Hidden -ArgumentList @(
+            '-NoProfile', '-File', (Join-Path $script:Scripts 'serve.ps1'), '-Port', $port, '-StateDir', $state, '-EnvFile', $script:EnvFile)
+        $holder = $null
+        try {
+            Wait-Http "http://localhost:$port/"
+            $holder = (Get-Content (Join-Path $state 'serve.lock'))[0] -as [int]
+            Stop-Process -Id $serve.Id -Force   # the parent only, never its tree
+            $deadline = (Get-Date).AddSeconds(15)
+            $up = $true
+            while ($up -and (Get-Date) -lt $deadline) {
+                try { Invoke-WebRequest "http://localhost:$port/" -TimeoutSec 1 -SkipHttpErrorCheck | Out-Null; Start-Sleep -Milliseconds 250 }
+                catch { $up = $false }
+            }
+            $up | Should -BeFalse -Because 'the dashboard must stop with serve.ps1'
+        } finally {
+            Stop-Process -Id $serve.Id -Force -ErrorAction SilentlyContinue
+            if ($holder -and $holder -ne $serve.Id) { Stop-Process -Id $holder -Force -ErrorAction SilentlyContinue }
+        }
+    }
 }
 
 Describe 'serve.ps1 ideate config' -Tag 'Ported' {
