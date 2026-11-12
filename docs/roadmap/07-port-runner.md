@@ -1,7 +1,9 @@
 # 07: Port the runner and run-mode providers
 
-**Status:** built on its branch (2026-11-11), proven on Windows and Linux; the live proof (one real
-job in local mode, one in cloud mode, each with an eval) is still to run. **Branch:**
+**Status:** built on its branch (2026-11-11), proven on Windows and Linux, and live-proven
+(2026-11-12) on todoapp-two with deploys off: J-033 in local mode (subscription, $1.83, 6 min, PR
+todoapp-two #13) and J-034 in cloud mode (Foundry `fdy-factory-gc6c2b`, keyless, $1.66, 6 min, PR
+todoapp-two #14), both on the .NET runner, first round green, evals recorded (both good). **Branch:**
 `feature/07-port-runner`. **Depends on:** 06, 11. `Factory.Runner` is a hosted service porting
 `runner.ps1` and `claude-run.ps1`; `RunnerLock` in `Factory.Store` holds `runner.lock` and, on the
 azure backend, the `locks/runner` lease and its renewal. `runner.ps1` forwards to it when
