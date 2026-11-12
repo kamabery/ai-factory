@@ -855,6 +855,13 @@ preview that is still up by starting `factory.ps1 destroy <id>` detached, as `fa
 does. A forwarded `state-migrate` opens the board without first refreshing it from the container,
 which has none yet, as `factory.ps1` does.
 
+The runner is forwarded the same way: with `FACTORY_IMPL=dotnet`, `runner.ps1` starts the .NET runner
+(`artifacts/bin/Factory.Runner/debug/Factory.Runner.dll`, or `FACTORY_RUNNER`) on the same
+`runner.lock`, lease, `runner.log` and state, and it calls `factory.ps1` as `runner.ps1` does. Its run
+mode is `FACTORY_MODE` from the environment, else `.env`, else `Factory:Mode` from its configuration;
+`runner.ps1` passes `Factory:Mode=local`, this contract's default, and a .NET runner started with no
+mode from any of them refuses to start rather than default to a subscription.
+
 | Command | Used by |
 | --- | --- |
 | `new-idea <text> -Target <path> [-Scaffold <json>] [-Base <J-NNN>]` · `add-spec <ideaId> <file>` · `idea-done <ideaId> [-Failed -Reason]` · `idea-abandon <ideaId>` | `/factory:idea`, serve.ps1 (idea sessions, **Abandon**) |

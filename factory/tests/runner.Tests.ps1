@@ -79,6 +79,7 @@ AfterAll {
     Stop-GitHubStub
 }
 
+# Ported (roadmap spec 07): run-all.ps1 -Tag Ported runs the runner's contexts (all but hook-event) with FACTORY_IMPL=ps and dotnet.
 Describe 'runner.ps1 and hook-event.ps1' {
 
     BeforeEach {
@@ -95,7 +96,7 @@ Describe 'runner.ps1 and hook-event.ps1' {
         Remove-Item Env:FACTORY_HOME, Env:FACTORY_WORK, Env:FACTORY_ENV_FILE, Env:FACTORY_GATE_CMDS, Env:FACTORY_CLAUDE_CMD, Env:FACTORY_JOB, Env:FACTORY_IDEA, Env:FAKE_BAD_COST -ErrorAction SilentlyContinue
     }
 
-    Context 'runner log and resilience' {
+    Context 'runner log and resilience' -Tag 'Ported' {
         It 'logs start, each job, claude exit and result, the stage after, and exit drained' {
             $id = New-ApprovedJob 'A'
             Set-FakeClaude
@@ -117,13 +118,14 @@ Describe 'runner.ps1 and hook-event.ps1' {
             (Job $b).stage | Should -Be 'ready'
             $log = Get-Content (Join-Path $env:FACTORY_HOME 'runner.log') -Raw
             $log | Should -Match "error $($a): "
-            $log | Should -Match 'at .*runner\.ps1'
+            # The stack is runner.ps1's, or the .NET runner's when FACTORY_IMPL=dotnet.
+            $log | Should -Match 'at .*(runner\.ps1|Factory\.Runner)'
             $log | Should -Match 'exit drained'
             Test-Path (Join-Path $env:FACTORY_HOME 'runner.lock') | Should -BeFalse
         }
     }
 
-    Context 'serve.ps1 watchdog' {
+    Context 'serve.ps1 watchdog' -Tag 'Ported' {
         It 'starts the runner for an approved job when no live runner holds the lock' {
             $id = New-ApprovedJob 'A'          # approved outside the dashboard: nobody starts a runner
             Set-FakeClaude
@@ -145,7 +147,7 @@ Describe 'runner.ps1 and hook-event.ps1' {
         }
     }
 
-    Context 'serve.ps1 PR sync' {
+    Context 'serve.ps1 PR sync' -Tag 'Ported' {
         It 'moves a ready job to done once the human merges its PR on GitHub' {
             $id = New-ApprovedJob 'A'
             Set-FakeClaude
@@ -166,7 +168,7 @@ Describe 'runner.ps1 and hook-event.ps1' {
         }
     }
 
-    Context 'runner' {
+    Context 'runner' -Tag 'Ported' {
         It 'exits at once and does nothing while runner.lock is held by a live process' {
             $id = New-ApprovedJob 'A'
             Set-FakeClaude
@@ -516,7 +518,7 @@ if ($held) { $held.Dispose() }
         }
     }
 
-    Context 'canary' {
+    Context 'canary' -Tag 'Ported' {
         BeforeEach {
             Use-Deploys; Use-Canary
             # The teardown is detached and lands after the canary has exited: waits until it ends and returns its record.
@@ -582,7 +584,7 @@ if ($held) { $held.Dispose() }
         }
     }
 
-    Context 'providers' {
+    Context 'providers' -Tag 'Ported' {
         BeforeEach {
             # A fake claude that records the provider environment it was started with, one line per job.
             $fake = Join-Path $TestDrive 'fake-claude-env.ps1'
@@ -693,7 +695,7 @@ Add-Content (Join-Path $env:FACTORY_HOME 'env.log') ($seen | ConvertTo-Json -Com
         }
     }
 
-    Context 'state resolution' {
+    Context 'state resolution' -Tag 'Ported' {
         It "gives claude FACTORY_HOME, so factory.ps1 in the work dir (its own repo) uses this factory's state" {
             $id = New-ApprovedJob 'A'
             Set-FakeClaude

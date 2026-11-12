@@ -1,6 +1,23 @@
 # 07: Port the runner and run-mode providers
 
-**Status:** not started. **Branch:** `feature/07-port-runner`. **Depends on:** 06, 11.
+**Status:** built on its branch (2026-11-11), proven on Windows and Linux; the live proof (one real
+job in local mode, one in cloud mode, each with an eval) is still to run. **Branch:**
+`feature/07-port-runner`. **Depends on:** 06, 11. `Factory.Runner` is a hosted service porting
+`runner.ps1` and `claude-run.ps1`; `RunnerLock` in `Factory.Store` holds `runner.lock` and, on the
+azure backend, the `locks/runner` lease and its renewal. `runner.ps1` forwards to it when
+FACTORY_IMPL=dotnet, defaulting `Factory__Mode` to `local`. `runner.Tests.ps1`'s runner contexts
+(all but `hook-event`) are tagged `Ported`. Proven locally:
+- Windows: .NET 597 unit, 55 integration (Core 99.7%, Store 96.7%, Cli 99.0%, Runner 86.2%); fourteen
+  deliberate breaks, one per runner rule, each turned a test red. The canary-once break at first
+  hung its test instead (the fake factory asked for a canary forever, and grew to 19 GB); the fake now
+  fails a drain past 1000 calls. Pester `-Tag Ported` 414 local both ways; `-Impl dotnet` 437 local,
+  235 azure (+1 skipped); Playwright on .NET 41. The runner's Pester blocks run about 3x slower on
+  .NET than on PowerShell (the `runner` context 899s against 335s).
+- Linux (WSL): `-Tag Ported` 414 local, 300 azure (+2 skipped) both ways. The first run failed the
+  whole `ideas and specs` unit (local, .NET) and the `serve.ps1 PR sync` test (local, PowerShell);
+  the block passed alone, and a second full run was green. That is a third whole-unit setup failure
+  on Linux under load (after 06's `abandon` and 11's `human moves from ready`): the harness flake is
+  recurring and needs diagnosing.
 
 ## Goal
 

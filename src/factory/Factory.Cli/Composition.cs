@@ -40,6 +40,7 @@ public static class Composition
             o.StorageAccount = host.Get("FACTORY_STORAGE_ACCOUNT");
             o.StateGroup = host.Get("FACTORY_STATE_RG");
             o.IpUrl = host.Get("FACTORY_IP_URL");
+            o.RenewSeconds = host.Get("FACTORY_STATE_RENEW_SECONDS");
         });
         services.Configure<CliOptions>(o => o.NewLine = host.NewLine);
 
