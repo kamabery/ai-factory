@@ -15,6 +15,8 @@
     <ProjectReference Include="..\Factory.Store\Factory.Store.csproj" />
     <ProjectReference Include="..\Factory.Cli\Factory.Cli.csproj" />
     <ProjectReference Include="..\Factory.Runner\Factory.Runner.csproj" />
+    <ProjectReference Include="..\Factory.Server\Factory.Server.csproj" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
   <ItemGroup>
     <!-- Sanitized copies of real state files: embedded, so the golden tests read no files. -->

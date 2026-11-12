@@ -1,6 +1,6 @@
 # 07: Port the runner and run-mode providers
 
-**Status:** built on its branch (2026-11-11), proven on Windows and Linux, and live-proven
+**Status:** done, merged in PR #16 (2026-11-12), proven on Windows and Linux, and live-proven
 (2026-11-12) on todoapp-two with deploys off: J-033 in local mode (subscription, $1.83, 6 min, PR
 todoapp-two #13) and J-034 in cloud mode (Foundry `fdy-factory-gc6c2b`, keyless, $1.66, 6 min, PR
 todoapp-two #14), both on the .NET runner, first round green, evals recorded (both good). **Branch:**

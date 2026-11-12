@@ -4,11 +4,10 @@ This turns the approved replatform roadmap (2026-10-23, revised 2026-11-08) into
 session can pick up one at a time. The rationale and the decisions table live in
 `C:\Users\kamab\.claude\plans\grill-me-on-the-silly-yao.md`; this folder is the work.
 
-**Where things stand (2026-11-11):** specs 00, 19, 01–06 and 11 are merged (11 in PR #15). Spec 07,
-the runner, is built on its branch, proven on Windows and Linux (WSL), and live-proven with one real
-job in local mode (J-033) and one in cloud mode on Foundry (J-034); it waits for merge in PR #16.
-macOS is out of scope. Every command but spec 09's
-deploy set, and now the runner, runs on .NET. Last green suites: .NET 597 unit, 55 integration;
+**Where things stand (2026-11-12):** specs 00, 19, 01–07 and 11 are merged (07 in PR #16). Spec 08,
+the dashboard server, is built on its branch and proven on Windows and Linux (WSL); the AppHost now runs
+the server and runner together on .NET. macOS is out of scope. Every command but spec 09's deploy set,
+the runner and the dashboard server now run on .NET. Last green suites: .NET 651 unit, 63 integration;
 Pester on .NET (`-Impl dotnet`) 437 local, 235 azure. Reordered 2026-11-09 so
 previews come last (see below).
 

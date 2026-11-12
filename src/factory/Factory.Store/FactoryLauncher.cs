@@ -11,9 +11,11 @@ namespace Factory.Store;
 /// </summary>
 public sealed class FactoryLauncher(IFactoryPaths paths) : IFactoryLauncher
 {
-    public void StartDetached(IReadOnlyList<string> args)
+    public void StartDetached(IReadOnlyList<string> args) => StartScript("factory.ps1", args);
+
+    public void StartScript(string script, IReadOnlyList<string> args)
     {
-        var script = Path.Combine(paths.ScriptsDir, "factory.ps1");
+        script = Path.Combine(paths.ScriptsDir, script);
         ProcessStartInfo psi;
         if (OperatingSystem.IsWindows())
         {

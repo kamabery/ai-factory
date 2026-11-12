@@ -2,8 +2,11 @@
 
 # The idea-session endpoints of serve.ps1, against the Anthropic stub. Each describe drives one
 # session from start to close, so its tests run in order.
+# Ported (roadmap spec 08): run-all.ps1 -Tag Ported runs every block here with FACTORY_IMPL=ps and dotnet;
+# Start-FactoryServe starts serve.ps1 or the .NET server accordingly.
 BeforeAll {
     . (Join-Path $PSScriptRoot 'fixtures/portable.ps1')   # -WindowStyle off Windows
+    . (Join-Path $PSScriptRoot 'fixtures/serve-process.ps1')   # Start-FactoryServe: serve.ps1, or the .NET server
     $script:Scripts = Join-Path $PSScriptRoot '..\scripts' | Resolve-Path | Select-Object -ExpandProperty Path
     $script:Stub = Join-Path $PSScriptRoot 'fixtures\anthropic-stub.ps1' | Resolve-Path | Select-Object -ExpandProperty Path
     $script:Key = 'sk-ant-test-' + [guid]::NewGuid().ToString('N')
@@ -58,8 +61,7 @@ BeforeAll {
         $env:FACTORY_CLAUDE_CMD = 'exit 0'
         $env:FACTORY_GATE_CMDS = '[{"name":"build","cmd":"exit 0"}]'
         $script:Port = Free-Port
-        $script:Serve = Start-Process pwsh -ArgumentList '-NoProfile', '-File', (Join-Path $script:Scripts 'serve.ps1'), '-Port', $script:Port,
-            '-StateDir', $script:State, '-EnvFile', $envFile -PassThru -WindowStyle Hidden
+        $script:Serve = Start-FactoryServe -Port $script:Port -StateDir $script:State -EnvFile $envFile
         Wait-Http "http://localhost:$script:Port/"
     }
     # The whole tree: serve.ps1 starts the runner detached, and a runner (or its git) left running in
@@ -101,7 +103,7 @@ AfterAll {
     Remove-Item Env:FACTORY_HOME, Env:FACTORY_WORK, Env:FACTORY_ENV_FILE, Env:FACTORY_CLAUDE_CMD, Env:FACTORY_GATE_CMDS -ErrorAction SilentlyContinue
 }
 
-Describe 'serve.ps1 port' {
+Describe 'serve.ps1 port' -Tag 'Ported' {
     It 'without -Port listens on a random free port and prints it, so two dashboards never collide' {
         $procs = @()
         try {
@@ -109,8 +111,7 @@ Describe 'serve.ps1 port' {
                 $state = Join-Path $TestDrive "port-state-$n"
                 New-Item -ItemType Directory -Force $state | Out-Null
                 $out = Join-Path $TestDrive "port-out-$n.txt"
-                $procs += Start-Process pwsh -PassThru -WindowStyle Hidden -RedirectStandardOutput $out -ArgumentList @(
-                    '-NoProfile', '-File', (Join-Path $script:Scripts 'serve.ps1'), '-StateDir', $state, '-EnvFile', $script:EnvFile)
+                $procs += Start-FactoryServe -StateDir $state -EnvFile $script:EnvFile -RedirectStandardOutput $out
                 Wait-Until { (Test-Path $out) -and ((Get-Content $out -Raw) -match 'factory dashboard on (http://localhost:\d+/)') } "dashboard $n to print its url"
                 [regex]::Match((Get-Content $out -Raw), 'factory dashboard on (http://localhost:\d+/)').Groups[1].Value
             }
@@ -124,8 +125,7 @@ Describe 'serve.ps1 port' {
         $state = Join-Path $TestDrive 'lock-state'
         New-Item -ItemType Directory -Force $state | Out-Null
         $serve = { param($n) $out = Join-Path $TestDrive "lock-out-$n.txt"
-            $p = Start-Process pwsh -PassThru -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError "$out.err" -ArgumentList @(
-                '-NoProfile', '-File', (Join-Path $script:Scripts 'serve.ps1'), '-StateDir', $state, '-EnvFile', $script:EnvFile)
+            $p = Start-FactoryServe -StateDir $state -EnvFile $script:EnvFile -RedirectStandardOutput $out -RedirectStandardError "$out.err"
             @{ Proc = $p; Out = $out } }
         $url = { param($o) [regex]::Match("$(Get-Content $o -Raw)",'factory dashboard on (http://localhost:\d+/)').Groups[1].Value }
         $procs = @()
@@ -150,7 +150,7 @@ Describe 'serve.ps1 port' {
     }
 }
 
-Describe 'serve.ps1 ideate config' {
+Describe 'serve.ps1 ideate config' -Tag 'Ported' {
     AfterEach { Stop-Serve }
 
     It 'is disabled without a key, and enabled with one, which it never returns' {
@@ -168,7 +168,7 @@ Describe 'serve.ps1 ideate config' {
     }
 }
 
-Describe 'serve.ps1 evaluations' {
+Describe 'serve.ps1 evaluations' -Tag 'Ported' {
     AfterEach { Stop-Serve }
 
     It 'lists every evals/J-NNN.json, newest job first, and serves the markdown' {
@@ -206,7 +206,7 @@ Describe 'serve.ps1 evaluations' {
     }
 }
 
-Describe 'serve.ps1 lessons' {
+Describe 'serve.ps1 lessons' -Tag 'Ported' {
     AfterEach { Stop-Serve }
 
     It 'lists every lessons/J-NNN.json, newest job first, serves the markdown, and names the templates repo' {
@@ -242,7 +242,7 @@ Describe 'serve.ps1 lessons' {
     }
 }
 
-Describe 'serve.ps1 previews' {
+Describe 'serve.ps1 previews' -Tag 'Ported' {
     AfterEach { Stop-Serve }
 
     It 'Tear down answers at once, and QA login refuses a job without a live preview' {
@@ -279,7 +279,7 @@ Describe 'serve.ps1 previews' {
     }
 }
 
-Describe 'serve.ps1 state files' {
+Describe 'serve.ps1 state files' -Tag 'Ported' {
     AfterEach { Stop-Serve }
 
     It 'serves a run log the runner is still writing' {
@@ -298,7 +298,7 @@ Describe 'serve.ps1 state files' {
     }
 }
 
-Describe 'serve.ps1 run mode' {
+Describe 'serve.ps1 run mode' -Tag 'Ported' {
     AfterEach { Stop-Serve }
 
     It 'has no provider endpoint: the run mode decides the provider' {
@@ -332,7 +332,7 @@ Describe 'serve.ps1 run mode' {
     }
 }
 
-Describe 'serve.ps1 blocked jobs' {
+Describe 'serve.ps1 blocked jobs' -Tag 'Ported' {
     BeforeAll {
         # Deploys on, with the gh, az and canary stubs, so the runner a rework starts touches nothing real.
         Use-Deploys
@@ -382,7 +382,7 @@ Describe 'serve.ps1 blocked jobs' {
     }
 }
 
-Describe 'serve.ps1 idea session on an existing repo' {
+Describe 'serve.ps1 idea session on an existing repo' -Tag 'Ported' {
     BeforeAll {
         Start-Serve $script:EnvFile
         $script:Target = New-Repo
@@ -490,7 +490,7 @@ Describe 'serve.ps1 idea session on an existing repo' {
     }
 }
 
-Describe 'serve.ps1 idea session on an unmerged base' {
+Describe 'serve.ps1 idea session on an unmerged base' -Tag 'Ported' {
     BeforeAll {
         Start-Serve $script:EnvFile
         $env:FACTORY_ENV_FILE = $script:EnvFile
@@ -562,7 +562,7 @@ Describe 'serve.ps1 idea session on an unmerged base' {
     }
 }
 
-Describe 'serve.ps1 repo list and Add new' {
+Describe 'serve.ps1 repo list and Add new' -Tag 'Ported' {
     BeforeAll {
         Start-Serve $script:EnvFile
         $script:Existing = New-Repo
@@ -636,7 +636,7 @@ Describe 'serve.ps1 repo list and Add new' {
     }
 }
 
-Describe 'serve.ps1 Add new without an owner' {
+Describe 'serve.ps1 Add new without an owner' -Tag 'Ported' {
     AfterAll { Stop-Serve }
 
     It 'refuses Add new when GITHUB_OWNER is not set, and creates no session' {
@@ -650,7 +650,7 @@ Describe 'serve.ps1 Add new without an owner' {
     }
 }
 
-Describe 'serve.ps1 idea session on a new target' {
+Describe 'serve.ps1 idea session on a new target' -Tag 'Ported' {
     BeforeAll {
         Start-Serve $script:EnvFile
         $script:NewTarget = "test/new-$([guid]::NewGuid().ToString('N').Substring(0, 8))"

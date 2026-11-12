@@ -18,6 +18,20 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Strangler routing (contract, "Implementations"): with FACTORY_IMPL=dotnet the .NET server serves the dashboard
+# instead, with the same parameters, lock, state and endpoints. It calls factory.ps1 as this script does.
+if ($env:FACTORY_IMPL -eq 'dotnet') {
+    $dll = if ($env:FACTORY_SERVER) { $env:FACTORY_SERVER } else { [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../artifacts/bin/Factory.Server/debug/Factory.Server.dll')) }
+    if (-not (Test-Path $dll)) { [Console]::Error.WriteLine("serve: FACTORY_IMPL=dotnet, but the .NET server is not built at $dll (dotnet build src/factory)"); exit 1 }
+    $env:FACTORY_SCRIPTS = $PSScriptRoot
+    $argv = @('--port', $Port, '--watchdog-seconds', $WatchdogSeconds, '--pr-sync-seconds', $PrSyncSeconds)
+    if ($StateDir) { $argv += '--state-dir', $StateDir }
+    if ($EnvFile) { $argv += '--env-file', $EnvFile }
+    & dotnet $dll @argv
+    exit $LASTEXITCODE
+}
+
 $Scripts = $PSScriptRoot
 $Factory = Join-Path $Scripts 'factory.ps1'
 $Index = Join-Path (Split-Path $Scripts -Parent) 'dashboard/index.html'

@@ -85,7 +85,7 @@ if ($List) { $units | ForEach-Object { '{0,5} {1,4}  {2}' -f $_.Last, $_.Tests, 
 if ($Tag -and -not $units) { throw "no test block is tagged '$Tag'" }
 # FACTORY_IMPL=dotnet runs the CLI factory.ps1 forwards to; build it once, before the units start.
 if ($Tag -or $Impl -eq 'dotnet') {
-    foreach ($p in 'Factory.Cli', 'Factory.Runner') {
+    foreach ($p in 'Factory.Cli', 'Factory.Runner', 'Factory.Server') {
         dotnet build (Join-Path $repo "src/factory/$p/$p.csproj") -v q -nologo
         if ($LASTEXITCODE) { throw "dotnet build of $p failed" }
     }

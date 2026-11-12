@@ -860,7 +860,20 @@ The runner is forwarded the same way: with `FACTORY_IMPL=dotnet`, `runner.ps1` s
 `runner.lock`, lease, `runner.log` and state, and it calls `factory.ps1` as `runner.ps1` does. Its run
 mode is `FACTORY_MODE` from the environment, else `.env`, else `Factory:Mode` from its configuration;
 `runner.ps1` passes `Factory:Mode=local`, this contract's default, and a .NET runner started with no
-mode from any of them refuses to start rather than default to a subscription.
+mode from any of them refuses to start rather than default to a subscription. Started directly (the
+AppHost), the runner finds `factory/scripts` above its binaries when `FACTORY_SCRIPTS` is unset.
+
+The dashboard server is forwarded the same way: with `FACTORY_IMPL=dotnet`, `serve.ps1` starts the .NET
+server (`artifacts/bin/Factory.Server/debug/Factory.Server.dll`, or `FACTORY_SERVER`) with its
+parameters as `--port`, `--state-dir`, `--env-file`, `--watchdog-seconds` and `--pr-sync-seconds`. It
+keeps the [Dashboard API](#dashboard-api) as written: the same `serve.lock`, start line, endpoints,
+`{ ok, message }` text, watchdog, PR sync and startup `sweep`, and each write is still one
+`factory.ps1` call, so ported commands reach the CLI through `factory.ps1`'s own forwarding and the
+deploy set still runs in PowerShell. Unlike `serve.ps1`, it serves static reads (`/state`, `/vendor`,
+the page) concurrently, while `/api` requests still run one at a time. The AppHost
+(`src/factory/Factory.AppHost`) runs the server on port 4317 and a runner, both with
+`FACTORY_IMPL=dotnet`, and passes `FACTORY_HOME`, `FACTORY_ENV_FILE` (as `--env-file`), `FACTORY_MODE`,
+`FACTORY_FOUNDRY_RESOURCE` and `FACTORY_WORK` through when they are set.
 
 | Command | Used by |
 | --- | --- |

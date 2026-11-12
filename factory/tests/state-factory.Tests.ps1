@@ -5,6 +5,7 @@
 
 BeforeAll {
     . (Join-Path $PSScriptRoot 'fixtures/portable.ps1')   # -WindowStyle off Windows
+    . (Join-Path $PSScriptRoot 'fixtures/serve-process.ps1')   # Start-FactoryServe: serve.ps1, or the .NET server
     $script:Factory = Join-Path $PSScriptRoot '..\scripts\factory.ps1' | Resolve-Path | Select-Object -ExpandProperty Path
     . (Join-Path $PSScriptRoot 'fixtures\github.ps1')
     . (Join-Path $PSScriptRoot 'fixtures\blob.ps1')
@@ -167,8 +168,7 @@ It "the dashboard shows another machine's board, events and transcripts" {
     $l = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0); $l.Start(); $port = $l.LocalEndpoint.Port; $l.Stop()
     $env:FACTORY_STATE_POLL_SECONDS = '0'
     New-Item -ItemType Directory -Force $script:A | Out-Null
-    $serve = Start-Process pwsh -ArgumentList '-NoProfile', '-File', (Join-Path $PSScriptRoot '..\scripts\serve.ps1'), '-Port', $port,
-        '-StateDir', $script:A, '-EnvFile', $script:EnvFile -PassThru -WindowStyle Hidden
+    $serve = Start-FactoryServe -Port $port -StateDir $script:A -EnvFile $script:EnvFile
     try {
         $deadline = (Get-Date).AddSeconds(30)
         while ($true) {

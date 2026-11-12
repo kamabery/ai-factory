@@ -2,6 +2,7 @@
 
 BeforeAll {
     . (Join-Path $PSScriptRoot 'fixtures/portable.ps1')   # -WindowStyle off Windows
+    . (Join-Path $PSScriptRoot 'fixtures/serve-process.ps1')   # Start-FactoryServe: serve.ps1, or the .NET server
     $script:Scripts = Join-Path $PSScriptRoot '..\scripts' | Resolve-Path | Select-Object -ExpandProperty Path
     $script:Factory = Join-Path $script:Scripts 'factory.ps1'
     $script:Runner = Join-Path $script:Scripts 'runner.ps1'
@@ -131,9 +132,7 @@ Describe 'runner.ps1 and hook-event.ps1' {
             Set-FakeClaude
             Set-Content (Join-Path $env:FACTORY_HOME 'runner.lock') 999999   # a runner that died
             $port = Get-Random -Minimum 20000 -Maximum 40000
-            $serve = Start-Process pwsh -PassThru -WindowStyle Hidden -ArgumentList @(
-                '-NoProfile', '-File', (Join-Path $script:Scripts 'serve.ps1'),
-                '-Port', $port, '-StateDir', $env:FACTORY_HOME, '-EnvFile', $script:EnvFile, '-WatchdogSeconds', 1)
+            $serve = Start-FactoryServe -Port $port -StateDir $env:FACTORY_HOME -EnvFile $script:EnvFile -WatchdogSeconds 1
             try {
                 $deadline = (Get-Date).AddSeconds(60)
                 while ((Get-Date) -lt $deadline -and (Job $id).stage -ne 'ready') { Start-Sleep -Milliseconds 500 }
@@ -156,9 +155,7 @@ Describe 'runner.ps1 and hook-event.ps1' {
             Invoke-RestMethod -Method Put "http://localhost:$script:GhPort/repos/$script:Repo/pulls/$((Job $id).pr.number)/merge" `
                 -Headers @{ Authorization = "Bearer $script:Token" } -ContentType 'application/json' -Body '{}' | Out-Null
             $port = Get-Random -Minimum 20000 -Maximum 40000
-            $serve = Start-Process pwsh -PassThru -WindowStyle Hidden -ArgumentList @(
-                '-NoProfile', '-File', (Join-Path $script:Scripts 'serve.ps1'),
-                '-Port', $port, '-StateDir', $env:FACTORY_HOME, '-EnvFile', $script:EnvFile, '-PrSyncSeconds', 1)
+            $serve = Start-FactoryServe -Port $port -StateDir $env:FACTORY_HOME -EnvFile $script:EnvFile -PrSyncSeconds 1
             try {
                 $deadline = (Get-Date).AddSeconds(60)
                 while ((Get-Date) -lt $deadline -and (Job $id).stage -ne 'done') { Start-Sleep -Milliseconds 500 }

@@ -4,4 +4,7 @@ namespace Factory.Store.Abstractions;
 public interface IFactoryLauncher
 {
     void StartDetached(IReadOnlyList<string> args);
+
+    /// <summary>Any script in factory/scripts (runner.ps1, idea-turn.ps1), detached the same way.</summary>
+    void StartScript(string script, IReadOnlyList<string> args);
 }
