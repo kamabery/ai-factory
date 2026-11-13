@@ -855,9 +855,10 @@ lock as `factory.ps1` (the mutex named for the state directory, and in `azure` t
 `locks/board`) and keeps the same `.sync.json`, so the two implementations never write the board at
 once and either can follow the other on one state directory. `factory.ps1` sets `FACTORY_SCRIPTS` to
 its own folder for the CLI, which hashes the deploy scripts there into the canary fingerprint, as
-`factory.ps1` does. Until cutover (spec 12) both implementations fingerprint those PowerShell
-scripts, so a canary recorded by either counts for the other; the .NET deploy code takes their place in
-the fingerprint at cutover. Ported, on both state backends: every command, the deploy set
+`factory.ps1` does. Until cutover (spec 12) both implementations fingerprinted those PowerShell
+scripts, so a canary recorded by either counted for the other. At cutover the .NET deploy code took their
+place in the fingerprint (see [Canary](#canary)), so a canary recorded before it no longer counts: the
+first deployable job after cutover waits for a fresh canary pass. Ported, on both state backends: every command, the deploy set
 (`deploy`, `deploy-log`, `deploy-fix`, `block`, `redeploy`, `destroy`, `sweep`, `canary`,
 `canary-destroy`, `qa-login`, spec 09) too. The CLI calls `gh`, `az`, the sign-in smoke and the canary's
 scaffold commands as external processes, with the same overrides (`FACTORY_GH_CMD`, `FACTORY_AZ_CMD`,
@@ -1199,8 +1200,10 @@ its scaffold's `IaC/envs/ephemeral.tfvars` as the `entra_external_*` variables, 
 commits itself, and refuses before anything deploys when one is missing (canary 15 failed its
 apply, and then its destroy, without them).
 
-**Fingerprint.** A SHA-256 over what the deploy path depends on: `deploy.ps1`, `hcp.ps1` and
-`github.ps1`; the template workspace's `IaC/` and `base-project/.github/workflows/deploy.yml`; the
+**Fingerprint.** A SHA-256 over what the deploy path depends on: the .NET deploy code
+(`src/factory/Factory.Cli/DeployService.cs` and `CanaryService.cs`, `src/factory/Factory.Store/HcpClient.cs`,
+`GitHubClient.cs` and `ToolRunner.cs`, each hashed with its line endings as LF, so a checkout on Windows and one on Linux
+agree); the template workspace's `IaC/` and `base-project/.github/workflows/deploy.yml`; the
 template pack as built (`artifacts/nupkg/*.nupkg`, which is what gets installed); the canary's own
 settings; and
 the HCP variable set's variables (key, category, and the value unless it is sensitive). A changed
