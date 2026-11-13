@@ -24,7 +24,7 @@ public class CanaryCheckTests
         paths.Home.Returns(Home);
         paths.ScriptsDir.Returns(Scripts);
         paths.TemplatesRoot.Returns(Templates);
-        foreach (var f in new[] { "deploy.ps1", "hcp.ps1", "github.ps1" }) _files.Put(Path.Combine(Scripts, f), f);
+        foreach (var f in DeployCode) _files.Put(Path.Combine(Root, "repo", f), f + "\r\nline 2\r\n");
         _files.Put(Path.Combine(Templates, "IaC", "main.tf"), "m");
         _files.Put(Path.Combine(Templates, "IaC", "envs", "a.tfvars"), "a");
         _files.Put(Path.Combine(Templates, "IaC", ".terraform", "x"), "skipped");
@@ -40,17 +40,23 @@ public class CanaryCheckTests
         _sut = new CanaryCheck(paths, _files, _env, _hcp);
     }
 
+    // The .NET deploy code, as the fingerprint names it: relative to the factory's own checkout.
+    private static readonly string[] DeployCode =
+    [
+        "src/factory/Factory.Cli/DeployService.cs", "src/factory/Factory.Cli/CanaryService.cs",
+        "src/factory/Factory.Store/HcpClient.cs", "src/factory/Factory.Store/GitHubClient.cs", "src/factory/Factory.Store/ToolRunner.cs",
+    ];
+
     private static string H(string s) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(s)));
 
     [Fact]
-    public void Fingerprints_the_deploy_scripts_templates_varset_and_canary_settings_as_canary_ps1_does()
+    public void Fingerprints_the_deploy_code_with_LF_endings_templates_varset_and_canary_settings()
     {
-        var lines = string.Join("\n",
-            $"factory/deploy.ps1 {H("deploy.ps1")}", $"factory/hcp.ps1 {H("hcp.ps1")}", $"factory/github.ps1 {H("github.ps1")}",
+        var lines = string.Join("\n", DeployCode.Select(f => $"{f} {H(f + "\nline 2\n")}").Concat([
             $"artifacts/nupkg/T.1.0.0.nupkg {H("n")}", $"base-project/.github/workflows/deploy.yml {H("d")}",
             $"IaC/envs/a.tfvars {H("a")}", $"IaC/main.tf {H("m")}",
             "var env z ", "var terraform a <sensitive>", "var terraform b 2",
-            """canary me/factory-canary {"name":"canary","resource":"Item","db":"postgres","ui":"react","events":false,"auth":true,"entra":{"entra_external_tenant_id":"t","entra_external_subdomain":"s","entra_external_user_flow_id":"f"}}""");
+            """canary me/factory-canary {"name":"canary","resource":"Item","db":"postgres","ui":"react","events":false,"auth":true,"entra":{"entra_external_tenant_id":"t","entra_external_subdomain":"s","entra_external_user_flow_id":"f"}}"""]));
 
         Assert.Equal("sha256:" + H(lines).ToLowerInvariant(), _sut.Fingerprint());
     }
