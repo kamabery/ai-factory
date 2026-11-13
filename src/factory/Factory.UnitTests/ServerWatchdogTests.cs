@@ -1,3 +1,5 @@
+using Factory.Server;
+using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 
 namespace Factory.UnitTests;
@@ -15,6 +17,24 @@ public class ServerWatchdogTests : ServerTestBase
 
         Launcher.Received(1).StartDetached(Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "runner" })));
         Assert.Equal($"2026-11-10T12:00:00.0000000Z watchdog: started runner{Environment.NewLine}", Files.Text(Path.Combine(Home, "runner.log")));
+    }
+
+    [Fact]
+    public async Task The_server_starts_a_sweep_as_it_starts()
+    {
+        var hosted = new Microsoft.Extensions.DependencyInjection.ServiceCollection()
+            .AddFactoryServer(new Dictionary<string, string?>(), Home, Path.Combine(Home, "scripts"), Options.EnvFile, 0, 10, 30, 0, Home, Work, Home)
+            .AddSingleton(Launcher)
+            .AddSingleton(Substitute.For<Microsoft.Extensions.Hosting.IHostApplicationLifetime>())
+            .BuildServiceProvider()
+            .GetServices<Microsoft.Extensions.Hosting.IHostedService>();
+        var sweep = Assert.Single(hosted.OfType<Factory.Server.StartupSweep>());
+
+        await sweep.StartAsync(TestContext.Current.CancellationToken);
+        Launcher.DidNotReceiveWithAnyArgs().StartDetached(default!);
+        await sweep.StartedAsync(TestContext.Current.CancellationToken);
+
+        Launcher.Received(1).StartDetached(Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "sweep" })));
     }
 
     [Fact]

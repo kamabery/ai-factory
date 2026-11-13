@@ -97,6 +97,18 @@ public class DeployCommandsTests : CommandTestBase
     }
 
     [Fact]
+    public void After_a_failed_attempt_a_redeploy_offers_no_since()
+    {
+        // A failed attempt may have left the preview half applied, so the next one deploys everything.
+        var s = InDeploy(new JsonObject { ["status"] = "failed", ["sha"] = "sha-0", ["attempts"] = 1, ["workspace"] = "todo-j001", ["env"] = "j001" });
+        Attempt(new DeployAttempt(true, "sha-1", "r", Urls.DeepClone().AsObject(), "t", "ws-1", ""));
+
+        Deploy.Run(Args("deploy", "J-001"), s);
+
+        _deploy.Received(1).Attempt(s, Arg.Any<Job>(), false, null);
+    }
+
+    [Fact]
     public void A_failed_attempt_writes_its_log_records_the_first_error_and_exits_1_in_deploy()
     {
         var s = InDeploy();

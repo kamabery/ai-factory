@@ -80,6 +80,7 @@ public static class ServerComposition
         services.AddHostedService(sp => sp.GetRequiredService<Watchdog>());
         services.AddSingleton<ParentWatch>();
         services.AddHostedService(sp => sp.GetRequiredService<ParentWatch>());
+        services.AddHostedService<StartupSweep>();
         return services;
     }
 }

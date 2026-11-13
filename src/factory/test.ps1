@@ -17,7 +17,8 @@ if (Test-Path $out) { Remove-Item $out -Recurse -Force }
 
 $gates = @{ 'Factory.Core' = 0.90 }
 $defaultGate = 0.70
-$excluded = 'Factory.AppHost', 'Factory.ServiceDefaults'
+# Factory.TestHost is the tests' own stubs (GitHub, HCP, Blob, Messages API), not factory code.
+$excluded = 'Factory.AppHost', 'Factory.ServiceDefaults', 'Factory.TestHost'
 
 if (-not $NoBuild) {
     dotnet build (Join-Path $root 'Factory.slnx') -v q -nologo

@@ -6,15 +6,14 @@ using System.Text.Json.Nodes;
 namespace Factory.IntegrationTests;
 
 /// <summary>
-/// factory/tests/fixtures/github-stub.ps1, the GitHub REST stand-in the Pester suites use, on a free localhost port.
-/// Repos are bare git repos under <see cref="GitBase"/>, cloned over file:// (<see cref="GitUrl"/>).
+/// The GitHub and HCP stub (Factory.TestHost's <see cref="Factory.TestHost.GitHubStubApp"/>), in process on a free localhost
+/// port. Repos are bare git repos under <see cref="GitBase"/>, cloned over file:// (<see cref="GitUrl"/>).
 /// </summary>
 public sealed class GitHubStub : IAsyncLifetime
 {
     public const string Token = "ghp_test_token";
-    private static readonly HttpClient Http = new();
     private readonly TempDir _dir = new();
-    private Process? _process;
+    private Microsoft.AspNetCore.Builder.WebApplication? _app;
 
     public int Port { get; private set; }
     public string GitBase => _dir["github"];
@@ -22,32 +21,15 @@ public sealed class GitHubStub : IAsyncLifetime
 
     public async ValueTask InitializeAsync()
     {
-        var l = new TcpListener(IPAddress.Loopback, 0);
-        l.Start();
-        Port = ((IPEndPoint)l.LocalEndpoint).Port;
-        l.Stop();
-        var psi = new ProcessStartInfo("pwsh") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
-        foreach (var a in new[] { "-NoProfile", "-File", RepoFile("factory", "tests", "fixtures", "github-stub.ps1"), "-Port", $"{Port}", "-GitBase", GitBase, "-Login", "test" })
-            psi.ArgumentList.Add(a);
-        _process = Process.Start(psi)!;
-        _process.OutputDataReceived += (_, _) => { };
-        _process.ErrorDataReceived += (_, _) => { };
-        _process.BeginOutputReadLine();
-        _process.BeginErrorReadLine();
-        var deadline = DateTime.UtcNow.AddSeconds(30);
-        while (true)
-        {
-            try { (await Http.GetAsync($"http://localhost:{Port}/")).EnsureSuccessStatusCode(); return; }
-            catch (HttpRequestException) when (DateTime.UtcNow < deadline) { await Task.Delay(200); }
-        }
+        Port = Factory.TestHost.StubHost.FreePort();
+        _app = Factory.TestHost.StubHost.Build(Port, new Factory.TestHost.GitHubStubApp(GitBase, "test", Port).Handle);
+        await _app.StartAsync();
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
-        try { _process?.Kill(true); } catch (InvalidOperationException) { }
-        _process?.Dispose();
+        if (_app is not null) await _app.DisposeAsync();
         _dir.Dispose();
-        return ValueTask.CompletedTask;
     }
 
     /// <summary>A .env that points the factory at this stub, signed in with <see cref="Token"/>.</summary>

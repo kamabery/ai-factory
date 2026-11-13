@@ -16,7 +16,7 @@ public sealed class AzureHome
         var paths = new FactoryPaths(Microsoft.Extensions.Options.Options.Create(new FactoryOptions { Home = home, EnvFile = System.IO.Path.Combine(home, "none.env") }), new GitClient(new ProcessRunner()));
         Files = new FileStore();
         var opts = Microsoft.Extensions.Options.Options.Create(Options);
-        var settings = new StateSettings(opts, paths, new DotEnv(paths, Files));
+        var settings = Settings = new StateSettings(opts, paths, new DotEnv(paths, Files));
         Blobs = new BlobClient(new HttpClient(), settings, new StateToken(opts, Files, new ProcessRunner(), new HttpClient(), TimeProvider.System), TimeProvider.System);
         Sync = new StateSync(paths, Files, Blobs, settings, TimeProvider.System);
         Store = new FactoryStore(paths, Files, new BoardMutex(paths), settings, opts, Blobs, Sync, TimeProvider.System);
@@ -24,6 +24,7 @@ public sealed class AzureHome
 
     public string Home { get; }
     public StateOptions Options { get; }
+    public StateSettings Settings { get; }
     public FileStore Files { get; }
     public BlobClient Blobs { get; }
     public StateSync Sync { get; }

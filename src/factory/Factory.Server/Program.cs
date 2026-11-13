@@ -75,8 +75,6 @@ for (var attempt = 1; ; attempt++)
 var url = $"http://localhost:{port}/";
 serveLock.Write(url);
 Console.WriteLine($"factory dashboard on {url}  (state: {home})");
-// Previews that outlived their work, in case nothing has drained the runner since (contract, "Deploy").
-app.Services.GetRequiredService<IFactoryLauncher>().StartDetached(["sweep"]);
 try { await app.WaitForShutdownAsync(); }
 finally
 {

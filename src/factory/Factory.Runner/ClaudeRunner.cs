@@ -86,13 +86,19 @@ public sealed class ClaudeRunner(IFactoryPaths paths, IFileStore files, IOptions
             return psi;
         }
         var claude = new ProcessStartInfo(Factory.Store.ClaudeCli.Executable());
+        foreach (var a in Arguments(prompt, resumeSession, FactoryRoot, paths.TemplatesRoot, settings, paths.Home)) claude.ArgumentList.Add(a);
+        return claude;
+    }
+
+    /// <summary>claude's arguments for one pass (contract, "Runner", step 3).</summary>
+    public static IReadOnlyList<string> Arguments(string prompt, string resumeSession, string factoryRoot, string templatesRoot, string settings, string home)
+    {
         var args = new List<string> { "-p", prompt };
         if (resumeSession.Length > 0) args.AddRange(["--resume", resumeSession]);
         // The factory's own plugin, and the template workspace as the aspire-starter plugin (boot-strap-app, enhance-app).
-        args.AddRange(["--plugin-dir", Path.Combine(FactoryRoot, "factory", "plugin"), "--plugin-dir", paths.TemplatesRoot]);
-        args.AddRange(["--settings", settings, "--add-dir", paths.Home, "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits"]);
-        foreach (var a in args) claude.ArgumentList.Add(a);
-        return claude;
+        args.AddRange(["--plugin-dir", Path.Combine(factoryRoot, "factory", "plugin"), "--plugin-dir", templatesRoot]);
+        args.AddRange(["--settings", settings, "--add-dir", home, "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits"]);
+        return args;
     }
 
     private static Action? ConsoleUtf8()

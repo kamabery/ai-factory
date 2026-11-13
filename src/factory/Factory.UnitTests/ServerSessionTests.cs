@@ -178,6 +178,18 @@ public class ServerSessionTests : ServerTestBase
     }
 
     [Fact]
+    public void Confirming_the_brief_of_a_session_on_a_base_makes_the_idea_on_that_base()
+    {
+        PutSession("""{"id":"S-001","status":"idle","target":"a/b","base":"J-001","text":"x","pending":{"id":"tu_2","name":"submit_brief","input":{"markdown":"# Brief: Tag todos\n\nbody"}}}""");
+        Factory.Run("new-idea", "Tag todos", "-Target", "a/b", "-Base", "J-001").Returns(CallResult.Done("I-003"));
+
+        var r = Ideas.Handle("POST", "S-001", "brief", null, "");
+
+        Assert.Equal("""{"ok":true,"message":"I-003"}""", r.Body);
+        Factory.DidNotReceive().Run("new-idea", "Tag todos", "-Target", "a/b");
+    }
+
+    [Fact]
     public void A_brief_for_a_new_target_needs_the_scaffold_and_its_bootstrap_job_starts_no_turn()
     {
         PutSession("""{"id":"S-001","status":"idle","target":"me/fresh","newTarget":true,"pending":{"id":"tu_3","name":"submit_brief","input":{"markdown":"no title"}}}""");

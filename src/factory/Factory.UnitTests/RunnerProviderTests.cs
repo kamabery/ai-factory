@@ -76,6 +76,36 @@ public class RunnerProviderTests
     // --- headless settings -----------------------------------------------------------------------
 
     [Fact]
+    public void Claude_runs_with_the_factory_plugin_the_template_workspace_and_the_headless_settings()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "fac");
+
+        Assert.Equal(["-p", "/factory:factory run J-001", "--plugin-dir", Path.Combine(root, "factory", "plugin"), "--plugin-dir", "tp",
+            "--settings", "s.json", "--add-dir", "home", "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits"],
+            ClaudeRunner.Arguments("/factory:factory run J-001", "", root, "tp", "s.json", "home"));
+        Assert.Equal(["-p", "continue", "--resume", "sess-1"], ClaudeRunner.Arguments("continue", "sess-1", root, "tp", "s.json", "home").Take(4));
+    }
+
+    [Fact]
+    public void Offline_terraform_is_allowed_with_chdir_and_apply_plan_and_destroy_are_denied()
+    {
+        var s = HeadlessSettings.Build(Path.Combine(Path.GetTempPath(), "fac"), "tp", "home");
+        var allow = s["permissions"]!["allow"]!.AsArray().Select(r => (string?)r).ToList();
+        var deny = s["permissions"]!["deny"]!.AsArray().Select(r => (string?)r).ToList();
+
+        foreach (var tool in new[] { "Bash", "PowerShell" })
+        {
+            foreach (var verb in new[] { "init -backend=false*", "validate*", "test*", "fmt*" })
+            {
+                Assert.Contains($"{tool}(terraform {verb})", allow);
+                Assert.Contains($"{tool}(terraform -chdir=* {verb})", allow);
+            }
+            foreach (var verb in new[] { "apply", "plan", "destroy" }) Assert.Contains($"{tool}(terraform * {verb}*)", deny);
+            Assert.Contains($"{tool}(curl *)", allow);
+        }
+    }
+
+    [Fact]
     public void Headless_settings_allow_the_toolchain_and_the_factory_CLI_in_both_shells_and_fence_edits_and_reads()
     {
         var root = Path.Combine(Path.GetTempPath(), "fac");

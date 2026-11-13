@@ -39,6 +39,20 @@ public class PurgeCommandTests : CommandTestBase
     }
 
     [Fact]
+    public void Keeps_a_purged_jobs_evaluation_and_lessons()
+    {
+        var s = Board();
+        foreach (var f in new[] { "evals/J-001.json", "evals/J-001.md", "evals/J-002.json", "lessons/J-001.json", "lessons/J-001.md" })
+            Files.Put(Path.Combine([Home, .. f.Split('/')]), "{}");
+
+        Sut.Run(Args("purge"), s);
+
+        Assert.DoesNotContain("J-001", s.Board["jobs"]!.AsArray().Select(j => (string?)j!["id"]));
+        foreach (var f in new[] { "evals/J-001.json", "evals/J-001.md", "lessons/J-001.json", "lessons/J-001.md" })
+            Assert.NotNull(Files.Text(Path.Combine([Home, .. f.Split('/')])));
+    }
+
+    [Fact]
     public void An_unevaluated_job_stays_and_with_nothing_to_purge_nothing_is_saved()
     {
         var s = Board();

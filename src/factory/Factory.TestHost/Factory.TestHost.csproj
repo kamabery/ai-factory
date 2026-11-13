@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!-- The HTTP stubs the tests run against (GitHub and HCP, Azure Blob, the Claude Messages API): in process for the
+       integration tests, and as `dotnet Factory.TestHost.dll <stub> ...` for the simulator and Playwright. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+</Project>
