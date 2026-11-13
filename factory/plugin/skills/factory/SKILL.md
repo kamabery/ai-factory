@@ -1,29 +1,29 @@
 ---
 name: factory
-description: The factory orchestrator. `/factory:factory run <id> <stateDir> <factory.ps1>` builds, reviews, deploys a preview of, approves and gates one job; `/factory:factory status <stateDir> <factory.ps1>` prints the board. Invoked by runner.ps1, rarely by hand. Ideas and specs are /factory:idea's job, not this skill's.
+description: The factory orchestrator. `/factory:factory run <id> <stateDir> <templates>` builds, reviews, deploys a preview of, approves and gates one job; `/factory:factory status <stateDir>` prints the board. Invoked by the runner, rarely by hand. Ideas and specs are /factory:idea's job, not this skill's.
 disable-model-invocation: true
-argument-hint: run <id> <stateDir> <factory.ps1> | status <stateDir> <factory.ps1>
+argument-hint: run <id> <stateDir> <templates> | status <stateDir>
 ---
 
 # /factory
 
 You are the factory's orchestrator. Stay thin: you never write code, specs, reviews or decisions
-yourself. Agents write artifacts; `factory.ps1` makes every state change. `docs/FACTORY-CONTRACT.md`
+yourself. Agents write artifacts; the `factory` CLI makes every state change. `docs/FACTORY-CONTRACT.md`
 in the factory repo is the source of truth. Arguments: `$ARGUMENTS`.
 
 ## The control plane
 
-The last argument is the absolute path of `factory.ps1`. Call it with the Bash tool, exactly in this
-form, with that path written out in full (the environment already points it at the right state):
+Call the CLI with the Bash tool, exactly in this form (it is on your `PATH`, and the environment
+already points it at the right state):
 
 ```bash
-pwsh -NoProfile -File <factory.ps1> <command> [args]
+factory <command> [args]
 ```
 
 Don't put `$VARIABLES` in commands: the permission check can't approve them in a headless run.
 `<stateDir>` is the absolute state directory. Below, `F` means the command above, `<job>` means
-`<stateDir>/jobs/<id>`, and `<templates>` means the `templates` folder next to the `scripts` folder
-that holds `factory.ps1` (for example `D:/code/ai-factory/factory/templates`). Pass agents
+`<stateDir>/jobs/<id>`, and `<templates>` is the last argument of `run`, the absolute path of the
+factory's `templates` folder (for example `D:/code/ai-factory/factory/templates`). Pass agents
 **absolute** paths, including the template each one follows.
 
 Tell every agent, in its prompt: "Your working directory is already the job's clone. Run each shell
@@ -33,8 +33,7 @@ a prompt. Read files with the Read tool, not `cat`. If a command is denied, say 
 (J-022 round 5: three reviewers wrote `cd <clone> && git diff ... | tail` and `git -C <clone> diff`,
 were denied, and judged without the diff.)
 
-Give the builder, the reviewers and the approver the job id and the absolute path of `factory.ps1`
-too: they run the spec's gate commands only through `F gate-check <id> [<name>]`, which runs them
+Give the builder, the reviewers and the approver the job id too: they run the spec's gate commands only through `F gate-check <id> [<name>]`, which runs them
 exactly as `F gate` will, records nothing, caches by head sha, and lets one caller at a time into the
 work dir.
 
@@ -48,9 +47,9 @@ never touch `board.json` or `events.jsonl` yourself; give up instead (see the en
 
 Run `F status` and print its output verbatim.
 
-## `/factory run <id> <stateDir> <factory.ps1>`
+## `/factory run <id> <stateDir> <templates>`
 
-Preconditions, set up by runner.ps1: the job is in `build` (or in `deploy`, when a human redeployed
+Preconditions, set up by the runner: the job is in `build` (or in `deploy`, when a human redeployed
 it: then skip straight to step 5; or, when the runner continues this session after a usage limit,
 in the stage it stopped in: carry on from that step), the current directory is the job's temp clone of its target with
 branch `factory/<id>` checked out, and `FACTORY_JOB=<id>`. Check them with `F status -Json` and
@@ -84,7 +83,7 @@ Read the job's `round` from `F status -Json`. Then loop:
      once, then `F read-reviews <id>` again. If it still exits 2, give up.
 5. **Deploy.** Run the **devops** agent in mode `operate` with `<job>/spec.md`,
    `<job>/round-<round>/build.md`, the template `<templates>/deploy.md`, the output path
-   `<job>/round-<round>/deploy.md`, the job id and the absolute path of `factory.ps1`. It runs
+   `<job>/round-<round>/deploy.md` and the job id. It runs
    `F deploy <id>` itself, as often as the script allows. Afterwards read the stage from
    `F status -Json`: `approve` means continue; `build` means the agent judged the change at fault and
    started a new round (`F deploy-fix`), so go back to step 1; `blocked` or `ready` means stop, the job

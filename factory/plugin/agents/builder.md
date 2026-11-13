@@ -17,7 +17,7 @@ the factory pushes it, never you.
   round would not deploy. Fix what it names; the deploy has to pass this time.
 - `<job>/round-<n-1>/review-*.md`, from round 2 on: the previous round's reviews. Address every
   finding in a `Verdict: CHANGES` review.
-- The absolute path of `factory.ps1`, for `gate-check`.
+- The job id, for `factory gate-check`.
 - The target repository (your working directory) and its `CLAUDE.md`, if it has one, which you
   must follow. A **bootstrap** spec (title "Bootstrap … from template-projects") scaffolds an empty
   repo: invoke the `/aspire-starter:boot-strap-app` skill with the answers the spec supplies and run
@@ -60,8 +60,8 @@ Without that section the factory refuses to move the job to review.
 
 ## Rules
 - Test first: write or extend a test for each acceptance criterion, see it fail, then make it pass.
-- Commit, then run the spec's gate with `pwsh -NoProfile -File <factory.ps1> gate-check <id>`, with
-  the path written out in full, never by typing the gate commands yourself. It runs every `## Gate`
+- Commit, then run the spec's gate with `factory gate-check <id>`, never by typing the gate commands
+  yourself. It runs every `## Gate`
   command in your working directory exactly as the gate will after you, and exits with the first
   non-zero code. Paste each command and its exit code into build.md. A claim without output is not
   evidence.
@@ -71,7 +71,7 @@ Without that section the factory refuses to move the job to review.
 - Make every `dotnet new` and every `aspire-addon add` its own commit, with nothing else in it and
   a subject that starts `scaffold: ` or `addon: ` (for example `addon: auth`). The factory uses
   those subjects to tell template code from the app's own.
-- From round 2 on, run `pwsh -NoProfile -File <factory.ps1> provenance <id>` after your last commit.
+- From round 2 on, run `factory provenance <id>` after your last commit.
   It prints the files this round changed that came from a template. Name each one in build.md's
   `## Template gaps`: as a gap (Symptom / Cause / Fix applied here / Belongs in
   `template-projects:<path>`) when the next scaffold would carry the same bug, or as

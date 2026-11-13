@@ -1,5 +1,5 @@
 {
   "name": "factory",
-  "version": "0.2.0",
-  "description": "The ai-factory orchestrator skill, the /factory:idea and grill skills, its seven agents and the SubagentStart/Stop hooks. Loaded with --plugin-dir by runner.ps1 and idea.ps1."
+  "version": "0.3.0",
+  "description": "The ai-factory orchestrator skill, the /factory:idea and grill skills, its seven agents and the SubagentStart/Stop hooks. Loaded with --plugin-dir by the runner and `factory idea`; it calls the factory CLI by name."
 }
