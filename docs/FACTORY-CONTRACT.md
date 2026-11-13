@@ -1334,7 +1334,7 @@ longer running. Otherwise it loops:
    is reviewed, previewed and gated with that work in it (J-022).
 3. It sets `FACTORY_JOB=<id>`, `FACTORY_HOME=<this repo>\.factory-runs` and `FACTORY_REPO=<this repo>`,
    writes `<stateDir>/headless-settings.json`, and runs this in the job's work directory:
-   `claude -p "/factory:factory run <id> <stateDir>" --plugin-dir <this repo>/factory/plugin --plugin-dir <template workspace> --settings <stateDir>/headless-settings.json --add-dir <stateDir> --output-format stream-json --verbose --permission-mode acceptEdits`
+   `claude -p "/factory:factory run <id> <stateDir> <this repo>/factory/templates" --plugin-dir <this repo>/factory/plugin --plugin-dir <template workspace> --settings <stateDir>/headless-settings.json --add-dir <stateDir> --output-format stream-json --verbose --permission-mode acceptEdits`
    with the CLI's folder first on `PATH` (see [Implementations](#implementations)).
    - `headless-settings.json` `permissions.allow` lets agents run the toolchain (`dotnet`, `npm`,
      `npx`, `node`, `aspire`, `aspire-addon`, `terraform init -backend=false`, `terraform validate`,
