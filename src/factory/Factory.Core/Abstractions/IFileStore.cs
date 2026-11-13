@@ -31,6 +31,9 @@ public interface IFileStore
     /// <summary>Deletes a folder and everything in it, read-only files too (git's objects); a missing one is fine. Throws on a locked file.</summary>
     void DeleteDirectory(string path);
 
+    /// <summary>Deletes a file; a missing one is fine.</summary>
+    void DeleteFile(string path);
+
     /// <summary>Copies a file over <paramref name="to"/>, creating its folder.</summary>
     void CopyFile(string from, string to);
 

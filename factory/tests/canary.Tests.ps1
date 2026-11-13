@@ -75,7 +75,8 @@ AfterEach {
         Env:FACTORY_SMOKE_SECONDS, Env:CANARY_DEPLOY_FAIL -ErrorAction SilentlyContinue
 }
 
-Describe 'canary' {
+# Ported (roadmap spec 09): run-all.ps1 -Tag Ported runs this block with FACTORY_IMPL=ps and dotnet.
+Describe 'canary' -Tag 'Ported' {
     It 'scaffolds, deploys j000 from main, passes the smoke check, tears it down and records a pass' {
         $out = F canary
         $LASTEXITCODE | Should -Be 0
@@ -297,7 +298,8 @@ Describe 'canary' {
     }
 }
 
-Describe 'canary on azure' {
+# Ported (roadmap spec 09): run-all.ps1 -Tag Ported runs this block with FACTORY_IMPL=ps and dotnet.
+Describe 'canary on azure' -Tag 'Ported' {
     BeforeEach { Use-AzureState }
     AfterEach { Clear-AzureState }
 

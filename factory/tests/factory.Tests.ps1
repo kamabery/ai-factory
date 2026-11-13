@@ -2169,7 +2169,8 @@ Describe 'targets' -Tag 'Ported' {
     }
 }
 
-Describe 'deploy' {
+# Ported (roadmap spec 09): run-all.ps1 -Tag Ported runs this block with FACTORY_IMPL=ps and dotnet.
+Describe 'deploy' -Tag 'Ported' {
     BeforeAll {
         # A job in deploy, its branch carrying one commit beyond main.
         function Move-ToDeploy([string]$id) {
@@ -2665,7 +2666,7 @@ Describe 'deploy' {
         $p = Start-Process pwsh -ArgumentList '-NoProfile', '-File', $script:Factory, 'deploy', $id -PassThru -WindowStyle Hidden
         $deadline = (Get-Date).AddSeconds(60)
         while (-not (Runs) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 200 }
-        Stop-Process -Id $p.Id -Force
+        $p.Kill($true)   # the tree: under FACTORY_IMPL=dotnet the CLI child does the work
         Runs | Should -Be 1
         (Job $id).deploy.status | Should -Be 'applying'
 
@@ -2690,7 +2691,7 @@ Describe 'deploy' {
         $p = Start-Process pwsh -ArgumentList '-NoProfile', '-File', $script:Factory, 'deploy', $id -PassThru -WindowStyle Hidden
         $deadline = (Get-Date).AddSeconds(60)
         while (-not @(Runs).Count -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 200 }
-        Stop-Process -Id $p.Id -Force
+        $p.Kill($true)   # the tree: under FACTORY_IMPL=dotnet the CLI child does the work
         # Dead before the run can finish: a still-dying deploy would otherwise poll it and record the result.
         $p.WaitForExit(30000) | Out-Null
         Remove-Item $slow
@@ -2929,7 +2930,7 @@ Describe 'deploy' {
             Wait-Preview $id 'destroying'
             F sweep | Should -BeNullOrEmpty
 
-            Stop-Process -Id $p.Id -Force
+            $p.Kill($true)   # the tree: under FACTORY_IMPL=dotnet the CLI child does the work
             $p.WaitForExit(30000) | Out-Null
             Remove-Item (Join-Path $script:GitBase 'destroy-hangs')
             $env:FACTORY_DESTROY_STALE_MINUTES = '0'
