@@ -16,7 +16,10 @@
 4. Pester is retired: each remaining Pester case is covered by a unit or integration test, pushed
    down per `docs/TESTING.md` rather than copied 1:1. Prove that with a mapping file in the PR, then delete `factory/tests/*.Tests.ps1`. Stubs move to an ASP.NET test
    host.
-5. Rewrite `CLAUDE.md`'s Commands, `docs/BUILD-GUIDE.md`, and the contract's command-table heading
+5. **The canary fingerprint** hashes `deploy.ps1`, `hcp.ps1` and `github.ps1` under both implementations (contract,
+   "Implementations"). Before those go, point it at the .NET deploy code (`DeployService`, `CanaryService`,
+   `HcpClient`, `GitHubClient`, `ToolRunner`), or a change to the deploy path stops invalidating the canary.
+6. Rewrite `CLAUDE.md`'s Commands, `docs/BUILD-GUIDE.md`, and the contract's command-table heading
    (`factory.ps1` becomes `factory`).
 
 ## Done when
