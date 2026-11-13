@@ -721,9 +721,9 @@ those lines and nothing else; if one is missing or malformed, the script treats 
 - A job has no `provider`: the run mode decides it (see [Run mode and providers](#run-mode-and-providers)).
   One written by an older factory is ignored.
 - `costUsd` and `durationMs` are summed over every runner pass on the job.
-- Ids are `I-NNN` and `J-NNN`, allocated by the script, one above the larger of `seq` and the highest
+- Ids are `I-NNN` and `J-NNN`, allocated by the CLI, one above the larger of `seq` and the highest
   id on the board. `seq` records the highest id ever allocated, so a `purge` never frees an id. The simulator uses the same ids in its own
-  state dir (`.factory-runs-sim/`), against the GitHub stub (`factory/tests/fixtures/github-stub.ps1`)
+  state dir (`.factory-runs-sim/`), against Factory.TestHost's GitHub stub
   serving bare repos under `.factory-runs-sim/github`.
 
 ## `events.jsonl`
@@ -766,8 +766,8 @@ Overrides, for tests: `FACTORY_STATE_TOKEN` (the bearer token), `FACTORY_LOCAL_D
 `%LOCALAPPDATA%\ai-factory`), `FACTORY_STATE_LOCK_SECONDS` (the board lease's wait),
 `FACTORY_STATE_RENEW_SECONDS` (the keepers' interval), `FACTORY_IP_URL` (allow-ip's public-IP
 lookup, default `https://api.ipify.org`), and a `{home}` in `FACTORY_BLOB_URL`, which becomes a hash of
-`FACTORY_HOME` so each test's home gets its own container. `FACTORY_TEST_STATE=azure` runs the Pester
-suites on a blob stub (`factory/tests/fixtures/blob-stub.ps1`).
+`FACTORY_HOME` so each test's home gets its own container. The integration tests run the azure backend on
+Factory.TestHost's blob stub.
 
 **Auth** is Entra only; the account has shared keys disabled. The bearer token comes from
 `$env:FACTORY_STATE_TOKEN` (tests), else the managed identity (`IDENTITY_ENDPOINT` and
