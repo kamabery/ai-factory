@@ -850,8 +850,8 @@ and `hook-event.ps1`), and this contract's command names are the CLI's. `dotnet 
 it as `artifacts/bin/Factory.Cli/debug/factory` (`factory.exe` on Windows) beside `factory.dll`; a human
 puts that folder on `PATH`. The runner and the dashboard server run it as `dotnet <factory.dll>`
 (`FACTORY_CLI` overrides the path, else it is the CLI's build folder beside their own), and put its folder
-first on the `PATH` of the claude processes they start (and so its agents and hooks), so
-`factory` there is this build. Off Windows, they also set `DOTNET_ROOT` for those processes, when it is
+first on the `PATH` of the claude processes they start (and so its agents and hooks: the plugin's
+`SubagentStart` and `SubagentStop` hooks run `factory event`), so `factory` there is this build. Off Windows, they also set `DOTNET_ROOT` for those processes, when it is
 unset, to the .NET they run on, so the CLI's launcher finds a user-local install. Every detached start
 (`merge`, `sync-prs` and `discard` destroying a preview that is still up, `sweep`'s destroys, `canary`'s
 `canary-destroy`, the server's startup `sweep`, PR sync, idea turns, the runner) is `dotnet <factory.dll>
