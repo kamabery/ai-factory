@@ -145,7 +145,8 @@ The spec carries the target and the gate, and the human can edit both in Backlog
 Gate lines are ``- <name>: `<command>` ``, where `<name>` is lower-case letters, digits or `-`. The
 commands run with `pwsh -NoProfile -Command` in the job's work directory, or with the shell `FACTORY_GATE_SHELL`
 names (a program on `PATH` or a path, taking the same arguments), so a factory can keep PowerShell off its
-`PATH` and still run gates. An unquoted `-name=value` token with a
+`PATH` and still run gates. A shell that cannot start fails the command with exit 127
+(`cannot start the gate shell '<shell>': <reason>`). An unquoted `-name=value` token with a
 dot in it is quoted first, because pwsh would split it at the dot (J-022's `-var-file=envs/ephemeral.tfvars`). The human approves them along with the spec, and
 no agent can edit `jobs/<id>/spec.md`.
 
@@ -849,7 +850,7 @@ and `hook-event.ps1`), and this contract's command names are the CLI's. `dotnet 
 it as `artifacts/bin/Factory.Cli/debug/factory` (`factory.exe` on Windows) beside `factory.dll`; a human
 puts that folder on `PATH`. The runner and the dashboard server run it as `dotnet <factory.dll>`
 (`FACTORY_CLI` overrides the path, else it is the CLI's build folder beside their own), and put its folder
-first on the `PATH` of every process they start (claude and its agents and hooks, gate commands), so
+first on the `PATH` of the claude processes they start (and so its agents and hooks), so
 `factory` there is this build. Off Windows, they also set `DOTNET_ROOT` for those processes, when it is
 unset, to the .NET they run on, so the CLI's launcher finds a user-local install. Every detached start
 (`merge`, `sync-prs` and `discard` destroying a preview that is still up, `sweep`'s destroys, `canary`'s
