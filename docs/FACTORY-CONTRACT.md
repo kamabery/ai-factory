@@ -1,19 +1,19 @@
 # Factory contract
 
-This file is what the factory's moving parts agree on: the dashboard, `serve.ps1`, `runner.ps1`,
-the orchestrator skill, the agents, `factory.ps1` and the hooks. When any of them disagrees with
+This file is what the factory's moving parts agree on: the dashboard, the server, the runner,
+the orchestrator skill, the agents, `factory` and the hooks. When any of them disagrees with
 this file, this file wins, and the disagreement is a bug in the other one. The data formats can
 change, but only by editing this file first.
 
 ## Principle
 
-Agents propose and execute; `factory.ps1` attests and constrains; a human owns intent and the
+Agents propose and execute; `factory` attests and constrains; a human owns intent and the
 release. A human touches the factory at exactly two points: **approving a spec**, in an idea
 session (or by dragging a Backlog card to Approved), and **accepting the work**
 (Ready for review → Done). Everything between those two is automated.
 
 No agent, skill or endpoint writes to `.factory-runs/board.json`. Every state change is a
-`factory.ps1` call, and the script refuses the ones this contract does not allow.
+`factory` call, and the CLI refuses the ones this contract does not allow.
 
 ## The flow
 
@@ -75,7 +75,7 @@ Every idea names a **target**: a GitHub repository, written `owner/name`
 factory itself (this repo's `factory/`, `.claude/`, `.factory-runs/` and dashboard) never moves; only
 the code it builds goes to the target. Local paths are not targets.
 
-**GitHub access.** `factory.ps1` reads `GITHUB_TOKEN` and `GITHUB_OWNER` from `.env` at the repo root
+**GitHub access.** `factory` reads `GITHUB_TOKEN` and `GITHUB_OWNER` from `.env` at the repo root
 (`$env:FACTORY_ENV_FILE` overrides the file). The token is a fine-grained PAT with Contents,
 Pull requests and Administration (to create repos) read/write, on **All repositories**: a PAT limited
 to selected repos can create a repo but not push to it (see [GITHUB-PAT.md](GITHUB-PAT.md)). It is read into a local variable and
@@ -128,7 +128,7 @@ Agents may read it and never edit it. It is also a plugin (`aspire-starter`, its
 moves to `done` or `discarded`. It survives a rework, and if it is gone `checkout` clones again from
 the pushed branch. One job builds at a time across all targets. Idea sessions read a shallow clone of
 an existing target (`clone-target`) in `<work>\sessions\<S>` (dashboard) or
-`<work>\cli\<owner>-<name>` (`idea.ps1`), deleted when the session closes. A session with a
+`<work>\cli\<owner>-<name>` (`factory idea`), deleted when the session closes. A session with a
 [base](#stacked-jobs) reads `factory/<base>` instead of `main`.
 
 The spec carries the target and the gate, and the human can edit both in Backlog:
@@ -143,7 +143,9 @@ The spec carries the target and the gate, and the human can edit both in Backlog
 ```
 
 Gate lines are ``- <name>: `<command>` ``, where `<name>` is lower-case letters, digits or `-`. The
-commands run with `pwsh -Command` in the job's work directory. An unquoted `-name=value` token with a
+commands run with `pwsh -NoProfile -Command` in the job's work directory, or with the shell `FACTORY_GATE_SHELL`
+names (a program on `PATH` or a path, taking the same arguments), so a factory can keep PowerShell off its
+`PATH` and still run gates. An unquoted `-name=value` token with a
 dot in it is quoted first, because pwsh would split it at the dot (J-022's `-var-file=envs/ephemeral.tfvars`). The human approves them along with the spec, and
 no agent can edit `jobs/<id>/spec.md`.
 
@@ -223,7 +225,7 @@ every `claude` pass and every dashboard idea turn talks to. Nothing chooses a pr
 An idea is worked out in an idea session. There are two doors, and they follow the same steps:
 the dashboard's **New idea** panel, which talks to the Claude API (see
 [Idea sessions](#idea-sessions-dashboard)), and the CLI fallback, an interactive Claude Code session
-`/factory:idea [<target> | I-NNN]` (`factory/scripts/idea.ps1` starts one with the plugin loaded).
+`/factory:idea [<target> | I-NNN]` (`factory idea` starts one with the plugin loaded).
 An idea is not a job. The session:
 
 1. Takes the target, and for a new target the scaffold options.
@@ -247,7 +249,7 @@ board.ideas[] = { "id": "I-001", "text": "...", "target": "kamabery/todo-app",
                   "jobs": ["J-004", "J-005"], "createdAt": "..." }
 ```
 
-- `factory.ps1 new-idea <text> -Target <path> [-Scaffold <json>] [-Base <J-NNN>]` validates the target and options
+- `factory new-idea <text> -Target <path> [-Scaffold <json>] [-Base <J-NNN>]` validates the target and options
   (see [Targets](#targets)), allocates `I-NNN` and writes `ideas/I-NNN/idea.md` (the text, then a
   last line `Target: <path>`). For an existing repo it sets status `drafting`. For a new target it
   sets status `waiting`, creates the bootstrap job in `backlog` (`kind: "bootstrap"`, listed in the
@@ -255,14 +257,14 @@ board.ideas[] = { "id": "I-001", "text": "...", "target": "kamabery/todo-app",
 - The spec-writer reads `idea.md` and `brief.md` (the brief wins where they differ) and writes
   `ideas/I-NNN/spec-1.md .. spec-N.md`, following `factory/templates/spec.md`.
   It copies the idea's target into each spec's `## Target` verbatim and never chooses one.
-- `factory.ps1 add-spec <ideaId> <file>` allocates `J-NNN`, copies the file to `jobs/J-NNN/spec.md`,
+- `factory add-spec <ideaId> <file>` allocates `J-NNN`, copies the file to `jobs/J-NNN/spec.md`,
   takes the title from the file's `# Spec:` heading, and creates the job in `backlog`. `add-spec`,
   `edit-spec` and `approve` set `job.target` from the spec's `Repo:` line.
   `-Base` (an existing target only) records the job the idea builds on as `base`; see
   [Stacked jobs](#stacked-jobs).
-- `factory.ps1 idea-done <ideaId> [-Failed -Reason <text>]` closes the idea. Ideas in `done`
+- `factory idea-done <ideaId> [-Failed -Reason <text>]` closes the idea. Ideas in `done`
   are no longer shown; ideas in `failed` stay in Ideas with the reason until a `purge`.
-- `factory.ps1 idea-abandon <ideaId>` sets an idea in `waiting`, `drafting` or `failed` to
+- `factory idea-abandon <ideaId>` sets an idea in `waiting`, `drafting` or `failed` to
   `abandoned`: the human is not doing it. It is hidden like `done`, its files stay until a
   `purge`, and jobs it already created are left where they are. It appends an `idea` event
   `abandoned`.
@@ -272,20 +274,19 @@ board.ideas[] = { "id": "I-001", "text": "...", "target": "kamabery/todo-app",
 The dashboard's idea session runs the steps of [Ideas](#ideas) on the `claude` CLI, headless, as jobs
 do; the [run mode](#run-mode-and-providers) picks the provider. A session is a conversation stored under
 `sessions/<S-NNN>/`. It is not on the board, and **the model never changes board state**: every board
-write in a session is a human click that the dashboard turns into one `factory.ps1` call.
+write in a session is a human click that the dashboard turns into one `factory` call.
 
 **The provider.** Each turn's `claude` gets the run mode's child environment, exactly as a job's does:
 **local** is the subscription (no key is read or needed), **cloud** is Foundry
 (`CLAUDE_CODE_USE_FOUNDRY`, `FACTORY_FOUNDRY_RESOURCE` and the model pins), keyless through the Azure
 credential chain. `FACTORY_IDEA_MODEL` in `.env` overrides the model (default `claude-opus-5-5`, which
 in cloud mode is the Foundry deployment name). The dashboard checks only that the mode can run: cloud
-mode needs `FACTORY_FOUNDRY_RESOURCE`; without it, the dashboard shows the `idea.ps1` hint instead of
+mode needs `FACTORY_FOUNDRY_RESOURCE`; without it, the dashboard shows the `factory idea` hint instead of
 **New idea**. `FACTORY_IDEA_CLAUDE_CMD` (a script run with `pwsh -File` and the same arguments) replaces
 `claude` for tests.
 
-**Turns.** Each assistant turn is a detached `factory/scripts/idea-turn.ps1 -Session <S> -StateDir
-<dir> -EnvFile <path>` process, which runs `factory idea-turn <S>` (the .NET CLI) under every
-`FACTORY_IMPL`: there is no PowerShell turn. It holds `sessions/<S>/turn.lock` (exclusive create) for
+**Turns.** Each assistant turn is a detached `factory idea-turn <S>` process, with the server's state
+directory and `.env` as `FACTORY_HOME` and `FACTORY_ENV_FILE`. It holds `sessions/<S>/turn.lock` (exclusive create) for
 the whole turn, and in `azure` the lease on `locks/turn-<S>`. While the lock is held, every session
 write endpoint answers 409. It runs `claude -p --output-format stream-json --verbose
 --include-partial-messages --model <model> --effort high --system-prompt-file <file> --tools ""
@@ -330,7 +331,7 @@ human.jsonl lines: { "ts", "kind": "idea", "text", "target", "newTarget" }
 ```
 
 `human.jsonl` is the human's own words in the session, verbatim and in order, so an idea can be
-tried again as the factory improves. `serve.ps1` appends a line for the idea text, for every reply
+tried again as the factory improves. The server appends a line for the idea text, for every reply
 that answers a pending UI tool (an `answer`, with that tool call as `asked`: the questions, the
 scaffold proposal, or the brief being corrected) and for free text with nothing pending (a
 `message`). Retries, clicks, scaffold form values and direct spec edits are not words and are not
@@ -346,7 +347,7 @@ the idea. `check-target` classifies the target, and the panel creates the sessio
 **Add new**: the session starts with no target (`target: null`, `newTarget: true`), and the model
 grills first, then names the repo in `propose_scaffold`. Confirming that form runs `check-target`
 on `<GITHUB_OWNER>/<repo>`, which must be `new`, and sets `target`; `scaffold` is stored without
-`repo`. For an existing target, `serve.ps1` runs `clone-target` (with `-Base` when the session has
+`repo`. For an existing target, the server runs `clone-target` (with `-Base` when the session has
 one, recorded as `base` in `session.json`) into `<work>\sessions\<S>` and records it as `checkout`; **Write specs** clones again (the bootstrap
 has merged), and closing the session deletes the clone.
 
@@ -382,12 +383,12 @@ has merged), and closing the session deletes the clone.
 | review | blocked | at least one `CHANGES` at round ≥ 2, and the job is deployable | `max-rounds` |
 | review | deploy | all 4 verdicts are `PASS`, and the job is deployable (see [Deploy](#deploy)) | |
 | review | approve | all 4 verdicts are `PASS`, and deploys are off or the job is a bootstrap (its `deploy.yml` reaches `main`, where GitHub looks for workflows, only when it merges); a `note` event says which | |
-| deploy | approve | `factory.ps1 deploy` on a bootstrap job (one that reached `deploy` before this rule): skips the preview, attempts aside, with a `note` | |
-| deploy | approve | `factory.ps1 deploy` saw the preview applied for the branch head and its smoke check pass, and only then; it makes the move | |
-| deploy | build | `factory.ps1 deploy-fix <id> -File <diagnosis>`: the last attempt failed, the devops agent judged the change at fault, and `deployFixes` < 2. Writes `jobs/<id>/deploy-fix-<n>.md` for the new round n, round += 1, `deployFixes` += 1, reviews reset to `pending`, `deploy.attempts` back to 0 | |
+| deploy | approve | `factory deploy` on a bootstrap job (one that reached `deploy` before this rule): skips the preview, attempts aside, with a `note` | |
+| deploy | approve | `factory deploy` saw the preview applied for the branch head and its smoke check pass, and only then; it makes the move | |
+| deploy | build | `factory deploy-fix <id> -File <diagnosis>`: the last attempt failed, the devops agent judged the change at fault, and `deployFixes` < 2. Writes `jobs/<id>/deploy-fix-<n>.md` for the new round n, round += 1, `deployFixes` += 1, reviews reset to `pending`, `deploy.attempts` back to 0 | |
 | deploy | blocked | `deploy-fix` when `deployFixes` is already 2 | `deploy-fix-rounds` |
 | deploy | blocked | the fifth failed `deploy` of the round; the preview is left up for diagnosis | `deploy-failed` |
-| deploy | blocked | `factory.ps1 block <id> -Detail <line>`: the last attempt failed and the devops agent judged the environment or the factory at fault (a credential, a quota, a factory bug), not the change | `environment` |
+| deploy | blocked | `factory block <id> -Detail <line>`: the last attempt failed and the devops agent judged the environment or the factory at fault (a credential, a quota, a factory bug), not the change | `environment` |
 | deploy | blocked | GitHub refused a call because the GitHub PAT lacks a permission; the attempt is not counted, and the detail names the permission | `github-permission` |
 | blocked | approved | human `redeploy <id>`, when the job was blocked from `deploy` (the human fixed the cause). Sets `resume: "deploy"` and `approvedAt`, and `deploy.attempts` back to 0; round and `deployFixes` are unchanged | |
 | blocked | approved | human `rework <id> <note>`, as from `ready` | |
@@ -410,9 +411,9 @@ has merged), and closing the session deletes the clone.
 `done` and `discarded` are terminal. `flag` is cleared on every move out of `ready` or `blocked`.
 
 `merge` (and `sync-prs`) and `discard` also tear down the job's preview when it has one that is
-not `down`: they start `factory.ps1 destroy <id>` detached and do not wait for it. A failed destroy
+not `down`: they start `factory destroy <id>` detached and do not wait for it. A failed destroy
 is never a failed move: it is recorded on the job, shown on its card, and retried by
-`factory.ps1 sweep` (see [Deploy](#deploy)). HCP's auto-destroy timer fires once, so it is no
+`factory sweep` (see [Deploy](#deploy)). HCP's auto-destroy timer fires once, so it is no
 backstop for a run that errors. `rework`
 leaves the preview up: the next round's `deploy` applies over it on the same workspace. A destroy
 there raced that apply, which then rebuilt from nothing behind it (J-022).
@@ -421,7 +422,7 @@ there raced that apply, which then rebuilt from nothing behind it (J-022).
 
 `blocked` is where a deployable job waits for a human when the factory cannot get it deployed. It
 stays in the Building column, so Ready for review means "there is a live preview to look at". It is
-not counted as building: the runner takes the next Approved job while a job is blocked, and the
+not counted as building: The runner takes the next Approved job while a job is blocked, and the
 blocked job keeps its work directory, its PR (the runner publishes it) and its preview, which HCP's
 auto-destroy timer removes after 24 hours. Its flag is one of `max-rounds`, `deploy-fix-rounds`,
 `deploy-failed`, `environment`, `github-permission`, `out-of-scope`, `spec-stale`, `escalated` or
@@ -457,7 +458,7 @@ in `IaC/`.
 A rework note widens the scope with one line, `Scope +: <glob>, <glob>`. `rework` appends each glob
 as an In sub-bullet to `jobs/<id>/spec.md`, followed by `(rework <n>)`, and appends a `note` event
 naming them. This is the only way `spec.md` changes after approval. The human's word is the
-authority, `factory.ps1` makes the write, and the spec keeps a record of every widening. From
+authority, `factory` makes the write, and the spec keeps a record of every widening. From
 `blocked` with `out-of-scope`, the human reworks with `Scope +:` (keep the paths) or with a note
 asking the builder to remove them.
 
@@ -493,7 +494,7 @@ For each template-sourced path, build.md's `## Template gaps` section must name 
 as a gap (Symptom / Cause / Fix applied here / Belongs in, as in deploy.md) or as
 `<path>: job-specific, <why>`. A path that is not named makes `set-stage review` exit 2 and print
 the missing paths, so the orchestrator sends the builder back once to add them. If the paths are
-still missing after that, it gives up. `factory.ps1 provenance <id>` prints the template-sourced
+still missing after that, it gives up. `factory provenance <id>` prints the template-sourced
 paths of the round, so the builder can write the section before it hands on.
 
 "Changed this round" means the round's own commits: `git log --no-merges --name-only
@@ -510,7 +511,7 @@ It is written by a human session (Claude Code reviewing the run with the human),
 `/factory` agent, and it changes no stage. Its markdown follows `factory/templates/eval.md`, and
 its first line must be exactly `Rating: good`, `Rating: mixed` or `Rating: poor`.
 
-`factory.ps1 eval <id> -File <path>` takes a job in `ready`, `done` or `discarded`. It copies the
+`factory eval <id> -File <path>` takes a job in `ready`, `done` or `discarded`. It copies the
 file to `evals/<id>.md` and writes `evals/<id>.json`, a snapshot of the board facts at that moment:
 
 ```json
@@ -534,7 +535,7 @@ Running `eval` again for the same job replaces both files, e.g. after the merge.
 its job's card, and `purge` keeps a finished job until it has one.
 
 **Human feedback** is the human's own verdict after a hands-on check of the built product, kept
-apart from the session's evaluation. `factory.ps1 feedback <id> -File <path>` takes any job that has
+apart from the session's evaluation. `factory feedback <id> -File <path>` takes any job that has
 an `evals/<id>.json`, even one purged from the board. The file's first line must be a `Rating:` line,
 as for `eval`; the rest is free text. It copies the file to `evals/<id>.feedback.md`, sets
 `"human": { "rating": "poor", "at": "..." }` in `evals/<id>.json` (absent until then), and appends a
@@ -550,7 +551,7 @@ facts. The board records each one on its own. Only a human drag to Done merges.
 
 ### Purge
 
-`factory.ps1 purge` clears finished work off the board. It removes every job in `done` or
+`factory purge` clears finished work off the board. It removes every job in `done` or
 `discarded` that has an evaluation (`evals/<id>.json`), and every idea in `done`, `failed` or `abandoned` none of whose jobs is left. For each it deletes
 `jobs/<id>/` or `ideas/<id>/`, and for a job also a work directory still left at `<work>\jobs\<id>`
 (one that a locked file kept `merge` or `discard` from deleting). It appends one `note` event (`purged J-001, ...`) and
@@ -565,7 +566,7 @@ When a job goes bad, what it taught is kept so the **templates** can absorb it -
 `template-projects` add-ons, the `aspire-addon` CLI and the `aspire-starter` skills - and the next
 scaffold does not need the same hand fix.
 
-`factory.ps1 lesson <id> [-File <path>]` writes `lessons/<id>.md` and `lessons/<id>.json`. Without
+`factory lesson <id> [-File <path>]` writes `lessons/<id>.md` and `lessons/<id>.json`. Without
 `-File` it compiles them from the job, deterministically: the flag (reason, detail and `why`), and the
 `## Template gaps` section of every `round-*/deploy.md` that is not empty or "none". With nothing to
 say - no flag and no gaps - it writes nothing and prints `no lessons`. It reads the
@@ -575,7 +576,7 @@ not a gap. With `-File` (a human
 evaluation session) it appends that file's text under `## From the evaluation`. Either way it appends a
 `lesson` event whose `detail` is the number of template gaps.
 
-The runner calls `factory.ps1 lesson <id>` after every pass that leaves the job in `ready` or
+The runner calls `factory lesson <id>` after every pass that leaves the job in `ready` or
 `blocked`, beside `publish`; a failure is logged and changes nothing.
 
 ```json
@@ -583,7 +584,7 @@ The runner calls `factory.ps1 lesson <id>` after every pass that leaves the job 
   "templateGaps": 2, "status": "open" | "proposed" | "applied", "session": "S-004" | null, "at": "..." }
 ```
 
-`factory.ps1 lesson-mark <id> <open|proposed|applied> [-Detail <session id>]` changes `status` (and
+`factory lesson-mark <id> <open|proposed|applied> [-Detail <session id>]` changes `status` (and
 `session`). The dashboard's **Lessons** tab lists every lesson, newest first, opens its markdown, and
 **Propose template fix** starts an idea session (`POST /api/sessions`) on the repo `.env` names as
 `FACTORY_TEMPLATES_REPO` with the selected lessons as its text, then marks each `proposed` with that
@@ -595,14 +596,14 @@ session. A human marks one `applied` once the fix has merged. `purge` never touc
 .factory-runs/                 gitignored; FACTORY_HOME overrides its location
   board.json
   events.jsonl
-  runner.lock                  held while runner.ps1 is draining the queue
-  serve.lock                   held while serve.ps1 runs: its PID, then its URL. A second serve.ps1 on
+  runner.lock                  held while the runner is draining the queue
+  serve.lock                   held while the server runs: its PID, then its URL. A second server on
                                the same state refuses to start and names that URL; a lock whose PID is
                                no longer running is taken over, as runner.lock's is
   canary.lock                  held while a canary runs
   canary.json                  the last canary's result and fingerprint (see Canary)
   canary-<n>.log               canary run n's log
-  headless-settings.json       written by runner.ps1 for each claude -p run (see Runner)
+  headless-settings.json       written by the runner for each claude -p run (see Runner)
   sessions/<S-NNN>/            a dashboard idea session (see Idea sessions)
     session.json  chat.json  stream.jsonl  human.jsonl  turn.lock
   ideas/<id>/
@@ -632,7 +633,7 @@ session. A human marks one `applied` once the fix has merged. `purge` never touc
   jobs\<id>\                   the job's clone of its target, on factory/<id>; deleted at done / discarded
   canary\                      the canary's scaffold, deleted when the run ends
   sessions\<S>\                a dashboard idea session's shallow clone of its target
-  cli\<owner>-<name>\          idea.ps1's shallow clone of its target
+  cli\<owner>-<name>\          `factory idea`'s shallow clone of its target
 
 factory/plugin/                the agents, the /factory, /factory:idea and grill skills and the Subagent
                                hooks, as a Claude Code plugin loaded with --plugin-dir, so they work in
@@ -640,7 +641,7 @@ factory/plugin/                the agents, the /factory, /factory:idea and grill
 ```
 
 Each review's first line must be exactly `Verdict: PASS` or `Verdict: CHANGES`. The decision's
-first line must be exactly `Decision: APPROVE` or `Decision: ESCALATE`. `factory.ps1` parses
+first line must be exactly `Decision: APPROVE` or `Decision: ESCALATE`. `factory` parses
 those lines and nothing else; if one is missing or malformed, the script treats it as no verdict.
 
 ## `board.json`
@@ -704,7 +705,7 @@ those lines and nothing else; if one is missing or malformed, the script treats 
   from `git diff --name-status --no-renames <sha>^1 <sha>` in the work directory after fetching the merge.
 - `pr` is `null` (or absent) until `publish` opens the job's pull request.
 - `resume` is absent (or `null`) except on an Approved job queued by `redeploy`, where it is `"deploy"`:
-  the runner moves that job to `deploy` instead of `build`, and clears it. A job queued by `resume`
+  The runner moves that job to `deploy` instead of `build`, and clears it. A job queued by `resume`
   has the stage it stopped in (`build`, `review`, `deploy` or `approve`) and `resumeSession`, the
   claude session to continue; the runner moves it to that stage and clears both.
 - `deploy` is `null` (or absent) until the first `deploy`, then
@@ -750,8 +751,8 @@ Claude Code transcript, which is derived from the hook's `transcript_path` and `
 
 `$env:FACTORY_STATE` is `local` (the default) or `azure`. With `local`, everything above is the whole
 story. With `azure`, an Azure Blob container is the system of record and `FACTORY_HOME` is its
-write-through cache: agents, `serve.ps1`'s `/state/*` and every reader keep working on local files,
-and `factory.ps1` and `serve.ps1` keep the two in step. All of this lives in `factory/scripts/state.ps1`.
+write-through cache: agents, the server's `/state/*` and every reader keep working on local files,
+and `factory` and the server keep the two in step. All of this lives in `Factory.Store` (`StateSync`, `BlobClient`).
 Provisioning and the runbook are in `docs/STATE.md`.
 
 **Settings** (environment, else `.env`): `FACTORY_STATE`; `FACTORY_BLOB_URL`, the container's URL
@@ -792,28 +793,28 @@ local one:
   board write. A lease that cannot be taken within 30 s, or renewed, refuses the command
   (`state lock refused`).
 - `runner`, `canary`, `turn-<S>`: renewed every 20 s by a background thread while the holder runs.
-  A lease held elsewhere means another machine holds the lock: `runner.ps1` exits 0, `canary` and
+  A lease held elsewhere means another machine holds the lock: The runner exits 0, `canary` and
   the turn refuse as they do for a local lock.
 A crashed holder's lease lapses within 60 s.
 
 **Sync.**
-- **Board:** every `factory.ps1` command reads it with `If-None-Match`; when it changed, it refreshes
+- **Board:** every `factory` command reads it with `If-None-Match`; when it changed, it refreshes
   `board.json` and pulls the rest of the container.
-- **Push:** every `factory.ps1` command ends, still under the board lock, by pushing every local file
+- **Push:** every `factory` command ends, still under the board lock, by pushing every local file
   whose length or mtime differs from `.sync.json`, and by deleting the blob of every path in
   `.sync.json` that is gone locally (`purge`, `discard`). A path the cap rolled off is marked pruned
   in `.sync.json` and is never pushed again.
 - **Pull:** pulls download every blob whose ETag differs from `.sync.json`, except a path changed
   locally since its last sync. Local changes win, last writer wins, and only `board.json` is
   ETag-checked. A pull never deletes local files.
-- **Dashboard:** when the dashboard polls `/state/board.json` or `/state/events.jsonl`, `serve.ps1`
+- **Dashboard:** when the dashboard polls `/state/board.json` or `/state/events.jsonl`, the server
   refreshes that file with `If-None-Match`, at most once per `FACTORY_STATE_POLL_SECONDS` (the poll runs
   every 1.5 s; one conditional GET per file per 5 s costs about $0.45 a month while a dashboard is
   open). It pulls a job's folder when the job's files are listed. A transcript whose path is not on
   this machine is served from `jobs/<id>/transcripts/`.
-- **Idea turns:** `idea-turn.ps1` pulls `sessions/<S>/` before the turn and pushes at its end.
+- **Idea turns:** `factory idea-turn` pulls `sessions/<S>/` before the turn and pushes at its end.
 
-**Cap.** After a push that uploaded anything, `factory.ps1` lists the container with versions. While
+**Cap.** After a push that uploaded anything, `factory` lists the container with versions. While
 the total exceeds `FACTORY_STATE_CAP`, it deletes in this order:
 1. `board.json` versions older than the newest 50.
 2. For each job that is `done`, `discarded`, or no longer on the board (purged), oldest first (by
@@ -826,96 +827,92 @@ It never deletes the current `board.json`, `events/`, `ideas/`, `evals/`, `lesso
 not `done` or `discarded`. It records one `note` event per pass: `pruned <n> blobs, <bytes> freed`.
 The cap applies only to the container. Local files are kept.
 
-## `factory.ps1` commands
+## `factory` commands
 
 State resolves from `$env:FACTORY_HOME`, else `<main checkout>/.factory-runs` (found through
 `git rev-parse --git-common-dir` from this repo; the runner sets both for agents in a work directory). Writes to `board.json` are
 atomic (a temp file, then a rename; the rename is retried for up to 2 s while a reader such as
-`serve.ps1` holds the file). Every command holds the board lock, a mutex named for the state
+the server holds the file). Every command holds the board lock, a mutex named for the state
 directory, for its whole run, except around a long step (a gate command, a deploy or canary poll,
 or `checkout`'s clone and fetch of the job's work directory, which nothing else touches while the
 job is in an active stage), after which it re-takes the lock and re-reads the board. A command that cannot take the lock within
-30 s (`FACTORY_BOARD_LOCK_SECONDS`) is refused (`board lock refused: another factory.ps1 has held
+30 s (`FACTORY_BOARD_LOCK_SECONDS`) is refused (`board lock refused: another factory has held
 the board for over <n> s`) rather than run unlocked, where its save could overwrite another
 command's. A refused command exits non-zero with a one-line reason on
 stderr and leaves the board unchanged.
 
 ### Implementations
 
-The control plane is being ported to .NET (`src/factory`, roadmap specs 01–12) command by command.
-`FACTORY_IMPL` picks the implementation: `ps` (the default) runs everything in `factory.ps1`;
-`dotnet` makes `factory.ps1` **forward** each ported command to the .NET CLI
-(`artifacts/bin/Factory.Cli/debug/Factory.Cli.dll` after `dotnet build src/factory`, or
-`FACTORY_CLI`): the same arguments, the same environment, and the CLI's stdout, stderr and exit code
-as its own. Any other value is refused (`FACTORY_IMPL '<v>' must be ps or dotnet`), as is
-`dotnet` when the CLI is not built. Callers never change: agents, `serve.ps1` and the runner keep
-calling `factory.ps1`. A ported command must match this contract byte for byte, and its Pester
-blocks (tagged `Ported`) pass under both implementations. A forwarded command takes the same board
-lock as `factory.ps1` (the mutex named for the state directory, and in `azure` the lease on
-`locks/board`) and keeps the same `.sync.json`, so the two implementations never write the board at
-once and either can follow the other on one state directory. `factory.ps1` sets `FACTORY_SCRIPTS` to
-its own folder for the CLI, which hashes the deploy scripts there into the canary fingerprint, as
-`factory.ps1` does. Until cutover (spec 12) both implementations fingerprinted those PowerShell
-scripts, so a canary recorded by either counted for the other. At cutover the .NET deploy code took their
-place in the fingerprint (see [Canary](#canary)), so a canary recorded before it no longer counts: the
-first deployable job after cutover waits for a fresh canary pass. Ported, on both state backends: every command, the deploy set
-(`deploy`, `deploy-log`, `deploy-fix`, `block`, `redeploy`, `destroy`, `sweep`, `canary`,
-`canary-destroy`, `qa-login`, spec 09) too. The CLI calls `gh`, `az`, the sign-in smoke and the canary's
-scaffold commands as external processes, with the same overrides (`FACTORY_GH_CMD`, `FACTORY_AZ_CMD`,
-`FACTORY_SIGNIN_CMD`, `FACTORY_CANARY_SCAFFOLD_CMD`), and takes `canary.lock` (and in `azure` the lease on
-`locks/canary`) as `factory.ps1` does. Every detached start (`merge`, `sync-prs` and `discard`
-destroying a preview that is still up, `sweep`'s destroys, `canary`'s `canary-destroy`) is still
-`factory.ps1 <command>` detached, as `factory.ps1` itself does, so with `FACTORY_IMPL=dotnet` in its
-environment it forwards to the CLI too. A forwarded `state-migrate` opens the board without first refreshing it from the container,
-which has none yet, as `factory.ps1` does.
+The control plane is the .NET CLI, **`factory`** (`src/factory/Factory.Cli`). Spec 12 retired the
+PowerShell it was ported from (`factory.ps1`, `runner.ps1`, `serve.ps1`, `idea-turn.ps1`, `idea.ps1`
+and `hook-event.ps1`), and this contract's command names are the CLI's. `dotnet build src/factory` builds
+it as `artifacts/bin/Factory.Cli/debug/factory` (`factory.exe` on Windows) beside `factory.dll`; a human
+puts that folder on `PATH`. The runner and the dashboard server run it as `dotnet <factory.dll>`
+(`FACTORY_CLI` overrides the path, else it is the CLI's build folder beside their own), and put its folder
+first on the `PATH` of every process they start (claude and its agents and hooks, gate commands), so
+`factory` there is this build. Off Windows, they also set `DOTNET_ROOT` for those processes, when it is
+unset, to the .NET they run on, so the CLI's launcher finds a user-local install. Every detached start
+(`merge`, `sync-prs` and `discard` destroying a preview that is still up, `sweep`'s destroys, `canary`'s
+`canary-destroy`, the server's startup `sweep`, PR sync, idea turns, the runner) is `dotnet <factory.dll>
+<command>` with none of the caller's stdio (on Windows, in a hidden window). The CLI finds this repo's
+checkout (`factory/plugin`, `factory/templates`, the deploy code the canary hashes, and the template
+workspace beside the repo) above its own build folder, or through `FACTORY_SCRIPTS` (the checkout's
+`factory/scripts`).
 
-The runner is forwarded the same way: with `FACTORY_IMPL=dotnet`, `runner.ps1` starts the .NET runner
-(`artifacts/bin/Factory.Runner/debug/Factory.Runner.dll`, or `FACTORY_RUNNER`) on the same
-`runner.lock`, lease, `runner.log` and state, and it calls `factory.ps1` as `runner.ps1` does. Its run
-mode is `FACTORY_MODE` from the environment, else `.env`, else `Factory:Mode` from its configuration;
-`runner.ps1` passes `Factory:Mode=local`, this contract's default, and a .NET runner started with no
-mode from any of them refuses to start rather than default to a subscription. Started directly (the
-AppHost), the runner finds `factory/scripts` above its binaries when `FACTORY_SCRIPTS` is unset.
+The CLI calls `gh`, `az`, `node` (the sign-in smoke) and the canary's scaffold commands (`dotnet`,
+`aspire-addon`) as programs from `PATH`, with no shell between; the test overrides (`FACTORY_GH_CMD`,
+`FACTORY_AZ_CMD`, `FACTORY_SIGNIN_CMD`, `FACTORY_CANARY_SCAFFOLD_CMD`) are scripts run with
+`pwsh -File` in their place. The only PowerShell a real job needs is the gate's shell (see
+[Gate](#gate)): `pwsh`, or `FACTORY_GATE_SHELL`, which nothing else runs.
 
-The dashboard server is forwarded the same way: with `FACTORY_IMPL=dotnet`, `serve.ps1` starts the .NET
-server (`artifacts/bin/Factory.Server/debug/Factory.Server.dll`, or `FACTORY_SERVER`) with its
-parameters as `--port`, `--state-dir`, `--env-file`, `--watchdog-seconds` and `--pr-sync-seconds`. It
-keeps the [Dashboard API](#dashboard-api) as written: the same `serve.lock`, start line, endpoints,
-`{ ok, message }` text, watchdog, PR sync and startup `sweep`, and each write is still one
-`factory.ps1` call, so every command reaches the CLI through `factory.ps1`'s own forwarding. `serve.ps1` also passes `--parent-pid` with its own PID, and the
-server stops (releasing `serve.lock`) within about a second of that process ending, so killing
-`serve.ps1` alone never leaves an orphaned server; a reused PID with a different start time does not
-count as the parent. Started without `--parent-pid` (the AppHost), it does not watch. Unlike
-`serve.ps1`, it serves static reads (`/state`, `/vendor`,
-the page) concurrently, while `/api` requests still run one at a time. The AppHost
-(`src/factory/Factory.AppHost`) runs the server on port 4317 and a runner, both with
-`FACTORY_IMPL=dotnet`, and passes `FACTORY_HOME`, `FACTORY_ENV_FILE` (as `--env-file`), `FACTORY_MODE`,
-`FACTORY_FOUNDRY_RESOURCE` and `FACTORY_WORK` through when they are set.
+**`factory runner`** starts the runner (`artifacts/bin/Factory.Runner/debug/Factory.Runner.dll` beside the
+CLI's build, or `FACTORY_RUNNER`) and returns its exit code. Its run mode is `FACTORY_MODE` from the
+environment, else `.env`, else `Factory:Mode` from its configuration; `factory runner` passes
+`Factory:Mode=local`, this contract's default, and a runner started with no mode from any of them refuses
+to start rather than default to a subscription.
+
+**`factory serve [--port <n>] [--state-dir <dir>] [--env-file <path>] [--watchdog-seconds <n>]
+[--pr-sync-seconds <n>]`** starts the dashboard server (`artifacts/bin/Factory.Server/debug/Factory.Server.dll`,
+or `FACTORY_SERVER`) with those arguments and `--parent-pid` with its own PID; the server stops (releasing
+`serve.lock`) within about a second of that process ending, so stopping `factory serve` never leaves an
+orphaned server, and a reused PID with a different start time does not count as the parent. Started without
+`--parent-pid` (the AppHost), it does not watch. Without `--port` it takes a free localhost port and prints it.
+It keeps the [Dashboard API](#dashboard-api): static reads (`/state`, `/vendor`, the page) are served
+concurrently, `/api` requests one at a time, and each write is one `factory` call. The AppHost
+(`src/factory/Factory.AppHost`) runs the server on port 4317 and a runner, and passes `FACTORY_HOME`,
+`FACTORY_ENV_FILE` (as `--env-file`), `FACTORY_MODE`, `FACTORY_FOUNDRY_RESOURCE` and `FACTORY_WORK` through
+when they are set.
+
+**`factory idea [<owner/name> | I-NNN]`** is the CLI door to an idea (see [Ideas](#ideas)): an interactive
+`claude --plugin-dir factory/plugin "/factory:idea <arg>"` session in this repo, with the CLI's folder first
+on `PATH`. For a resumed idea it sets `FACTORY_IDEA`, so the spec-writer's hook events go to it. An existing
+target is cloned with `clone-target` into `<work>\cli\<owner>-<name>` and passed as `--add-dir` and
+`clone=<dir>`, and the clone is deleted when the session ends.
 
 | Command | Used by |
 | --- | --- |
-| `new-idea <text> -Target <path> [-Scaffold <json>] [-Base <J-NNN>]` · `add-spec <ideaId> <file>` · `idea-done <ideaId> [-Failed -Reason]` · `idea-abandon <ideaId>` | `/factory:idea`, serve.ps1 (idea sessions, **Abandon**) |
-| `check-target <owner/name>` (prints `new` or `existing` from the GitHub API, or refuses as `new-idea` would) · `clone-target <owner/name> <dir> [-Base <J-NNN>]` (replaces `<dir>` with a `--depth 1` clone of `main`, or of `factory/<base>`) | serve.ps1 (idea sessions), idea.ps1 |
-| `list-repos` (prints a JSON array of the token user's own repos, `owner/name`, newest push first, at most 100) | serve.ps1 (New idea) |
-| `edit-spec <id> -File <path>` (backlog only) | serve.ps1 |
-| `approve <id>` | `/factory:idea` (on the human's yes), serve.ps1 (human drag) |
-| `rework <id> <note>` · `discard <id>` (both from `ready` or `blocked`) · `merge <id>` · `purge` | serve.ps1 (human drags, the blocked card's buttons, and **Clear**) |
+| `new-idea <text> -Target <path> [-Scaffold <json>] [-Base <J-NNN>]` · `add-spec <ideaId> <file>` · `idea-done <ideaId> [-Failed -Reason]` · `idea-abandon <ideaId>` | `/factory:idea`, the server (idea sessions, **Abandon**) |
+| `check-target <owner/name>` (prints `new` or `existing` from the GitHub API, or refuses as `new-idea` would) · `clone-target <owner/name> <dir> [-Base <J-NNN>]` (replaces `<dir>` with a `--depth 1` clone of `main`, or of `factory/<base>`) | the server (idea sessions), idea.ps1 |
+| `list-repos` (prints a JSON array of the token user's own repos, `owner/name`, newest push first, at most 100) | the server (New idea) |
+| `edit-spec <id> -File <path>` (backlog only) | the server |
+| `approve <id>` | `/factory:idea` (on the human's yes), the server (human drag) |
+| `rework <id> <note>` · `discard <id>` (both from `ready` or `blocked`) · `merge <id>` · `purge` | the server (human drags, the blocked card's buttons, and **Clear**) |
 | `gate-check <id> [<name>]` (runs the spec's gate commands, or the one named, in the job's work directory exactly as `gate` does, and records nothing on the board; prints the output and exits with the first non-zero code; see [Gate and merge](#gate-and-merge)) · `provenance <id>` (prints this round's template-sourced paths) | the builder, the reviewers, the approver, `/factory run` |
-| `sync-prs` (moves each `ready` job whose PR was merged on GitHub to `done`; prints their ids) | serve.ps1 (PR sync) |
-| `next` (prints the next runnable approved id, or nothing; nothing at all while any job is flagged `usage-limit`, since the limit holds for every job until the human resumes; a deployable job is runnable only after a canary pass for the current fingerprint, and `next -NeedsCanary` prints `canary` when that is all that holds it back) · `checkout <id>` (creates the GitHub repo if needed, then clones or reuses `<work>\jobs\<id>` on `factory/<id>`, fetches, and points `factory/base` at the base branch; prints the work directory) · `publish <id>` (`ready` or `blocked`: pushes `factory/<id>` and opens the job's PR if it has none; prints the PR url) · `set-cost <id> <usd> <ms>` | runner.ps1 |
+| `sync-prs` (moves each `ready` job whose PR was merged on GitHub to `done`; prints their ids) | the server (PR sync) |
+| `next` (prints the next runnable approved id, or nothing; nothing at all while any job is flagged `usage-limit`, since the limit holds for every job until the human resumes; a deployable job is runnable only after a canary pass for the current fingerprint, and `next -NeedsCanary` prints `canary` when that is all that holds it back) · `checkout <id>` (creates the GitHub repo if needed, then clones or reuses `<work>\jobs\<id>` on `factory/<id>`, fetches, and points `factory/base` at the base branch; prints the work directory) · `publish <id>` (`ready` or `blocked`: pushes `factory/<id>` and opens the job's PR if it has none; prints the PR url) · `set-cost <id> <usd> <ms>` | the runner |
 | `set-stage <id> <to> [-By] [-Reason] [-Detail] [-Session]` · `set-review <id> <role> <state>` · `read-reviews <id>` · `read-decision <id>` · `gate <id>` | `/factory run` |
 | `deploy <id>` (deploy only) · `deploy-log <id>` (prints the last failed attempt's log) · `deploy-fix <id> -File <diagnosis>` · `block <id> -Detail <line>` (both deploy only, after a failed attempt) | `/factory run`, the devops agent (`deploy-log` also the approver) |
-| `redeploy <id>` (`blocked` from `deploy`, or `ready` from `deploy` before `blocked` existed: back to Approved with `resume: deploy` and a fresh attempt budget once the cause is fixed; the runner resumes it at deploy) | serve.ps1 (**Retry deploy**), a human |
-| `resume <id>` (`ready` or `blocked` with flag `usage-limit`: back to Approved, to continue its claude session in the stage it stopped in) | serve.ps1 (**Resume**), a human |
-| `canary [-Force]` (see [Canary](#canary)) | runner.ps1 (before a deployable job), serve.ps1 (**Run canary**), a human |
-| `destroy <id>` (any stage; a no-op without a preview) · `qa-login <id>` (prints the preview's QA user and password) | serve.ps1 (**Tear down**, **QA login**), and `merge`/`discard` |
-| `sweep` · `canary-destroy` (see [Deploy](#deploy) and [Canary](#canary)) | serve.ps1 at startup and runner.ps1 when it drains; `canary` and `sweep` start `canary-destroy` |
-| `event <json \| -Job -Idea -Kind -Agent>` | hook-event.ps1 |
+| `redeploy <id>` (`blocked` from `deploy`, or `ready` from `deploy` before `blocked` existed: back to Approved with `resume: deploy` and a fresh attempt budget once the cause is fixed; the runner resumes it at deploy) | the server (**Retry deploy**), a human |
+| `resume <id>` (`ready` or `blocked` with flag `usage-limit`: back to Approved, to continue its claude session in the stage it stopped in) | the server (**Resume**), a human |
+| `canary [-Force]` (see [Canary](#canary)) | the runner (before a deployable job), the server (**Run canary**), a human |
+| `destroy <id>` (any stage; a no-op without a preview) · `qa-login <id>` (prints the preview's QA user and password) | the server (**Tear down**, **QA login**), and `merge`/`discard` |
+| `sweep` · `canary-destroy` (see [Deploy](#deploy) and [Canary](#canary)) | the server at startup and the runner when it drains; `canary` and `sweep` start `canary-destroy` |
+| `event <json \| -Job -Idea -Kind -Agent>`, or `event` alone: a `SubagentStart` / `SubagentStop` hook payload on stdin, which appends `agent-start` or `agent-stop` for `FACTORY_JOB` (else `FACTORY_IDEA`; neither set, nothing), the plugin's `factory:` prefix stripped and an empty `agent_type` (Claude Code's internal agents) skipped; `agent-start` adds `agentId` and `transcript` (`<transcript_path without .jsonl>/subagents/agent-<agent_id>.jsonl`). The hook form prints nothing and always exits 0, so a hook never breaks a session | the plugin's hooks |
 | `eval <id> -File <path>` | a human session evaluating a finished job (see [Evaluations](#evaluations)) |
-| `feedback <id> -File <path>` | serve.ps1 (the human's feedback on an evaluation) |
-| `lesson <id> [-File <path>]` · `lesson-mark <id> <open\|proposed\|applied> [-Detail <session>]` | runner.ps1, a human evaluation session, serve.ps1 (see [Lessons](#lessons)) |
+| `feedback <id> -File <path>` | the server (the human's feedback on an evaluation) |
+| `lesson <id> [-File <path>]` · `lesson-mark <id> <open\|proposed\|applied> [-Detail <session>]` | the runner, a human evaluation session, the server (see [Lessons](#lessons)) |
 | `status [-Json]` | anyone |
-| `state-migrate` (`azure` only: uploads everything in `FACTORY_HOME` that is not already in the container, then writes `.sync.json`; refuses when the container already has a `board.json` newer than the local one) · `state-pull [<prefix>]` (pulls the container, or one prefix such as `jobs/J-019/`) · `prune` (runs the cap now and prints `<used> of <cap> bytes`) | a human; serve.ps1 (`state-pull jobs/<id>/` when a job is opened) |
+| `state-migrate` (`azure` only: uploads everything in `FACTORY_HOME` that is not already in the container, then writes `.sync.json`; refuses when the container already has a `board.json` newer than the local one) · `state-pull [<prefix>]` (pulls the container, or one prefix such as `jobs/J-019/`) · `prune` (runs the cap now and prints `<used> of <cap> bytes`) | a human; the server (`state-pull jobs/<id>/` when a job is opened) |
 | `allow-ip` (`azure` only: adds this machine's public IP to `FACTORY_STORAGE_ACCOUNT`'s firewall through `az storage account network-rule add`, and removes the IP it added last time, recorded in `%LOCALAPPDATA%\ai-factory\allowed-ip.txt`) | a human, after the public IP changes |
 
 `read-reviews` and `read-decision` exit 2 when a verdict line is missing or malformed; the job
@@ -946,11 +943,11 @@ script run with `pwsh -File` in place of `gh` / `az`), `$env:FACTORY_DEPLOY_POLL
 Every agent works in the job's work directory and follows the target's `CLAUDE.md`, if it has one.
 The devops agent runs twice per round: after the builder (author: `aspire-addon infra adopt` /
 `infra check`, so the reviewers see the infrastructure the round needs), and in `deploy` (operate:
-`factory.ps1 deploy`, and on a failure `deploy-log` and a diagnosis; see [Deploy](#deploy)). It edits
+`factory deploy`, and on a failure `deploy-log` and a diagnosis; see [Deploy](#deploy)). It edits
 the target's `IaC/` and workflows, never this repo's, and never the app's source: a fault in the app
 goes back to the builder.
 Reviewers inspect the diff (`git diff main...HEAD`) and re-run the spec's Gate commands themselves,
-through `factory.ps1 gate-check <id> [<name>]`, never by typing the command. They treat `build.md`'s
+through `factory gate-check <id> [<name>]`, never by typing the command. They treat `build.md`'s
 claims as claims, not as evidence. The builder runs `gate-check` before it hands on. A gate command
 that the builder could not run, or that `gate-check` reports red, means the builder must not hand
 on: J-022's round-10 builder shipped a `terraform test` run it could not execute, and the gate
@@ -958,14 +955,14 @@ failed it.
 
 ## Gate and merge
 
-`factory.ps1 gate <id>` runs the gate commands in the job's work directory on `factory/<id>`, in
+`factory gate <id>` runs the gate commands in the job's work directory on `factory/<id>`, in
 order (cloning it again first if it is gone). It writes the output to `gate.log` and records the exit
 codes and the branch head `sha`. The commands come from `$env:FACTORY_GATE_CMDS` if set, else from
 the spec's `## Gate`.
 
-**`factory.ps1 gate-check <id> [<name>]`** is the same run for agents, so the agents check exactly
+**`factory gate-check <id> [<name>]`** is the same run for agents, so the agents check exactly
 what the gate will check. The headless allowlist's prefix rules cannot match a compound gate command
-(`Set-Location IaC; terraform init ...; terraform test ...`), and the `factory.ps1` path rule
+(`Set-Location IaC; terraform init ...; terraform test ...`), and the `factory *` rule
 already lets agents call it. It differs from `gate` in four ways:
 - It takes a job in `build`, `review`, `deploy` or `approve`.
 - It never changes `gate`, the stage or the flag, and appends no event.
@@ -976,7 +973,7 @@ already lets agents call it. It differs from `gate` in four ways:
   call on the same head prints the cached result, marked `(cached at <sha>)`, and does not re-run.
   A dirty work tree is never cached.
 
-`factory.ps1 publish <id>` (job in `ready`) pushes `factory/<id>` from the work directory to the
+`factory publish <id>` (job in `ready`) pushes `factory/<id>` from the work directory to the
 target and opens a pull request into `main` titled `<id>: <title>`, unless the job already has an
 open one; it records `pr` and appends a `note` event. The runner calls it whenever a pass leaves the
 job in `ready`, so the human can read the diff on GitHub. A rework pushes to the same branch, which
@@ -984,14 +981,14 @@ updates the same PR.
 
 **Merged on GitHub.** The human may accept the job by merging its PR on GitHub instead of dragging to
 Done. That merge is the acceptance, so the factory records it rather than refusing it:
-`factory.ps1 merge <id>` first asks GitHub for the job's PR, and if it is merged, does step 4 below
+`factory merge <id>` first asks GitHub for the job's PR, and if it is merged, does step 4 below
 with the PR's `merge_commit_sha` and merges nothing. It appends a `note` event "PR #N merged on
 GitHub", adding "at <head>, not the gated <sha>" when the merged head is not the gated one. That is
-noted, not refused, because the code is already in `main`. `factory.ps1 sync-prs` does the same for
+noted, not refused, because the code is already in `main`. `factory sync-prs` does the same for
 every `ready` job with a PR that GitHub reports merged, and prints each one's id. The dashboard runs it
 (see [Watchdog](#runner)).
 
-`factory.ps1 merge <id>` otherwise runs in the job's work directory, after `git fetch origin`:
+`factory merge <id>` otherwise runs in the job's work directory, after `git fetch origin`:
 
 0. It refuses a branch with no commits beyond `origin/main` (`merge-blocked`, "nothing to merge"),
    and a work directory with uncommitted changes (`merge-blocked`, naming the paths), since they
@@ -1008,7 +1005,7 @@ every `ready` job with a PR that GitHub reports merged, and prints each one's id
    work directory it cannot delete (a locked file) is a `note` event, never a failed merge; `purge`
    tries again.
 
-`factory.ps1 discard <id>` closes the job's open PR, deletes `factory/<id>` on GitHub if it was
+`factory discard <id>` closes the job's open PR, deletes `factory/<id>` on GitHub if it was
 pushed, and deletes the work directory.
 
 ### Stacked jobs
@@ -1054,13 +1051,13 @@ anything but the one child process that needs it, never logged):
 | Key | What |
 | --- | --- |
 | `HCP_ORG` | the HCP Terraform organization |
-| `HCP_TOKEN` | a team token (the owners team) for `factory.ps1`: projects, workspaces, runs, state outputs. Not an organization token: those can't queue runs, and `destroy` queues one |
+| `HCP_TOKEN` | a team token (the owners team) for `factory`: projects, workspaces, runs, state outputs. Not an organization token: those can't queue runs, and `destroy` queues one |
 | `HCP_TEAM_TOKEN` | a team token scoped to the factory's projects, set as each target's `TF_API_TOKEN` GitHub secret |
 | `HCP_AZURE_VARSET` | id of the variable set holding Azure (and Entra External) dynamic credentials, attached to every project |
 | `AZURE_GH_CLIENT_ID` · `AZURE_TENANT_ID` · `AZURE_SUBSCRIPTION_ID` | the app registration GitHub Actions signs in as (OIDC), for image builds and schema steps |
 | `HCP_API_URL` | default `https://app.terraform.io`; tests point it at a stub |
 
-**`factory.ps1 deploy <id>`** (job in `deploy`), in order; any step's failure is a failed attempt:
+**`factory deploy <id>`** (job in `deploy`), in order; any step's failure is a failed attempt:
 
 0. A bootstrap job never deploys: GitHub dispatches only workflows on the default branch, and the
    bootstrap is what puts `deploy.yml` there. `deploy` moves it to `approve` with a `note`, whatever
@@ -1163,7 +1160,7 @@ queues the job in Approved to resume at `deploy`. The factory never grants itsel
 Every new round starts with `attempts` back at 0. A rework or a deploy-fix round leaves the old
 preview up, and the next `deploy` applies over it.
 
-**`factory.ps1 destroy <id>`** queues a destroy run on the workspace (auto-applied), waits for it,
+**`factory destroy <id>`** queues a destroy run on the workspace (auto-applied), waits for it,
 safe-deletes the workspace, and records `status: down` and a `destroy` event. Without a `deploy`, or
 when it is already `down`, it does nothing. It never moves the job.
 - HCP answers a safe-delete `409` while it processes the state a destroy just wrote (J-025); that is
@@ -1173,11 +1170,11 @@ when it is already `down`, it does nothing. It never moves the job.
 - A failure puts `status` back as it was (or `failed`, when it was `destroying`), records
   `destroyError`, adds one to `destroyFailures`, and appends a `destroy` event.
 
-**`factory.ps1 sweep`** reconciles the previews that outlived their work. It starts a detached
+**`factory sweep`** reconciles the previews that outlived their work. It starts a detached
 `destroy` for each job in `done` or `discarded` whose preview is not `down`, and a detached
 `canary-destroy` for a canary whose teardown failed. It skips anything on its fifth failure, which
 waits for the human, and a destroy that started less than 90 minutes ago, which may still be running.
-It prints what it started and does nothing with deploys off. `serve.ps1` runs it at startup and the
+It prints what it started and does nothing with deploys off. The server runs it at startup and the
 runner when it drains. Non-terminal jobs are left alone: their next round applies over the preview,
 and a destroy there is the J-022 race.
 
@@ -1203,7 +1200,8 @@ apply, and then its destroy, without them).
 **Fingerprint.** A SHA-256 over what the deploy path depends on: the .NET deploy code
 (`src/factory/Factory.Cli/DeployService.cs` and `CanaryService.cs`, `src/factory/Factory.Store/HcpClient.cs`,
 `GitHubClient.cs` and `ToolRunner.cs`, each hashed with its line endings as LF, so a checkout on Windows and one on Linux
-agree); the template workspace's `IaC/` and `base-project/.github/workflows/deploy.yml`; the
+agree; before spec 12 these were `deploy.ps1`, `hcp.ps1` and `github.ps1`, so a canary recorded then no
+longer counts and the first deployable job after cutover waits for a fresh pass); the template workspace's `IaC/` and `base-project/.github/workflows/deploy.yml`; the
 template pack as built (`artifacts/nupkg/*.nupkg`, which is what gets installed); the canary's own
 settings; and
 the HCP variable set's variables (key, category, and the value unless it is sensitive). A changed
@@ -1215,7 +1213,7 @@ stack. That is the only thing that still proves a from-scratch create, which dev
 Run it by hand after changing template IaC. It takes about 61 minutes (31 before its result), runs
 even when up to date, and records `full: true`. If it fails, deployable jobs wait as for any canary.
 
-**`factory.ps1 canary [-Force] [-Full]`** - one run at a time (`canary.lock`, as `runner.lock`):
+**`factory canary [-Force] [-Full]`** - one run at a time (`canary.lock`, as `runner.lock`):
 
 1. Computes the fingerprint. Without `-Force`, when `canary.json` already records a pass for it,
    prints `canary: up to date` and exits 0. Otherwise it waits for the last canary's teardown, which
@@ -1231,10 +1229,10 @@ even when up to date, and records `full: true`. If it fails, deployable jobs wai
 5. Writes `canary.json` and `canary-<n>.log` (the same sections as `deploy-<a>.log`), appends a
    `canary` event (`pass` or `failed: <first error line>`), and deletes the work directory. A passing
    canary has proved the deploy, and a destroy takes as long again, so nothing waits for it.
-6. Releases `canary.lock`, starts `factory.ps1 canary-destroy` detached, and exits 0 on a pass, 1
+6. Releases `canary.lock`, starts `factory canary-destroy` detached, and exits 0 on a pass, 1
    otherwise.
 
-**`factory.ps1 canary-destroy`** takes `canary.lock`, destroys `j000` as `destroy` does, pass or fail,
+**`factory canary-destroy`** takes `canary.lock`, destroys `j000` as `destroy` does, pass or fail,
 and confirms the workspace is gone. It appends `## Destroy` to the log, records the outcome under
 `teardown`, and appends a `destroy` event with `job: "canary"`. A teardown that fails **does not** fail
 the canary: the deploy path it tested is proven. It still matters, since discarding a job relies on
@@ -1256,15 +1254,15 @@ the error and **Run canary**. A failed canary is not retried automatically, beca
 real Azure time; the human fixes the cause and clicks **Run canary** (`canary -Force`), and the
 watchdog starts the runner once it passes.
 
-**`factory.ps1 qa-login <id>`** prints `qa_user` and `qa_password` from the workspace's outputs (the
+**`factory qa-login <id>`** prints `qa_user` and `qa_password` from the workspace's outputs (the
 auth add-on's), or refuses when the preview has none. Only the dashboard calls it, for the human.
 
 ## Dashboard API
 
-`serve.ps1` listens on localhost only. GETs serve `factory/dashboard/index.html`, the files under
+The server listens on localhost only. GETs serve `factory/dashboard/index.html`, the files under
 `factory/dashboard/vendor/` (at `/vendor/...`) and read-only files under the state dir: it rejects
 `..`, and serves `.md` as text/plain. Every write is a thin
-wrapper over one `factory.ps1` call. The response is `{ "ok": bool, "message": "<stderr or stdout>" }`,
+wrapper over one `factory` call. The response is `{ "ok": bool, "message": "<stderr or stdout>" }`,
 and a refused move snaps the card back and shows the message.
 
 | Request | Calls | Then |
@@ -1302,14 +1300,14 @@ Session reads use `/state/sessions/<S>/...`. An idea card opens its brief. A car
 session, or for an idea that a session created, reopens the session panel. An idea card from the
 CLI session shows the command that resumes it.
 
-"Starts the runner" means: spawn `runner.ps1` detached, unless `runner.lock` is held. The
+"Starts the runner" means: spawn `factory runner` detached, unless `runner.lock` is held. The
 [watchdog](#runner) also starts it when Approved is not empty and no live runner holds the lock. The claude
 command is taken from `$env:FACTORY_CLAUDE_CMD` when it is set, so tests spend no tokens.
 
 The header's **Board** and **Evaluations** tabs switch the page. Evaluations lists every
 evaluation with its rating, the human's rating if given, and snapshot facts, and opens one to its
 markdown. It also lists every `done` or `discarded` job on the board that has no evaluation yet,
-rated `not evaluated`, newest job first with the rest; opening one shows the `factory.ps1 eval`
+rated `not evaluated`, newest job first with the rest; opening one shows the `factory eval`
 command that evaluates it. Below the markdown, **Human feedback** is a rating and a note that **Save feedback** sends
 as `Rating: <r>`, a blank line, then the note.
 
@@ -1319,14 +1317,14 @@ empty text, so a thinking block shows only as a marker.
 
 ## Runner
 
-`runner.ps1` drains the Approved queue one job at a time. It exits at once if it cannot create
+The runner drains the Approved queue one job at a time. It exits at once if it cannot create
 `runner.lock` (an exclusive file create holding its PID). It takes over a lock whose PID is no
 longer running. Otherwise it loops:
 
-1. `factory.ps1 next -NeedsCanary`. If it prints `canary`, the runner runs `factory.ps1 canary` and
+1. `factory next -NeedsCanary`. If it prints `canary`, the runner runs `factory canary` and
    logs the outcome; after a pass it goes back to step 1, after a failure it takes only what plain
    `next` returns. If nothing comes back, it deletes the lock and exits.
-2. It calls `factory.ps1 set-stage <id> build -By runner` (or the stage named by the job's `resume`), then `factory.ps1 checkout <id>`, which
+2. It calls `factory set-stage <id> build -By runner` (or the stage named by the job's `resume`), then `factory checkout <id>`, which
    creates the GitHub repo if needed and clones or reuses `<work>\jobs\<id>` on `factory/<id>` (the
    pushed branch when the job is reworked, otherwise a new one from `origin/main`). It then fetches
    `origin` and points `refs/remotes/factory/base` at the job's base branch as it is now (`main`, or
@@ -1335,8 +1333,8 @@ longer running. Otherwise it loops:
    is reviewed, previewed and gated with that work in it (J-022).
 3. It sets `FACTORY_JOB=<id>`, `FACTORY_HOME=<this repo>\.factory-runs` and `FACTORY_REPO=<this repo>`,
    writes `<stateDir>/headless-settings.json`, and runs this in the job's work directory:
-   `claude -p "/factory:factory run <id> <stateDir> <factory.ps1>" --plugin-dir <this repo>/factory/plugin --plugin-dir <template workspace> --settings <stateDir>/headless-settings.json --add-dir <stateDir> --output-format stream-json --verbose --permission-mode acceptEdits`
-   (`claude-run.ps1` builds this command for both scripts).
+   `claude -p "/factory:factory run <id> <stateDir>" --plugin-dir <this repo>/factory/plugin --plugin-dir <template workspace> --settings <stateDir>/headless-settings.json --add-dir <stateDir> --output-format stream-json --verbose --permission-mode acceptEdits`
+   with the CLI's folder first on `PATH` (see [Implementations](#implementations)).
    - `headless-settings.json` `permissions.allow` lets agents run the toolchain (`dotnet`, `npm`,
      `npx`, `node`, `aspire`, `aspire-addon`, `terraform init -backend=false`, `terraform validate`,
      `terraform test`, `terraform fmt`, each also as `terraform -chdir=<dir> …`, and `curl` for the approver's smoke test), git reads and commits (`add`, `commit`, `rm`, `revert`), one merge (`git merge --no-edit factory/base`,
@@ -1345,21 +1343,21 @@ longer running. Otherwise it loops:
      `main` and `git worktree`, `terraform … apply`/`plan`/`destroy` (a `-chdir=*` rule's wildcard would
      otherwise match `terraform -chdir=x apply … validate`), and reading the environment (`printenv`, `env`, and
      `Get-ChildItem`/`Get-Item`/`Get-Content` on `env:`), which may hold credentials the human never meant an agent to read. `additionalDirectories` makes `factory/templates` and the template
-     workspace readable. The allowlist also holds the absolute
-     `factory.ps1` path. The skill calls `factory.ps1` by that absolute path with no
-     `$VARIABLES`, because a headless permission check can't approve a variable it can't see.
+     workspace readable. The allowlist also holds `factory *`, in both tools: the skill and the agents call
+     `factory` by name, with no `$VARIABLES`, because a headless permission check can't approve a variable
+     it can't see.
    - `permissions.deny` is the fence: `Edit` on `/factory/**`, `/.claude/**` and
      `/docs/FACTORY-CONTRACT.md` in the work directory, the same three by absolute path in this repo,
      `<stateDir>/jobs/*/spec.md`, and the template workspace; and `Read` of this repo's `.env`.
-     Agents never push: only `factory.ps1` holds the token.
+     Agents never push: only `factory` holds the token.
    - `claude` runs with its mode's child environment (see [Run mode and providers](#run-mode-and-providers)).
    - claude's output is read as UTF-8 whatever the console's codepage.
    - stderr goes to the same log, so a reader skips lines that are not JSON.
-4. It appends each stdout line to `jobs/<id>/run-<n>.jsonl` as it arrives, through one stream opened for the whole pass and shared for reading and writing (and `serve.ps1` reads state files shared the same way), so a reader can never fail the job. It calls `set-cost`
+4. It appends each stdout line to `jobs/<id>/run-<n>.jsonl` as it arrives, through one stream opened for the whole pass and shared for reading and writing (and the server reads state files shared the same way), so a reader can never fail the job. It calls `set-cost`
    with `total_cost_usd` and `duration_ms` from the final `"type":"result"` line; a refused
    `set-cost` is an error finishing that job (logged, the job escalated, the queue moves on). If the job is
    in `gate` afterwards, the approver has approved and only the gate is left, so the runner runs
-   `factory.ps1 gate <id>` itself. A claude that dies at that point (out of credit, say) costs
+   `factory gate <id>` itself. A claude that dies at that point (out of credit, say) costs
    nothing. If the job is still in Building (and not `blocked`) after that, whether claude exited
    non-zero or not, it escalates the job (`set-stage <id> ready -Reason escalated`, which lands a
    deployable job outside `approve` and `gate` in `blocked`). That way the queue never stalls. When claude's
@@ -1372,10 +1370,10 @@ longer running. Otherwise it loops:
    queued by `resume` runs as `claude -p --resume <resumeSession> "<continue prompt>"` with the same
    plugins and settings, in the same work directory, so the orchestrator picks up where it stopped.
    Once the job is
-   in `ready` or `blocked`, it calls `factory.ps1 publish <id>`; a failed publish is logged (`publish <id>:
+   in `ready` or `blocked`, it calls `factory publish <id>`; a failed publish is logged (`publish <id>:
    <message>`) and leaves the job as it is, since `merge` publishes again. Then it calls
-   `factory.ps1 lesson <id>` ([Lessons](#lessons)); a failure there is logged the same way. The runner runs
-   `checkout` and `publish` in a child `pwsh`, so it can read the refusal `factory.ps1` writes to stderr.
+   `factory lesson <id>` ([Lessons](#lessons)); a failure there is logged the same way. The runner runs
+   every command as a child `dotnet <factory.dll>`, so it can read the refusal the CLI writes to stderr.
 5. An error while handling one job does not end the runner. It logs the error, moves the job to
    `ready` with flag `escalated` if it is still in Building (detail `runner error: <message>`), and
    goes back to step 1.
@@ -1385,15 +1383,15 @@ longer running. Otherwise it loops:
    `error <id>: <message>` followed by the stack, and how it ended: `exit drained`, `exit usage-limit`, `exit fatal: <message>`,
    or `exit stopped` (interrupted, e.g. its console closed, before the loop finished).
 
-**Watchdog.** `serve.ps1` checks the board every 10 seconds (`-WatchdogSeconds`). If a job is in
+**Watchdog.** The server checks the board every 10 seconds (`--watchdog-seconds`). If a job is in
 `approved` and `runner.lock` is missing or names a PID that is no longer running, it starts
-`runner.ps1` detached and logs `watchdog: started runner`. A runner that died, or one that was
+`factory runner` detached and logs `watchdog: started runner`. A runner that died, or one that was
 never started (an approval made outside the dashboard), costs one interval, not a stalled queue.
 
-**PR sync.** Every 30 seconds (`-PrSyncSeconds`), if a `ready` job has a PR, `serve.ps1` starts
-`factory.ps1 sync-prs` detached. A PR the human merged on GitHub then lands its job in Done within
+**PR sync.** Every 30 seconds (`--pr-sync-seconds`), if a `ready` job has a PR, the server starts
+`factory sync-prs` detached. A PR the human merged on GitHub then lands its job in Done within
 one interval, with no drag.
 
 The `/factory:idea` session doesn't use the runner or the lock. It writes only under `ideas/` and
-through `factory.ps1`, so it can run while a job builds. After it approves a spec it starts
-`runner.ps1` detached, as serve.ps1 does.
+through `factory`, so it can run while a job builds. After it approves a spec, the dashboard's
+watchdog starts the runner; with no dashboard running, the session tells the human to run `factory runner`.
