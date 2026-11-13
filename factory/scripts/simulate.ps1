@@ -1,10 +1,10 @@
 <#
 .SYNOPSIS
-  Drives fake jobs through the factory using only factory.ps1 calls, so the dashboard can be
+  Drives fake jobs through the factory using only factory CLI calls, so the dashboard can be
   watched and tested without spending a token.
 .DESCRIPTION
   State goes to .factory-runs-sim/. The targets are GitHub repos served by the GitHub stub
-  (factory/tests/fixtures/github-stub.ps1) named in $env:FACTORY_ENV_FILE; without one, this script
+  (Factory.TestHost's github stub) named in $env:FACTORY_ENV_FILE; without one, this script
   starts the stub for its own run, over bare repos in .factory-runs-sim/github. Work dirs go to
   .factory-runs-sim/work. The gate commands are injected (green). It never touches GitHub, this
   repo's git, dotnet or npm. The dashboard tests (factory/tests/dashboard) run it with a stub that
@@ -17,8 +17,13 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Factory = Join-Path $PSScriptRoot 'factory.ps1'
 $repoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+# The factory CLI and the test stubs, as dotnet build src/factory leaves them.
+$Cli = if ($env:FACTORY_CLI) { $env:FACTORY_CLI } else { Join-Path $repoRoot 'artifacts/bin/Factory.Cli/debug/factory.dll' }
+$TestHost = Join-Path $repoRoot 'artifacts/bin/Factory.TestHost/debug/Factory.TestHost.dll'
+foreach ($dll in $Cli, $TestHost) { if (-not (Test-Path $dll)) { throw "$dll is not built (dotnet build src/factory)" } }
+# The CLI writes UTF-8 whatever the console's code page.
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 if (-not $StateDir) { $StateDir = Join-Path $repoRoot '.factory-runs-sim' }
 $StateDir = [IO.Path]::GetFullPath($StateDir)
 
@@ -30,18 +35,18 @@ if (-not $env:FACTORY_GATE_CMDS) {
 }
 
 function F {
-    $out = & $Factory @args 2>&1
+    $out = & dotnet $Cli @args 2>&1
     $out | Where-Object { $_ -isnot [Management.Automation.ErrorRecord] }
 }
 function F-Must {
-    $out = & $Factory @args
-    if ($LASTEXITCODE -ne 0) { throw "factory.ps1 $($args -join ' ') failed ($LASTEXITCODE)" }
+    $out = & dotnet $Cli @args
+    if ($LASTEXITCODE -ne 0) { throw "factory $($args -join ' ') failed ($LASTEXITCODE)" }
     $out
 }
 function Tick([double] $units = 1) { Start-Sleep -Milliseconds ([int](600 * $units / $Speed)) }
 function Ev([string] $job, [string] $kind, [string] $agent) { F-Must event -Job $job -Kind $kind -Agent $agent | Out-Null }
 
-# A live serve.ps1 on this directory can write to it mid-delete ("The directory is not empty").
+# A live dashboard on this directory can write to it mid-delete ("The directory is not empty").
 if ($Reset) {
     $deadline = (Get-Date).AddSeconds(30)
     while (Test-Path $StateDir) {
@@ -59,7 +64,7 @@ if (-not $env:FACTORY_ENV_FILE) {
     $l = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0); $l.Start(); $port = $l.LocalEndpoint.Port; $l.Stop()
     $base = Join-Path $StateDir 'github'
     $hidden = if ($IsWindows) { @{ WindowStyle = 'Hidden' } } else { @{} }   # -WindowStyle exists only on Windows
-    $stub = Start-Process pwsh -ArgumentList '-NoProfile', '-File', (Join-Path $repoRoot 'factory/tests/fixtures/github-stub.ps1'), '-Port', $port, '-GitBase', $base -PassThru @hidden
+    $stub = Start-Process dotnet -ArgumentList $TestHost, 'github', '--port', $port, '--git-base', $base -PassThru @hidden
     $env:FACTORY_ENV_FILE = Join-Path $StateDir 'github.env'
     Set-Content $env:FACTORY_ENV_FILE @('GITHUB_TOKEN=sim', 'GITHUB_OWNER=sim', "GITHUB_API_URL=http://localhost:$port", "FACTORY_GIT_BASE=file:///$($base -replace '\\', '/')")
     $deadline = (Get-Date).AddSeconds(20)

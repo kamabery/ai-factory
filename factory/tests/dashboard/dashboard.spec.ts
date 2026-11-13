@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { simDir, factoryEnv, stubPort } from './playwright.config';
+import { simDir, factoryEnv, stubPort, cli } from './playwright.config';
 
 const repo = path.resolve(import.meta.dirname, '../../..');
 
@@ -137,7 +137,7 @@ test.describe.serial('factory dashboard', () => {
 
   test('an agent left running by an escalated job is not shown as active', async ({ page }) => {
     // The runner kills claude on escalation, so the builder's agent-stop is never logged.
-    execFileSync('pwsh', ['-NoProfile', '-File', path.join(repo, 'factory/scripts/factory.ps1'), 'event', '-Job', 'J-002', '-Kind', 'agent-start', '-Agent', 'builder'], {
+    execFileSync('dotnet', [cli, 'event', '-Job', 'J-002', '-Kind', 'agent-start', '-Agent', 'builder'], {
       env: { ...process.env, ...factoryEnv },
     });
     await page.goto('/');
@@ -147,7 +147,7 @@ test.describe.serial('factory dashboard', () => {
 
   test('an agent left running by a job that was purged from the board is not shown as active', async ({ page }) => {
     // J-913 never existed on this board: like a discarded job after Purge, only its events remain.
-    execFileSync('pwsh', ['-NoProfile', '-File', path.join(repo, 'factory/scripts/factory.ps1'), 'event', '-Job', 'J-913', '-Kind', 'agent-start', '-Agent', 'builder'], {
+    execFileSync('dotnet', [cli, 'event', '-Job', 'J-913', '-Kind', 'agent-start', '-Agent', 'builder'], {
       env: { ...process.env, ...factoryEnv },
     });
     await page.goto('/');
@@ -597,7 +597,7 @@ test.describe.serial('factory dashboard', () => {
   });
 
   test('an Approved card says what it is waiting on', async ({ page, request }) => {
-    // The simulator runs with deploys off, and serve.ps1 says so.
+    // The simulator runs with deploys off, and the dashboard says so.
     expect((await (await request.get('/api/ideate/config')).json()).deploys).toBe(false);
 
     // The rest is rendering: a board, a canary and deploys on, served by the test.
@@ -731,7 +731,7 @@ test.describe.serial('factory dashboard', () => {
     await page.route('**/api/ideate/config', (r) => r.fulfill({ json: { enabled: false, deploys: true } }));
     await page.route('**/state/board.json', (r) => r.fulfill({ body: JSON.stringify({ jobs, ideas: [] }) }));
     await page.route('**/state/events.jsonl', (r) => r.fulfill({ body: '' }));
-    // factory.ps1 approve is slow: each call waits here until the test answers it.
+    // factory approve is slow: each call waits here until the test answers it.
     const calls: string[] = [];
     const answers: ((ok: boolean) => void)[] = [];
     await page.route(/\/api\/jobs\/J-33\d\/move$/, async (r) => {
@@ -831,7 +831,7 @@ test.describe.serial('factory dashboard', () => {
   });
 
   test('New idea can start from an unmerged job, Abandon asks once more, and stacked cards name their base', async ({ page }) => {
-    // Rendering and requests only: serve.ps1's side is in serve.Tests.ps1.
+    // Rendering and requests only: the server's side is in the .NET server tests.
     const j = (id: string, stage: string, extra = {}) => ({ id, stage, round: 1, title: `job ${id}`, target: sandbox, history: [], ...extra });
     const jobs = [
       j('J-301', 'ready', { pr: { number: 9, url: 'https://github.example/pull/9' } }),

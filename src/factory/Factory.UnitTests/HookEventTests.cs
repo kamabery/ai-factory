@@ -2,7 +2,7 @@ using Factory.Core;
 
 namespace Factory.UnitTests;
 
-/// <summary>The plugin hook's payloads (factory/tests/fixtures/subagent-*.json, as Claude Code sends them).</summary>
+/// <summary>The plugin hook's payloads, as Claude Code sends them.</summary>
 public class HookEventTests
 {
     private const string Start = """

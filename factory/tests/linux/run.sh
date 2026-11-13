@@ -5,9 +5,8 @@
 #   sync         copy the working tree and template-projects (beside it) into ~/factory-test
 #   unit         sync, then the .NET unit tests
 #   integration  sync, then the .NET integration tests
-#   ported       sync, then Pester -Tag Ported (each block on PowerShell and on .NET)
-#   dotnet       sync, then the whole Pester suite on .NET (-Impl dotnet)
-#   diagnose [b] sync, then one block of factory.Tests.ps1 (default abandon) with detailed output, to see why it fails
+#   test         sync, then src/factory/test.ps1: unit and integration, tier counts and the coverage gates
+#   pester       sync, build, then the Pester left until spec 16 (setup-azure, setup-platform, simulate)
 #   versions     print the toolchain the suites run on
 # Run from Windows: wsl.exe -d Ubuntu -- bash /mnt/d/code/ai-factory/factory/tests/linux/run.sh <suite>
 set -euo pipefail
@@ -37,14 +36,10 @@ case "${1:-}" in
   sync) sync ;;
   unit) sync; cd "$dest/ai-factory/src/factory"; dotnet test Factory.UnitTests -v q ;;
   integration) sync; cd "$dest/ai-factory/src/factory"; dotnet test Factory.IntegrationTests -v q ;;
-  ported) sync; cd "$dest/ai-factory"; pwsh -NoProfile -File factory/tests/run-all.ps1 -Tag Ported ;;
-  dotnet) sync; cd "$dest/ai-factory"; pwsh -NoProfile -File factory/tests/run-all.ps1 -Impl dotnet ;;
-  diagnose)
-    # A block of factory.Tests.ps1 by name (letters, digits, spaces and dashes only: a filter, never a command).
-    block="${2:-abandon}"
-    [[ "$block" =~ ^[A-Za-z0-9\ -]+$ ]] || { echo "diagnose: '$block' is not a block name" >&2; exit 2; }
-    sync; cd "$dest/ai-factory"
-    BLOCK="$block" pwsh -NoProfile -Command '$c = New-PesterConfiguration; $c.Run.Path = "factory/tests/factory.Tests.ps1"; $c.Filter.FullName = "factory.ps1.$env:BLOCK.*"; $c.Output.Verbosity = "Detailed"; Invoke-Pester -Configuration $c' ;;
+  test) sync; cd "$dest/ai-factory"; pwsh -NoProfile -File src/factory/test.ps1 ;;
+  pester)
+    sync; cd "$dest/ai-factory"; dotnet build src/factory -v q -nologo
+    pwsh -NoProfile -Command '$r = Invoke-Pester factory/tests/setup-azure.Tests.ps1, factory/tests/setup-platform.Tests.ps1, factory/tests/simulate.Tests.ps1 -PassThru; exit $r.FailedCount' ;;
   versions) git --version; dotnet --version; pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()' ;;
-  *) echo "usage: run.sh sync|unit|integration|ported|dotnet|diagnose|versions" >&2; exit 2 ;;
+  *) echo "usage: run.sh sync|unit|integration|test|pester|versions" >&2; exit 2 ;;
 esac

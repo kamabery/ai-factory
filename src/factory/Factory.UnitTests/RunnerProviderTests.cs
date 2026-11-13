@@ -165,12 +165,12 @@ public class RunnerProviderTests
     [Fact]
     public void Started_without_FACTORY_SCRIPTS_the_runner_finds_factory_scripts_above_its_binaries()
     {
-        // As the AppHost starts it: not through runner.ps1, which sets FACTORY_SCRIPTS.
+        // As the AppHost or factory runner starts it, with no FACTORY_SCRIPTS: the checkout is the one the plugin marks.
         var services = new ServiceCollection().AddFactoryRunner(new Dictionary<string, string?> { ["FACTORY_HOME"] = "h" }, "w", "/tmp", "/appdata", "local");
 
         using var provider = services.BuildServiceProvider();
 
         var scripts = provider.GetRequiredService<Factory.Store.Abstractions.IFactoryPaths>().ScriptsDir;
-        Assert.True(File.Exists(Path.Combine(scripts, "factory.ps1")), scripts);
+        Assert.True(File.Exists(Path.Combine(scripts, "..", "plugin", ".claude-plugin", "plugin.json")), scripts);
     }
 }
