@@ -81,7 +81,8 @@ try { Initialize-State -StateHome $Home_ -EnvFile (EnvFilePath) } catch { Fail "
 $Ported = @('status', 'approve', 'edit-spec', 'rework', 'purge', 'set-stage', 'set-review', 'read-reviews', 'read-decision', 'event',
     'new-idea', 'add-spec', 'idea-done', 'idea-abandon', 'check-target', 'clone-target', 'list-repos',
     'checkout', 'publish', 'gate', 'gate-check', 'provenance', 'merge', 'sync-prs', 'set-cost', 'next',
-    'eval', 'feedback', 'lesson', 'lesson-mark', 'state-migrate', 'state-pull', 'prune', 'allow-ip', 'discard', 'resume')
+    'eval', 'feedback', 'lesson', 'lesson-mark', 'state-migrate', 'state-pull', 'prune', 'allow-ip', 'discard', 'resume',
+    'deploy', 'deploy-log', 'deploy-fix', 'block', 'redeploy', 'destroy', 'sweep', 'canary', 'canary-destroy', 'qa-login')
 if ($env:FACTORY_IMPL -and $env:FACTORY_IMPL -notin 'ps', 'dotnet') { Fail "FACTORY_IMPL '$env:FACTORY_IMPL' must be ps or dotnet" }
 if ($env:FACTORY_IMPL -eq 'dotnet' -and $Command -in $Ported) {
     $cli = if ($env:FACTORY_CLI) { $env:FACTORY_CLI } else { [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../artifacts/bin/Factory.Cli/debug/Factory.Cli.dll')) }

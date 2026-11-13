@@ -4,12 +4,11 @@ This turns the approved replatform roadmap (2026-10-23, revised 2026-11-08) into
 session can pick up one at a time. The rationale and the decisions table live in
 `C:\Users\kamab\.claude\plans\grill-me-on-the-silly-yao.md`; this folder is the work.
 
-**Where things stand (2026-11-12):** specs 00, 19, 01–08 and 11 are merged (08 in PR #17). Spec 10,
-idea turns on the run mode, is built on its branch, proven on Windows and Linux (WSL) and live-proven in
-both modes: idea sessions now run on the `claude` CLI like jobs, and `.env` needs no `ANTHROPIC_API_KEY`.
-macOS is out of scope. Every command but spec 09's deploy set, the runner, the dashboard server and idea
-turns now run on .NET. Last green suites: .NET 688 unit, 70 integration; Pester on .NET (`-Impl dotnet`)
-439 local, 235 azure. Reordered 2026-11-09 so
+**Where things stand (2026-11-13):** specs 00, 19, 01–08, 11 and 10 are merged (10 in PR #18). Spec 09, the deploy
+set, is built on its branch and proven on Windows and Linux (WSL) with deploys off; its live check moved to 16. Every
+`factory.ps1` command, the runner, the dashboard server and idea turns now run on .NET, so cutover (12) is next. macOS
+is out of scope. Last green suites: .NET 830 unit, 78 integration; Pester on .NET (`-Impl dotnet`) 439 local, 235
+azure. Reordered 2026-11-09 so
 previews come last (see below).
 
 ## Run order

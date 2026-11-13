@@ -10,7 +10,7 @@ namespace Factory.Store;
 /// A lock file plus, in azure, its lease: the file is created new with this process's PID (a watchdog or a busy check
 /// reads it), and a file whose PID is no longer running is taken over. In azure the lease on <c>locks/&lt;lease&gt;</c>
 /// is taken without waiting and renewed every FACTORY_STATE_RENEW_SECONDS (20) until it is lost. runner.lock
-/// (<see cref="RunnerLock"/>) and an idea session's turn.lock are both one.
+/// (<see cref="RunnerLock"/>), canary.lock (<see cref="CanaryLock"/>) and an idea session's turn.lock are all one.
 /// </summary>
 public sealed class LeasedLock(string lockPath, string lease, IStateSettings settings, IBlobClient blobs, IOptions<StateOptions> options)
 {
@@ -20,13 +20,17 @@ public sealed class LeasedLock(string lockPath, string lease, IStateSettings set
 
     private string Lease => lease;
 
-    public IDisposable? TryTake()
+    public IDisposable? TryTake() => TryTake(out _);
+
+    /// <summary>The same; <paramref name="leaseRefused"/> says whether it was the lease (another machine) that refused.</summary>
+    public IDisposable? TryTake(out bool leaseRefused)
     {
+        leaseRefused = false;
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(LockPath))!);
         if (!TakeFile()) return null;
         if (!settings.IsAzure) return new Held(this, null, null);
         var id = blobs.AcquireLease(lease, 0);
-        if (id is null) { DeleteFile(); return null; }
+        if (id is null) { DeleteFile(); leaseRefused = true; return null; }
         var every = int.TryParse(options.Value.RenewSeconds, NumberStyles.Integer, CultureInfo.InvariantCulture, out var s) ? s : 20;
         Timer? keeper = null;
         keeper = new Timer(_ =>

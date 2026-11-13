@@ -60,6 +60,8 @@ public sealed class FileStore : IFileStore
         d.Delete(true);
     }
 
+    public void DeleteFile(string path) => File.Delete(path);
+
     public void CopyFile(string from, string to)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(to))!);

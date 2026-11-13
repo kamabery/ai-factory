@@ -45,13 +45,11 @@ public sealed partial class CanaryCheck(IFactoryPaths paths, IFileStore files, I
     private string Hash(string path) =>
         Convert.ToHexString(SHA256.HashData(files.ReadBytes(path) ?? throw new FactoryException($"Cannot find path '{path}' because it does not exist.")));
 
-    /// <summary>FACTORY_CANARY_REPO, else &lt;GITHUB_OWNER&gt;/factory-canary.</summary>
-    private string Repo() =>
+    public string Repo() =>
         dotEnv.Get("FACTORY_CANARY_REPO")
         ?? (dotEnv.Get("GITHUB_OWNER") is { } owner ? $"{owner}/factory-canary" : throw new FactoryException("canary refused: set FACTORY_CANARY_REPO (or GITHUB_OWNER) in .env"));
 
-    /// <summary>The canary's scaffold: FACTORY_CANARY_SCAFFOLD, else a react front end with sign-in, plus the External ID ids.</summary>
-    private JsonObject Options()
+    public JsonObject Options()
     {
         var sc = dotEnv.Get("FACTORY_CANARY_SCAFFOLD") is { } json
             ? JsonNode.Parse(json) as JsonObject

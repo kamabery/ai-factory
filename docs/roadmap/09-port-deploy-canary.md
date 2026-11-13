@@ -1,6 +1,11 @@
 # 09: Port deploy, HCP and canary
 
-**Status:** not started. **Branch:** `feature/09-port-deploy`. **Depends on:** 06.
+**Status:** built on its branch (2026-11-13) and proven on Windows and Linux, deploys off; the live check is 16's.
+**Branch:** `feature/09-port-deploy`. **Depends on:** 06. Every `factory.ps1` command now runs on .NET: `deploy.ps1`,
+`hcp.ps1` and `canary.ps1` are `IDeployService`, `IHcpClient` and `ICanaryService`, with `gh`, `az`, the sign-in smoke
+and the canary scaffold as external processes (`IToolRunner`) under their old overrides. Each live lesson has a unit
+test, proven by a deliberate break (20 breaks, all caught). Known issue: on Linux the `canary` block's PowerShell run
+dies before reporting (twice, 0 s); its .NET run passes there, and cutover (12) retires the PowerShell side.
 
 ## Commands and scripts
 

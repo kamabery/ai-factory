@@ -1,6 +1,6 @@
 # 10: Port idea turns onto the run mode
 
-**Status:** built on its branch (2026-11-12), proven on Windows and Linux, and live-proven. **Branch:**
+**Status:** done, merged in PR #18 (2026-11-13). **Branch:**
 `feature/10-port-idea-turns`. **Depends on:** 07, 08. Every idea turn is now `factory idea-turn <S>` (the .NET CLI),
 which runs one `claude -p` pass on the run mode's provider, exactly as a job does, with the eight idea tools as a stdio
 MCP server (`factory idea-mcp <S>`) and no built-in tools; later turns `--resume` the turn's claude session, and the

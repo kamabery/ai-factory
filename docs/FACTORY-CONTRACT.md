@@ -855,11 +855,17 @@ lock as `factory.ps1` (the mutex named for the state directory, and in `azure` t
 `locks/board`) and keeps the same `.sync.json`, so the two implementations never write the board at
 once and either can follow the other on one state directory. `factory.ps1` sets `FACTORY_SCRIPTS` to
 its own folder for the CLI, which hashes the deploy scripts there into the canary fingerprint, as
-`factory.ps1` does. Ported, on both state backends: every command but the deploy set, which spec 09
-ports (`deploy`, `deploy-log`, `deploy-fix`, `block`, `redeploy`, `destroy`, `sweep`, `canary`,
-`canary-destroy`, `qa-login`). Until then, a forwarded `merge`, `sync-prs` or `discard` destroys a
-preview that is still up by starting `factory.ps1 destroy <id>` detached, as `factory.ps1` itself
-does. A forwarded `state-migrate` opens the board without first refreshing it from the container,
+`factory.ps1` does. Until cutover (spec 12) both implementations fingerprint those PowerShell
+scripts, so a canary recorded by either counts for the other; the .NET deploy code takes their place in
+the fingerprint at cutover. Ported, on both state backends: every command, the deploy set
+(`deploy`, `deploy-log`, `deploy-fix`, `block`, `redeploy`, `destroy`, `sweep`, `canary`,
+`canary-destroy`, `qa-login`, spec 09) too. The CLI calls `gh`, `az`, the sign-in smoke and the canary's
+scaffold commands as external processes, with the same overrides (`FACTORY_GH_CMD`, `FACTORY_AZ_CMD`,
+`FACTORY_SIGNIN_CMD`, `FACTORY_CANARY_SCAFFOLD_CMD`), and takes `canary.lock` (and in `azure` the lease on
+`locks/canary`) as `factory.ps1` does. Every detached start (`merge`, `sync-prs` and `discard`
+destroying a preview that is still up, `sweep`'s destroys, `canary`'s `canary-destroy`) is still
+`factory.ps1 <command>` detached, as `factory.ps1` itself does, so with `FACTORY_IMPL=dotnet` in its
+environment it forwards to the CLI too. A forwarded `state-migrate` opens the board without first refreshing it from the container,
 which has none yet, as `factory.ps1` does.
 
 The runner is forwarded the same way: with `FACTORY_IMPL=dotnet`, `runner.ps1` starts the .NET runner
@@ -875,8 +881,7 @@ server (`artifacts/bin/Factory.Server/debug/Factory.Server.dll`, or `FACTORY_SER
 parameters as `--port`, `--state-dir`, `--env-file`, `--watchdog-seconds` and `--pr-sync-seconds`. It
 keeps the [Dashboard API](#dashboard-api) as written: the same `serve.lock`, start line, endpoints,
 `{ ok, message }` text, watchdog, PR sync and startup `sweep`, and each write is still one
-`factory.ps1` call, so ported commands reach the CLI through `factory.ps1`'s own forwarding and the
-deploy set still runs in PowerShell. `serve.ps1` also passes `--parent-pid` with its own PID, and the
+`factory.ps1` call, so every command reaches the CLI through `factory.ps1`'s own forwarding. `serve.ps1` also passes `--parent-pid` with its own PID, and the
 server stops (releasing `serve.lock`) within about a second of that process ending, so killing
 `serve.ps1` alone never leaves an orphaned server; a reused PID with a different start time does not
 count as the parent. Started without `--parent-pid` (the AppHost), it does not watch. Unlike

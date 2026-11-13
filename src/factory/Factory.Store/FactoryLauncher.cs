@@ -4,8 +4,8 @@ using Factory.Store.Abstractions;
 namespace Factory.Store;
 
 /// <summary>
-/// <c>pwsh -NoProfile -File factory/scripts/factory.ps1 &lt;args&gt;</c>, detached, so it outlives this process. Commands not yet
-/// ported (destroy, spec 09) run there. It must inherit none of this process's stdio: a caller reading our output (the
+/// <c>pwsh -NoProfile -File factory/scripts/factory.ps1 &lt;args&gt;</c>, detached, so it outlives this process; with
+/// FACTORY_IMPL=dotnet in its environment, factory.ps1 forwards it to the CLI (destroy, canary-destroy, sweep). It must inherit none of this process's stdio: a caller reading our output (the
 /// runner) would otherwise wait on it until the child ends, or the child would die writing to a pipe nobody reads. On
 /// Windows it is shell-executed in a hidden window; elsewhere <c>/bin/sh</c> starts it with all three on /dev/null.
 /// </summary>

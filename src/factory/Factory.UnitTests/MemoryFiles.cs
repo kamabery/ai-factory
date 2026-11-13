@@ -50,6 +50,8 @@ public sealed class MemoryFiles : IFileStore
         Directories.RemoveAll(d => string.Equals(d, path, StringComparison.OrdinalIgnoreCase));
     }
 
+    public void DeleteFile(string path) => _files.Remove(path);
+
     public void CopyFile(string from, string to) => Set(to, ReadBytes(from) ?? throw new FileNotFoundException(from));
 
     /// <summary>Lock files held now; <see cref="TryLock"/> refuses these.</summary>

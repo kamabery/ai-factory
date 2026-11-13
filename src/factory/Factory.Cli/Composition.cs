@@ -42,6 +42,19 @@ public static class Composition
             o.IpUrl = host.Get("FACTORY_IP_URL");
             o.RenewSeconds = host.Get("FACTORY_STATE_RENEW_SECONDS");
         });
+        services.Configure<DeployOptions>(o =>
+        {
+            o.GhCmd = host.Get("FACTORY_GH_CMD");
+            o.AzCmd = host.Get("FACTORY_AZ_CMD");
+            o.SigninCmd = host.Get("FACTORY_SIGNIN_CMD");
+            o.CanaryScaffoldCmd = host.Get("FACTORY_CANARY_SCAFFOLD_CMD");
+            o.PollSeconds = host.Get("FACTORY_DEPLOY_POLL_SECONDS");
+            o.TimeoutMinutes = host.Get("FACTORY_DEPLOY_TIMEOUT_MINUTES");
+            o.SmokeSeconds = host.Get("FACTORY_SMOKE_SECONDS");
+            o.SigninSeconds = host.Get("FACTORY_SIGNIN_SECONDS");
+            o.SigninRetrySeconds = host.Get("FACTORY_SIGNIN_RETRY_SECONDS");
+            o.DestroyStaleMinutes = host.Get("FACTORY_DESTROY_STALE_MINUTES");
+        });
         services.Configure<CliOptions>(o => o.NewLine = host.NewLine);
         services.Configure<LlmOptions>(o => o.Environment = host.Variables);
         services.AddSingleton(host);
@@ -67,6 +80,12 @@ public static class Composition
         services.AddSingleton<IGateShell, GateShell>();
         services.AddSingleton<IFactoryLauncher, FactoryLauncher>();
         services.AddSingleton<IJobWork, JobWork>();
+        services.AddSingleton<IToolRunner, ToolRunner>();
+        services.AddHttpClient<IHttpProbe, HttpProbe>();
+        services.AddSingleton<IPause, ThreadPause>();
+        services.AddSingleton<ICanaryLock, CanaryLock>();
+        services.AddSingleton<IDeployService, DeployService>();
+        services.AddSingleton<ICanaryService, CanaryService>();
 
         services.AddSingleton<ICommand, StatusCommand>();
         services.AddSingleton<ICommand, ApproveCommand>();
@@ -104,6 +123,16 @@ public static class Composition
         services.AddSingleton<ICommand, AllowIpCommand>();
         services.AddSingleton<ICommand, DiscardCommand>();
         services.AddSingleton<ICommand, ResumeCommand>();
+        services.AddSingleton<ICommand, DeployCommand>();
+        services.AddSingleton<ICommand, DeployLogCommand>();
+        services.AddSingleton<ICommand, DeployFixCommand>();
+        services.AddSingleton<ICommand, BlockCommand>();
+        services.AddSingleton<ICommand, RedeployCommand>();
+        services.AddSingleton<ICommand, DestroyCommand>();
+        services.AddSingleton<ICommand, SweepCommand>();
+        services.AddSingleton<ICommand, CanaryCommand>();
+        services.AddSingleton<ICommand, CanaryDestroyCommand>();
+        services.AddSingleton<ICommand, QaLoginCommand>();
         services.AddSingleton<ILlmProvider, LlmProvider>();
         services.AddSingleton<IdeaFiles>();
         services.AddSingleton<IIdeaClaude, IdeaClaude>();
