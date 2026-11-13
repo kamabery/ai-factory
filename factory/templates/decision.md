@@ -1,5 +1,5 @@
 Decision: APPROVE
-<!-- First line must be exactly `Decision: APPROVE` or `Decision: ESCALATE`. factory.ps1 parses it. -->
+<!-- First line must be exactly `Decision: APPROVE` or `Decision: ESCALATE`. factory parses it. -->
 
 # Decision: <job-id>
 

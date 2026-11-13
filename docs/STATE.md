@@ -2,7 +2,7 @@
 
 How to move the factory's state from `.factory-runs/` on one machine into an Azure Blob container,
 so several machines (and later a deployed factory) work one board. The rules are in
-[State backends](FACTORY-CONTRACT.md#state-backends). The code is `factory/scripts/state.ps1`. The
+[State backends](FACTORY-CONTRACT.md#state-backends). The code is `Factory.Store` (`StateSync`, `BlobClient`). The
 Terraform is `factory/infra/state`.
 
 **Cost:** under $1/month. Storage at 1 GB LRS is about $0.02. The rest is operations: about $0.45 in
@@ -60,12 +60,12 @@ FACTORY_STORAGE_ACCOUNT=<storage_account>
 ## 3. Migrate the existing state, once
 
 ```powershell
-pwsh factory/scripts/factory.ps1 state-migrate
+factory state-migrate
 ```
 
 This uploads `board.json`, `events.jsonl` (split by month), and every artifact, eval, lesson, session
 and log. It refuses if the container already has a board. Until it has run, every other command
-refuses with "run factory.ps1 state-migrate".
+refuses with "run factory state-migrate".
 
 ## 4. Adding another machine
 
@@ -95,24 +95,24 @@ jobs or idea turns. Terraform is not needed.
    can take a few minutes to take effect.
 5. **Open the firewall to this machine:**
    ```powershell
-   pwsh factory/scripts/factory.ps1 allow-ip
+   factory allow-ip
    ```
    This adds the machine's public IP. It records the IP in `%LOCALAPPDATA%\ai-factory\allowed-ip.txt`,
    and on the next run it removes the IP it added last time.
 6. **Pull everything:**
    ```powershell
-   pwsh factory/scripts/factory.ps1 state-pull
+   factory state-pull
    ```
    This fetches the board, every artifact, and the events rebuilt from each month's blob. (Any
    other command pulls the board and artifacts as well, but only `state-pull` and the dashboard
    rebuild `events.jsonl`.)
-7. **Check it:** `pwsh factory/scripts/factory.ps1 status` lists the same jobs as the other
+7. **Check it:** `factory status` lists the same jobs as the other
    machines. `prune` prints the same `<used> of <cap> bytes`.
-8. **Start the dashboard** if you want one: `pwsh factory/scripts/serve.ps1`. It picks up other
+8. **Start the dashboard** if you want one: `factory serve`. It picks up other
    machines' writes within 5 seconds.
 
 **What to expect once two machines are running:**
-- **Runner:** only one drains the Approved queue. `serve.ps1` starts a runner on every machine, but
+- **Runner:** only one drains the Approved queue. The dashboard starts a runner on every machine, but
   a runner that finds `locks/runner` held exits quietly. If the machine running it goes away, the
   lease lapses within 60 s, and the next runner started anywhere takes over.
 - **Board writes:** these queue on `locks/board`. "state lock refused" means another machine held
@@ -130,8 +130,8 @@ container lacks once its last command has finished.
 
 ## 5. Day to day
 
-- **Your IP changed** (403 `AuthorizationFailure` from storage): `pwsh factory/scripts/factory.ps1 allow-ip`.
-- **How full is it:** `factory.ps1 prune`, which prints `<used> of <cap> bytes`. The cap (1 GB, set by
+- **Your IP changed** (403 `AuthorizationFailure` from storage): `factory allow-ip`.
+- **How full is it:** `factory prune`, which prints `<used> of <cap> bytes`. The cap (1 GB, set by
   `FACTORY_STATE_CAP`) rolls off the bulky logs of finished jobs first. It never touches the board,
   events, ideas, evals or lessons.
 - **`state push failed: ... 403 OperationNotAllowedOnAutomaticSnapshot`:** the prune tried to delete an
@@ -141,7 +141,7 @@ container lacks once its last command has finished.
 - **"state lock refused":** another machine holds `locks/board`. A crashed holder's lease lapses in
   60 s, so wait and retry.
 - **A bad board write:** board.json is versioned, and the newest 50 versions are kept. In the portal,
-  open the container, then `board.json` → Versions → promote one. Then run any `factory.ps1` command.
+  open the container, then `board.json` → Versions → promote one. Then run any `factory` command.
 
 ## Rollback
 

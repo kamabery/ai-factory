@@ -8,14 +8,13 @@ how much code a test covers.
 
 ## Where we are, and where we are going
 
-Today the suite is an inverted pyramid. Every Pester test runs `factory.ps1` in a real git repo
-against HTTP stubs, so all 658 Pester runs (429 local, 229 on the azure backend) are integration
-tests, and there are no unit tests. That is why the full Pester suite takes about 18 minutes
-even run in parallel.
-
-The PowerShell is not reworked for unit tests: it is being retired (roadmap spec 12), and until then
-Pester is the **oracle** the .NET port is held to. The .NET code is built unit-first from its first
-line (spec 01).
+Until spec 12 the suite was an inverted pyramid: every Pester test ran `factory.ps1` in a real git
+repo against HTTP stubs, so all 658 Pester runs were integration tests, about 18 minutes even in
+parallel, and Pester was the **oracle** the .NET port was held to. Spec 12 retired the PowerShell and
+pushed each of its 387 Pester cases down to a unit or integration test
+([the mapping](roadmap/12-pester-mapping.md)). Pester is left only for the PowerShell kept until spec
+16 (`setup-azure.ps1`, `setup-platform.ps1`) and the simulator (`simulate.ps1`). The .NET code is
+built unit-first from its first line (spec 01).
 
 **Target shape:** about 80% unit, 15% integration and 5% end to end, by test count. `test.ps1` reports the
 counts per tier; coverage is the gate, not the ratio.
@@ -25,9 +24,9 @@ counts per tier; coverage is the gate, not the ratio.
 | Tier | May touch | Where | Runs |
 | --- | --- | --- | --- |
 | **Unit** (small) | memory only: no file system, process, network, real clock or environment variables | `Factory.UnitTests` (xUnit v3) | locally, before every PR that touches `src/factory` |
-| **Integration** (medium) | temp directories, git, child processes, localhost stubs (GitHub, HCP, blob, Anthropic) | `Factory.IntegrationTests` (xUnit v3) | locally, before every PR that touches `src/factory` |
-| **End to end** (large) | the dashboard in a browser against `simulate.ps1` | `factory/tests/dashboard` (Playwright) | locally: the `@smoke` set before a PR that touches the dashboard or `serve.ps1`; the whole suite on demand |
-| **Pester** (legacy oracle, integration) | as integration | `factory/tests/*.Tests.ps1` | locally, before a PR that touches the scripts, plugin, Pester tests or `src/factory`; retired at 12 |
+| **Integration** (medium) | temp directories, git, child processes, localhost stubs (GitHub, HCP, blob, Anthropic: `Factory.TestHost`, hosted in process) | `Factory.IntegrationTests` (xUnit v3) | locally, before every PR that touches `src/factory` |
+| **End to end** (large) | the dashboard in a browser against `simulate.ps1` | `factory/tests/dashboard` (Playwright) | locally: the `@smoke` set before a PR that touches the dashboard or `Factory.Server`; the whole suite on demand |
+| **Pester** (the scripts left until 16) | as integration | `factory/tests/*.Tests.ps1`: setup-azure, setup-platform, simulate | locally, before a PR that touches those scripts or their tests |
 
 A test that needs a temp directory is an integration test, even if it is fast. Put it in the
 integration project.
@@ -71,15 +70,16 @@ integration project.
 
 ## Porting a command: push down
 
-When a command is ported (specs 04–11), its Pester cases are **pushed down**, not copied:
+When a command was ported (specs 04–11), its Pester cases were **pushed down**, not copied:
 - **Unit tests on the service** prove each case's behaviour: transitions, refusals with their exact
   text, events.
 - **A few integration tests per command** prove the real adapters and the CLI's exact stdout,
   stderr and exit code.
-- **The command's Pester `Describe` blocks are tagged `Ported`** and run under both implementations
-  (`FACTORY_IMPL=ps` and `dotnet`). That is how a command counts as ported.
+- **The command's Pester `Describe` blocks were tagged `Ported`** and ran under both implementations
+  (`FACTORY_IMPL=ps` and `dotnet`). That is how a command counted as ported.
 
-Spec 12's mapping file names, for every Pester case, the unit or integration test that covers it.
+[Spec 12's mapping file](roadmap/12-pester-mapping.md) names, for every Pester case, the unit or
+integration test that covers it. Spec 16 does the same for the setup scripts' Pester.
 
 ## Gates
 
@@ -98,21 +98,20 @@ touches and put the counts in the PR description:
 | The PR touches | Run |
 | --- | --- |
 | `src/factory/**` | `pwsh src/factory/test.ps1` (unit + integration, tier counts, coverage gates) |
-| a port (specs 04–11): `src/factory/**`, plus in PowerShell only `$Ported` in `factory.ps1`, `Ported` tags and test edits for them | `run-all.ps1 -Tag Ported` (the ported blocks both ways, local and azure, about 10 minutes) and `run-all.ps1 -Impl dotnet` (every caller, on .NET, about 30 minutes). Not the plain run: nothing it runs changed (decided 2026-11-10) |
-| PowerShell that is not forwarded: `factory/scripts/**`, `factory/plugin/**`, `factory/tests/*.ps1`, `factory/tests/fixtures/**` | `pwsh factory/tests/run-all.ps1` (the whole Pester suite, local and azure, about 30 minutes); a port that also does this runs it as well |
-| the dashboard or `serve.ps1` | the Playwright `@smoke` set; the whole suite for dashboard work |
+| `factory/plugin/**` | `pwsh src/factory/test.ps1` (`PluginTests` reads the plugin) |
+| the PowerShell left: `factory/scripts/*.ps1`, `factory/tests/*.Tests.ps1`, `factory/tests/fixtures/**` | `Invoke-Pester factory/tests` after `dotnet build src/factory` (the stub host), and the Playwright suite when it is `simulate.ps1` or a fixture it uses |
+| the dashboard or `Factory.Server` | the Playwright `@smoke` set; the whole suite for dashboard work |
 | only `docs/**` or root `*.md` | nothing |
-| a spec whose "Done when" names Linux | in WSL: `factory/tests/linux/setup.sh` once (a user-local .NET 10 SDK, pwsh, Pester and git, no sudo), then `factory/tests/linux/run.sh unit`, `integration` or `ported`, which run on a copy of the working tree in `~/factory-test` |
+| a spec whose "Done when" names Linux | in WSL: `factory/tests/linux/setup.sh` once (a user-local .NET 10 SDK, pwsh, Pester and git, no sudo), then `factory/tests/linux/run.sh test` (or `unit`, `integration`, `pester`), which run on a copy of the working tree in `~/factory-test` |
 
 ## Commands
 
 ```powershell
 cd factory/tests/dashboard; npx playwright test --grep @smoke   # the smoke set
 cd factory/tests/dashboard; npx playwright test                 # the whole e2e suite
-pwsh factory/tests/run-all.ps1                                  # the whole Pester suite, in parallel
-pwsh factory/tests/run-all.ps1 -Tag Ported -NoAzure              # the ported commands' blocks, FACTORY_IMPL=ps and dotnet
-pwsh factory/tests/run-all.ps1 -Impl dotnet                      # the whole suite with the ported commands on .NET
 pwsh src/factory/test.ps1                                        # .NET unit + integration, tier counts, coverage gates
+Invoke-Pester factory/tests                                      # the Pester left: setup-azure, setup-platform, simulate
+bash factory/tests/linux/run.sh test                             # in WSL: test.ps1 on Linux
 ```
 
 A Playwright test joins the smoke set with `{ tag: '@smoke' }`. Keep the set to the critical paths
