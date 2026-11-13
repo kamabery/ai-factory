@@ -26,10 +26,8 @@ public class ServerReadsTests : ServerTestBase
     }
 
     [Fact]
-    public void Idea_sessions_need_the_api_key_locally_and_the_foundry_resource_in_cloud_mode()
+    public void Idea_sessions_need_nothing_locally_and_the_foundry_resource_in_cloud_mode()
     {
-        Assert.Equal($"no ANTHROPIC_API_KEY in {Options.EnvFile}", RealSettings().IdeaBlocker);
-        Files.Put(Options.EnvFile, "ANTHROPIC_API_KEY=sk-x\n");
         Assert.Null(RealSettings().IdeaBlocker);
 
         Assert.Equal("no FACTORY_FOUNDRY_RESOURCE (cloud mode)", RealSettings(("FACTORY_MODE", "cloud")).IdeaBlocker);

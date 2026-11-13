@@ -134,10 +134,10 @@ public sealed class ServerTests : IAsyncLifetime
     [Fact]
     public async Task Ideate_config_reads_the_env_file_on_each_request()
     {
-        Assert.False((bool)JsonNode.Parse((await Get("/api/ideate/config")).Body)!["enabled"]!);
-
-        await File.WriteAllTextAsync(_dir[".env"], "ANTHROPIC_API_KEY=sk-x\n", TestContext.Current.CancellationToken);
-
         Assert.True((bool)JsonNode.Parse((await Get("/api/ideate/config")).Body)!["enabled"]!);
+
+        await File.WriteAllTextAsync(_dir[".env"], "FACTORY_MODE=cloud\n", TestContext.Current.CancellationToken);
+
+        Assert.False((bool)JsonNode.Parse((await Get("/api/ideate/config")).Body)!["enabled"]!);
     }
 }

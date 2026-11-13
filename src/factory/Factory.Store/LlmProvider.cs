@@ -1,15 +1,15 @@
 using Factory.Core;
-using Factory.Runner.Abstractions;
 using Factory.Store.Abstractions;
 using Microsoft.Extensions.Options;
 
-namespace Factory.Runner;
+namespace Factory.Store;
 
 /// <summary>
 /// llm.ps1's Get-ProviderEnv. The mode is FACTORY_MODE from the environment, else .env, else <c>Factory:Mode</c>
-/// (<see cref="RunnerOptions.ConfiguredMode"/>); local is the subscription, cloud is Claude in Microsoft Foundry, keyless.
+/// (<see cref="LlmOptions.ConfiguredMode"/>); local is the subscription, cloud is Claude in Microsoft Foundry, keyless.
+/// Jobs (the runner) and idea turns (the CLI) both run their claude child on it.
 /// </summary>
-public sealed class LlmProvider(IOptions<RunnerOptions> options, IDotEnv dotEnv) : ILlmProvider
+public sealed class LlmProvider(IOptions<LlmOptions> options, IDotEnv dotEnv) : ILlmProvider
 {
     /// <summary>Everything that would route claude anywhere but the mode's own provider when inherited.</summary>
     public static readonly string[] ProviderVars =

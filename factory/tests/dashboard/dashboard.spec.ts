@@ -290,8 +290,10 @@ test.describe.serial('factory dashboard', () => {
 
     await expect(modal(page).locator('[data-brief]')).toContainText('Tag books');
     const sent = JSON.parse(readFileSync(path.join(dir, 'requests/002.json'), 'utf8'));
-    expect(sent.messages.at(-1).content.at(-1)).toMatchObject({ type: 'tool_result', tool_use_id: 'q1' });
-    expect(sent.messages.at(-1).content.at(-1).content).toContain('Just me');
+    // The model gets the human's answer as its next prompt (roadmap spec 10).
+    expect(sent.messages.at(-1).content.at(-1)).toMatchObject({ type: 'text' });
+    expect(sent.messages.at(-1).content.at(-1).text).toContain('The human answered ask_questions:');
+    expect(sent.messages.at(-1).content.at(-1).text).toContain('Just me');
     await modal(page).locator('#s-confirm-brief').click();
 
     await expect(modal(page).locator('[data-spec="1"]')).toContainText('Tag a book');
@@ -342,7 +344,7 @@ test.describe.serial('factory dashboard', () => {
     await expect(modal(page).locator('[data-brief]')).toContainText('Recipes');
     await expect(modal(page).locator('.sub-meta')).toContainText('sim/recipes-box');
     const sent = JSON.parse(readFileSync(path.join(dir, 'requests/003.json'), 'utf8'));
-    expect(sent.messages.at(-1).content.at(-1).content).toContain('sim/recipes-box');
+    expect(sent.messages.at(-1).content.at(-1).text).toContain('sim/recipes-box');
 
     await modal(page).locator('#s-close').click();
     await expect(modal(page)).toBeHidden();

@@ -33,7 +33,8 @@ public sealed class ServerSettings(IOptions<ServerOptions> options, IFileStore f
 
     public string? IdeaBlocker => Mode switch
     {
-        "local" => Env("ANTHROPIC_API_KEY") is null ? $"no ANTHROPIC_API_KEY in {O.EnvFile}" : null,
+        // Locally the subscription runs idea turns: nothing to configure.
+        "local" => null,
         "cloud" => Llm("FACTORY_FOUNDRY_RESOURCE") is null ? "no FACTORY_FOUNDRY_RESOURCE (cloud mode)" : null,
         _ => "FACTORY_MODE must be local or cloud",
     };

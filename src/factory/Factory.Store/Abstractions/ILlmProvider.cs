@@ -1,4 +1,4 @@
-namespace Factory.Runner.Abstractions;
+namespace Factory.Store.Abstractions;
 
 /// <summary>llm.ps1: the run mode decides the provider, never a job (contract, "Run mode and providers").</summary>
 public interface ILlmProvider

@@ -40,6 +40,10 @@ BeforeAll {
     New-Item -ItemType Directory -Force $script:StubDir | Out-Null
     $script:StubProc = Start-Process pwsh -ArgumentList '-NoProfile', '-File', $script:Stub, '-Port', $script:StubPort, '-Dir', $script:StubDir -PassThru -WindowStyle Hidden
     Wait-Http "http://localhost:$script:StubPort/"
+    # Idea turns run claude-stub.ps1 in place of claude (roadmap spec 10): it asks this stub for each scripted reply.
+    $env:FACTORY_IDEA_CLAUDE_CMD = Join-Path $PSScriptRoot 'fixtures\claude-stub.ps1' | Resolve-Path | Select-Object -ExpandProperty Path
+    $env:FACTORY_IDEA_STUB_URL = "http://localhost:$script:StubPort"
+    $env:FACTORY_IDEA_STUB_STATE = Join-Path $TestDrive 'claude-stub'
 
     function Set-Replies {
         $dir = Join-Path $TestDrive "replies-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
@@ -93,14 +97,14 @@ BeforeAll {
 
     $github = Get-Content $script:EnvFile   # Start-GitHubStub's settings; serve.ps1 hands this file to factory.ps1
     $script:EnvFile = Join-Path $TestDrive '.env'
-    Set-Content $script:EnvFile (@("ANTHROPIC_API_KEY=$script:Key", "ANTHROPIC_BASE_URL=http://localhost:$script:StubPort") + $github)
+    Set-Content $script:EnvFile $github
 }
 
 AfterAll {
     Stop-Serve
     if ($script:StubProc -and -not $script:StubProc.HasExited) { Stop-Process -Id $script:StubProc.Id -Force }
     Stop-GitHubStub
-    Remove-Item Env:FACTORY_HOME, Env:FACTORY_WORK, Env:FACTORY_ENV_FILE, Env:FACTORY_CLAUDE_CMD, Env:FACTORY_GATE_CMDS -ErrorAction SilentlyContinue
+    Remove-Item Env:FACTORY_HOME, Env:FACTORY_WORK, Env:FACTORY_ENV_FILE, Env:FACTORY_CLAUDE_CMD, Env:FACTORY_GATE_CMDS, Env:FACTORY_IDEA_CLAUDE_CMD, Env:FACTORY_IDEA_STUB_URL, Env:FACTORY_IDEA_STUB_STATE -ErrorAction SilentlyContinue
 }
 
 Describe 'serve.ps1 port' -Tag 'Ported' {
@@ -178,13 +182,14 @@ Describe 'serve.ps1 port' -Tag 'Ported' {
 Describe 'serve.ps1 ideate config' -Tag 'Ported' {
     AfterEach { Stop-Serve }
 
-    It 'is disabled without a key, and enabled with one, which it never returns' {
+    It 'is enabled locally with no key at all, and never returns a key it finds in .env' {
         Start-Serve (Join-Path $TestDrive 'missing.env')
-        (Api GET '/api/ideate/config').Body.enabled | Should -BeFalse
-        (Api POST '/api/sessions' @{ target = (New-Repo); text = 'x' }).Status | Should -Be 409
+        (Api GET '/api/ideate/config').Body.enabled | Should -BeTrue
         Stop-Serve
 
-        Start-Serve $script:EnvFile
+        $stray = Join-Path $TestDrive 'stray-key.env'
+        Set-Content $stray ((Get-Content $script:EnvFile) + "ANTHROPIC_API_KEY=$script:Key")
+        Start-Serve $stray
         $r = Api GET '/api/ideate/config'
         $r.Body.enabled | Should -BeTrue
         $r.Body.model | Should -Be 'claude-opus-5-5'
@@ -451,10 +456,12 @@ Describe 'serve.ps1 idea session on an existing repo' -Tag 'Ported' {
     It 'a reply answers the pending tool and starts the next turn' {
         (Api POST '/api/sessions/S-001/reply' @{ text = 'Who uses it? -> Just me' }).Status | Should -Be 200
         Wait-Until { (Idle) -and (Session).pending.name -eq 'submit_brief' } 'the brief'
+        # The model gets the answer as its next prompt; chat.json keeps it as the tool's result for the panel.
         $sent = (Request 2).messages[-1].content
-        $sent[-1].type | Should -Be 'tool_result'
-        $sent[-1].tool_use_id | Should -Be 'q1'
-        $sent[-1].content | Should -Be 'Who uses it? -> Just me'
+        $sent[-1].type | Should -Be 'text'
+        $sent[-1].text | Should -Be 'The human answered ask_questions: Who uses it? -> Just me'
+        $answered = @(Chat) | Where-Object { $_.role -eq 'user' } | ForEach-Object { $_.content } | Where-Object { $_.type -eq 'tool_result' -and $_.tool_use_id -eq 'q1' }
+        $answered.content | Should -Be 'Who uses it? -> Just me'
     }
 
     It 'records the human''s exact words in human.jsonl, in order, each with what it answered' {
@@ -482,7 +489,7 @@ Describe 'serve.ps1 idea session on an existing repo' -Tag 'Ported' {
         Get-Content (Join-Path $script:State 'ideas/I-001/brief.md') -Raw | Should -Match '# Brief: Todos'
         Wait-Until { (Idle) -and @((Session).specs).Count -eq 2 } 'the specs'
         (Session).idea | Should -Be 'I-001'
-        (Request 3).messages[-1].content[-1].content | Should -Match 'submit_specs'
+        (Request 3).messages[-1].content[-1].text | Should -Match 'submit_specs'
     }
 
     It 'a direct edit rewrites an undecided spec' {
@@ -649,7 +656,7 @@ Describe 'serve.ps1 repo list and Add new' -Tag 'Ported' {
         $s = Session
         $s.target | Should -Be "test/$script:Picked"
         $s.scaffold.Contains('repo') | Should -BeFalse
-        (Request 3).messages[-1].content[-1].content | Should -Match "test/$script:Picked"
+        (Request 3).messages[-1].content[-1].text | Should -Match "test/$script:Picked"
     }
 
     It 'confirming the brief creates the idea and its bootstrap job on the chosen target' {

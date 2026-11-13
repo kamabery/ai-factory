@@ -11,4 +11,8 @@
     <PackageReference Include="Microsoft.Extensions.Options" />
     <PackageReference Include="Microsoft.Extensions.Http" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Factory.UnitTests" />
+    <InternalsVisibleTo Include="Factory.IntegrationTests" />
+  </ItemGroup>
 </Project>

@@ -1,5 +1,6 @@
 using Factory.Core;
 using Factory.Runner;
+using Factory.Store;
 using Factory.Store.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -15,7 +16,7 @@ public class RunnerProviderTests
     public RunnerProviderTests() => _dotEnv.Get(Arg.Any<string>()).Returns((string?)null);
 
     private LlmProvider Provider(string? configured = null, params (string, string)[] env) =>
-        new(Options.Create(new RunnerOptions { ConfiguredMode = configured, Environment = env.ToDictionary(e => e.Item1, e => (string?)e.Item2) }), _dotEnv);
+        new(Options.Create(new LlmOptions { ConfiguredMode = configured, Environment = env.ToDictionary(e => e.Item1, e => (string?)e.Item2) }), _dotEnv);
 
     [Fact]
     public void Local_mode_removes_every_variable_that_could_route_claude_elsewhere()
@@ -125,10 +126,10 @@ public class RunnerProviderTests
         using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
 
         Assert.NotNull(provider.GetRequiredService<RunnerLoop>());
-        var o = provider.GetRequiredService<IOptions<RunnerOptions>>().Value;
-        Assert.Equal(("fake", "local"), (o.ClaudeCmd, o.ConfiguredMode));
+        Assert.Equal(("fake", "local"), (provider.GetRequiredService<IOptions<RunnerOptions>>().Value.ClaudeCmd,
+            provider.GetRequiredService<IOptions<LlmOptions>>().Value.ConfiguredMode));
         Assert.Equal("5", provider.GetRequiredService<IOptions<Factory.Store.StateOptions>>().Value.RenewSeconds);
-        Assert.Same(provider.GetRequiredService<LlmProvider>(), provider.GetRequiredService<Factory.Runner.Abstractions.ILlmProvider>());
+        Assert.Same(provider.GetRequiredService<LlmProvider>(), provider.GetRequiredService<Factory.Store.Abstractions.ILlmProvider>());
     }
 
     [Fact]

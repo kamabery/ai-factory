@@ -1,6 +1,6 @@
 # 08: Port the dashboard server
 
-**Status:** built on its branch (2026-11-12), proven on Windows and Linux. **Branch:**
+**Status:** done, merged in PR #17 (2026-11-12), proven on Windows and Linux. **Branch:**
 `feature/08-port-server`. **Depends on:** 07. `Factory.Server` serves the contract's Dashboard API on
 Kestrel, loopback only; `serve.ps1` forwards to it when FACTORY_IMPL=dotnet. Each write is one
 `factory.ps1` call through `IFactoryCalls` (as the runner's `IFactoryCommands`), so the `{ ok, message }`

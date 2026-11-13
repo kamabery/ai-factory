@@ -37,9 +37,9 @@ public static class RunnerComposition
             o.IdentityHeader = Get("IDENTITY_HEADER");
             o.RenewSeconds = Get("FACTORY_STATE_RENEW_SECONDS");
         });
-        services.Configure<RunnerOptions>(o =>
+        services.Configure<RunnerOptions>(o => o.ClaudeCmd = Get("FACTORY_CLAUDE_CMD"));
+        services.Configure<LlmOptions>(o =>
         {
-            o.ClaudeCmd = Get("FACTORY_CLAUDE_CMD");
             o.ConfiguredMode = configuredMode;
             o.Environment = env;
         });
