@@ -1751,12 +1751,12 @@ Describe 'implementations' {
         "$err" | Should -Be "factory: FACTORY_IMPL=dotnet, but the .NET CLI is not built at $env:FACTORY_CLI (dotnet build src/factory)"
     }
 
-    It 'keeps a command that is not ported in PowerShell' {
+    It 'forwards the deploy set too: no command is left in PowerShell (spec 09)' {
         $env:FACTORY_IMPL = 'dotnet'
         $env:FACTORY_CLI = Join-Path $TestDrive 'missing/Factory.Cli.dll'
-        # sweep stays in PowerShell until spec 09; with deploys off it prints nothing.
-        F sweep | Should -BeNullOrEmpty
-        $LASTEXITCODE | Should -Be 0
+        $err = & pwsh -NoProfile -File $script:Factory sweep 2>&1 | ForEach-Object { "$_" }
+        $LASTEXITCODE | Should -Be 1
+        "$err" | Should -Be "factory: FACTORY_IMPL=dotnet, but the .NET CLI is not built at $env:FACTORY_CLI (dotnet build src/factory)"
     }
 
     It 'refuses an unknown FACTORY_IMPL' {
