@@ -52,14 +52,15 @@ public class CompositionTests
         {
             ["FACTORY_HOME"] = "h", ["FACTORY_REPO"] = "r", ["FACTORY_ENV_FILE"] = "e", ["FACTORY_WORK"] = "wk",
             ["FACTORY_TEMPLATES"] = "t", ["FACTORY_SCRIPTS"] = "s", ["FACTORY_GATE_CMDS"] = "g", ["FACTORY_GATE_CHECK_WAIT_MINUTES"] = "5",
-            ["FACTORY_MODE"] = "cloud",
+            ["FACTORY_MODE"] = "cloud", ["FACTORY_GATE_SHELL"] = "gs", ["FACTORY_CLI"] = "c", ["FACTORY_RUNNER"] = "rn", ["FACTORY_SERVER"] = "sv",
         };
 
         using var provider = Composition.Build(new ServiceCollection().AddFactoryCli(Host(env, "\r\n")));
 
         var o = provider.GetRequiredService<IOptions<FactoryOptions>>().Value;
         Assert.Equal(("h", "r", "w", "e", "wk", "t", "s", "/tmp"), (o.Home, o.Repo, o.WorkingDirectory, o.EnvFile, o.Work, o.Templates, o.Scripts, o.TempPath));
-        Assert.Equal(("g", "5", "cloud"), (o.GateCmds, o.GateCheckWaitMinutes, o.Mode));
+        Assert.Equal(("g", "5", "cloud", "gs"), (o.GateCmds, o.GateCheckWaitMinutes, o.Mode, o.GateShell));
+        Assert.Equal(("c", "rn", "sv", "/nowhere"), (o.Cli, o.Runner, o.Server, o.BaseDirectory));
         Assert.Equal("\r\n", provider.GetRequiredService<IOptions<CliOptions>>().Value.NewLine);
     }
 

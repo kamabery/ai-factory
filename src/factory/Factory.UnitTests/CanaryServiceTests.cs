@@ -41,6 +41,8 @@ public class CanaryServiceTests : CommandTestBase
             ["entra"] = new JsonObject { ["entra_external_tenant_id"] = "t", ["entra_external_subdomain"] = "s", ["entra_external_user_flow_id"] = "f" },
         });
         _lock.TryTake(out Arg.Any<bool>()).Returns(_held);
+        _tools.Run(default!, default!, default!).ReturnsForAnyArgs(c => { Files.Put(Tfvars, "project_name = \"canary\"\nentra_external_subdomain = \"old\"\n"); return new ToolResult(0, ""); });
+        // A stub scaffold (FACTORY_CANARY_SCAFFOLD_CMD) writes the same.
         _tools.Pwsh(default!, default!).ReturnsForAnyArgs(c => { Files.Put(Tfvars, "project_name = \"canary\"\nentra_external_subdomain = \"old\"\n"); return new ToolResult(0, ""); });
         _github.Lookup(Arg.Any<string>()).Returns(RepoState.Existing);
         _github.GitAuth().Returns(["-c", "auth"]);
@@ -86,8 +88,9 @@ public class CanaryServiceTests : CommandTestBase
 
         Sut.Run(_session, false, false);
 
-        _tools.Received(1).Pwsh(Path.Combine(Work, "canary"), Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "-Command", "dotnet new aspire-base -n canary -o . --dbProvider postgres --resource Item" })));
-        _tools.Received(1).Pwsh(Arg.Any<string>(), Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "-Command", "aspire-addon add auth" })));
+        _tools.Received(1).Run(Path.Combine(Work, "canary"), "dotnet", Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual("new aspire-base -n canary -o . --dbProvider postgres --resource Item".Split(' '))));
+        _tools.Received(1).Run(Arg.Any<string>(), "aspire-addon", Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "add", "auth" })));
+        _tools.DidNotReceiveWithAnyArgs().Pwsh(default!, default!);
         Assert.Equal(string.Concat(new[] { "project_name = \"canary\"", "entra_external_tenant_id    = \"t\"", "entra_external_subdomain    = \"s\"", "entra_external_user_flow_id = \"f\"" }
             .Select(l => l + Environment.NewLine)), committed);
         Assert.False(Files.DirectoryExists(Path.Combine(Work, "canary")));
@@ -212,14 +215,14 @@ public class CanaryServiceTests : CommandTestBase
     {
         string Error(bool force = true) { Assert.Throws<FactoryException>(() => Sut.Run(_session, force, false)); return (string)Canary["error"]!; }
 
-        _tools.Pwsh(default!, default!).ReturnsForAnyArgs(new ToolResult(1, "template not installed"));
+        _tools.Run(default!, default!, default!).ReturnsForAnyArgs(new ToolResult(1, "template not installed"));
         Assert.Equal("scaffold: dotnet new aspire-base -n canary -o . --dbProvider postgres --resource Item exited 1", Error());
-        Assert.StartsWith("## Scaffold\n-Command dotnet new aspire-base", Files.Text(Path.Combine(Home, "canary-1.log")));
+        Assert.StartsWith("## Scaffold\ndotnet new aspire-base", Files.Text(Path.Combine(Home, "canary-1.log")));
 
-        _tools.Pwsh(default!, default!).ReturnsForAnyArgs(new ToolResult(0, ""));
+        _tools.Run(default!, default!, default!).ReturnsForAnyArgs(new ToolResult(0, ""));
         Assert.Equal("scaffold: no IaC/envs/ephemeral.tfvars to put the Entra ids in", Error());
 
-        _tools.Pwsh(default!, default!).ReturnsForAnyArgs(c => { Files.Put(Tfvars, "x\n"); return new ToolResult(0, ""); });
+        _tools.Run(default!, default!, default!).ReturnsForAnyArgs(c => { Files.Put(Tfvars, "x\n"); return new ToolResult(0, ""); });
         _git.On("commit", 1, "nothing to commit");
         Assert.Equal("scaffold: commit failed: nothing to commit", Error());
 
@@ -242,7 +245,7 @@ public class CanaryServiceTests : CommandTestBase
     public void Full_needs_the_tfvars_to_set_use_platform_in()
     {
         _canary.Options().Returns(new JsonObject { ["name"] = "canary", ["resource"] = "Item", ["db"] = "sqlite", ["ui"] = "none" });
-        _tools.Pwsh(default!, default!).ReturnsForAnyArgs(new ToolResult(0, ""));
+        _tools.Run(default!, default!, default!).ReturnsForAnyArgs(new ToolResult(0, ""));
 
         Assert.Throws<FactoryException>(() => Sut.Run(_session, false, full: true));
 

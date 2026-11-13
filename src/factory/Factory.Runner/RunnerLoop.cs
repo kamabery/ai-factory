@@ -106,7 +106,7 @@ public sealed partial class RunnerLoop(
         var n = files.Files(jobDir).Count(f => Path.GetDirectoryName(f.Path) == Path.GetFullPath(jobDir) && RunLog().IsMatch(Path.GetFileName(f.Path))) + 1;
         var runLog = $"run-{n}.jsonl";
         var state = paths.Home.Replace('\\', '/');
-        var runCmd = $"/factory:factory run {id} {state} {Path.Combine(paths.ScriptsDir, "factory.ps1").Replace('\\', '/')}";
+        var runCmd = $"/factory:factory run {id} {state}";
         var prompt = session.Length > 0
             ? $"A usage limit stopped this run, and it has reset. Continue `{runCmd}` from where you stopped: read the job's stage with `status -Json` first, and re-run the current step's agent if its file is missing."
             : runCmd;

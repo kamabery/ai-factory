@@ -19,6 +19,11 @@ public static class Composition
             o.Work = host.Get("FACTORY_WORK");
             o.Templates = host.Get("FACTORY_TEMPLATES");
             o.Scripts = host.Get("FACTORY_SCRIPTS") ?? host.FindScripts();
+            o.Cli = host.Get("FACTORY_CLI");
+            o.Runner = host.Get("FACTORY_RUNNER");
+            o.Server = host.Get("FACTORY_SERVER");
+            o.BaseDirectory = host.BaseDirectory;
+            o.GateShell = host.Get("FACTORY_GATE_SHELL");
             o.GateCmds = host.Get("FACTORY_GATE_CMDS");
             o.GateCheckWaitMinutes = host.Get("FACTORY_GATE_CHECK_WAIT_MINUTES");
             o.Mode = host.Get("FACTORY_MODE");
@@ -138,6 +143,10 @@ public static class Composition
         services.AddSingleton<IIdeaClaude, IdeaClaude>();
         services.AddSingleton<IStandaloneCommand, IdeaTurnCommand>();
         services.AddSingleton<IStandaloneCommand, IdeaMcpCommand>();
+        services.AddSingleton<IStandaloneCommand, HookEventCommand>();
+        services.AddSingleton<IStandaloneCommand, RunnerCommand>();
+        services.AddSingleton<IStandaloneCommand, ServeCommand>();
+        services.AddSingleton<IStandaloneCommand, IdeaCommand>();
         services.AddSingleton<CliApp>();
         return services;
     }

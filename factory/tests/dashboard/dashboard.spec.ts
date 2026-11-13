@@ -111,7 +111,7 @@ test.describe.serial('factory dashboard', () => {
   test('New idea is offered when the .env has a key, and the CLI hint stays', async ({ page }) => {
     await page.goto('/');
     await expect(column(page, 'ideas').locator('#new-idea-btn')).toBeVisible();
-    await expect(page.locator('#idea-hint')).toContainText('idea.ps1');
+    await expect(page.locator('#idea-hint')).toContainText('factory idea');
   });
 
   test('the pipeline strip has a node for every agent and the gate', async ({ page }) => {
@@ -409,7 +409,7 @@ test.describe.serial('factory dashboard', () => {
     }
     await expect(page.locator('[data-eval="J-005"]')).toHaveCount(0);   // still in the backlog
     await page.locator('[data-eval="J-004"]').click();
-    await expect(page.locator('[data-eval-body]')).toContainText('factory.ps1 eval J-004 -File');
+    await expect(page.locator('[data-eval-body]')).toContainText('factory eval J-004 -File');
     await expect(page.locator('[data-feedback]')).toHaveCount(0);
   });
 

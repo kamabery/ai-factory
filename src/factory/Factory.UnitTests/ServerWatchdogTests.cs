@@ -13,7 +13,7 @@ public class ServerWatchdogTests : ServerTestBase
 
         Dog.Tick();
 
-        Launcher.Received(1).StartScript("runner.ps1", Arg.Any<IReadOnlyList<string>>());
+        Launcher.Received(1).StartDetached(Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "runner" })));
         Assert.Equal($"2026-11-10T12:00:00.0000000Z watchdog: started runner{Environment.NewLine}", Files.Text(Path.Combine(Home, "runner.log")));
     }
 
@@ -24,7 +24,7 @@ public class ServerWatchdogTests : ServerTestBase
 
         Dog.Tick();
 
-        Launcher.DidNotReceive().StartScript(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>());
+        Launcher.DidNotReceive().StartDetached(Arg.Is<IReadOnlyList<string>>(a => a[0] == "runner" || a[0] == "idea-turn"));
     }
 
     [Fact]
@@ -36,12 +36,12 @@ public class ServerWatchdogTests : ServerTestBase
         var dog = Dog;
 
         dog.Tick();
-        Launcher.DidNotReceive().StartScript(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>());
+        Launcher.DidNotReceive().StartDetached(Arg.Is<IReadOnlyList<string>>(a => a[0] == "runner" || a[0] == "idea-turn"));
 
         Procs.IsAlive(555).Returns(false);
         Clock.Advance(TimeSpan.FromSeconds(10));
         dog.Tick();
-        Launcher.Received(1).StartScript("runner.ps1", Arg.Any<IReadOnlyList<string>>());
+        Launcher.Received(1).StartDetached(Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "runner" })));
     }
 
     [Fact]
@@ -54,7 +54,7 @@ public class ServerWatchdogTests : ServerTestBase
 
         new Factory.Server.Watchdog(Board, Paths, Files, Launcher, Procs, Opts, clock, Microsoft.Extensions.Logging.Abstractions.NullLogger<Factory.Server.Watchdog>.Instance).Tick();
 
-        Launcher.DidNotReceive().StartScript(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>());
+        Launcher.DidNotReceive().StartDetached(Arg.Is<IReadOnlyList<string>>(a => a[0] == "runner" || a[0] == "idea-turn"));
     }
 
     [Fact]
@@ -69,7 +69,7 @@ public class ServerWatchdogTests : ServerTestBase
         Clock.Advance(TimeSpan.FromSeconds(1));
         dog.Tick();
 
-        Launcher.Received(2).StartScript("runner.ps1", Arg.Any<IReadOnlyList<string>>());
+        Launcher.Received(2).StartDetached(Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "runner" })));
     }
 
     [Fact]
@@ -93,6 +93,6 @@ public class ServerWatchdogTests : ServerTestBase
 
         Dog.Tick();
 
-        Launcher.DidNotReceive().StartScript(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>());
+        Launcher.DidNotReceive().StartDetached(Arg.Is<IReadOnlyList<string>>(a => a[0] == "runner" || a[0] == "idea-turn"));
     }
 }

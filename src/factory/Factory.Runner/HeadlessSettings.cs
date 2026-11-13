@@ -3,10 +3,10 @@ using System.Text.Json.Nodes;
 namespace Factory.Runner;
 
 /// <summary>
-/// claude-run.ps1's Write-HeadlessSettings: the settings every headless claude pass runs with. Agents work in the job's
+/// The settings every headless claude pass runs with (contract, "Runner"). Agents work in the job's
 /// throwaway clone, so the whole toolchain (scaffolding included) is allowed, plus read-only shell commands. Anything
 /// that would leave the branch (push, merge, switching to main) is denied, and so is reading .env and the environment:
-/// only factory.ps1 holds the GitHub token. Each rule is given for both the Bash and the PowerShell tool.
+/// only the factory CLI holds the GitHub PAT. Each rule is given for both the Bash and the PowerShell tool.
 /// </summary>
 public static class HeadlessSettings
 {
@@ -38,8 +38,8 @@ public static class HeadlessSettings
     /// <summary>The settings for a factory at <paramref name="factoryRoot"/> with its state in <paramref name="stateDir"/>.</summary>
     public static JsonObject Build(string factoryRoot, string templatesRoot, string stateDir)
     {
-        var factory = Slashes(Path.Combine(factoryRoot, "factory", "scripts", "factory.ps1"));
-        var allow = new JsonArray([.. Both(AllowCommands), (JsonNode)$"Bash(pwsh -NoProfile -File {factory} *)", (JsonNode)$"PowerShell(pwsh -NoProfile -File {factory} *)"]);
+        // The CLI, by name: the runner puts this build's first on claude's PATH.
+        var allow = new JsonArray([.. Both(AllowCommands), (JsonNode)"Bash(factory *)", (JsonNode)"PowerShell(factory *)"]);
         var deny = new JsonArray([.. Both(DenyCommands),
             (JsonNode)"Edit(/factory/**)", (JsonNode)"Edit(/.claude/**)", (JsonNode)"Edit(/docs/FACTORY-CONTRACT.md)",
             (JsonNode)$"Edit({RulePath(Path.Combine(factoryRoot, "factory"))}/**)",

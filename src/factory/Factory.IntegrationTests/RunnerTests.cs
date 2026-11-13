@@ -65,17 +65,20 @@ public sealed class RunnerTests : IDisposable
             '{"type":"assistant","text":"caf' + [char]0xE9 + ' ' + [char]0x2713 + '"}'
             $held.Dispose()
             "key=[$env:ANTHROPIC_API_KEY] resume=[$env:FACTORY_CLAUDE_RESUME] cwd=$((Get-Location).Path)"
+            # pwsh puts its own folder first on PATH as it starts; what the runner gave it comes next.
+            "path=[$($env:PATH.Split([IO.Path]::PathSeparator) | Where-Object { $_ -and $_.TrimEnd('\/') -ne $PSHOME.TrimEnd('\/') } | Select-Object -First 1)] root=[$env:DOTNET_ROOT]"
             '{"type":"result","total_cost_usd":0.25,"duration_ms":7}'
             exit 1
             """);
         Environment.SetEnvironmentVariable("ANTHROPIC_API_KEY", "sk-from-the-runner");
         try
         {
-            var options = Options.Create(new RunnerOptions { ClaudeCmd = $"& '{fake}'" });
+            var options = Options.Create(new RunnerOptions { ClaudeCmd = $"& '{fake}'", DotnetRoot = "dotnet-root" });
             var log = Path.Combine(_dir["state"], "jobs", "J-001", "run-1.jsonl");
             var wt = Directory.CreateDirectory(_dir["wt"]).FullName;
 
-            var run = new ClaudeRunner(Paths(), new FileStore(), options)
+            var paths = new FactoryPaths(Options.Create(new FactoryOptions { Home = _dir["state"], Scripts = _dir["scripts"], Templates = _dir["tp"], Cli = _dir["cli/factory.dll"] }), new GitClient(new ProcessRunner()));
+            var run = new ClaudeRunner(paths, new FileStore(), options)
                 .Run("J-001", "/factory:factory run J-001", wt, log, new Dictionary<string, string?> { ["ANTHROPIC_API_KEY"] = null }, "sess-9");
 
             Assert.Equal((1, 0.25), (run.Code, (double)run.Result!["total_cost_usd"]!));
@@ -84,6 +87,9 @@ public sealed class RunnerTests : IDisposable
             Assert.Contains("{\"type\":\"assistant\",\"text\":\"café ✓\"}", lines);
             Assert.Contains("warn: from stderr", lines);
             Assert.Contains($"key=[] resume=[sess-9] cwd={wt}", lines);
+            // The CLI's folder first, so `factory` is this build's; DOTNET_ROOT only where it was unset.
+            var root = Environment.GetEnvironmentVariable("DOTNET_ROOT") is { Length: > 0 } r ? r : "dotnet-root";
+            Assert.Contains($"path=[{Path.GetFullPath(_dir["cli"])}] root=[{root}]", lines);
             var settings = JsonNode.Parse(File.ReadAllText(Path.Combine(_dir["state"], "headless-settings.json")))!;
             Assert.Equal("5400000", (string?)settings["env"]!["BASH_MAX_TIMEOUT_MS"]);
         }

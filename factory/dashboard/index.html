@@ -210,7 +210,7 @@
 <header>
   <h1>Factory</h1>
   <nav id="views" aria-label="Views"><button type="button" data-view="board" class="on">Board</button><button type="button" data-view="evals">Evaluations</button><button type="button" data-view="lessons">Lessons</button></nav>
-  <span id="idea-hint">New idea: <code>pwsh factory/scripts/idea.ps1 &lt;owner/name&gt;</code> opens a Claude session that grills you, writes the specs and puts the ones you approve on the board.</span>
+  <span id="idea-hint">New idea: <code>factory idea &lt;owner/name&gt;</code> opens a Claude session that grills you, writes the specs and puts the ones you approve on the board.</span>
   <span id="mode" title="Run mode and the provider it decides (FACTORY_MODE)"></span>
   <button id="theme" type="button" title="Toggle theme">◐</button>
 </header>
@@ -272,7 +272,7 @@ const FLAG_MEANS = {
   'out-of-scope': 'the build changed the paths below, which match none of the Scope: In globs in the spec, so it stopped before review. Rework with a line "Scope +: <glob>, <glob>" to keep them (the spec is widened), or with a note asking the builder to remove them.',
   'spec-stale': 'a job from the same idea merged after this spec was written, and the builder found the spec no longer holds against main (its reasons are below). Rework with its proposed "Scope +: <glob>" line and AC wording, or discard.',
   'usage-limit': 'claude stopped on a usage limit (the subscription limit, or a Foundry quota), not on a decision, and the queue waits. Once the limit has reset, Resume continues the same claude session in the stage it stopped in; nothing is re-run.',
-  'github-permission':'GitHub refused the deploy because the GitHub PAT lacks the permission named below. Add it on GitHub, then run factory.ps1 redeploy <id>; no deploy attempt was used.',
+  'github-permission':'GitHub refused the deploy because the GitHub PAT lacks the permission named below. Add it on GitHub, then run factory redeploy <id>; no deploy attempt was used.',
 };
 const md = (text) =>window.marked ? marked.parse(text ?? '') : `<pre>${esc(text)}</pre>`;
 
@@ -721,7 +721,7 @@ function renderHead() {
     ${rework}`;
   if (reworkFocus) { const n = $('#rework-note', h); n.focus(); n.setSelectionRange(...reworkFocus); }
 
-  // factory.ps1 approve takes seconds: close at once, and the card spins until it lands (see move).
+  // factory approve takes seconds: close at once, and the card spins until it lands (see move).
   $('#approve-btn', h)?.addEventListener('click', () => {
     if (state.specDirty) { toast('Save the spec first', true); return; }
     closeModal();
@@ -1234,14 +1234,14 @@ function renderEvals() {
   const list = $('#evals .eval-list');
   const rows = evalRows();
   list.innerHTML = rows.length ? rows.map(evalRow).join('')
-    : '<div class="eval-empty">No evaluations yet. A finished job is evaluated with <code>factory.ps1 eval &lt;id&gt; -File &lt;md&gt;</code>.</div>';
+    : '<div class="eval-empty">No evaluations yet. A finished job is evaluated with <code>factory eval &lt;id&gt; -File &lt;md&gt;</code>.</div>';
   for (const el of list.querySelectorAll('[data-eval]')) el.onclick = () => openEval(el.dataset.eval);
   const x = evalView.list.find((e) => e.job === evalView.open);
   const pending = rows.find((e) => e.job === evalView.open && e.pending);
   const body = $('[data-eval-body]');
   const prev = $('[data-feedback] textarea', body);
   const focus = prev && document.activeElement === prev ? [prev.selectionStart, prev.selectionEnd] : null;
-  body.innerHTML = pending ? `<p class="eval-empty">${esc(pending.job)} is ${esc(pending.stage)} and not evaluated yet; Clear keeps it on the board until it is. Evaluate it in a Claude Code session with <code>factory.ps1 eval ${esc(pending.job)} -File &lt;md&gt;</code>.</p>`
+  body.innerHTML = pending ? `<p class="eval-empty">${esc(pending.job)} is ${esc(pending.stage)} and not evaluated yet; Clear keeps it on the board until it is. Evaluate it in a Claude Code session with <code>factory eval ${esc(pending.job)} -File &lt;md&gt;</code>.</p>`
     : evalView.open ? (x ? evalFacts(x) : '') + md(evalView.body) + (x ? feedbackForm() : '') : '<p class="eval-empty">Pick an evaluation.</p>';
   const note = $('[data-feedback] textarea', body);
   if (!note) return;
@@ -1321,7 +1321,7 @@ async function proposeFix() {
   const ids = [...lessonView.picked];
   const bodies = await Promise.all(ids.map((id) => getText(`/state/lessons/${encodeURIComponent(id)}.md`)));
   const text = `Template fixes from factory lessons (${ids.join(', ')}). Each says what went wrong in a job and where the fix belongs; make the templates handle it so the next scaffold needs no hand fix.\n\n${bodies.join('\n\n---\n\n')}`;
-  if (!state.config.enabled) { toast(`Idea sessions are off in this run mode: run pwsh factory/scripts/idea.ps1 ${repo} and paste the lessons`, true); return; }
+  if (!state.config.enabled) { toast(`Idea sessions are off in this run mode: run factory idea ${repo} and paste the lessons`, true); return; }
   const res = await api('POST', '/api/sessions', { target: repo, text });
   if (!res.ok) { toast(res.message, true); return; }
   for (const id of ids) await markLesson(id, 'proposed', res.message);

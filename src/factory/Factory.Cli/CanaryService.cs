@@ -186,14 +186,22 @@ public sealed partial class CanaryService(
     {
         Remove(dir);
         files.EnsureDirectory(dir);
-        // The stub (tests) is handed the commands it stands in for, as arguments.
-        List<string[]> cmds = string.IsNullOrEmpty(O.CanaryScaffoldCmd)
-            ? [.. Scaffold.Commands(sc).Select(c => new[] { "-Command", c })]
-            : [["-File", O.CanaryScaffoldCmd, .. Scaffold.Commands(sc)]];
-        foreach (var c in cmds)
+        var commands = Scaffold.Commands(sc);
+        if (!string.IsNullOrEmpty(O.CanaryScaffoldCmd))
         {
-            var r = tools.Pwsh(dir, c);
-            if (r.Code != 0) { log.Add($"## Scaffold\n{string.Join(' ', c)}\n{r.Out}"); return $"scaffold: {c[^1]} exited {r.Code}"; }
+            // The stub (tests) is handed the commands it stands in for, as arguments.
+            var r = tools.Pwsh(dir, ["-File", O.CanaryScaffoldCmd, .. commands]);
+            if (r.Code != 0) { log.Add($"## Scaffold\n{string.Join(' ', commands)}\n{r.Out}"); return $"scaffold: {commands[^1]} exited {r.Code}"; }
+        }
+        else
+        {
+            // Each is a program and its arguments, with no shell between: the options are validated, so none has a space.
+            foreach (var c in commands)
+            {
+                var words = c.Split(' ');
+                var r = tools.Run(dir, words[0], words[1..]);
+                if (r.Code != 0) { log.Add($"## Scaffold\n{c}\n{r.Out}"); return $"scaffold: {c} exited {r.Code}"; }
+            }
         }
         var tfvars = Path.Combine(dir, "IaC", "envs", "ephemeral.tfvars");
         // Sign-in needs the External ID ids in the scaffold's tfvars (a target commits them; canary 15).

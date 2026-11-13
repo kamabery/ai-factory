@@ -243,7 +243,8 @@ public sealed partial class IdeaSessions(
         s["status"] = "running";
         s["error"] = null;
         sessions.Save(s);
-        launcher.StartScript("idea-turn.ps1", ["-Session", BoardFile.Str(s, "id")!, "-StateDir", paths.Home, "-EnvFile", options.Value.EnvFile]);
+        // The server's FACTORY_HOME and FACTORY_ENV_FILE are the turn's (Program sets both for every child).
+        launcher.StartDetached(["idea-turn", BoardFile.Str(s, "id")!]);
     }
 
     /// <summary>Adds user content: a new message, or more blocks in the last one when it is already the user's.</summary>

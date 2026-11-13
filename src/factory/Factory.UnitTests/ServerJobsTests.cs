@@ -11,19 +11,19 @@ public class ServerJobsTests : ServerTestBase
     public void A_factory_call_answers_ok_on_exit_0_with_stdout_and_stderr_trimmed_and_no_factory_prefix()
     {
         var processes = Substitute.For<IProcessRunner>();
-        Paths.ScriptsDir.Returns("scripts");
-        processes.Run("pwsh", Arg.Any<IReadOnlyList<string>>(), "").Returns(new ProcessResult(1, "", "factory: approve refused: J-001 is in build\r\n"));
+        Paths.CliDll.Returns("factory.dll");
+        processes.Run("dotnet", Arg.Any<IReadOnlyList<string>>(), "").Returns(new ProcessResult(1, "", "factory: approve refused: J-001 is in build\r\n"));
         var calls = new FactoryCalls(Paths, processes);
 
         Assert.Equal(new CallResult(false, "approve refused: J-001 is in build"), calls.Run("approve", "J-001"));
-        processes.Received().Run("pwsh", Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "-NoProfile", "-File", Path.Combine("scripts", "factory.ps1"), "approve", "J-001" })), "");
+        processes.Received().Run("dotnet", Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "factory.dll", "approve", "J-001" })), "");
 
-        processes.Run("pwsh", Arg.Any<IReadOnlyList<string>>(), "").Returns(new ProcessResult(0, "I-001 J-001\n", "warn\n"));
+        processes.Run("dotnet", Arg.Any<IReadOnlyList<string>>(), "").Returns(new ProcessResult(0, "I-001 J-001\n", "warn\n"));
         Assert.Equal(new CallResult(true, "I-001 J-001\nwarn"), calls.Run("new-idea"));
     }
 
     [Fact]
-    public void A_result_is_200_when_factory_ps1_succeeded_and_409_when_it_refused()
+    public void A_result_is_200_when_the_CLI_succeeded_and_409_when_it_refused()
     {
         Assert.Equal(new Reply(200, """{"ok":true,"message":"done"}"""), Reply.Of(CallResult.Done("done")));
         Assert.Equal(new Reply(409, """{"ok":false,"message":"no <way>"}"""), Reply.Of(CallResult.Refuse("no <way>")));
@@ -38,7 +38,7 @@ public class ServerJobsTests : ServerTestBase
 
         Assert.Equal(200, r.Status);
         Factory.Received().Run("approve", "J-001");
-        Launcher.Received().StartScript("runner.ps1", Arg.Any<IReadOnlyList<string>>());
+        Launcher.Received().StartDetached(Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "runner" })));
     }
 
     [Fact]
@@ -50,7 +50,7 @@ public class ServerJobsTests : ServerTestBase
         var r = Jobs.Move("J-001", """{"to":"approved"}""");
 
         Assert.Equal((409, """{"ok":false,"message":"approve refused"}"""), (r.Status, r.Body));
-        Launcher.DidNotReceive().StartScript(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>());
+        Launcher.DidNotReceive().StartDetached(Arg.Is<IReadOnlyList<string>>(a => a[0] == "runner" || a[0] == "idea-turn"));
     }
 
     [Theory]
@@ -81,7 +81,7 @@ public class ServerJobsTests : ServerTestBase
         Factory.Received().Run("merge", "J-003");
         Factory.Received().Run("discard", "J-003");
         Assert.Equal("""{"ok":false,"message":"move to 'review' refused: not a human move"}""", other.Body);
-        Launcher.DidNotReceive().StartScript(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>());
+        Launcher.DidNotReceive().StartDetached(Arg.Is<IReadOnlyList<string>>(a => a[0] == "runner" || a[0] == "idea-turn"));
     }
 
     [Fact]
@@ -100,7 +100,7 @@ public class ServerJobsTests : ServerTestBase
         Assert.Equal(409, Jobs.Redeploy("J-005").Status);
 
         Factory.Received().Run("resume", "J-004");
-        Launcher.Received(1).StartScript("runner.ps1", Arg.Any<IReadOnlyList<string>>());
+        Launcher.Received(1).StartDetached(Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "runner" })));
     }
 
     [Fact]

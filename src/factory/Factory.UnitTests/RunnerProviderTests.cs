@@ -76,7 +76,7 @@ public class RunnerProviderTests
     // --- headless settings -----------------------------------------------------------------------
 
     [Fact]
-    public void Headless_settings_allow_the_toolchain_and_factory_ps1_in_both_shells_and_fence_edits_and_reads()
+    public void Headless_settings_allow_the_toolchain_and_the_factory_CLI_in_both_shells_and_fence_edits_and_reads()
     {
         var root = Path.Combine(Path.GetTempPath(), "fac");
         var s = HeadlessSettings.Build(root, Path.Combine(Path.GetTempPath(), "tp"), Path.Combine(root, ".factory-runs"));
@@ -84,9 +84,9 @@ public class RunnerProviderTests
         Assert.Equal("5400000", (string?)s["env"]!["BASH_MAX_TIMEOUT_MS"]);
         var allow = s["permissions"]!["allow"]!.AsArray().Select(r => (string?)r).ToList();
         var deny = s["permissions"]!["deny"]!.AsArray().Select(r => (string?)r).ToList();
-        var factory = Path.Combine(root, "factory", "scripts", "factory.ps1").Replace('\\', '/');
-        Assert.Contains($"Bash(pwsh -NoProfile -File {factory} *)", allow);
-        Assert.Contains($"PowerShell(pwsh -NoProfile -File {factory} *)", allow);
+        Assert.Contains("Bash(factory *)", allow);
+        Assert.Contains("PowerShell(factory *)", allow);
+        Assert.DoesNotContain(allow, r => r!.Contains("pwsh", StringComparison.Ordinal));
         Assert.Contains("Bash(dotnet *)", allow);
         Assert.Contains("PowerShell(git merge --no-edit factory/base*)", allow);
         Assert.DoesNotContain("Bash(printenv*)", allow);

@@ -8,6 +8,9 @@ public interface IStandaloneCommand
 {
     string Name { get; }
 
+    /// <summary>Whether it takes these arguments (those after its name); a board command of the same name takes the rest.</summary>
+    bool Accepts(IReadOnlyList<string> args) => true;
+
     /// <summary>Runs the command with the arguments after its name; returns the exit code.</summary>
     int Run(IReadOnlyList<string> args, TextReader stdin, TextWriter stdout, TextWriter stderr);
 }

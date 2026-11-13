@@ -101,7 +101,7 @@ public class RunnerLoopTests : CommandTestBase
         Assert.Equal("sweep", _factory.Calls[^1]);
         Assert.Equal([$"start pid={Environment.ProcessId}", "take J-001", "claude J-001 exit=0 result=yes", "stage J-001 ready",
             "take J-002", "claude J-002 exit=0 result=yes", "stage J-002 ready", "exit drained"], _log);
-        _claude.Received(1).Run("J-001", Arg.Is<string>(p => p.StartsWith("/factory:factory run J-001 ", StringComparison.Ordinal) && p.EndsWith("/factory/scripts/factory.ps1", StringComparison.Ordinal)),
+        _claude.Received(1).Run("J-001", Arg.Is<string>(p => p == $"/factory:factory run J-001 {Paths.Home.Replace('\\', '/')}"),
             Path.Combine(Path.GetTempPath(), "wt", "J-001"), JobFile("J-001", "run-1.jsonl"), _childEnv, "");
     }
 

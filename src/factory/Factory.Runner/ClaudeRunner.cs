@@ -11,7 +11,7 @@ using Microsoft.Extensions.Options;
 namespace Factory.Runner;
 
 /// <summary>
-/// claude-run.ps1's Invoke-ClaudeStream: writes headless-settings.json, then runs
+/// One claude pass (contract, "Runner"): writes headless-settings.json, then runs
 /// <c>claude -p &lt;prompt&gt; [--resume s] --plugin-dir ... --settings ... --add-dir &lt;state&gt; --output-format stream-json
 /// --verbose --permission-mode acceptEdits</c> in the work dir, or FACTORY_CLAUDE_CMD through <c>pwsh -Command</c>.
 /// Every output line goes to the run log as it arrives, through one stream shared for reading, so a reader (the
@@ -36,6 +36,9 @@ public sealed class ClaudeRunner(IFactoryPaths paths, IFileStore files, IOptions
         psi.StandardOutputEncoding = psi.StandardErrorEncoding = Utf8;
         foreach (var (name, value) in childEnv)
             if (value is null) psi.Environment.Remove(name); else psi.Environment[name] = value;
+        // The skill, the agents and the hooks call `factory` by name: this build's CLI comes first on PATH.
+        psi.Environment["PATH"] = Path.GetDirectoryName(Path.GetFullPath(paths.CliDll)) + Path.PathSeparator + (psi.Environment.TryGetValue("PATH", out var path) ? path : "");
+        if (options.Value.DotnetRoot is { } root && !(psi.Environment.TryGetValue("DOTNET_ROOT", out var had) && !string.IsNullOrEmpty(had))) psi.Environment["DOTNET_ROOT"] = root;
         psi.Environment["FACTORY_JOB"] = jobId;
         psi.Environment["FACTORY_HOME"] = paths.Home;
         psi.Environment["GIT_TERMINAL_PROMPT"] = "0";

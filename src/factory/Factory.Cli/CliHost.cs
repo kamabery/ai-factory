@@ -9,11 +9,13 @@ public static class CliHost
         TextWriter stdout, TextWriter stderr, TextReader? stdin = null, IReadOnlyList<string>? self = null)
     {
         var host = new CliEnvironment(env, workingDirectory, stdout.NewLine,
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), Path.GetTempPath(), AppContext.BaseDirectory, self);
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), Path.GetTempPath(), AppContext.BaseDirectory, self, Environment.ProcessId,
+            // <root>/shared/Microsoft.NETCore.App/<version>/ is where this runtime lives.
+            Path.GetFullPath(Path.Combine(System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory(), "..", "..", "..")));
         using var provider = Composition.Build(new ServiceCollection().AddFactoryCli(host));
-        // A standalone command (idea-turn, idea-mcp) runs without opening the board.
+        // A standalone command (idea-turn, idea-mcp, the hook's event) runs without opening the board.
         var standalone = args.Count > 0
-            ? provider.GetServices<Abstractions.IStandaloneCommand>().FirstOrDefault(c => string.Equals(c.Name, args[0], StringComparison.OrdinalIgnoreCase))
+            ? provider.GetServices<Abstractions.IStandaloneCommand>().FirstOrDefault(c => string.Equals(c.Name, args[0], StringComparison.OrdinalIgnoreCase) && c.Accepts([.. args.Skip(1)]))
             : null;
         if (standalone is not null) return standalone.Run([.. args.Skip(1)], stdin ?? TextReader.Null, stdout, stderr);
         var r = provider.GetRequiredService<CliApp>().Run(args);

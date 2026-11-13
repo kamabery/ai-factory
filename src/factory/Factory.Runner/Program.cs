@@ -2,7 +2,7 @@ using System.Collections;
 using Factory.Runner;
 using Factory.Store;
 
-// The job runner (roadmap spec 07): runner.ps1, ported. runner.ps1 forwards here when FACTORY_IMPL=dotnet.
+// The job runner (contract, "Runner"), started by `factory runner`, the server's watchdog, or the AppHost.
 // Its settings files sit beside it, wherever it is started from.
 var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = args, ContentRootPath = AppContext.BaseDirectory });
 builder.AddServiceDefaults();

@@ -18,8 +18,17 @@ public interface IFactoryPaths
     /// <summary>&lt;work&gt;/jobs/&lt;id&gt;: the job's clone of its target, deleted at done or discarded.</summary>
     string WorkDir(string id);
 
-    /// <summary>factory/scripts, where factory.ps1 and the deploy scripts the canary fingerprints live.</summary>
+    /// <summary>factory/scripts in the factory's checkout, the anchor for the plugin, the templates and the deploy code.</summary>
     string ScriptsDir { get; }
+
+    /// <summary>The CLI, run as <c>dotnet &lt;CliDll&gt;</c>: FACTORY_CLI, else factory.dll built beside this host.</summary>
+    string CliDll { get; }
+
+    /// <summary>The runner: FACTORY_RUNNER, else Factory.Runner.dll built beside this host.</summary>
+    string RunnerDll { get; }
+
+    /// <summary>The dashboard server: FACTORY_SERVER, else Factory.Server.dll built beside this host.</summary>
+    string ServerDll { get; }
 
     /// <summary>FACTORY_TEMPLATES, else template-projects beside this repo (factory.ps1's TemplatesRoot).</summary>
     string TemplatesRoot { get; }

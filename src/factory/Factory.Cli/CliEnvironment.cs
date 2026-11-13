@@ -8,21 +8,15 @@ public sealed record CliEnvironment(
     string LocalAppData,
     string TempPath,
     string BaseDirectory,
-    IReadOnlyList<string>? Self = null)
+    IReadOnlyList<string>? Self = null,
+    int ProcessId = 0,
+    string? DotnetRoot = null)
 {
     /// <summary>How to start this CLI again: the executable, then the arguments before a command (the DLL under dotnet).</summary>
-    public IReadOnlyList<string> SelfCommand => Self ?? ["dotnet", Path.Combine(BaseDirectory, "Factory.Cli.dll")];
+    public IReadOnlyList<string> SelfCommand => Self ?? ["dotnet", Path.Combine(BaseDirectory, "factory.dll")];
 
     public string? Get(string name) => Variables.GetValueOrDefault(name) is { Length: > 0 } v ? v : null;
 
     /// <summary>factory/scripts above <see cref="BaseDirectory"/> (the CLI's artifacts folder in this repo), or null.</summary>
-    public string? FindScripts()
-    {
-        for (var d = new DirectoryInfo(BaseDirectory); d is not null; d = d.Parent)
-        {
-            var p = Path.Combine(d.FullName, "factory", "scripts");
-            if (File.Exists(Path.Combine(p, "factory.ps1"))) return p;
-        }
-        return null;
-    }
+    public string? FindScripts() => Factory.Store.FactoryPaths.FindScripts(BaseDirectory);
 }

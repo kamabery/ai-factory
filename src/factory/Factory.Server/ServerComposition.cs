@@ -25,6 +25,8 @@ public static class ServerComposition
             o.Work = Get("FACTORY_WORK");
             o.Templates = Get("FACTORY_TEMPLATES");
             o.Scripts = scripts;
+            o.Cli = Get("FACTORY_CLI");
+            o.BaseDirectory = AppContext.BaseDirectory;
             o.TempPath = tempPath;
             o.WorkingDirectory = workingDirectory;
         });

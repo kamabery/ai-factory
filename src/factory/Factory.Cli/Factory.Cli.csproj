@@ -1,6 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <!-- The build output is the factory command itself: artifacts/bin/Factory.Cli/debug/factory(.exe), on PATH. -->
+    <AssemblyName>factory</AssemblyName>
+    <RootNamespace>Factory.Cli</RootNamespace>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>factory</ToolCommandName>
   </PropertyGroup>

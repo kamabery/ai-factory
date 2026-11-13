@@ -1,10 +1,8 @@
 namespace Factory.Store.Abstractions;
 
-/// <summary>deploy.ps1's Start-FactoryDetached: a factory.ps1 command in a process of its own that outlives this one.</summary>
+/// <summary>A <c>factory</c> command in a process of its own that outlives this one (contract, "Implementations").</summary>
 public interface IFactoryLauncher
 {
+    /// <summary><c>dotnet &lt;factory.dll&gt; &lt;args&gt;</c>, detached: <c>destroy</c>, <c>sync-prs</c>, <c>runner</c>, <c>idea-turn</c>.</summary>
     void StartDetached(IReadOnlyList<string> args);
-
-    /// <summary>Any script in factory/scripts (runner.ps1, idea-turn.ps1), detached the same way.</summary>
-    void StartScript(string script, IReadOnlyList<string> args);
 }

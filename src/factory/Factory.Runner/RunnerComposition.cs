@@ -20,8 +20,9 @@ public static class RunnerComposition
             o.EnvFile = Get("FACTORY_ENV_FILE");
             o.Work = Get("FACTORY_WORK");
             o.Templates = Get("FACTORY_TEMPLATES");
-            // runner.ps1 sets FACTORY_SCRIPTS; started directly (the AppHost), the runner finds it above its binaries.
             o.Scripts = Get("FACTORY_SCRIPTS") ?? FactoryPaths.FindScripts(AppContext.BaseDirectory);
+            o.Cli = Get("FACTORY_CLI");
+            o.BaseDirectory = AppContext.BaseDirectory;
             o.TempPath = tempPath;
             o.WorkingDirectory = workingDirectory;
         });
@@ -37,7 +38,13 @@ public static class RunnerComposition
             o.IdentityHeader = Get("IDENTITY_HEADER");
             o.RenewSeconds = Get("FACTORY_STATE_RENEW_SECONDS");
         });
-        services.Configure<RunnerOptions>(o => o.ClaudeCmd = Get("FACTORY_CLAUDE_CMD"));
+        services.Configure<RunnerOptions>(o =>
+        {
+            o.ClaudeCmd = Get("FACTORY_CLAUDE_CMD");
+            // <root>/shared/Microsoft.NETCore.App/<version>/ is where this runtime lives.
+            if (!OperatingSystem.IsWindows() && Get("DOTNET_ROOT") is null)
+                o.DotnetRoot = Path.GetFullPath(Path.Combine(System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory(), "..", "..", ".."));
+        });
         services.Configure<LlmOptions>(o =>
         {
             o.ConfiguredMode = configuredMode;

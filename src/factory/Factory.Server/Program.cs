@@ -5,9 +5,9 @@ using Factory.Server;
 using Factory.Server.Abstractions;
 using Factory.Store.Abstractions;
 
-// The dashboard server (roadmap spec 08): serve.ps1, ported. serve.ps1 forwards here when FACTORY_IMPL=dotnet.
-// Arguments are serve.ps1's: --port, --state-dir, --env-file, --watchdog-seconds, --pr-sync-seconds, and --parent-pid
-// from the forward, so the server stops with serve.ps1 (ParentWatch).
+// The dashboard server (contract, "Dashboard API"), started by `factory serve` or the AppHost. Arguments: --port,
+// --state-dir, --env-file, --watchdog-seconds, --pr-sync-seconds, and --parent-pid from factory serve, so the server
+// stops with it (ParentWatch).
 var env = Environment.GetEnvironmentVariables().Cast<DictionaryEntry>()
     .ToDictionary(e => (string)e.Key, e => (string?)e.Value, StringComparer.OrdinalIgnoreCase);
 var cli = new ConfigurationBuilder().AddCommandLine(args).Build();
@@ -54,7 +54,7 @@ for (var attempt = 1; ; attempt++)
         var taken = serveLock.TryTake();
         if (!taken.Taken)
         {
-            Console.Error.WriteLine($"serve.ps1 refused: a dashboard (PID {taken.HolderPid}) already serves {home} at {taken.HolderUrl}");
+            Console.Error.WriteLine($"factory serve refused: a dashboard (PID {taken.HolderPid}) already serves {home} at {taken.HolderUrl}");
             await candidate.DisposeAsync();
             return 1;
         }

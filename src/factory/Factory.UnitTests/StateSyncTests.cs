@@ -137,7 +137,7 @@ public class StateSyncTests
     {
         _files.Put(P("board.json"), "{}");
 
-        Assert.Equal($"state: the container has no board.json but {P("board.json")} exists; run factory.ps1 state-migrate",
+        Assert.Equal($"state: the container has no board.json but {P("board.json")} exists; run factory state-migrate",
             Assert.Throws<FactoryException>(() => _sut.SyncBoard()).Message);
 
         _files.Put(P(".sync.json"), """{"board.json":{"len":2,"mtime":1,"etag":"b1"}}""");
