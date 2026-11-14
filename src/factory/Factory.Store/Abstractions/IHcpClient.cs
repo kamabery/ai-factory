@@ -36,4 +36,7 @@ public interface IHcpClient
 
     /// <summary>Safe-deletes the workspace. HCP answers 409 while it processes the state a destroy just wrote (J-025).</summary>
     void SafeDelete(string workspaceId);
+
+    /// <summary>GET /account/details: the HCP_TOKEN's user name (doctor's check).</summary>
+    string Account();
 }

@@ -37,7 +37,7 @@ public sealed class CliGitHubAppTests : IDisposable
 
     public void Dispose()
     {
-        File.Delete(Path.Combine(_gh.GitBase, "installations.json"));
+        if (Directory.Exists(_gh.GitBase)) File.Delete(Path.Combine(_gh.GitBase, "installations.json"));
         _dir.Dispose();
     }
 

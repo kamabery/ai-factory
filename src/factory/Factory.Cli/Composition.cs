@@ -162,6 +162,18 @@ public static class Composition
         services.AddSingleton<ICommand, CanaryDestroyCommand>();
         services.AddSingleton<ICommand, QaLoginCommand>();
         services.AddSingleton<ILlmProvider, LlmProvider>();
+        services.AddSingleton<AppManifest>();
+        services.AddHttpClient<IFoundryProbe, FoundryProbe>(c => c.Timeout = TimeSpan.FromSeconds(60));
+        services.AddSingleton<ToolsCheck>();
+        services.AddSingleton<LlmCheck>();
+        services.AddSingleton<IDoctorCheck>(sp => sp.GetRequiredService<ToolsCheck>());
+        services.AddSingleton<IDoctorCheck, SecretStoreCheck>();
+        services.AddSingleton<IDoctorCheck, EnvSecretsCheck>();
+        services.AddSingleton<IDoctorCheck, GitHubCheck>();
+        services.AddSingleton<IDoctorCheck>(sp => sp.GetRequiredService<LlmCheck>());
+        services.AddSingleton<IDoctorCheck, HcpCheck>();
+        services.AddSingleton<IDoctor, Doctor>();
+        services.AddSingleton<IStandaloneCommand, DoctorCommand>();
         services.AddSingleton<IdeaFiles>();
         services.AddSingleton<IIdeaClaude, IdeaClaude>();
         services.AddSingleton<IStandaloneCommand, IdeaTurnCommand>();

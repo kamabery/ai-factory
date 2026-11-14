@@ -89,6 +89,14 @@ public sealed class GitHubClient(HttpClient http, IDotEnv dotEnv, IGitHubCredent
         return r.Status == 201 ? null : Refused(target, GitHubErrors.Text(r));
     }
 
+    public string UserLogin()
+    {
+        var token = credential.UserToken() ?? throw new FactoryException(credential.IsApp ? "the GitHub App has no user token; run factory init" : credential.Missing);
+        var me = SendAs(token, HttpMethod.Get, "/user", null);
+        if (me.Status != 200) throw new FactoryException(GitHubErrors.Text(me));
+        return PsJsonReader.Text((me.Body as JsonObject)?["login"]);
+    }
+
     private string Refused(string target, string why) => credential.IsApp
         ? $"GitHub refused to create {target} ({why}); create it, empty, then approve the job again"
         : $"cannot create {target}: {why}";

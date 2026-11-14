@@ -358,6 +358,8 @@ public sealed partial class GitHubStubApp(string gitBase, string login, int port
 
     private StubReply Hcp(string method, string path, JsonObject body, IQueryCollection q)
     {
+        if (method == "GET" && path == "/api/v2/account/details")
+            return StubReply.Json(200, new JsonObject { ["data"] = new JsonObject { ["attributes"] = new JsonObject { ["username"] = "sim-hcp-user" } } });
         var s = State();
         var projects = s["projects"]!.AsObject();
         var workspaces = s["workspaces"]!.AsObject();

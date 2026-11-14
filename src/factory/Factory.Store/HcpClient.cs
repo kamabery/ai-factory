@@ -101,6 +101,8 @@ public sealed class HcpClient(HttpClient http, IDotEnv dotEnv, ISecrets secrets)
 
     public HcpRun Run(string runId) => ToRun(Send(HttpMethod.Get, $"/runs/{runId}"));
 
+    public string Account() => PsJsonReader.Text(Send(HttpMethod.Get, "/account/details")?["data"]?["attributes"]?["username"]);
+
     public void SafeDelete(string workspaceId) => Send(HttpMethod.Post, $"/workspaces/{workspaceId}/actions/safe-delete");
 
     private static HcpRun ToRun(JsonNode? body) =>
