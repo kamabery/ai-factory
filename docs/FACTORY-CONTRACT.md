@@ -843,7 +843,9 @@ default `<FACTORY_HOME>/factory.db`; with `sql`, `FACTORY_SQL`, a SQL Server con
 Azure SQL it authenticates through Entra, keyless (`Authentication=Active Directory Default`); the tests use
 a SQL Server container's own login.
 
-- `sqlite` is one machine's: its file lives beside the state, in WAL mode.
+- `sqlite` is one machine's: its file lives beside the state, in WAL mode. SQLite itself is the build EF Core
+  ships (`e_sqlite3`), or, where that cannot load (it needs glibc 2.33 or later; Ubuntu 20.04 has 2.31), the
+  operating system's `libsqlite3.so.0`.
 - `sql` is Azure SQL in cloud mode, shared by every machine pointed at it. The artifacts stay in each
   machine's `FACTORY_HOME` until cloud mode (spec 18) decides how they are shared; until then, run one
   machine per `sql` database.
