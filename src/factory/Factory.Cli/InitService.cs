@@ -15,7 +15,7 @@ namespace Factory.Cli;
 /// </summary>
 public sealed class InitService(
     CliEnvironment host, ToolsCheck tools, LlmCheck llmCheck, ILlmProvider llm, ISecrets secrets, ISecretStore store, IGitHubApp app,
-    AppManifest manifest, IDotEnv dotEnv, IFactoryPaths paths, IFileStore files, EnvSettings env, IBrowser browser, IFactoryLauncher launcher,
+    AppManifest manifest, IDotEnv dotEnv, IFactoryPaths paths, EnvSettings env, IBrowser browser, DashboardStarter dashboard,
     IProcessRunner processes, IPause pause, TimeProvider clock)
 {
     private const string FoundryUser = "53ca6127-db72-4b80-b1b0-d745d6d5456d";   // Foundry User (formerly Azure AI User), by id
@@ -192,14 +192,11 @@ public sealed class InitService(
     // serve.lock holds the running server's PID, then its URL: one is reused, else a server starts on a free port.
     private string Dashboard()
     {
-        var held = files.ReadText(Path.Combine(paths.Home, "serve.lock"))?.Split('\n').Select(l => l.Trim()).ToArray();
-        if (held is { Length: >= 2 } && int.TryParse(held[0], CultureInfo.InvariantCulture, out var pid) && Alive(pid) && held[1].Length > 0) return held[1];
         var probe = new TcpListener(IPAddress.Loopback, 0);
         probe.Start();
         var port = ((IPEndPoint)probe.LocalEndpoint).Port;
         probe.Stop();
-        launcher.StartDetached(["serve", "--port", port.ToString(CultureInfo.InvariantCulture)]);
-        return $"http://localhost:{port}/";
+        return dashboard.Start(Alive, port);
     }
 
     private static bool Alive(int pid)

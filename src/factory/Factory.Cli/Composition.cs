@@ -176,6 +176,7 @@ public static class Composition
         services.AddSingleton<IStandaloneCommand, DoctorCommand>();
         services.AddSingleton<IBrowser, SystemBrowser>();
         services.AddSingleton<EnvSettings>();
+        services.AddSingleton<DashboardStarter>();
         services.AddSingleton<InitService>();
         services.AddSingleton<IStandaloneCommand, InitCommand>();
         services.AddSingleton<IdeaFiles>();
