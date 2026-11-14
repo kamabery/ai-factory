@@ -296,8 +296,10 @@ skipped when it is already done, so a stopped init is run again.
 4. **Settings.** It writes `GITHUB_OWNER` (the App's installation account) to `.env`, creating `.env` from
    `.env.example` if it is missing. With `--move-env-secrets` it copies each secret found in `.env` into the store and
    comments the line out (`# NAME moved to the secret store`).
-5. **Check and open.** It runs `doctor`, prints it, and exits 1 if it failed. Otherwise it starts `factory serve`
-   detached unless a server already holds `serve.lock`, and opens the dashboard unless `--no-open`. The first target
+5. **Check and open.** It runs `doctor`, prints it, and exits 1 if it failed. Otherwise it starts `factory serve
+   --state-dir <FACTORY_HOME> --env-file <its .env>` detached, unless a server already holds `serve.lock`, and opens the
+   dashboard unless `--no-open`. Both are passed because a server started without them falls back to the main
+   checkout's `.env` and its state: a second profile's dashboard would run on the first one's board. The first target
    is typed in the dashboard's New idea, as ever.
 
 ## Ideas
