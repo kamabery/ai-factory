@@ -11,7 +11,7 @@
     "actions": "write",
     "environments": "write",
     "secrets": "write",
-    "variables": "write",
+    "actions_variables": "write",
     "metadata": "read"
   }
 }

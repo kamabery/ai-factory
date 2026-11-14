@@ -24,4 +24,20 @@ public sealed class AppManifestTests
         Assert.True(m["hook_attributes"] is null || m["hook_attributes"]!["url"] is not null, "GitHub needs a hook url with hook_attributes");
         Assert.Equal("read", Manifest().Permissions()["metadata"]);
     }
+
+    // GitHub Apps' repository permission names, as /app-manifests and an installation's permissions spell them. A name
+    // outside the list (a fine-grained PAT's "variables") makes GitHub refuse the manifest: "Default permission records
+    // resource is not included in the list" (spec 14's live run).
+    private static readonly string[] AppRepositoryPermissions =
+    [
+        "actions", "actions_variables", "administration", "attestations", "checks", "contents", "deployments", "discussions", "environments",
+        "issues", "merge_queues", "metadata", "packages", "pages", "pull_requests", "repository_custom_properties", "repository_hooks",
+        "repository_projects", "secret_scanning_alerts", "secrets", "security_events", "single_file", "statuses", "vulnerability_alerts", "workflows",
+    ];
+
+    [Fact]
+    public void Every_permission_the_manifest_asks_for_is_a_GitHub_App_permission()
+    {
+        Assert.Empty(Manifest().Permissions().Keys.Except(AppRepositoryPermissions));
+    }
 }
