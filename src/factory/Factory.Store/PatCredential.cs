@@ -2,10 +2,10 @@ using Factory.Store.Abstractions;
 
 namespace Factory.Store;
 
-/// <summary>The GitHub PAT: GITHUB_TOKEN in .env.</summary>
-public sealed class PatCredential(IDotEnv dotEnv) : IGitHubCredential
+/// <summary>The GitHub PAT: GITHUB_TOKEN (the environment, the secret store or .env).</summary>
+public sealed class PatCredential(ISecrets secrets) : IGitHubCredential
 {
-    public string? Token() => dotEnv.Get("GITHUB_TOKEN");
+    public string? Token() => secrets.Get(SecretNames.Pat);
 
     public string Missing => "GITHUB_TOKEN is not set in .env";
 }

@@ -15,7 +15,7 @@ public class HcpClientTests
 
     public HcpClientTests() => _env.Get(Arg.Any<string>()).Returns((string?)null);
 
-    private HcpClient Sut => new(new HttpClient(_http), _env);
+    private HcpClient Sut => new(new HttpClient(_http), _env, EnvSecrets.Over(_env));
 
     /// <summary>HCP at http://hcp/ with a token and an org; <paramref name="route"/> answers each request (status, body).</summary>
     private void Hcp(Func<string, string, (int Status, string Body)> route)

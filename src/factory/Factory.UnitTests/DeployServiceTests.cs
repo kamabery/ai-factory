@@ -43,7 +43,7 @@ public class DeployServiceTests : CommandTestBase
         _o.SigninRetrySeconds = "30";
     }
 
-    private DeployService Sut => new(_gh.GitHub, _credential, _hcp, _tools, _probe, _git, Files, Paths, DotEnv, _pause, Clock,
+    private DeployService Sut => new(_gh.GitHub, _credential, _hcp, _tools, _probe, _git, Files, Paths, DotEnv, EnvSecrets.Over(DotEnv), _pause, Clock,
         Options.Create(_o), Options.Create(new FactoryOptions { TempPath = Path.Combine(Path.GetTempPath(), "deploy-tmp") }));
 
     private static (FakeSession Session, Job Job) InDeploy(int attempts = 1)
