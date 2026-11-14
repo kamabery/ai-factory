@@ -18,9 +18,12 @@ public sealed class FactoryDbs(IDbConnectionInfo info)
         var key = $"{info.Provider}|{info.ConnectionString}";
         lock (Migrated)
         {
-            if (Migrated.Contains(key)) return db;
-            if (info.Provider == DbProvider.Sqlite && FileOf(info.ConnectionString) is { } file) Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(file))!);
-            db.Database.Migrate();
+            var file = info.Provider == DbProvider.Sqlite ? FileOf(info.ConnectionString) : null;
+            // A SQLite file deleted since (simulate -Reset, under a running dashboard) starts again from its migrations.
+            if (Migrated.Contains(key) && (file is null || File.Exists(file))) return db;
+            if (file is not null) Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(file))!);
+            // Migrate() diffs the model on every call; a database already at the latest migration needs only the query.
+            if (db.Database.GetPendingMigrations().Any()) db.Database.Migrate();
             // WAL lets the dashboard's reads run beside a command's write; it stays set in the file.
             if (info.Provider == DbProvider.Sqlite) db.Database.ExecuteSqlRaw("PRAGMA journal_mode=WAL;");
             Migrated.Add(key);
