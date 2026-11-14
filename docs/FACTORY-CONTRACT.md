@@ -595,8 +595,9 @@ session. A human marks one `applied` once the fix has merged. `purge` never touc
 
 ```
 .factory-runs/                 gitignored; FACTORY_HOME overrides its location
-  board.json
-  events.jsonl
+  board.json                   with sqlite or sql, an export of the database (see State backends, Database)
+  events.jsonl                 likewise
+  factory.db                   sqlite: the database (FACTORY_DB overrides it); .export.json and export.lock beside it
   runner.lock                  held while the runner is draining the queue
   serve.lock                   held while the server runs: its PID, then its URL. A second server on
                                the same state refuses to start and names that URL; a lock whose PID is
@@ -750,8 +751,9 @@ Claude Code transcript, which is derived from the hook's `transcript_path` and `
 
 ## State backends
 
-`$env:FACTORY_STATE` is `local` (the default) or `azure`. With `local`, everything above is the whole
-story. With `azure`, an Azure Blob container is the system of record and `FACTORY_HOME` is its
+`$env:FACTORY_STATE` is `local` (the default), `azure`, `sqlite` or `sql`. With `local`, everything above is the whole
+story. `sqlite` and `sql` keep the board and events in a database (see [Database](#database-sqlite-and-sql)
+below); `local` and `azure` remain until a release drops them. With `azure`, an Azure Blob container is the system of record and `FACTORY_HOME` is its
 write-through cache: agents, the server's `/state/*` and every reader keep working on local files,
 and `factory` and the server keep the two in step. All of this lives in `Factory.Store` (`StateSync`, `BlobClient`).
 Provisioning and the runbook are in `docs/STATE.md`.
@@ -828,6 +830,79 @@ It never deletes the current `board.json`, `events/`, `ideas/`, `evals/`, `lesso
 not `done` or `discarded`. It records one `note` event per pass: `pruned <n> blobs, <bytes> freed`.
 The cap applies only to the container. Local files are kept.
 
+### Database (`sqlite` and `sql`)
+
+With `sqlite` or `sql`, a database is the system of record for the board and the events, through EF Core
+(`src/factory/Factory.Data`). `board.json` and `events.jsonl` become **exports**: every reader (the dashboard's
+`/state`, agents, humans, `eval`) keeps reading the files, which `factory` rewrites from the database. Editing
+an export changes nothing; the next export overwrites it. Everything else, the artifacts (specs, rounds,
+reviews, transcripts, run logs, evals, lessons, sessions), stays files in `FACTORY_HOME`.
+
+**Settings** (environment, else `.env`): `FACTORY_STATE`; with `sqlite`, `FACTORY_DB`, the database file,
+default `<FACTORY_HOME>/factory.db`; with `sql`, `FACTORY_SQL`, a SQL Server connection string (required). In
+Azure SQL it authenticates through Entra, keyless (`Authentication=Active Directory Default`); the tests use
+a SQL Server container's own login.
+
+- `sqlite` is one machine's: its file lives beside the state, in WAL mode.
+- `sql` is Azure SQL in cloud mode, shared by every machine pointed at it. The artifacts stay in each
+  machine's `FACTORY_HOME` until cloud mode (spec 18) decides how they are shared; until then, run one
+  machine per `sql` database.
+
+**Schema.** Every table has `TenantId` (always `default`, never exported) in its key:
+
+| Table | Key | Holds |
+| --- | --- | --- |
+| `Boards` | `TenantId` | the board's own keys (`version`, `seq` and any added later, with `ideas` and `jobs` kept in their places as empty arrays), `Revision`, `Version` |
+| `Ideas` | `TenantId`, `Id` | one idea: its JSON object as the board holds it, its `Ordinal` (position), `Status`, `Target`, `Version` |
+| `Jobs` | `TenantId`, `Id` | one job: its JSON object, `Ordinal`, `Idea`, `Stage`, `Round`, `Target`, `Kind`, `Version` |
+| `Events` | `Seq` (ascending) | one events line exactly as written, with `TenantId`, `Ts`, `Job`, `Idea`, `Kind` |
+| `Leases` | `TenantId`, `Name` | `sql` only: a lock's holder and when its lease lapses (see Locks) |
+
+A row's JSON is the source; its other columns are copies for queries, written with it. The schema is EF Core
+migrations, one set per provider; every command applies any pending migration before it opens the board.
+
+**Transitions.** A command reads the board, with each idea's and job's `Version`, and holds no lock while it
+runs. Each `Save` is one transaction: it inserts the ideas and jobs that are new, updates the ones whose JSON
+changed, and deletes the ones that are gone (`purge`), each **only if its `Version` is still the one read**,
+then bumps `Version` on each row it wrote. It writes `Boards` only when the board's own keys changed (a new
+id's `seq`), under the same check, and it always bumps `Boards.Revision`. If any check fails, the
+transaction rolls back and the command is refused, nothing saved:
+`board conflict: <J-NNN | I-NNN | the board> changed since this command read it; nothing was saved`.
+So two commands on different jobs never wait for or refuse each other; two on the same job, the second to
+save is refused, where the board lock made it wait. `Unlocked` steps (a gate, a clone, a deploy poll) read the
+board again after, as they do under the lock. An event is one insert (its own transaction), bumping
+`Revision`. There is no board mutex and no board lease for these backends.
+
+**Exports.** After each `Save` and each event, and as every command ends, `factory` brings the exports up to
+the database's `Revision`, under `export.lock` (an exclusive file, waited on for up to 5 s): it rewrites
+`board.json` (atomically, as the file backend writes it, byte for byte) when its text changed, and appends to
+`events.jsonl` every event above the last one exported. `.export.json` records the `Revision` and the event
+`Seq` exported. The dashboard server does the same when it polls `/state/board.json` or `/state/events.jsonl`,
+at most once per `FACTORY_STATE_POLL_SECONDS` (one `SELECT` of `Revision` when nothing changed), so a change
+made by another process or machine reaches the dashboard. An export that cannot take `export.lock` is skipped;
+the next one catches up.
+
+**Locks.**
+- `runner`, `canary`, `turn-<S>`: in `sqlite`, their lock files are the whole lock, as in `local` (one
+  machine). In `sql`, each is also a 60 s lease in `Leases`, taken alongside the file and renewed every 20 s
+  by the holder while it runs, as the azure blob lease is: a lease held elsewhere means another machine holds
+  the lock (the runner exits 0, `canary` and the turn refuse as they do for a local lock), and a crashed
+  holder's lease lapses within 60 s.
+- `serve.lock` and `gate-check.lock` are files, as in every backend.
+
+**First use.** A database with no board, where `board.json` exists, refuses every command but `state-import`:
+`state: the database has no board but <path> exists; run factory state-import`. With neither, the board
+starts empty.
+
+**`state-import [-Azure]`** (`sqlite` or `sql` only) is the one-time move into an empty database: it reads
+`FACTORY_HOME`'s `board.json` and `events.jsonl` and writes them as rows in one transaction, every event line
+verbatim and in order. With `-Azure`, it first downloads the container at `FACTORY_BLOB_URL` into
+`FACTORY_HOME` as a pull would (`board.json`, `events.jsonl` rebuilt from the months, and every synced file),
+writing nothing to the container. Before it commits, it rebuilds the board and the events from the new rows
+and compares them with the source; any difference refuses the import and rolls it back. It refuses when the
+database already has a board (`state-import refused: the database already has a board`). It prints
+`imported <i> ideas, <j> jobs, <e> events` and then `check: board.json and events.jsonl match the database`.
+
 ## `factory` commands
 
 State resolves from `$env:FACTORY_HOME`, else `<main checkout>/.factory-runs` (found through
@@ -839,14 +914,16 @@ or `checkout`'s clone and fetch of the job's work directory, which nothing else 
 job is in an active stage), after which it re-takes the lock and re-reads the board. A command that cannot take the lock within
 30 s (`FACTORY_BOARD_LOCK_SECONDS`) is refused (`board lock refused: another factory has held
 the board for over <n> s`) rather than run unlocked, where its save could overwrite another
-command's. A refused command exits non-zero with a one-line reason on
+command's. With `sqlite` and `sql` there is no board lock: each save is a version-checked transaction instead
+(see [Database](#database-sqlite-and-sql)). A refused command exits non-zero with a one-line reason on
 stderr and leaves the board unchanged.
 
 ### Implementations
 
 The control plane is the .NET CLI, **`factory`** (`src/factory/Factory.Cli`). Spec 12 retired the
 PowerShell it was ported from (`factory.ps1`, `runner.ps1`, `serve.ps1`, `idea-turn.ps1`, `idea.ps1`
-and `hook-event.ps1`), and this contract's command names are the CLI's. `dotnet build src/factory` builds
+and `hook-event.ps1`), and this contract's command names are the CLI's. `Factory.Store` holds the state
+backends; `Factory.Data` holds the EF Core model and migrations the `sqlite` and `sql` backends use. `dotnet build src/factory` builds
 it as `artifacts/bin/Factory.Cli/debug/factory` (`factory.exe` on Windows) beside `factory.dll`; a human
 puts that folder on `PATH`. The runner and the dashboard server run it as `dotnet <factory.dll>`
 (`FACTORY_CLI` overrides the path, else it is the CLI's build folder beside their own), and put its folder
@@ -914,6 +991,7 @@ target is cloned with `clone-target` into `<work>\cli\<owner>-<name>` and passed
 | `lesson <id> [-File <path>]` · `lesson-mark <id> <open\|proposed\|applied> [-Detail <session>]` | the runner, a human evaluation session, the server (see [Lessons](#lessons)) |
 | `status [-Json]` | anyone |
 | `state-migrate` (`azure` only: uploads everything in `FACTORY_HOME` that is not already in the container, then writes `.sync.json`; refuses when the container already has a `board.json` newer than the local one) · `state-pull [<prefix>]` (pulls the container, or one prefix such as `jobs/J-019/`) · `prune` (runs the cap now and prints `<used> of <cap> bytes`) | a human; the server (`state-pull jobs/<id>/` when a job is opened) |
+| `state-import [-Azure]` (`sqlite` or `sql` only: the one-time move of `board.json` and `events.jsonl`, or with `-Azure` the container's, into an empty database; see [Database](#database-sqlite-and-sql)) | a human |
 | `allow-ip` (`azure` only: adds this machine's public IP to `FACTORY_STORAGE_ACCOUNT`'s firewall through `az storage account network-rule add`, and removes the IP it added last time, recorded in `%LOCALAPPDATA%\ai-factory\allowed-ip.txt`) | a human, after the public IP changes |
 
 `read-reviews` and `read-decision` exit 2 when a verdict line is missing or malformed; the job
