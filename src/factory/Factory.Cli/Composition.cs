@@ -174,6 +174,10 @@ public static class Composition
         services.AddSingleton<IDoctorCheck, HcpCheck>();
         services.AddSingleton<IDoctor, Doctor>();
         services.AddSingleton<IStandaloneCommand, DoctorCommand>();
+        services.AddSingleton<IBrowser, SystemBrowser>();
+        services.AddSingleton<EnvSettings>();
+        services.AddSingleton<InitService>();
+        services.AddSingleton<IStandaloneCommand, InitCommand>();
         services.AddSingleton<IdeaFiles>();
         services.AddSingleton<IIdeaClaude, IdeaClaude>();
         services.AddSingleton<IStandaloneCommand, IdeaTurnCommand>();

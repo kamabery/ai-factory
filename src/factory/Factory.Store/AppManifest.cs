@@ -20,8 +20,9 @@ public sealed class AppManifest(IFactoryPaths paths, IFileStore files)
         (Read()["default_permissions"] as JsonObject ?? []).ToDictionary(p => p.Key, p => PsJsonReader.Text(p.Value), StringComparer.Ordinal);
 
     /// <summary>
-    /// The manifest init posts: the repo's, named for its owner (an App name is unique on GitHub), with this machine's
-    /// callback for the redirect and the user sign-in.
+    /// The manifest init posts: the repo's, named for its owner (an App name is unique on GitHub), redirecting to this
+    /// run's callback. The sign-in callback is registered without a port: GitHub lets a loopback redirect use any port, and
+    /// a later init listens on another.
     /// </summary>
     public JsonObject For(string owner, string callbackBase)
     {
@@ -29,7 +30,7 @@ public sealed class AppManifest(IFactoryPaths paths, IFileStore files)
         m["name"] = $"{PsJsonReader.Text(m["name"])} ({owner})";
         m["url"] = $"https://github.com/{owner}";
         m["redirect_url"] = $"{callbackBase}/callback";
-        m["callback_urls"] = new JsonArray($"{callbackBase}/oauth");
+        m["callback_urls"] = new JsonArray("http://127.0.0.1/oauth");
         return m;
     }
 

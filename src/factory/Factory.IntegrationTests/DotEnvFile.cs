@@ -8,4 +8,7 @@ public sealed class DotEnvFile(string path) : IDotEnv
     public string? Get(string name) =>
         File.ReadAllLines(path).Select(l => l.Split('=', 2)).Where(p => p.Length == 2 && p[0].Trim() == name)
             .Select(p => p[1].Trim()).FirstOrDefault(v => v.Length > 0);
+
+    // Reads the file on every Get: there is nothing to forget.
+    public void Refresh() { }
 }

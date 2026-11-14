@@ -13,4 +13,6 @@ public sealed class DotEnv(IFactoryPaths paths, IFileStore files) : IDotEnv
         _vars ??= EnvFile.Parse(paths.EnvFile is { } f ? files.ReadText(f) : null);
         return _vars.TryGetValue(name, out var v) && v.Length > 0 ? v : null;
     }
+
+    public void Refresh() => _vars = null;
 }

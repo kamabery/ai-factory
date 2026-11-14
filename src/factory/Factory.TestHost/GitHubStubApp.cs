@@ -65,7 +65,7 @@ public sealed partial class GitHubStubApp(string gitBase, string login, int port
             var key = path["/hcp-log/".Length..];
             return new(200, Text: Str(State()["logs"]![key]) ?? (key.StartsWith("apply-", StringComparison.Ordinal) ? "Apply complete!" : ""));
         }
-        if (App(method, path, body, auth) is { } app) return app;
+        if (App(method, path, body, auth, q) is { } app) return app;
         if (method == "GET" && path == "/user") return StubReply.Json(200, new JsonObject { ["login"] = login });
         if (method == "GET" && path == "/user/repos")
         {
@@ -618,6 +618,8 @@ public sealed partial class GitHubStubApp(string gitBase, string login, int port
     [GeneratedRegex(@"\D")] private static partial Regex Digits();
     [GeneratedRegex(@"^/app-manifests/([^/]+)/conversions$")] private static partial Regex ManifestConversion();
     [GeneratedRegex(@"^/app/installations/(\d+)/access_tokens$")] private static partial Regex AccessTokens();
+    [GeneratedRegex(@"^/organizations/[^/]+/settings/apps/new$")] private static partial Regex OrgAppsNew();
+    [GeneratedRegex(@"^/apps/[^/]+/installations/new$")] private static partial Regex AppInstallNew();
 
     // --- The GitHub App (spec 14) --------------------------------------------------------------------------------
     // The App lives in <GitBase>/app.json once a manifest code is converted (any code but "bad"), with a real RSA key, so
@@ -628,8 +630,25 @@ public sealed partial class GitHubStubApp(string gitBase, string login, int port
 
     private string AppFile => Path.Combine(GitBase, "app.json");
 
-    private StubReply? App(string method, string path, JsonObject body, string auth)
+    private StubReply? App(string method, string path, JsonObject body, string auth, IQueryCollection q)
     {
+        // The browser's side of init: the manifest form, the install page and the sign-in, each answered as the human would.
+        if (method == "POST" && (path == "/settings/apps/new" || OrgAppsNew().IsMatch(path)))
+        {
+            var manifest = JsonNode.Parse(Str(body["manifest"]) ?? "{}")!;
+            File.WriteAllText(Path.Combine(GitBase, "pending-manifest.json"), manifest.ToJsonString());
+            var redirect = Str(manifest["redirect_url"]) ?? "";
+            return new(302, Headers: new Dictionary<string, string> { ["Location"] = $"{redirect}?code=sim-code&state={Uri.EscapeDataString(q["state"].ToString())}" });
+        }
+        if (method == "GET" && AppInstallNew().IsMatch(path))
+        {
+            var perms = File.Exists(AppFile) ? JsonNode.Parse(File.ReadAllText(AppFile))!["permissions"]?.DeepClone() : null;
+            File.WriteAllText(Path.Combine(GitBase, "installations.json"),
+                new JsonArray(new JsonObject { ["id"] = 77, ["account"] = login, ["selection"] = File.Exists(Path.Combine(GitBase, "install-selected")) ? "selected" : "all", ["permissions"] = perms ?? new JsonObject() }).ToJsonString());
+            return new(200, Text: "<!doctype html><p>Installed.</p>", ContentType: "text/html");
+        }
+        if (method == "GET" && path == "/login/oauth/authorize")
+            return new(302, Headers: new Dictionary<string, string> { ["Location"] = $"{q["redirect_uri"]}?code=sim-code&state={Uri.EscapeDataString(q["state"].ToString())}" });
         if (method == "POST" && ManifestConversion().Match(path) is { Success: true } mc) return Convert(mc.Groups[1].Value);
         if (method == "POST" && path == "/login/oauth/access_token") return OAuth(body);
         if (path == "/app" || path.StartsWith("/app/", StringComparison.Ordinal))
@@ -672,6 +691,9 @@ public sealed partial class GitHubStubApp(string gitBase, string login, int port
         {
             ["id"] = 1001L, ["slug"] = "ai-factory-sim", ["name"] = "AI factory (sim)", ["client_id"] = "Iv1.sim", ["client_secret"] = "sim-secret",
             ["pem"] = rsa.ExportRSAPrivateKeyPem(), ["owner"] = new JsonObject { ["login"] = login },
+            // The manifest the browser posted, kept for the install page to grant.
+            ["permissions"] = File.Exists(Path.Combine(GitBase, "pending-manifest.json"))
+                ? JsonNode.Parse(File.ReadAllText(Path.Combine(GitBase, "pending-manifest.json")))!["default_permissions"]?.DeepClone() : null,
         };
         File.WriteAllText(AppFile, app.ToJsonString());
         return StubReply.Json(201, app);
