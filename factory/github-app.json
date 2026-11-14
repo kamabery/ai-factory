@@ -1,7 +1,6 @@
 {
   "name": "AI factory",
   "public": false,
-  "hook_attributes": { "active": false },
   "request_oauth_on_install": false,
   "default_events": [],
   "default_permissions": {
