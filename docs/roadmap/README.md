@@ -69,7 +69,7 @@ calls `lesson`. Spec numbers are names, not the order; sessions are one at a tim
 
 | # | Decision | Needed by | Recommendation |
 | --- | --- | --- | --- |
-| D1 | Product name (not "Claude") and license | 15 (public repo) | MIT; pick the name before 14 so `factory init` prints it |
+| D1 | Product name (not "Claude") and license | 15 (public repo) | **Name decided 2026-11-14: AI factory** (`factory init` prints it). License still open; recommendation MIT |
 | D2 | What the port's store is | 03 | Port the file and blob backends faithfully (Pester reads `board.json` directly), then EF Core in 13 with `board.json` as an export |
 | D3 | Strangler routing | 01 | `factory.ps1` forwards a ported command to the .NET CLI, so agents, `serve.ps1` and the runner keep working while the port is part-way |
 | D4 | Preview Terraform state in cloud mode: HCP or Azure Storage | 16 | Keep HCP; the templates depend on it |
