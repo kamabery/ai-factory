@@ -226,12 +226,10 @@ factory's smoke and the agents' preview checks retry, so it doesn't fail a job.
 ## 5. GitHub PAT
 
 The deploy stage pushes workflows, creates each target's `preview` environment and its variables,
-sets the `TF_API_TOKEN` secret and dispatches the workflow. Edit the factory's existing PAT (GitHub →
-**Settings** → **Developer settings** → **Fine-grained tokens** → *the token* → **Edit**) and add
-**Workflows**, **Actions**, **Environments**, **Secrets** and **Variables** (read and write). Editing
-keeps the token value, so `GITHUB_TOKEN` in `.env` doesn't change. Details in
-[GITHUB-PAT.md](GITHUB-PAT.md). `gh` must be installed; the factory runs it with the PAT in its
-environment only.
+sets the `TF_API_TOKEN` secret and dispatches the workflow. The GitHub App that `factory init` creates
+already asks for **Workflows**, **Actions**, **Environments**, **Secrets** and **Variables** (read and write);
+with the PAT fallback, edit the PAT and add them. Details in [GITHUB-APP.md](GITHUB-APP.md). `gh` must be
+installed; the factory runs it with the token in its environment only.
 
 ## 6. A budget alert
 
