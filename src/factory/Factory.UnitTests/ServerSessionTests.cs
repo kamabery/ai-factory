@@ -19,7 +19,7 @@ public class ServerSessionTests : ServerTestBase
     }
 
     private void TurnStarted(int times = 1) =>
-        Launcher.Received(times).StartScript("idea-turn.ps1", Arg.Is<IReadOnlyList<string>>(a => a[0] == "-Session" && a[1] == "S-001"));
+        Launcher.Received(times).StartDetached(Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "idea-turn", "S-001" })));
 
     [Fact]
     public void A_new_session_on_an_existing_repo_clones_it_records_the_idea_and_starts_a_turn()
@@ -58,7 +58,7 @@ public class ServerSessionTests : ServerTestBase
         Factory.Run("check-target", "a/b").Returns(CallResult.Refuse("new-idea refused: a/b is archived"));
         Assert.Equal(409, Ideas.New("""{"target":"a/b","text":"x"}""").Status);
         Assert.Null(Files.Text(SessionFile("S-001", "session.json")));
-        Launcher.DidNotReceive().StartScript(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>());
+        Launcher.DidNotReceive().StartDetached(Arg.Is<IReadOnlyList<string>>(a => a[0] == "runner" || a[0] == "idea-turn"));
     }
 
     [Fact]
@@ -178,6 +178,18 @@ public class ServerSessionTests : ServerTestBase
     }
 
     [Fact]
+    public void Confirming_the_brief_of_a_session_on_a_base_makes_the_idea_on_that_base()
+    {
+        PutSession("""{"id":"S-001","status":"idle","target":"a/b","base":"J-001","text":"x","pending":{"id":"tu_2","name":"submit_brief","input":{"markdown":"# Brief: Tag todos\n\nbody"}}}""");
+        Factory.Run("new-idea", "Tag todos", "-Target", "a/b", "-Base", "J-001").Returns(CallResult.Done("I-003"));
+
+        var r = Ideas.Handle("POST", "S-001", "brief", null, "");
+
+        Assert.Equal("""{"ok":true,"message":"I-003"}""", r.Body);
+        Factory.DidNotReceive().Run("new-idea", "Tag todos", "-Target", "a/b");
+    }
+
+    [Fact]
     public void A_brief_for_a_new_target_needs_the_scaffold_and_its_bootstrap_job_starts_no_turn()
     {
         PutSession("""{"id":"S-001","status":"idle","target":"me/fresh","newTarget":true,"pending":{"id":"tu_3","name":"submit_brief","input":{"markdown":"no title"}}}""");
@@ -188,7 +200,7 @@ public class ServerSessionTests : ServerTestBase
 
         Assert.Equal(200, Ideas.Handle("POST", "S-001", "brief", null, "").Status);
         Assert.Equal(("I-004", "J-010", "idle"), ((string?)Session()["idea"], (string?)Session()["bootstrap"], (string?)Session()["status"]));
-        Launcher.DidNotReceive().StartScript(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>());
+        Launcher.DidNotReceive().StartDetached(Arg.Is<IReadOnlyList<string>>(a => a[0] == "runner" || a[0] == "idea-turn"));
     }
 
     [Fact]
@@ -230,7 +242,7 @@ public class ServerSessionTests : ServerTestBase
         Assert.Equal("""{"ok":false,"message":"J-012 is in Backlog: approve refused: no Gate"}""", failed.Body);
         var specs = Session()["specs"]!.AsArray();
         Assert.Equal(("approved", "J-011", "backlog", "J-012"), ((string?)specs[0]!["decision"], (string?)specs[0]!["job"], (string?)specs[1]!["decision"], (string?)specs[1]!["job"]));
-        Launcher.Received(1).StartScript("runner.ps1", Arg.Any<IReadOnlyList<string>>());
+        Launcher.Received(1).StartDetached(Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "runner" })));
         Assert.Equal("""{"ok":false,"message":"spec 3 is already decided (rejected)"}""", Ideas.Handle("POST", "S-001", "specs", "3", """{"decision":"approved"}""").Body);
         Assert.Equal("""{"ok":false,"message":"there is no spec 9"}""", Ideas.Handle("POST", "S-001", "specs", "9", """{"decision":"approved"}""").Body);
     }

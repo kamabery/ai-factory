@@ -78,7 +78,7 @@ public sealed partial class StateSync(IFactoryPaths paths, IFileStore files, IBl
         if (r is null)
         {
             if (e is not null) throw new FactoryException("state: board.json is gone from the container; restore a version of it, or point FACTORY_BLOB_URL at the right container");
-            if (files.Stat(paths.BoardPath) is not null) throw new FactoryException($"state: the container has no board.json but {paths.BoardPath} exists; run factory.ps1 state-migrate");
+            if (files.Stat(paths.BoardPath) is not null) throw new FactoryException($"state: the container has no board.json but {paths.BoardPath} exists; run factory state-migrate");
             return BoardSync.None;
         }
         if (r.NotModified) return BoardSync.Same;

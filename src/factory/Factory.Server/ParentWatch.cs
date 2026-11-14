@@ -32,7 +32,7 @@ public sealed class ParentWatch(IOptions<ServerOptions> options, IProcessProbe p
         var now = procs.StartTime(pid);
         if (!_begun) { _begun = true; _started = now; }
         if (_started is not null && now == _started) return false;
-        log.LogWarning("serve.ps1 (PID {Pid}) is gone: stopping the dashboard", pid);
+        log.LogWarning("the dashboard's parent (PID {Pid}) is gone: stopping the dashboard", pid);
         lifetime.StopApplication();
         return true;
     }

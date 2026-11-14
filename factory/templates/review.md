@@ -1,5 +1,5 @@
 Verdict: PASS
-<!-- First line must be exactly `Verdict: PASS` or `Verdict: CHANGES`. factory.ps1 parses it. -->
+<!-- First line must be exactly `Verdict: PASS` or `Verdict: CHANGES`. factory parses it. -->
 
 # <role> review: <job-id> — round <n>
 

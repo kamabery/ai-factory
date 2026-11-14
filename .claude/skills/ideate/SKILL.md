@@ -1,6 +1,6 @@
 ---
 name: ideate
-description: Open a factory idea session (grill -> brief -> specs -> approve) in its own terminal window by launching factory/scripts/idea.ps1. Use when the user says "ideate", "start an idea session", "kick off an idea", or names a GitHub target (owner/name) or I-NNN to grill.
+description: Open a factory idea session (grill -> brief -> specs -> approve) in its own terminal window by launching `factory idea`. Use when the user says "ideate", "start an idea session", "kick off an idea", or names a GitHub target (owner/name) or I-NNN to grill.
 argument-hint: "[<owner/name> | I-NNN]"
 disable-model-invocation: true
 ---
@@ -15,13 +15,13 @@ terminal, so start it in a new window. Don't run it in this session's shell.
 2. Launch it:
 
    ```powershell
-   $a = @('-NoExit', '-NoProfile', '-File', "$PWD\factory\scripts\idea.ps1")
+   $a = @("$PWD\artifacts\bin\Factory.Cli\debug\factory.dll", 'idea')
    if ('$ARGUMENTS') { $a += '$ARGUMENTS' }
-   $p = Start-Process pwsh -ArgumentList $a -WorkingDirectory $PWD -PassThru
+   $p = Start-Process dotnet -ArgumentList $a -WorkingDirectory $PWD -PassThru
    Start-Sleep 3; "pid=$($p.Id) running=$(-not $p.HasExited)"
    ```
 
 3. Report the pid, and whether the target is new (a bootstrap job will wait in Backlog) or
    existing. If `running=False`, say so; don't retry.
 
-Don't call `factory.ps1` yourself. The session in the new window records the idea and its specs.
+Don't call `factory` yourself. The session in the new window records the idea and its specs.

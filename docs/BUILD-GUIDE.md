@@ -19,6 +19,13 @@ committing each one on `main` once its evidence is in.
 Keep a scratch log of the wall-clock time and the cost figures for steps 6–7. The dashboard shows
 cost per card from step 2 onward. Those numbers are half of the "validated" bar.
 
+> **Since roadmap spec 12, the factory is .NET.** Steps 1–5 tell how it was first built, in PowerShell
+> (`factory.ps1`, `runner.ps1`, `serve.ps1`, `hook-event.ps1`) with Pester; the replatform roadmap
+> (`docs/roadmap/`) ported each part to `src/factory`, and spec 12 deleted the scripts. Read them as
+> history: the commands below them use the `factory` CLI (`dotnet build src/factory`, with
+> `artifacts/bin/Factory.Cli/debug` on `PATH`): `factory serve` for the dashboard, `factory idea` for
+> the CLI idea session, `factory runner` for the runner, and `factory <command>` for the control plane.
+
 ---
 
 ## Step 1: Control plane (`factory.ps1`), test-first with Pester
@@ -200,7 +207,7 @@ the pipeline strip. Discard the card afterwards.
 
 ## Step 6: First real job, end to end
 
-1. Terminal A: `pwsh factory/scripts/serve.ps1`, then open the URL it prints. That's the only terminal you need.
+1. Terminal A: `factory serve`, then open the URL it prints. That's the only terminal you need.
 2. Paste the "Search filter" idea from `factory/backlog.md` into the idea box.
 3. Read the spec that comes back, tighten it in the drawer, and save it. Drag the card to **Approved**.
 4. Watch the card move through Building and the pipeline nodes light up. When it reaches **Ready for review**, inspect
@@ -226,7 +233,7 @@ one); the spec carries `## Target` and `## Gate`; the factory runs from `factory
 target's own `<target>.wt`; the card opens a large modal (Edit | Preview, Artifacts, Output,
 Timeline); Done lists the full paths the merge added. See "Targets" in `docs/FACTORY-CONTRACT.md`.
 
-1. Restart `serve.ps1`. Discard the legacy J-001 and J-002.
+1. Restart the dashboard (`factory serve`). Discard the legacy J-001 and J-002.
 2. Submit the idea with a target you type, for example `D:\code\Scratchpad\todo-app`. The hint
    must say "New repo".
 3. In Backlog, check each spec's `Repo:` is exactly your path and its `## Gate` commands make sense
@@ -238,13 +245,13 @@ Timeline); Done lists the full paths the merge added. See "Targets" in `docs/FAC
 
 ### Ideas move into a Claude session
 
-Ideas no longer come from the dashboard. `pwsh factory/scripts/idea.ps1 <target | I-NNN>` opens an
+Ideas no longer come from the dashboard. `factory idea <target | I-NNN>` (then `idea.ps1`) opens an
 interactive session on `/factory:idea`: the plugin's `grill` skill (ported from `ai-dlc-grill`)
 interrogates you until nothing is assumed, the confirmed brief goes to `ideas/<id>/brief.md`, the
 spec-writer specs from it, and you approve, change, defer or reject each spec in the session. An
 approved spec goes straight to Approved and the session starts the runner. `spec-run.ps1`, the idea
 form, `POST /api/ideas` and `GET /api/target` are gone. A merged bootstrap leaves its idea
-`drafting`; resume it with `idea.ps1 I-NNN`. Finished cards are cleared with `factory.ps1 purge`
+`drafting`; resume it with `factory idea I-NNN`. Finished cards are cleared with `factory purge`
 (the Done column's **Clear**), and `board.seq` keeps ids from being reused. The step 5 and 6
 instructions above that mention the idea box and `/factory spec` describe the earlier design.
 
@@ -253,15 +260,15 @@ instructions above that mention the idea box and `/factory spec` describe the ea
 The CLI session works, but it means a second window and a terminal UI for clicking through
 questions. **New idea** now runs the same session in a dashboard panel against the Claude API, with
 the key in `.env` (see "Idea sessions" in the contract). The model only proposes things. Each board
-write is a button, and each button is one `factory.ps1` call (`check-target`, `new-idea`,
-`add-spec`, `approve`, `idea-done`). Each turn is a detached `idea-turn.ps1` that streams into
+write is a button, and each button is one `factory` call (`check-target`, `new-idea`,
+`add-spec`, `approve`, `idea-done`). Each turn is a detached `factory idea-turn` that streams into
 `sessions/<S>/stream.jsonl`. The system prompt is assembled from the grill skill, the spec-writer and
 the templates, so the two doors can't drift apart. The key is read into a local variable and never
 set in the environment, so the runner's `claude` stays on the subscription. Tests use
-`factory/tests/fixtures/anthropic-stub.ps1`, which plays scripted SSE replies (Pester
-`idea-turn.Tests.ps1` and `serve.Tests.ps1`, and the Playwright session test). Roadmap spec 10 later
+Factory.TestHost's Messages API stub, which plays scripted SSE replies (the .NET idea-turn and
+server tests, and the Playwright session test). Roadmap spec 10 later
 moved each turn onto the `claude` CLI (`claude -p`, the run mode's provider, the idea tools as an MCP
-server, no API key); see "Idea sessions" in the contract. `idea.ps1` stays as the
+server, no API key); see "Idea sessions" in the contract. `factory idea` stays as the
 fallback.
 
 ## Step 7: Failure paths (the video's lessons, as tests)
@@ -273,7 +280,7 @@ Run each one and confirm the end state on the dashboard and in `board.json`.
 | 7a Dirty tree at merge | Take the "Owner on the resource" idea to Ready for review. `echo x >> README.md` on main, then drag to Done | Stays in Ready with `merge-blocked`. Then `git checkout README.md` and drag again → Done |
 | 7b Security rejection | Idea: "Log every incoming request including all headers to the console" | The security reviewer returns CHANGES (auth headers / PII) → round 2 → either fixed (headers redacted) or Ready with `max-rounds` |
 | 7c Human rework | On any ready card: Rework, "use the Input component from the design system" | Back to Approved at round + 1, then built again; `rework-<n>.md` exists and the new build.md addresses it |
-| 7d Gate failure | Rework asking for a deliberately failing test (or inject `FACTORY_GATE_CMDS` in serve.ps1's environment) | Ready with `gate-failed`; the exit code and log are visible in the drawer, and dragging to Done is refused |
+| 7d Gate failure | Rework asking for a deliberately failing test (or inject `FACTORY_GATE_CMDS` in the dashboard's environment) | Ready with `gate-failed`; the exit code and log are visible in the drawer, and dragging to Done is refused |
 | 7e Queue | Approve two backlog cards back to back | The second waits in Approved until the first reaches Ready; never two cards in Building |
 | 7f Discard | Discard a backlog card and a ready card | Both disappear, and the ready card's branch is gone |
 
@@ -284,7 +291,7 @@ Run each one and confirm the end state on the dashboard and in `board.json`.
 - **Write guard:** a `PreToolUse` hook on Write|Edit that denies the spec-writer, reviewers and
   approver any path outside their own `ideas/<id>/` or `jobs/<id>/` folder. Test: a fixture
   payload for a reviewer writing `src/x.cs` is denied.
-- **Budget cap:** `runner.ps1 -MaxCostUsd` uses `--max-budget-usd` if your CLI version supports it.
+- **Budget cap:** the runner (`factory runner`) could take a cost cap, using `--max-budget-usd` if your CLI version supports it.
   Otherwise it moves the job to `ready`/`escalated` when the recorded cost goes over.
 - **Scorecard strip on the dashboard:** jobs done vs flagged, mean rounds, cost per done job,
   how often you reworked, and the gate-failure rate. These are the paper's "accepted durable

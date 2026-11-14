@@ -93,6 +93,22 @@ public class SetStageCommandTests : CommandTestBase
         Assert.Null(j["resumeSession"]);
     }
 
+    [Fact]
+    public void A_job_resumed_in_review_goes_back_to_review_with_its_reviews_as_they_were()
+    {
+        var reviews = new JsonObject { ["security"] = "pass", ["code"] = "running", ["ux"] = "pending", ["ui"] = "pass" };
+        var s = FakeSession.With(Approved("J-001").With("round", 2).With("resume", "review").With("resumeSession", "sess")
+            .With("roundStart", "abc123").With("reviews", reviews));
+
+        Assert.Equal("approved->build refused: J-001 was resumed; it resumes at review",
+            Assert.Throws<FactoryException>(() => Sut.Run(Args("set-stage", "J-001", "build"), s)).Message);
+        Sut.Run(Args("set-stage", "J-001", "review"), s);
+
+        var j = s.Job("J-001");
+        Assert.Equal(("review", 2, "abc123"), ((string?)j["stage"], (int)j["round"]!, (string?)j["roundStart"]));
+        Assert.Equal("""{"security":"pass","code":"running","ux":"pending","ui":"pass"}""", j["reviews"]!.ToJsonString());
+    }
+
     // --- build -> review ---------------------------------------------------------------------
 
     [Fact]
@@ -116,6 +132,39 @@ public class SetStageCommandTests : CommandTestBase
         Assert.Equal("running", (string?)s.Job("J-001")["reviews"]!["ui"]);
         Assert.Equal(["stage", "note"], s.Kinds);
         Assert.Equal("not scope-checked: the spec has no Scope: In globs", (string?)s.Events[1]["detail"]);
+    }
+
+    [Fact]
+    public void Build_to_review_with_every_path_in_scope_starts_the_reviewers()
+    {
+        var s = FakeSession.With(Jobs.New("J-001", "build"));
+        Files.Put(JobFile("J-001", "round-1/build.md"), "# Build");
+        // ** crosses segments, and a sub-bullet without a backticked glob is prose, not a glob.
+        Files.Put(JobFile("J-001", "spec.md"), "## Scope\n- In:\n  - `src/**`\n  - `docs/*.md` - the docs\n  - and nothing else\n");
+        Clone("J-001");
+        Diff("src/a/b/c.cs", "docs/readme.md");
+
+        var r = Sut.Run(Args("set-stage", "J-001", "review"), s);
+
+        Assert.Equal(["review"], r.Out);
+        Assert.Null(s.Job("J-001")["flag"]);
+        Assert.Equal(["stage"], s.Kinds);
+    }
+
+    [Fact]
+    public void Build_to_review_with_paths_outside_scope_lands_a_job_that_is_not_deployable_in_ready()
+    {
+        var s = FakeSession.With(Jobs.New("J-001", "build"));
+        Files.Put(JobFile("J-001", "round-1/build.md"), "# Build");
+        Files.Put(JobFile("J-001", "spec.md"), "## Scope\n- In:\n  - `src/**`\n");
+        Clone("J-001");
+        Diff("src/a.cs", "README.md");
+
+        var r = Sut.Run(Args("set-stage", "J-001", "review"), s);
+
+        Assert.Equal(["ready"], r.Out);
+        Assert.Equal(("out-of-scope", "Paths outside the spec's Scope: In:\n- `README.md`"),
+            ((string?)s.Job("J-001")["flag"]!["reason"], (string?)s.Job("J-001")["flag"]!["why"]));
     }
 
     [Fact]

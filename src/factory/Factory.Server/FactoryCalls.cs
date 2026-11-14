@@ -5,14 +5,14 @@ using Factory.Store.Abstractions;
 namespace Factory.Server;
 
 /// <summary>
-/// <c>pwsh -NoProfile -File factory/scripts/factory.ps1 &lt;args&gt;</c>, as serve.ps1's Invoke-Factory ran it: ok is exit 0,
+/// <c>dotnet &lt;factory.dll&gt; &lt;args&gt;</c>: ok is exit 0,
 /// and the message is the lines of stdout and stderr together, trimmed, without a leading <c>factory: </c>.
 /// </summary>
 public sealed class FactoryCalls(IFactoryPaths paths, IProcessRunner processes) : IFactoryCalls
 {
     public CallResult Run(params string[] args)
     {
-        var r = processes.Run("pwsh", ["-NoProfile", "-File", Path.Combine(paths.ScriptsDir, "factory.ps1"), .. args], "");
+        var r = processes.Run("dotnet", [paths.CliDll, .. args], "");
         var message = string.Join('\n', Lines(r.StdOut).Concat(Lines(r.StdErr))).Trim();
         if (message.StartsWith("factory: ", StringComparison.Ordinal)) message = message["factory: ".Length..];
         return new CallResult(r.ExitCode == 0, message);

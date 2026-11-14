@@ -76,7 +76,37 @@ public class RunnerProviderTests
     // --- headless settings -----------------------------------------------------------------------
 
     [Fact]
-    public void Headless_settings_allow_the_toolchain_and_factory_ps1_in_both_shells_and_fence_edits_and_reads()
+    public void Claude_runs_with_the_factory_plugin_the_template_workspace_and_the_headless_settings()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "fac");
+
+        Assert.Equal(["-p", "/factory:factory run J-001", "--plugin-dir", Path.Combine(root, "factory", "plugin"), "--plugin-dir", "tp",
+            "--settings", "s.json", "--add-dir", "home", "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits"],
+            ClaudeRunner.Arguments("/factory:factory run J-001", "", root, "tp", "s.json", "home"));
+        Assert.Equal(["-p", "continue", "--resume", "sess-1"], ClaudeRunner.Arguments("continue", "sess-1", root, "tp", "s.json", "home").Take(4));
+    }
+
+    [Fact]
+    public void Offline_terraform_is_allowed_with_chdir_and_apply_plan_and_destroy_are_denied()
+    {
+        var s = HeadlessSettings.Build(Path.Combine(Path.GetTempPath(), "fac"), "tp", "home");
+        var allow = s["permissions"]!["allow"]!.AsArray().Select(r => (string?)r).ToList();
+        var deny = s["permissions"]!["deny"]!.AsArray().Select(r => (string?)r).ToList();
+
+        foreach (var tool in new[] { "Bash", "PowerShell" })
+        {
+            foreach (var verb in new[] { "init -backend=false*", "validate*", "test*", "fmt*" })
+            {
+                Assert.Contains($"{tool}(terraform {verb})", allow);
+                Assert.Contains($"{tool}(terraform -chdir=* {verb})", allow);
+            }
+            foreach (var verb in new[] { "apply", "plan", "destroy" }) Assert.Contains($"{tool}(terraform * {verb}*)", deny);
+            Assert.Contains($"{tool}(curl *)", allow);
+        }
+    }
+
+    [Fact]
+    public void Headless_settings_allow_the_toolchain_and_the_factory_CLI_in_both_shells_and_fence_edits_and_reads()
     {
         var root = Path.Combine(Path.GetTempPath(), "fac");
         var s = HeadlessSettings.Build(root, Path.Combine(Path.GetTempPath(), "tp"), Path.Combine(root, ".factory-runs"));
@@ -84,9 +114,9 @@ public class RunnerProviderTests
         Assert.Equal("5400000", (string?)s["env"]!["BASH_MAX_TIMEOUT_MS"]);
         var allow = s["permissions"]!["allow"]!.AsArray().Select(r => (string?)r).ToList();
         var deny = s["permissions"]!["deny"]!.AsArray().Select(r => (string?)r).ToList();
-        var factory = Path.Combine(root, "factory", "scripts", "factory.ps1").Replace('\\', '/');
-        Assert.Contains($"Bash(pwsh -NoProfile -File {factory} *)", allow);
-        Assert.Contains($"PowerShell(pwsh -NoProfile -File {factory} *)", allow);
+        Assert.Contains("Bash(factory *)", allow);
+        Assert.Contains("PowerShell(factory *)", allow);
+        Assert.DoesNotContain(allow, r => r!.Contains("pwsh", StringComparison.Ordinal));
         Assert.Contains("Bash(dotnet *)", allow);
         Assert.Contains("PowerShell(git merge --no-edit factory/base*)", allow);
         Assert.DoesNotContain("Bash(printenv*)", allow);
@@ -135,12 +165,12 @@ public class RunnerProviderTests
     [Fact]
     public void Started_without_FACTORY_SCRIPTS_the_runner_finds_factory_scripts_above_its_binaries()
     {
-        // As the AppHost starts it: not through runner.ps1, which sets FACTORY_SCRIPTS.
+        // As the AppHost or factory runner starts it, with no FACTORY_SCRIPTS: the checkout is the one the plugin marks.
         var services = new ServiceCollection().AddFactoryRunner(new Dictionary<string, string?> { ["FACTORY_HOME"] = "h" }, "w", "/tmp", "/appdata", "local");
 
         using var provider = services.BuildServiceProvider();
 
         var scripts = provider.GetRequiredService<Factory.Store.Abstractions.IFactoryPaths>().ScriptsDir;
-        Assert.True(File.Exists(Path.Combine(scripts, "factory.ps1")), scripts);
+        Assert.True(File.Exists(Path.Combine(scripts, "..", "plugin", ".claude-plugin", "plugin.json")), scripts);
     }
 }

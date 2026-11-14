@@ -1,6 +1,6 @@
 ---
 name: idea
-description: Turn an idea into approved factory jobs, interactively. Grills the human, writes the brief, runs the spec-writer, walks the human through each spec, and puts only the ones they approve on the board (in Approved, and starts the runner). `/factory:idea [<owner/name> | I-NNN] [clone=<dir>]`; I-NNN resumes a drafting idea. Started by factory/scripts/idea.ps1.
+description: Turn an idea into approved factory jobs, interactively. Grills the human, writes the brief, runs the spec-writer, walks the human through each spec, and puts only the ones they approve on the board (in Approved, and starts the runner). `/factory:idea [<owner/name> | I-NNN] [clone=<dir>]`; I-NNN resumes a drafting idea. Started by `factory idea`.
 disable-model-invocation: true
 argument-hint: "[<owner/name> | I-NNN] [clone=<dir>]"
 ---
@@ -12,12 +12,12 @@ and show. `docs/FACTORY-CONTRACT.md` ("Ideas") is the source of truth. Arguments
 
 ## Ground rules
 
-- The current directory must be the factory repo (it has `factory/scripts/factory.ps1` and
+- The current directory must be the factory repo (it has `factory/plugin` and
   `docs/FACTORY-CONTRACT.md`). If it isn't, stop and say so.
-- Every state change is a control-plane call, written exactly like this (relative path, no
-  `$VARIABLES`), below shortened to `F`:
+- Every state change is a control-plane call, written exactly like this (the `factory` CLI is on
+  your `PATH`; no `$VARIABLES`), below shortened to `F`:
   ```bash
-  pwsh -NoProfile -File factory/scripts/factory.ps1 <command> [args]
+  factory <command> [args]
   ```
   A non-zero exit means the contract refused. Show the human the message; never route around it.
 - Never write or edit `.factory-runs/board.json` or `events.jsonl`. You may write only
@@ -29,7 +29,7 @@ and show. `docs/FACTORY-CONTRACT.md` ("Ideas") is the source of truth. Arguments
 ## 1. The target
 
 `$ARGUMENTS` is a GitHub target `owner/name`, `I-NNN`, or empty, optionally followed by
-`clone=<dir>`: a shallow clone of an existing target that `idea.ps1` made for you to read. If the
+`clone=<dir>`: a shallow clone of an existing target that `factory idea` made for you to read. If the
 target exists and no clone was given, make one yourself with
 `F clone-target <owner/name> "<system temp>\ai-factory\cli\<owner>-<name>"` and delete it at the end.
 Below, "the target" means that clone whenever you read files.
@@ -63,9 +63,9 @@ a question for the human. The grill ends with a brief the human has confirmed, i
 Write the confirmed brief to `.factory-runs/ideas/I-NNN/brief.md`.
 
 **New target:** show `.factory-runs/jobs/J-NNN/spec.md` (the bootstrap spec) in full and ask:
-approve, or leave it in Backlog. On approve, `F approve J-NNN` and start the runner (step 6). Then
+approve, or leave it in Backlog. On approve, `F approve J-NNN` (step 6 says who starts the runner). Then
 tell the human: when the bootstrap job reaches Ready for review, merge it on the dashboard and run
-`/factory:idea I-NNN` (or `pwsh factory/scripts/idea.ps1 I-NNN`) to spec the features. Stop.
+`/factory:idea I-NNN` (or `factory idea I-NNN`) to spec the features. Stop.
 
 ## 4. Specs
 
@@ -98,11 +98,8 @@ Close the idea: `F idea-done I-NNN` if any spec reached the board, otherwise
 
 ## 6. Start the runner
 
-If anything was approved, start the runner detached (it exits at once if one is already running):
-
-```bash
-pwsh -NoProfile -Command "Start-Process pwsh -ArgumentList '-NoProfile','-File','factory/scripts/runner.ps1' -WindowStyle Hidden"
-```
+You don't start the runner: the dashboard's watchdog starts it within seconds of an approval.
 
 Finish with one line per job (id, title, Approved or Backlog), and point the human at the dashboard,
-at the URL `serve.ps1` printed (`pwsh factory/scripts/serve.ps1` if it isn't running).
+at the URL `factory serve` printed. If no dashboard is running, tell them to run `factory serve` (whose
+watchdog then starts the runner), or `factory runner` to drain the queue without one.

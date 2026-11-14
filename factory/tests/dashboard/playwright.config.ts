@@ -10,8 +10,11 @@ export const port = 4318;
 export const stubPort = 4319;
 export const githubPort = 4320;
 const gitBase = path.join(simDir, 'github');
+// The factory CLI and the test stubs, as dotnet build src/factory leaves them.
+export const cli = path.join(repo, 'artifacts/bin/Factory.Cli/debug/factory.dll');
+const testHost = path.join(repo, 'artifacts/bin/Factory.TestHost/debug/Factory.TestHost.dll');
 
-// The .env serve.ps1 and simulate.ps1 read: a fake GitHub token, and the GitHub stub. Written here because the
+// The .env the dashboard and simulate.ps1 read: a fake GitHub token, and the GitHub stub. Written here because the
 // GitHub stub's clone base is an absolute path.
 const envFile = path.join(os.tmpdir(), 'factory-playwright.env');
 writeFileSync(envFile, [
@@ -24,7 +27,7 @@ writeFileSync(envFile, [
   'FACTORY_TEMPLATES_REPO=sim/sandbox',
 ].join('\n'));
 
-// serve.ps1 runs against the simulator's state and its GitHub stub repos. Claude is a no-op and the
+// The dashboard runs against the simulator's state and its GitHub stub repos. Claude is a no-op and the
 // gate is green, so no tokens are spent and neither GitHub nor this repo is touched.
 export const factoryEnv = {
   FACTORY_HOME: simDir,
@@ -41,7 +44,7 @@ export const factoryEnv = {
 export default defineConfig({
   testDir: '.',
   timeout: 120_000,
-  // A dashboard move runs factory.ps1 synchronously, which starts a pwsh: about 1 s here, but a
+  // A dashboard move runs the factory CLI synchronously: well under 1 s here, but a
   // rework took 5.4 s on GitHub's windows-latest (PR #3's first CI run) and missed the 5 s default.
   expect: { timeout: 20_000 },
   workers: 1,
@@ -49,19 +52,19 @@ export default defineConfig({
   use: { baseURL: `http://localhost:${port}`, trace: 'retain-on-failure' },
   webServer: [
     {
-      command: `pwsh -NoProfile -File "${path.join(repo, 'factory/tests/fixtures/anthropic-stub.ps1')}" -Port ${stubPort} -Dir "${os.tmpdir()}" -DelayMs 5`,
+      command: `dotnet "${testHost}" anthropic --port ${stubPort} --dir "${os.tmpdir()}" --delay-ms 5`,
       url: `http://localhost:${stubPort}/`,
       reuseExistingServer: false,
       timeout: 30_000,
     },
     {
-      command: `pwsh -NoProfile -File "${path.join(repo, 'factory/tests/fixtures/github-stub.ps1')}" -Port ${githubPort} -GitBase "${gitBase}" -Login sim`,
+      command: `dotnet "${testHost}" github --port ${githubPort} --git-base "${gitBase}" --login sim`,
       url: `http://localhost:${githubPort}/`,
       reuseExistingServer: false,
       timeout: 30_000,
     },
     {
-      command: `pwsh -NoProfile -File "${path.join(repo, 'factory/scripts/serve.ps1')}" -Port ${port} -StateDir "${simDir}" -EnvFile "${envFile}"`,
+      command: `dotnet "${cli}" serve --port ${port} --state-dir "${simDir}" --env-file "${envFile}"`,
       url: `http://localhost:${port}/`,
       reuseExistingServer: false,
       timeout: 30_000,

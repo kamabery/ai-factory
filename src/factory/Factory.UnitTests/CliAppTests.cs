@@ -81,10 +81,10 @@ public class CliAppTests
     [Fact]
     public void A_board_that_cannot_be_opened_is_a_refusal()
     {
-        _store.Open().Throws(new FactoryException("board lock refused: another factory.ps1 has held the board for over 30 s"));
+        _store.Open().Throws(new FactoryException("board lock refused: another factory has held the board for over 30 s"));
 
         var r = new CliApp([Command("status", CommandResult.Ok())], _store).Run([]);
 
-        Assert.Equal((1, "factory: board lock refused: another factory.ps1 has held the board for over 30 s"), (r.ExitCode, r.Err.Single()));
+        Assert.Equal((1, "factory: board lock refused: another factory has held the board for over 30 s"), (r.ExitCode, r.Err.Single()));
     }
 }

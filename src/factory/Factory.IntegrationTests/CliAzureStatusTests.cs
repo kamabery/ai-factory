@@ -62,7 +62,7 @@ public sealed class CliAzureStatusTests(BlobStub stub) : IDisposable
 
         var r = Run(Env(_dir["a"]), "status");
 
-        Assert.Equal((1, "", $"factory: state: the container has no board.json but {Path.Combine(_dir["a"], "board.json")} exists; run factory.ps1 state-migrate\n"), r);
+        Assert.Equal((1, "", $"factory: state: the container has no board.json but {Path.Combine(_dir["a"], "board.json")} exists; run factory state-migrate\n"), r);
         Assert.False(stub.Blobs(_container)["locks/board"]!["leased"]!.GetValue<bool>());
     }
 

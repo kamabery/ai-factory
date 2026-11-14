@@ -1,7 +1,7 @@
 # Setting up the GitHub PAT
 
 The factory reaches GitHub with one fine-grained **GitHub PAT** (personal access token), stored as
-`GITHUB_TOKEN` in `.env` at the repo root. Only `factory.ps1` reads it. Agents never see it and never
+`GITHUB_TOKEN` in `.env` at the repo root. Only `factory` reads it. Agents never see it and never
 push. See "Targets" in [FACTORY-CONTRACT.md](FACTORY-CONTRACT.md) for the rules.
 
 ## What the factory does with it
@@ -58,13 +58,13 @@ GITHUB_OWNER=your-user-or-org
 ```
 
 `.env` is gitignored. Start from `.env.example`. A change takes effect without a restart:
-`factory.ps1` runs fresh for each call, and `serve.ps1` reads `.env` on each request.
+`factory` runs fresh for each call, and the dashboard reads `.env` on each request.
 
 ## Check it
 
 ```powershell
-pwsh factory/scripts/factory.ps1 list-repos                  # your repos as JSON: read access works
-pwsh factory/scripts/factory.ps1 check-target <owner>/<repo>  # 'existing' or 'new'
+factory list-repos                  # your repos as JSON: read access works
+factory check-target <owner>/<repo>  # 'existing' or 'new'
 ```
 
 Neither command writes anything. Write access only shows when a job pushes. To test it beforehand
@@ -90,4 +90,4 @@ A `403` here means the PAT can't push to that repo.
 | `push failed: ... 403` on publish, or `merge blocked: GitHub 403` | No Contents or Pull requests write | Add the permission |
 | `GitHub 401` on everything | The PAT expired or was revoked | Regenerate it and update `.env` |
 | `GitHub 0: GITHUB_TOKEN is not set in .env` | `.env` is missing, or `GITHUB_TOKEN` is empty | Fill it in |
-| New idea's picker says it couldn't list your repos | Any of the above | Run `factory.ps1 list-repos` to see GitHub's message |
+| New idea's picker says it couldn't list your repos | Any of the above | Run `factory list-repos` to see GitHub's message |

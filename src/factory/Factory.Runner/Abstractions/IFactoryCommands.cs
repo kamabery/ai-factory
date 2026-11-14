@@ -1,8 +1,7 @@
 namespace Factory.Runner.Abstractions;
 
 /// <summary>
-/// factory.ps1, as the runner calls it. Every state change goes through it (contract, "Factory rules"); a ported command
-/// runs on .NET from there when FACTORY_IMPL=dotnet (every command since spec 09).
+/// The factory CLI, as the runner calls it. Every state change goes through it (contract, "Factory rules").
 /// </summary>
 public interface IFactoryCommands
 {

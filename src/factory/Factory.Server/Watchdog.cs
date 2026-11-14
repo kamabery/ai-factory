@@ -55,7 +55,7 @@ public sealed class Watchdog(
             if (new DateTimeOffset(stat.LastWriteTicks, TimeSpan.Zero) > now.AddSeconds(-5)) return;
             if (ServerFiles.LockHolder(files, lockPath) is { } pid && procs.IsAlive(pid)) return;
         }
-        launcher.StartScript("runner.ps1", []);
+        launcher.StartDetached(["runner"]);
         files.AppendText(Path.Combine(paths.Home, "runner.log"), $"{now.UtcDateTime:o} watchdog: started runner{Environment.NewLine}");
     }
 }

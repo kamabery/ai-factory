@@ -2,20 +2,23 @@ using System.Diagnostics;
 using System.Text;
 using Factory.Core;
 using Factory.Core.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace Factory.Store;
 
 /// <summary>
-/// factory.ps1's Invoke-GateCommand: <c>pwsh -NoProfile -Command</c> with Quote-NativeArgs applied, in the work dir. Output
-/// is read as UTF-8 (npm and vite write it whatever the console's code page), stdout and stderr in the order they arrive.
+/// A gate command (contract, "Gate"): <c>pwsh -NoProfile -Command</c>, or the shell FACTORY_GATE_SHELL names, with
+/// Quote-NativeArgs applied, in the work dir. Output is read as UTF-8 (npm and vite write it whatever the console's code
+/// page), stdout and stderr in the order they arrive. A shell that cannot start fails the command with exit 127.
 /// </summary>
-public sealed class GateShell : IGateShell
+public sealed class GateShell(IOptions<FactoryOptions> options) : IGateShell
 {
     private static readonly UTF8Encoding Utf8 = new(false);
 
     public ShellResult Run(string command, string workingDirectory)
     {
-        var psi = new ProcessStartInfo("pwsh")
+        var shell = string.IsNullOrEmpty(options.Value.GateShell) ? "pwsh" : options.Value.GateShell;
+        var psi = new ProcessStartInfo(shell)
         {
             WorkingDirectory = workingDirectory,
             RedirectStandardOutput = true,
@@ -42,7 +45,8 @@ public sealed class GateShell : IGateShell
             using var p = new Process { StartInfo = psi };
             p.OutputDataReceived += Line;
             p.ErrorDataReceived += Line;
-            p.Start();
+            try { p.Start(); }
+            catch (System.ComponentModel.Win32Exception e) { return new ShellResult(127, $"cannot start the gate shell '{shell}': {e.Message}{Environment.NewLine}"); }
             p.StandardInput.Close();
             p.BeginOutputReadLine();
             p.BeginErrorReadLine();

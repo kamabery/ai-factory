@@ -5,8 +5,8 @@ using Microsoft.Extensions.Options;
 namespace Factory.Store;
 
 /// <summary>
-/// gh, az, node and pwsh as child processes, resolved from PATH (az is <c>az.cmd</c> on Windows). An override script runs
-/// with <c>pwsh -NoProfile -File</c> and the same arguments, so the Pester stubs keep working under both implementations.
+/// gh, az, node and the canary's scaffold commands as child processes, resolved from PATH (az is <c>az.cmd</c> on Windows).
+/// An override script (tests) runs with <c>pwsh -NoProfile -File</c> and the same arguments.
 /// </summary>
 public sealed class ToolRunner(IProcessRunner processes, IFactoryPaths paths, IOptions<DeployOptions> options) : IToolRunner
 {
@@ -21,6 +21,9 @@ public sealed class ToolRunner(IProcessRunner processes, IFactoryPaths paths, IO
         string.IsNullOrEmpty(O.SigninCmd)
             ? Result(processes.Run("node", [Path.Combine(paths.ScriptsDir, "signin-smoke.mjs"), .. args], "", password, null))
             : Result(processes.Run("pwsh", ["-NoProfile", "-File", O.SigninCmd, .. args], "", password, null));
+
+    public ToolResult Run(string directory, string program, IReadOnlyList<string> args) =>
+        Result(processes.Run(program, args, directory, null, null));
 
     public ToolResult Pwsh(string directory, IReadOnlyList<string> args) =>
         Result(processes.Run("pwsh", ["-NoProfile", .. args], directory, null, null));

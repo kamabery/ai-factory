@@ -34,7 +34,7 @@ id (the script assigns it).
   every spec, never the clone's path. Never choose, shorten or "fix" it, and never put the work anywhere else.
 - **Gate:** list the commands that prove the spec in `## Gate` as ``- <name>: `<command>` ``, run
   from the target's root (for example `dotnet build`, `dotnet test`, `npm run build` with a
-  `Set-Location` first). They run with `pwsh -Command`, so make them non-interactive. Never give
+  `Set-Location` first). They run with `pwsh -NoProfile -Command` (the gate's shell), so make them non-interactive. Never give
   `npm ci` a gate line of its own, because it reinstalls everything on every gate run. Guard it in
   the first line that needs it, so it runs only when the lock has changed:
   ``- ui-build: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item -Force node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build` ``

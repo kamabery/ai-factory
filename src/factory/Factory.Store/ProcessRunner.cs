@@ -36,4 +36,17 @@ public sealed class ProcessRunner : IProcessRunner
         p.WaitForExit();
         return new ProcessResult(p.ExitCode, stdout.Result, stderr.Result);
     }
+
+    public int RunAttached(string fileName, IReadOnlyList<string> arguments, string workingDirectory, IReadOnlyDictionary<string, string?>? environment)
+    {
+        var psi = new ProcessStartInfo(fileName) { WorkingDirectory = workingDirectory, UseShellExecute = false };
+        foreach (var (k, v) in environment ?? new Dictionary<string, string?>())
+        {
+            if (v is null) psi.Environment.Remove(k); else psi.Environment[k] = v;
+        }
+        foreach (var a in arguments) psi.ArgumentList.Add(a);
+        using var p = Process.Start(psi)!;
+        p.WaitForExit();
+        return p.ExitCode;
+    }
 }

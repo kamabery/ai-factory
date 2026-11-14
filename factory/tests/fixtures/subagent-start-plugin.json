@@ -1,9 +1,0 @@
-{
-  "session_id": "00893aaf",
-  "transcript_path": "C:/Users/me/.claude/projects/x/00893aaf.jsonl",
-  "cwd": "D:/code/Scratchpad/todo-app.wt",
-  "prompt_id": "caf75013",
-  "agent_id": "a2f500956fbe5654a",
-  "agent_type": "factory:builder",
-  "hook_event_name": "SubagentStart"
-}

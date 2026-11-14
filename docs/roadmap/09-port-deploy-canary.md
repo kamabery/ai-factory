@@ -1,6 +1,6 @@
 # 09: Port deploy, HCP and canary
 
-**Status:** built on its branch (2026-11-13) and proven on Windows and Linux, deploys off; the live check is 16's.
+**Status:** done, merged in PR #19 (2026-11-13). Proven on Windows and Linux, deploys off; the live check is 16's.
 **Branch:** `feature/09-port-deploy`. **Depends on:** 06. Every `factory.ps1` command now runs on .NET: `deploy.ps1`,
 `hcp.ps1` and `canary.ps1` are `IDeployService`, `IHcpClient` and `ICanaryService`, with `gh`, `az`, the sign-in smoke
 and the canary scaffold as external processes (`IToolRunner`) under their old overrides. Each live lesson has a unit

@@ -75,7 +75,7 @@ public class FactoryStoreTests
 
         var e = Assert.Throws<FactoryException>(() => Store().Open());
 
-        Assert.Equal("board lock refused: another factory.ps1 has held the board for over 2 s", e.Message);
+        Assert.Equal("board lock refused: another factory has held the board for over 2 s", e.Message);
         _mutex.DidNotReceive().Exit();
     }
 

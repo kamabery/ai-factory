@@ -32,7 +32,7 @@ Work through the sections in order: later values depend on earlier ones.
 
 ## 1. HCP Terraform: organization and tokens
 
-HCP Terraform runs each preview's Terraform and holds its state. `factory.ps1` drives it over the
+HCP Terraform runs each preview's Terraform and holds its state. `factory` drives it over the
 API; the workflow in each target queues runs.
 
 1. **Organization → `HCP_ORG`.** Sign in at https://app.terraform.io and create an organization. Its
@@ -43,7 +43,7 @@ API; the workflow in each target queues runs.
    **Security** → **API tokens** → **Team tokens**) → **Create a team token**: team **owners** (the only
    team on the Free plan), description `ai-factory`, 90 days. Copy it when shown; it isn't shown
    again, and creating another replaces it. Put the same token in both lines.
-   - `HCP_TOKEN`: `factory.ps1` creates each target's project and workspaces, attaches the variable
+   - `HCP_TOKEN`: `factory` creates each target's project and workspaces, attaches the variable
      set, and queues destroy runs.
    - `HCP_TEAM_TOKEN`: becomes each target's `TF_API_TOKEN` secret, which its workflow uses to
      queue runs.
@@ -125,7 +125,7 @@ What it creates, and why:
 | External tenant | Microsoft Graph **Application.ReadWrite.All**, **User.ReadWrite.All**, **EventListener.ReadWrite.All**, **DelegatedPermissionGrant.ReadWrite.All**, granted (admin consent) | Create the preview's app registration, its QA users, attach the app to the user flow, and admin-consent its delegated scopes (`azuread_service_principal_delegated_permission_grant`; without it the apply fails 403, J-022) |
 
 The GitHub Actions app has no federated credential yet, so it can't sign in from anywhere.
-`factory.ps1 deploy` adds one per target repo (`repo:<owner>/<name>:environment:preview`) under
+`factory deploy` adds one per target repo (`repo:<owner>/<name>:environment:preview`) under
 **your** `az login`, so you need the right to update that app registration. The subject limits
 sign-in to that repo's `preview` environment.
 
@@ -210,7 +210,7 @@ first bill for it.
 - One vault. An app's identity is granted only its own secrets. The workflow's identity can read every
   secret, including `postgres-admin-password`, because it creates the logins.
 
-A fresh preview no longer proves a from-scratch create; `factory.ps1 canary -Full` does. dev, staging, a
+A fresh preview no longer proves a from-scratch create; `factory canary -Full` does. dev, staging, a
 preview in another region and scaffolds made before this keep a full stack of their own.
 
 To remove the platform: `az group delete -n rg-factory-platform`, then delete the `platform` variable from
@@ -253,7 +253,7 @@ Lessons tab proposes template fixes. From its local clone:
 
 ```dotenv
 HCP_ORG=your-org              # section 1
-HCP_TOKEN=...                 # section 1: owners team token, factory.ps1 only
+HCP_TOKEN=...                 # section 1: owners team token, factory only
 HCP_TEAM_TOKEN=...            # section 1: the same token; becomes each target's TF_API_TOKEN secret
 HCP_AZURE_VARSET=varset-...   # section 4
 AZURE_GH_CLIENT_ID=...        # section 3, written by setup-azure.ps1
@@ -268,7 +268,7 @@ Set `HCP_ORG` last: it is what turns deploys on.
 
 Approve a small job against a scaffolded target and watch its card: Building shows `deploy r1 · 1/3`,
 then Ready for review shows `preview: up` with Launch. A failed attempt leaves
-`.factory-runs/jobs/<id>/deploy-<n>.log` with the GitHub and HCP logs; `factory.ps1 deploy-log <id>`
+`.factory-runs/jobs/<id>/deploy-<n>.log` with the GitHub and HCP logs; `factory deploy-log <id>`
 prints the latest.
 
 Targets scaffolded before HCP deploys existed are brought forward by the devops agent

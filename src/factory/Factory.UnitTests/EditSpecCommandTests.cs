@@ -24,6 +24,23 @@ public class EditSpecCommandTests : CommandTestBase
         Assert.Equal("spec edited", (string?)s.Events.Single()["detail"]);
     }
 
+    [Theory]
+    [InlineData("approved")]
+    [InlineData("build")]
+    [InlineData("ready")]
+    public void Refuses_a_job_outside_backlog(string stage)
+    {
+        var s = FakeSession.With(Jobs.New("J-001", stage));
+        Files.Put(JobFile("J-001", "spec.md"), "old");
+        Files.Put(Path.Combine(Cwd, "new.md"), "# Spec: Thing\n");
+
+        var e = Assert.Throws<FactoryException>(() => Sut.Run(Args("edit-spec", "J-001", "-File", "new.md"), s));
+
+        Assert.Equal($"edit-spec refused: J-001 is in '{stage}', needs backlog", e.Message);
+        Assert.Equal("old", Files.Text(JobFile("J-001", "spec.md")));
+        Assert.Empty(s.Events);
+    }
+
     [Fact]
     public void A_spec_with_no_target_clears_the_jobs()
     {

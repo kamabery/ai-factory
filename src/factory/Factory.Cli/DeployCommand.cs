@@ -77,9 +77,9 @@ public sealed class DeployCommand(IDeployService deploy, IFactoryPaths paths, IF
             var needs = GitHubErrors.PatNeeds(m.Groups[1].Value);
             d["attempts"] = PsJsonReader.Int(d["attempts"]) - 1;
             BoardMoves.Move(session, j, Transitions.EscalationStage(j, deploysOn), "orchestrator", clock, "github-permission", needs);
-            throw new FactoryException($"deploy refused by GitHub: {needs}; then run: factory.ps1 redeploy {j.Id}");
+            throw new FactoryException($"deploy refused by GitHub: {needs}; then run: factory redeploy {j.Id}");
         }
         if (attempt >= Preview.MaxAttempts) BoardMoves.Move(session, j, Transitions.EscalationStage(j, deploysOn), "orchestrator", clock, "deploy-failed", first);
-        throw new FactoryException($"deploy attempt {attempt} failed: {first}; see deploy-{attempt}.log (factory.ps1 deploy-log {j.Id})");
+        throw new FactoryException($"deploy attempt {attempt} failed: {first}; see deploy-{attempt}.log (factory deploy-log {j.Id})");
     }
 }

@@ -44,6 +44,6 @@ public interface IJobWork
     /// <summary>Remove-JobWork: closes the job's open PR, deletes factory/&lt;id&gt; on GitHub, and deletes its work dir.</summary>
     void RemoveJobWork(IBoardSession session, Job job);
 
-    /// <summary>Start-Destroy: a preview still up is destroyed by a detached <c>factory.ps1 destroy</c>, which FACTORY_IMPL=dotnet forwards to the CLI's.</summary>
+    /// <summary>A preview still up is destroyed by a detached <c>factory destroy</c>.</summary>
     void StartDestroy(Job job);
 }

@@ -97,6 +97,18 @@ public class DeployCommandsTests : CommandTestBase
     }
 
     [Fact]
+    public void After_a_failed_attempt_a_redeploy_offers_no_since()
+    {
+        // A failed attempt may have left the preview half applied, so the next one deploys everything.
+        var s = InDeploy(new JsonObject { ["status"] = "failed", ["sha"] = "sha-0", ["attempts"] = 1, ["workspace"] = "todo-j001", ["env"] = "j001" });
+        Attempt(new DeployAttempt(true, "sha-1", "r", Urls.DeepClone().AsObject(), "t", "ws-1", ""));
+
+        Deploy.Run(Args("deploy", "J-001"), s);
+
+        _deploy.Received(1).Attempt(s, Arg.Any<Job>(), false, null);
+    }
+
+    [Fact]
     public void A_failed_attempt_writes_its_log_records_the_first_error_and_exits_1_in_deploy()
     {
         var s = InDeploy();
@@ -104,7 +116,7 @@ public class DeployCommandsTests : CommandTestBase
 
         var e = Assert.Throws<FactoryException>(() => Deploy.Run(Args("deploy", "J-001"), s));
 
-        Assert.Equal("deploy attempt 1 failed: Error: exec: az not found; see deploy-1.log (factory.ps1 deploy-log J-001)", e.Message);
+        Assert.Equal("deploy attempt 1 failed: Error: exec: az not found; see deploy-1.log (factory deploy-log J-001)", e.Message);
         Assert.Equal(1, e.ExitCode);
         var j = s.Job("J-001");
         Assert.Equal(("deploy", "failed", "sha-2", "ws-1"), ((string?)j["stage"], (string?)j["deploy"]!["status"], (string?)j["deploy"]!["sha"], (string?)j["deploy"]!["workspaceId"]));
@@ -135,7 +147,7 @@ public class DeployCommandsTests : CommandTestBase
 
         var e = Assert.Throws<FactoryException>(() => Deploy.Run(Args("deploy", "J-001"), s));
 
-        Assert.Equal($"deploy refused by GitHub: {GitHubErrors.PatNeeds("environments=write")}; then run: factory.ps1 redeploy J-001", e.Message);
+        Assert.Equal($"deploy refused by GitHub: {GitHubErrors.PatNeeds("environments=write")}; then run: factory redeploy J-001", e.Message);
         var j = s.Job("J-001");
         Assert.Equal(("blocked", "github-permission", 0), ((string?)j["stage"], (string?)j["flag"]!["reason"], (int)j["deploy"]!["attempts"]!));
         Assert.Equal(GitHubErrors.PatNeeds("environments=write"), (string?)j["flag"]!["detail"]);

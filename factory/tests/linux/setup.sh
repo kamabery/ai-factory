@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # The Linux toolchain for the factory's tests, installed in the user's home only (no sudo, nothing
-# system-wide): the .NET 10 SDK (~/.dotnet10), pwsh (~/.pwsh), Pester 6, and a current git from
+# system-wide): the .NET 10 SDK (~/.dotnet10), pwsh (~/.pwsh, for test.ps1, the tests' PowerShell fakes and the Pester
+# left until spec 16), Pester 6, and a current git from
 # conda-forge via micromamba (~/.gitenv; Ubuntu 20.04's git 2.25 lacks `git init -b`). Idempotent.
 # Run from Windows: wsl.exe -d Ubuntu -- bash /mnt/d/code/ai-factory/factory/tests/linux/setup.sh
 set -euo pipefail

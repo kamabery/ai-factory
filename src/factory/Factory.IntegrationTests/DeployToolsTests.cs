@@ -51,15 +51,15 @@ public sealed class DeployToolsTests : IDisposable
     }
 
     [Fact]
-    public void A_pwsh_scaffold_command_runs_in_its_directory()
+    public void A_scaffold_command_runs_as_a_program_from_PATH_in_its_directory()
     {
         var dir = Directory.CreateDirectory(_dir["scaffold"]).FullName;
         var tools = new ToolRunner(new ProcessRunner(), Paths(), Options.Create(new DeployOptions()));
 
-        var r = tools.Pwsh(dir, ["-Command", "Set-Content README.md 'canary scaffold'; (Get-Location).Path"]);
+        var r = tools.Run(dir, "git", ["init", "-q", "-b", "main"]);
 
         Assert.Equal(0, r.Code);
-        Assert.Equal("canary scaffold", File.ReadAllText(Path.Combine(dir, "README.md")).Trim());
+        Assert.True(Directory.Exists(Path.Combine(dir, ".git")));
     }
 
     [Fact]

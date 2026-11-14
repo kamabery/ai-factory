@@ -64,6 +64,15 @@ public class ToolRunnerTests
     }
 
     [Fact]
+    public void A_scaffold_command_runs_as_its_own_program_in_the_directory_with_no_shell()
+    {
+        _processes.Run(default!, default!, default!, default, default).ReturnsForAnyArgs(new ProcessResult(2, "out\n", "err\n"));
+
+        Assert.Equal(new ToolResult(2, "out\nerr"), Sut.Run("dir", "aspire-addon", ["add", "auth"]));
+        _processes.Received(1).Run("aspire-addon", Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "add", "auth" })), "dir", null, null);
+    }
+
+    [Fact]
     public void Pwsh_runs_in_the_directory_it_is_given()
     {
         _processes.Run(default!, default!, default!, default, default).ReturnsForAnyArgs(new ProcessResult(0, "", "  "));

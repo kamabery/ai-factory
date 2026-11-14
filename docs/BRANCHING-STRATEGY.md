@@ -37,7 +37,7 @@ The same analysis found these structural gaps:
 
 ## Git is a factory command
 
-Agents read git. Every git **write** is a `factory.ps1` command, so each one can check its own invariants.
+Agents read git. Every git **write** is a `factory` command, so each one can check its own invariants.
 
 | Command | Git it runs | Invariants it enforces |
 | --- | --- | --- |
@@ -49,8 +49,8 @@ Agents read git. Every git **write** is a `factory.ps1` command, so each one can
 | `discard` / `purge` (exist) | `branch -D` | unchanged |
 
 The headless allowlist shrinks to read-only git (`status`, `diff`, `log`, `show`, `ls-files`, `grep`,
-`blame`, `rev-parse`, `merge-base`) plus the absolute `factory.ps1` path. `git add`, `git commit`,
-`git rm`, `git revert` and `git branch` move to the deny list. `builder.md` changes `git add -A && git commit` to `factory.ps1 commit`.
+`blame`, `rev-parse`, `merge-base`) plus the absolute `factory` path. `git add`, `git commit`,
+`git rm`, `git revert` and `git branch` move to the deny list. `builder.md` changes `git add -A && git commit` to `factory commit`.
 
 ## The loop
 
@@ -80,7 +80,7 @@ build → review ×4 → approve → integrate ──clean──→ gate ──g
 
 The orchestrator dispatches the builder with `integrate-<n>.md`. The builder edits the conflicted files,
 regenerating generated files instead of merging them as text (`npx vite build`, the contract, then
-`api:types`, as the target's CLAUDE.md says), and calls `factory.ps1 commit`. That command refuses
+`api:types`, as the target's CLAUDE.md says), and calls `factory commit`. That command refuses
 markers and refuses while any path is still unmerged. Then the job goes back to **`integrate`**, not to `gate`,
 because `main` may have moved again while the builder worked. The loop ends when `integrate` finds nothing
 left to do.
@@ -148,7 +148,7 @@ resolution. todo needs the same file committed on its `main`.
   `merge` refuses a stale branch by queuing it rather than failing.
 - *`board.json`*: `stale`, `mergeRequested`, `integratedWith` (main sha), `resolves` (count).
 - *`events.jsonl`*: `integrate` event (`clean` | `conflict <paths>`), `commit` event.
-- *Agents*: builder commits via `factory.ps1 commit`; read-only git for all agents.
+- *Agents*: builder commits via `factory commit`; read-only git for all agents.
 - *Runner*: stale Ready jobs first; mechanical integrate without `claude`; `mergeRequested` auto-merge
   rule above.
 
@@ -156,7 +156,7 @@ resolution. todo needs the same file committed on its `main`.
 
 1. **Done (2026-10-17):** content-level dirty check with paths in the detail (contract *Gate and
    merge* step 2; Pester 82, Playwright 14). Still open: commit `.gitattributes` on todo's `main`.
-2. `factory.ps1 commit` and read-only git for agents (closes gap 5).
+2. `factory commit` and read-only git for agents (closes gap 5).
 3. `integrate` + `resolve` stages and the gate loop (gaps 1, 3, 4).
 4. Stale Ready re-integration and `mergeRequested` (gap 2, and "Ready always merges clean").
 5. Dashboard: the two new sub-stages, the `stale` chip, the resolution diff; `simulate.ps1` scenarios

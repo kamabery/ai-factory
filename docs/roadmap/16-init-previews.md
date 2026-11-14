@@ -5,7 +5,10 @@
 ## Goal
 
 One guided, idempotent, resumable command replaces `setup-azure.ps1`, `setup-platform.ps1` and the
-manual steps in `docs/DEPLOY.md`.
+manual steps in `docs/DEPLOY.md`. The scripts go with it: `setup-azure.ps1`, `setup-platform.ps1`, `env-file.ps1`,
+`setup-azure.Tests.ps1`, `setup-platform.Tests.ps1` and their fixtures (`az-setup-stub.ps1`, `az-platform-stub.ps1`,
+`github.ps1`, `portable.ps1`), each Pester case pushed down to a .NET test with a mapping in the PR, as in spec 12.
+After 16 and 20, the repo has no PowerShell.
 
 ## Scope
 

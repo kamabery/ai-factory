@@ -32,13 +32,26 @@ public sealed class FactoryPaths(IOptions<FactoryOptions> options, IGitClient gi
     public string TemplatesRoot => !string.IsNullOrEmpty(_o.Templates) ? _o.Templates
         : Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetFullPath(ScriptsDir))!)!)!, "template-projects");
 
-    /// <summary>factory/scripts in the nearest folder above <paramref name="from"/> that has factory.ps1, or null.</summary>
+    public string CliDll => !string.IsNullOrEmpty(_o.Cli) ? _o.Cli : Built("Factory.Cli", "factory.dll");
+
+    public string RunnerDll => !string.IsNullOrEmpty(_o.Runner) ? _o.Runner : Built("Factory.Runner", "Factory.Runner.dll");
+
+    public string ServerDll => !string.IsNullOrEmpty(_o.Server) ? _o.Server : Built("Factory.Server", "Factory.Server.dll");
+
+    // artifacts/bin/<this project>/<configuration>/ -> artifacts/bin/<project>/<configuration>/<dll>.
+    private string Built(string project, string dll)
+    {
+        var dir = new DirectoryInfo(Path.TrimEndingDirectorySeparator(Path.GetFullPath(_o.BaseDirectory)));
+        return Path.Combine(dir.Parent!.Parent!.FullName, project, dir.Name, dll);
+    }
+
+    /// <summary>factory/scripts in the nearest folder above <paramref name="from"/> that holds the factory's plugin, or null.</summary>
     public static string? FindScripts(string from)
     {
         for (var d = new DirectoryInfo(from); d is not null; d = d.Parent)
         {
-            var p = Path.Combine(d.FullName, "factory", "scripts");
-            if (File.Exists(Path.Combine(p, "factory.ps1"))) return p;
+            if (File.Exists(Path.Combine(d.FullName, "factory", "plugin", ".claude-plugin", "plugin.json")))
+                return Path.Combine(d.FullName, "factory", "scripts");
         }
         return null;
     }

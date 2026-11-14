@@ -16,6 +16,9 @@ public interface IToolRunner
     /// <summary><c>node factory/scripts/signin-smoke.mjs</c>, or FACTORY_SIGNIN_CMD, the password on stdin.</summary>
     ToolResult Signin(IReadOnlyList<string> args, string password);
 
-    /// <summary><c>pwsh -NoProfile &lt;args&gt;</c> in <paramref name="directory"/>: one of the canary's scaffold commands.</summary>
+    /// <summary><paramref name="program"/> from PATH in <paramref name="directory"/>, no shell between: a canary scaffold command.</summary>
+    ToolResult Run(string directory, string program, IReadOnlyList<string> args);
+
+    /// <summary><c>pwsh -NoProfile &lt;args&gt;</c> in <paramref name="directory"/>: FACTORY_CANARY_SCAFFOLD_CMD, a test's stub.</summary>
     ToolResult Pwsh(string directory, IReadOnlyList<string> args);
 }

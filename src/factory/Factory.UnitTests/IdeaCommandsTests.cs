@@ -121,6 +121,19 @@ public class IdeaCommandsTests : CommandTestBase
         Assert.Equal(["stage"], s.Kinds);
     }
 
+    [Fact]
+    public void AddSpec_stamps_no_provider_whatever_env_says()
+    {
+        // The run mode picks the provider for every job when it runs (contract, "Run mode and providers").
+        DotEnv.Get("FACTORY_MODE").Returns("cloud");
+        var s = WithIdea("drafting");
+        Files.Put(Path.Combine(Cwd, "s.md"), "# Spec: Book search\n");
+
+        AddSpec.Run(Args("add-spec", "I-001", "s.md"), s);
+
+        Assert.DoesNotContain(s.Job("J-001").Select(kv => kv.Key), k => k.Contains("provider", StringComparison.OrdinalIgnoreCase));
+    }
+
     [Theory]
     [InlineData(new[] { "add-spec", "I-009", "s.md" }, "no idea I-009")]
     [InlineData(new[] { "add-spec", "I-001", "missing.md" }, "spec file not found: missing.md")]

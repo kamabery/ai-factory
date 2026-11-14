@@ -11,7 +11,7 @@ using Microsoft.Extensions.Options;
 namespace Factory.Runner;
 
 /// <summary>
-/// claude-run.ps1's Invoke-ClaudeStream: writes headless-settings.json, then runs
+/// One claude pass (contract, "Runner"): writes headless-settings.json, then runs
 /// <c>claude -p &lt;prompt&gt; [--resume s] --plugin-dir ... --settings ... --add-dir &lt;state&gt; --output-format stream-json
 /// --verbose --permission-mode acceptEdits</c> in the work dir, or FACTORY_CLAUDE_CMD through <c>pwsh -Command</c>.
 /// Every output line goes to the run log as it arrives, through one stream shared for reading, so a reader (the
@@ -36,6 +36,9 @@ public sealed class ClaudeRunner(IFactoryPaths paths, IFileStore files, IOptions
         psi.StandardOutputEncoding = psi.StandardErrorEncoding = Utf8;
         foreach (var (name, value) in childEnv)
             if (value is null) psi.Environment.Remove(name); else psi.Environment[name] = value;
+        // The skill, the agents and the hooks call `factory` by name: this build's CLI comes first on PATH.
+        psi.Environment["PATH"] = Path.GetDirectoryName(Path.GetFullPath(paths.CliDll)) + Path.PathSeparator + (psi.Environment.TryGetValue("PATH", out var path) ? path : "");
+        if (options.Value.DotnetRoot is { } root && !(psi.Environment.TryGetValue("DOTNET_ROOT", out var had) && !string.IsNullOrEmpty(had))) psi.Environment["DOTNET_ROOT"] = root;
         psi.Environment["FACTORY_JOB"] = jobId;
         psi.Environment["FACTORY_HOME"] = paths.Home;
         psi.Environment["GIT_TERMINAL_PROMPT"] = "0";
@@ -83,13 +86,19 @@ public sealed class ClaudeRunner(IFactoryPaths paths, IFileStore files, IOptions
             return psi;
         }
         var claude = new ProcessStartInfo(Factory.Store.ClaudeCli.Executable());
+        foreach (var a in Arguments(prompt, resumeSession, FactoryRoot, paths.TemplatesRoot, settings, paths.Home)) claude.ArgumentList.Add(a);
+        return claude;
+    }
+
+    /// <summary>claude's arguments for one pass (contract, "Runner", step 3).</summary>
+    public static IReadOnlyList<string> Arguments(string prompt, string resumeSession, string factoryRoot, string templatesRoot, string settings, string home)
+    {
         var args = new List<string> { "-p", prompt };
         if (resumeSession.Length > 0) args.AddRange(["--resume", resumeSession]);
         // The factory's own plugin, and the template workspace as the aspire-starter plugin (boot-strap-app, enhance-app).
-        args.AddRange(["--plugin-dir", Path.Combine(FactoryRoot, "factory", "plugin"), "--plugin-dir", paths.TemplatesRoot]);
-        args.AddRange(["--settings", settings, "--add-dir", paths.Home, "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits"]);
-        foreach (var a in args) claude.ArgumentList.Add(a);
-        return claude;
+        args.AddRange(["--plugin-dir", Path.Combine(factoryRoot, "factory", "plugin"), "--plugin-dir", templatesRoot]);
+        args.AddRange(["--settings", settings, "--add-dir", home, "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits"]);
+        return args;
     }
 
     private static Action? ConsoleUtf8()

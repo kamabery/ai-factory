@@ -87,7 +87,7 @@ public sealed class JobsApi(
 
     public Reply QaLogin(string id) => Reply.Of(factory.Run("qa-login", id));
 
-    public void StartRunner() => launcher.StartScript("runner.ps1", []);
+    public void StartRunner() => launcher.StartDetached(["runner"]);
 
     private Reply RunThenStartRunner(string command, string id)
     {

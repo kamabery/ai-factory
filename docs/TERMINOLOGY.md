@@ -95,7 +95,7 @@ deploy starts the next round. Rounds are numbered per job, from 1.
 **Stage.** Where a job is inside a column: `backlog`, `approved`, `build`, `review`, `deploy`,
 `approve`, `gate`, `blocked`, `ready`, `done`, `discarded`.
 
-**Gate.** The deterministic check (build, tests, UI) `factory.ps1` runs on the job's head after the
+**Gate.** The deterministic check (build, tests, UI) `factory` runs on the job's head after the
 approver says APPROVE. A green gate moves the job to Ready for review; only a human merges.
 
 **Preview** (`j<NNN>`). The job's ephemeral Azure environment, named from its job number in lower
@@ -119,14 +119,14 @@ the lessons as its text. Kept by `purge`.
 
 | Id | What | Allocated by | Where it lives |
 | --- | --- | --- | --- |
-| `S-NNN` | idea session | `serve.ps1`: one above the highest `sessions/S-*` directory | `sessions/S-NNN/` |
-| `I-NNN` | idea | `factory.ps1 new-idea`, from `board.seq.I` | `board.ideas[]`, `ideas/I-NNN/` |
-| `J-NNN` | job | `factory.ps1 add-spec` (or `new-idea` for a bootstrap), from `board.seq.J` | `board.jobs[]`, `jobs/J-NNN/`, `evals/`, `lessons/` |
+| `S-NNN` | idea session | the dashboard: one above the highest `sessions/S-*` directory | `sessions/S-NNN/` |
+| `I-NNN` | idea | `factory new-idea`, from `board.seq.I` | `board.ideas[]`, `ideas/I-NNN/` |
+| `J-NNN` | job | `factory add-spec` (or `new-idea` for a bootstrap), from `board.seq.J` | `board.jobs[]`, `jobs/J-NNN/`, `evals/`, `lessons/` |
 | `spec-<k>` | spec draft within an idea | the spec-writer, 1..5 | `ideas/I-NNN/spec-<k>.md` |
-| `round-<n>` | build/review/deploy pass within a job | `factory.ps1`, per job | `jobs/J-NNN/round-<n>/` |
+| `round-<n>` | build/review/deploy pass within a job | `factory`, per job | `jobs/J-NNN/round-<n>/` |
 | `j<NNN>` | Azure preview of a job | derived from `J-NNN` | Azure, HCP Terraform, `deploy.yml` |
 | `j000` | the canary's preview | reserved | Azure, HCP Terraform |
-| canary `n` | canary run | `canary.ps1` | `canary.json`, `canary-<n>.log` |
+| canary `n` | canary run | `factory canary` | `canary.json`, `canary-<n>.log` |
 | PR `#n` | a job's pull request | GitHub | the target repo |
 
 Rules that hold for all of them:

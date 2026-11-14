@@ -9,7 +9,7 @@ live dashboard is where you work it.
 - **Contract:** [docs/FACTORY-CONTRACT.md](docs/FACTORY-CONTRACT.md) covers stages, files, board and event formats.
 - **Rules for agents:** [CLAUDE.md](CLAUDE.md).
 - **GitHub PAT setup:** [docs/GITHUB-PAT.md](docs/GITHUB-PAT.md).
-- **Tests:** [docs/PESTER-SUITE.md](docs/PESTER-SUITE.md) covers what the Pester suite tests and how it runs offline.
+- **Tests:** [docs/TESTING.md](docs/TESTING.md) covers the tiers, the stubs they run offline against, and what to run before a PR.
 
 ## Getting started
 
@@ -17,13 +17,18 @@ Steps 1–5 of [docs/BUILD-GUIDE.md](docs/BUILD-GUIDE.md) are built: the control
 dashboard, agents and `/factory` skill. Step 6, the first real job, is yours. To see the board move
 without spending tokens, run the simulator first (see "Checking without spending tokens" below).
 
-**Prerequisites:** .NET 10 SDK, Aspire CLI, Node 22+, PowerShell 7 with Pester 6, git, and the
-`claude` CLI signed in.
+**Prerequisites:** .NET 10 SDK, Aspire CLI, Node 22+, git, PowerShell 7 (the shell spec gate commands run in, and
+the tests' scripts), and the `claude` CLI signed in. Build the CLI once, and put it on `PATH`:
+
+```powershell
+dotnet build src/factory
+$env:PATH = "$PWD/artifacts/bin/Factory.Cli/debug$([IO.Path]::PathSeparator)$env:PATH"   # or add it for good
+```
 
 ### 1. Start the dashboard
 
 ```powershell
-pwsh factory/scripts/serve.ps1        # prints its URL (a random free port; -Port N to fix one)
+factory serve        # prints its URL (a random free port; --port N to fix one)
 ```
 
 That's the only process you start. The dashboard starts the agent runs itself. Targets are GitHub
@@ -54,7 +59,7 @@ set by a deployed factory) both run on Claude in Microsoft Foundry through Entra
 all; see [docs/FOUNDRY.md](docs/FOUNDRY.md). If you prefer a terminal, the CLI session still works:
 
 ```powershell
-pwsh factory/scripts/idea.ps1 kamabery/todo-app   # or an I-NNN to resume one
+factory idea kamabery/todo-app   # or an I-NNN to resume one
 ```
 
 ### 3. Backlog (optional)
@@ -100,8 +105,8 @@ Card cost and duration feed the "validated" bar in the build guide.
 ### Checking without a browser
 
 ```powershell
-pwsh factory/scripts/factory.ps1 status   # the board as text
-Invoke-Pester factory/tests               # control plane and runner; see docs/PESTER-SUITE.md
+factory status             # the board as text
+pwsh src/factory/test.ps1  # the unit and integration tests; see docs/TESTING.md
 ```
 
 ### Checking without spending tokens
@@ -120,8 +125,9 @@ Factory state lives in `.factory-runs/` (gitignored). Never edit it by hand; see
 factory/plugin/            agents, /factory run | status, /factory:idea, grill, hooks
 factory/backlog.md         sample ideas for /factory:idea
 factory/templates/         spec / build / review / decision formats
-factory/scripts/           factory.ps1 (control plane), runner.ps1, idea.ps1, idea-turn.ps1, serve.ps1, simulate.ps1, hook-event.ps1
+src/factory/               the factory CLI (control plane), the runner, the dashboard server, the AppHost, tests, stubs
+factory/scripts/           setup-azure.ps1 and setup-platform.ps1 (until spec 16), simulate.ps1, signin-smoke.mjs
 factory/dashboard/         index.html, the live view
-factory/tests/             Pester + Playwright
+factory/tests/             Playwright, and the Pester left for the scripts above
 .factory-runs/             runtime state (gitignored)
 ```

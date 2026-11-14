@@ -30,7 +30,7 @@ public sealed class FactoryStore(
     private (string? Lease, JsonObject Board) Lock(int seconds, int leaseWait, bool refresh)
     {
         // Timing out must refuse: running on unlocked, this command's save could overwrite another's.
-        if (!mutex.Enter(seconds)) throw new FactoryException($"board lock refused: another factory.ps1 has held the board for over {seconds} s");
+        if (!mutex.Enter(seconds)) throw new FactoryException($"board lock refused: another factory has held the board for over {seconds} s");
         string? lease = null;
         try
         {

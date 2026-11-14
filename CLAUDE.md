@@ -10,7 +10,7 @@ no API key), or in the CLI fallback, an interactive
 subscription, and `cloud` (`FACTORY_MODE=cloud`) runs jobs and idea turns on Claude in Microsoft
 Foundry, keyless through Entra ID (`docs/FOUNDRY.md`). Nothing picks a provider per job. Each job's branch is deployed to an ephemeral Azure preview
 through HCP Terraform before the approver (`docs/DEPLOY.md`), and jobs that go bad leave lessons
-the dashboard proposes as template fixes. A deterministic PowerShell control plane
+the dashboard proposes as template fixes. A deterministic .NET control plane (the `factory` CLI)
 owns state, the gate and the merge. A local dashboard is where the human works the factory:
 backlog specs edited and approved by drag and drop, and finished work reviewed, merged and cleared.
 
@@ -22,50 +22,49 @@ and `...\build-your-own-ai-software-factory-with-claude-code.md`. How to build t
 
 - **`docs/FACTORY-CONTRACT.md` is the source of truth** for stages, transitions, file layout,
   `board.json`, `events.jsonl` and verdict headers. Change it first, then the code.
-- **Every state change goes through `factory/scripts/factory.ps1`.** Never edit
+- **Every state change goes through the `factory` CLI** (`src/factory/Factory.Cli`). Never edit
   `.factory-runs/board.json` or `events.jsonl` by hand or with a file tool, not even to "fix" one.
-  If the script refuses a transition, that is the factory working; escalate rather than route around it.
+  If the CLI refuses a transition, that is the factory working; escalate rather than route around it.
 - **`.factory-runs/` is gitignored on purpose.** Factory state must never dirty the release checkout.
   In the source video, a modified `backlog.md` blocked an approved merge. Don't move state into
   tracked files.
 - **Approval is not merge.** The approver's `APPROVE` only moves a job to `gate`, and a green gate
-  only moves it to Ready for review. Only a human accepts: a drag to Done runs `factory.ps1 merge`,
+  only moves it to Ready for review. Only a human accepts: a drag to Done runs `factory merge`,
   which still requires a green gate and a clean tree, or the human merges the PR on GitHub, which
   `sync-prs` records as Done (an ungated head is noted, not refused).
-- **The dashboard's write endpoints are thin `factory.ps1` wrappers.** `serve.ps1` holds no
+- **The dashboard's write endpoints are thin `factory` wrappers.** The server (`Factory.Server`) holds no
   transition logic of its own.
 - **Targets are GitHub repos (`owner/name`), and every job builds in its own temp clone**,
   `<work>\jobs\<id>` (`$env:FACTORY_WORK`, else `%TEMP%\ai-factory`), one job at a time. The
-  clone is deleted when the job reaches Done (its PR merged) or is discarded. Only `factory.ps1`
-  holds the GitHub token (`.env`) and pushes; agents never push.
+  clone is deleted when the job reaches Done (its PR merged) or is discarded. Only the `factory` CLI
+  holds the GitHub PAT (`.env`) and pushes; agents never push.
 - **No agent weakens the thing that judges it.** Factory jobs never edit `factory/`, `.claude/`,
   `docs/FACTORY-CONTRACT.md` or test assertions in order to pass. Changes to the factory itself are
   made by a human session, not by `/factory`.
 - **Previews are never production.** The deploy stage applies only `j<NNN>` previews; dev and
   staging are ready to deploy by hand, and nothing in the factory deploys prod.
 - **Tests are seen red before green**, and follow `docs/TESTING.md`: unit-first .NET (DI, NSubstitute,
-  AutoFixture, coverage gates), Pester as the port's oracle, and Playwright as a smoke set with the
-  whole suite on demand. **Tests run locally before a PR, never in CI**: the repo has no test
-  workflows (Actions cost), and the PR description carries the local counts. The factory scripts are tested with Pester
-  (`Invoke-Pester factory/tests`) and the dashboard with a Playwright check against `simulate.ps1`.
+  AutoFixture, coverage gates) and Playwright as a smoke set with the whole suite on demand. Pester is
+  left only for the PowerShell kept until spec 16 (`setup-azure.ps1`, `setup-platform.ps1`) and the simulator.
+  **Tests run locally before a PR, never in CI**: the repo has no test workflows (Actions cost), and the
+  PR description carries the local counts.
 
 ## Commands
 
 ```powershell
-pwsh factory/scripts/serve.ps1               # dashboard on a random localhost port it prints; -Port N to fix one
-pwsh factory/scripts/idea.ps1 <owner/name|I-NNN> # CLI fallback for the dashboard's New idea: grill -> brief -> specs -> you approve
-pwsh factory/scripts/runner.ps1              # drains the Approved queue; serve.ps1 starts it for you (after step 2)
-Invoke-Pester factory/tests                  # control-plane, runner, idea-turn and serve tests (after steps 1-2)
-pwsh factory/tests/run-all.ps1               # the same plus the azure backend run, one process per Pester block in parallel
-pwsh factory/tests/run-all.ps1 -Tag Ported -NoAzure   # the ported commands' Pester blocks, on PowerShell and on .NET (FACTORY_IMPL)
-pwsh factory/tests/run-all.ps1 -Impl dotnet           # the whole Pester suite with the ported commands on .NET
-pwsh src/factory/test.ps1                    # the .NET port: unit + integration tests, tier counts, coverage gates
-dotnet run --project src/factory/Factory.AppHost   # the .NET dashboard (port 4317) and runner together, FACTORY_IMPL=dotnet
+dotnet build src/factory                     # builds the factory CLI: put artifacts/bin/Factory.Cli/debug on PATH as `factory`
+factory serve                                # dashboard on a random localhost port it prints; --port N to fix one
+factory idea <owner/name|I-NNN>              # CLI fallback for the dashboard's New idea: grill -> brief -> specs -> you approve
+factory runner                               # drains the Approved queue; the dashboard's watchdog starts it for you
+factory status                               # the board as text; every command is in the contract's "factory commands"
+pwsh src/factory/test.ps1                    # unit + integration tests, tier counts, coverage gates
+dotnet run --project src/factory/Factory.AppHost   # the dashboard (port 4317) and a runner together, under Aspire
 cd factory/tests/dashboard; npx playwright test --grep @smoke   # the dashboard smoke set; drop --grep for the whole suite
-$env:FACTORY_TEST_STATE='azure'; Invoke-Pester factory/tests/factory.Tests.ps1   # the same on the azure state backend (blob stub)
-pwsh factory/scripts/factory.ps1 state-migrate | allow-ip | prune   # FACTORY_STATE=azure: state in Blob storage (docs/STATE.md)
+bash factory/tests/linux/run.sh test         # in WSL: the same .NET suite on Linux (setup.sh once first)
+factory state-migrate | allow-ip | prune     # FACTORY_STATE=azure: state in Blob storage (docs/STATE.md)
 pwsh factory/scripts/setup-platform.ps1                # the shared platform previews run on, ~$18/month (docs/DEPLOY.md)
-pwsh factory/scripts/factory.ps1 canary -Full          # after template IaC changes: the whole stack, off the platform
+factory canary -Full                         # after template IaC changes: the whole stack, off the platform
 cd factory/infra/llm; terraform test; terraform apply  # the Foundry account cloud mode runs on (docs/FOUNDRY.md)
 pwsh factory/scripts/setup-azure.ps1 -SubscriptionId <id> -HcpOrg <org> [-CreateExternalTenant <sub> -ExternalResourceGroup <rg> | -ExternalTenantId <id>]  # one-time preview identities (docs/DEPLOY.md)
+Invoke-Pester factory/tests                  # the Pester left: setup-azure, setup-platform and the simulator
 ```

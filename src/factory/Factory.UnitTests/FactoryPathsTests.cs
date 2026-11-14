@@ -76,4 +76,23 @@ public class FactoryPathsTests
 
         Assert.Null(Paths(git, home: Path.Combine(Root, "state")).EnvFile);
     }
+
+    [Theory, AutoNSubData]
+    public void The_CLI_runner_and_server_are_built_beside_this_host_in_its_configuration(IGitClient git)
+    {
+        var bin = Path.Combine(Root, "artifacts", "bin");
+        var p = new FactoryPaths(Options.Create(new FactoryOptions { BaseDirectory = Path.Combine(bin, "Factory.Server", "release") + Path.DirectorySeparatorChar }), git);
+
+        Assert.Equal(Path.Combine(bin, "Factory.Cli", "release", "factory.dll"), p.CliDll);
+        Assert.Equal(Path.Combine(bin, "Factory.Runner", "release", "Factory.Runner.dll"), p.RunnerDll);
+        Assert.Equal(Path.Combine(bin, "Factory.Server", "release", "Factory.Server.dll"), p.ServerDll);
+    }
+
+    [Theory, AutoNSubData]
+    public void FACTORY_CLI_RUNNER_and_SERVER_win(IGitClient git)
+    {
+        var p = new FactoryPaths(Options.Create(new FactoryOptions { BaseDirectory = Root, Cli = "c.dll", Runner = "r.dll", Server = "s.dll" }), git);
+
+        Assert.Equal(("c.dll", "r.dll", "s.dll"), (p.CliDll, p.RunnerDll, p.ServerDll));
+    }
 }
