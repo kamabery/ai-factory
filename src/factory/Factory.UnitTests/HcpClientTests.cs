@@ -191,7 +191,7 @@ public class HcpClientTests
 
         Assert.Equal("HCP 409 on POST /workspaces/ws-1/actions/safe-delete: Latest workspace state is being processed; second",
             Assert.Throws<FactoryException>(() => Sut.SafeDelete("ws-1")).Message);
-        Assert.Null(_sent[0].Body);
+        Assert.Equal("", _sent[0].Body);   // no payload, though it carries the JSON:API content type
     }
 
     [Fact]
