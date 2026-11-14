@@ -41,7 +41,10 @@ public sealed class IdeaToolsTests : IDisposable
     {
         Assert.Equal(new ToolAnswer("the readme"), Call("read_file", """{"path":"README.md"}"""));
         Assert.Contains("# Spec:", Call("read_file", $$"""{"path":{{Json(Path.Combine(_files.TemplatesDir, "spec.md"))}}}""").Text);
-        foreach (var bad in new[] { Json(@"..\outside.txt"), Json("../outside.txt"), Json(_dir["outside.txt"]) })
+        List<string> outside = [Json("../outside.txt"), Json(_dir["outside.txt"])];
+        // Only Windows reads a backslash as a separator; elsewhere `..\outside.txt` names a file inside the target.
+        if (OperatingSystem.IsWindows()) outside.Add(Json(@"..\outside.txt"));
+        foreach (var bad in outside)
         {
             var r = Call("read_file", $$"""{"path":{{bad}}}""");
             Assert.True(r.IsError);
