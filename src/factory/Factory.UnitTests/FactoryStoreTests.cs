@@ -28,14 +28,29 @@ public class FactoryStoreTests
         _blobs.RenewLease("board", "lease-1").Returns(true);
     }
 
-    private FactoryStore Store(bool azure = false)
+    private readonly Factory.Data.Abstractions.IBoardRows _rows = Substitute.For<Factory.Data.Abstractions.IBoardRows>();
+
+    private FactoryStore Store(bool azure = false, bool database = false)
     {
         _settings.IsAzure.Returns(azure);
+        _settings.IsDatabase.Returns(database);
         var paths = Substitute.For<IFactoryPaths>();
         paths.Home.Returns(Home);
         paths.BoardPath.Returns(Path.Combine(Home, "board.json"));
         paths.EventsPath.Returns(Path.Combine(Home, "events.jsonl"));
-        return new FactoryStore(paths, _files, _mutex, _settings, Options.Create(_options), _blobs, _sync, _clock);
+        var db = new DatabaseStore(paths, _files, _rows, Substitute.For<IStateExport>());
+        return new FactoryStore(paths, _files, _mutex, _settings, Options.Create(_options), _blobs, _sync, _clock, db);
+    }
+
+    [Fact]
+    public void A_database_backend_opens_through_the_database_with_no_mutex_and_no_lease()
+    {
+        using (var s = Store(database: true).Open()) Assert.Equal(Factory.Core.Board.Empty().ToJsonString(), s.Board.ToJsonString());
+
+        Assert.Equal([Home], _files.Directories);
+        _rows.Received(1).Read();
+        _mutex.DidNotReceiveWithAnyArgs().Enter(default);
+        _blobs.DidNotReceiveWithAnyArgs().AcquireLease(default!, default);
     }
 
     private static string Board(params string[] stages) =>

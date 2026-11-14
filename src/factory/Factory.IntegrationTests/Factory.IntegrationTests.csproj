@@ -6,8 +6,11 @@
   <ItemGroup>
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="Testcontainers.MsSql" />
 
     <ProjectReference Include="..\Factory.Core\Factory.Core.csproj" />
+    <ProjectReference Include="..\Factory.Data\Factory.Data.csproj" />
     <ProjectReference Include="..\Factory.Store\Factory.Store.csproj" />
     <ProjectReference Include="..\Factory.Cli\Factory.Cli.csproj" />
     <ProjectReference Include="..\Factory.Runner\Factory.Runner.csproj" />

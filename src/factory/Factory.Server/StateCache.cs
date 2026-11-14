@@ -4,19 +4,28 @@ using Microsoft.Extensions.Options;
 
 namespace Factory.Server;
 
-public sealed class StateCache(IStateSettings settings, IStateSync sync, IOptions<ServerOptions> options, TimeProvider clock, ILogger<StateCache> log) : IStateCache
+/// <summary>
+/// Keeps the state files the dashboard polls fresh, at most once per FACTORY_STATE_POLL_SECONDS each: in azure from the
+/// container, with sqlite and sql by bringing the exports up to the database (contract, "State backends").
+/// </summary>
+public sealed class StateCache(
+    IStateSettings settings, IStateSync sync, IStateExport export, IOptions<ServerOptions> options, TimeProvider clock, ILogger<StateCache> log) : IStateCache
 {
     private readonly Dictionary<string, DateTimeOffset> _seen = [];
 
-    public void Board() => Throttled("board", () => sync.SyncBoard());
+    public void Board() => Throttled("board", () => { if (settings.IsDatabase) export.Export(); else sync.SyncBoard(); });
 
-    public void Events() => Throttled("events", () => sync.SyncEvents());
+    public void Events() => Throttled("events", () => { if (settings.IsDatabase) export.Export(); else sync.SyncEvents(); });
 
-    public void Job(string id) => Throttled($"job-{id}", () => sync.Pull($"jobs/{id}/"));
+    // A database backend's job files are on this machine already.
+    public void Job(string id)
+    {
+        if (settings.IsAzure) Throttled($"job-{id}", () => sync.Pull($"jobs/{id}/"));
+    }
 
     private void Throttled(string key, Action run)
     {
-        if (!settings.IsAzure) return;
+        if (!settings.IsAzure && !settings.IsDatabase) return;
         var now = clock.GetUtcNow();
         lock (_seen)
         {

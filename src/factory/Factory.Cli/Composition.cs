@@ -1,5 +1,7 @@
 using Factory.Cli.Abstractions;
 using Factory.Core.Abstractions;
+using Factory.Data;
+using Factory.Data.Abstractions;
 using Factory.Store;
 using Factory.Store.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
@@ -46,6 +48,8 @@ public static class Composition
             o.StateGroup = host.Get("FACTORY_STATE_RG");
             o.IpUrl = host.Get("FACTORY_IP_URL");
             o.RenewSeconds = host.Get("FACTORY_STATE_RENEW_SECONDS");
+            o.Db = host.Get("FACTORY_DB");
+            o.Sql = host.Get("FACTORY_SQL");
         });
         services.Configure<DeployOptions>(o =>
         {
@@ -76,6 +80,13 @@ public static class Composition
         services.AddHttpClient<IHcpClient, HcpClient>();
         services.AddSingleton<IStateSync, StateSync>();
         services.AddHttpClient<IStateFirewall, StateFirewall>(c => c.Timeout = TimeSpan.FromSeconds(15));
+        services.AddSingleton<IDbConnectionInfo, StateDbConnection>();
+        services.AddSingleton<FactoryDbs>();
+        services.AddSingleton<IBoardRows, EfBoardRows>();
+        services.AddSingleton<ILeaseRows, EfLeaseRows>();
+        services.AddSingleton<IStateLeases, StateLeases>();
+        services.AddSingleton<IStateExport, StateExport>();
+        services.AddSingleton<DatabaseStore>();
         services.AddSingleton<IBoardMutex, BoardMutex>();
         services.AddSingleton<IFactoryStore, FactoryStore>();
         services.AddSingleton<ICanary, CanaryCheck>();
@@ -124,6 +135,7 @@ public static class Composition
         services.AddSingleton<ICommand, LessonMarkCommand>();
         services.AddSingleton<ICommand, StateMigrateCommand>();
         services.AddSingleton<ICommand, StatePullCommand>();
+        services.AddSingleton<ICommand, StateImportCommand>();
         services.AddSingleton<ICommand, PruneCommand>();
         services.AddSingleton<ICommand, AllowIpCommand>();
         services.AddSingleton<ICommand, DiscardCommand>();

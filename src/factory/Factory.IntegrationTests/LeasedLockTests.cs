@@ -19,7 +19,7 @@ public sealed class LeasedLockTests(BlobStub stub) : IDisposable
     {
         var file = Path.Combine(home.Home, "runner.lock");
         var options = Options.Create(new StateOptions { RenewSeconds = renewSeconds });
-        return (new LeasedLock(file, "runner", home.Settings, home.Blobs, options), file);
+        return (new LeasedLock(file, "runner", new StateLeases(home.Settings, home.Blobs, null!), options), file);
     }
 
     private bool Leased() => stub.Blobs(_container)["locks/runner"]?["leased"]?.GetValue<bool>() == true;

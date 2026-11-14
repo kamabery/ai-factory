@@ -19,7 +19,7 @@ public sealed class AzureHome
         var settings = Settings = new StateSettings(opts, paths, new DotEnv(paths, Files));
         Blobs = new BlobClient(new HttpClient(), settings, new StateToken(opts, Files, new ProcessRunner(), new HttpClient(), TimeProvider.System), TimeProvider.System);
         Sync = new StateSync(paths, Files, Blobs, settings, TimeProvider.System);
-        Store = new FactoryStore(paths, Files, new BoardMutex(paths), settings, opts, Blobs, Sync, TimeProvider.System);
+        Store = new FactoryStore(paths, Files, new BoardMutex(paths), settings, opts, Blobs, Sync, TimeProvider.System, null!);
     }
 
     public string Home { get; }

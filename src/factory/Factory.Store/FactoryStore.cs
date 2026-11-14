@@ -13,13 +13,15 @@ namespace Factory.Store;
 /// </summary>
 public sealed class FactoryStore(
     IFactoryPaths paths, IFileStore files, IBoardMutex mutex, IStateSettings settings, IOptions<StateOptions> options,
-    IBlobClient blobs, IStateSync sync, TimeProvider clock) : IFactoryStore
+    IBlobClient blobs, IStateSync sync, TimeProvider clock, DatabaseStore database) : IFactoryStore
 {
     public string TenantId => "default";
 
     public IBoardSession Open(bool refresh = true)
     {
         files.EnsureDirectory(paths.Home);   // factory.ps1 creates FACTORY_HOME on every command
+        // sqlite and sql: no mutex and no lease; each save is a version-checked transaction instead.
+        if (settings.IsDatabase) return database.Open(refresh);
         var seconds = Seconds(options.Value.BoardLockSeconds) ?? 30;
         var (lease, board) = Lock(seconds, Seconds(options.Value.StateLockSeconds) ?? seconds, refresh);
         // Re-taking it after a gate or a clone waits as long as it takes; in azure the lease waits 600 s.

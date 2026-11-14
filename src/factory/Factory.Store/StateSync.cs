@@ -113,14 +113,16 @@ public sealed partial class StateSync(IFactoryPaths paths, IFileStore files, IBl
         m.Save();
     }
 
-    public bool SyncEvents()
+    public bool SyncEvents() => settings.IsAzure && RefreshEvents(force: false);
+
+    /// <param name="force">Rebuild events.jsonl even when this month's blob has not changed.</param>
+    private bool RefreshEvents(bool force)
     {
-        if (!settings.IsAzure) return false;
         var m = Manifest;
         var cur = Month(clock.GetUtcNow());
         var etag = SyncManifest.Str(m[cur]?["etag"]);
         var r = blobs.Read(cur, string.IsNullOrEmpty(etag) ? null : etag);
-        if (m["events/"] is not null && (r is null || r.NotModified)) return false;
+        if (!force && m["events/"] is not null && (r is null || r.NotModified)) return false;
         var months = blobs.List("events/").OrderBy(b => b.Name, StringComparer.Ordinal).ToList();
         m.Set("events/", new JsonObject { ["etag"] = "listed" });
         if (months.Count == 0) { m.Save(); return false; }
@@ -206,5 +208,15 @@ public sealed partial class StateSync(IFactoryPaths paths, IFileStore files, IBl
         }
         m.Save();
         return new PruneResult(used, cap, deleted, freed);
+    }
+
+    public void Download()
+    {
+        var board = blobs.Read("board.json") ?? throw new FactoryException("state-import refused: the container has no board.json");
+        files.WriteAtomic(paths.BoardPath, board.Bytes!);
+        Manifest.Set("board.json", SyncManifest.Stamp(files.Stat(paths.BoardPath)!, board.ETag));
+        Manifest.Save();
+        Pull();
+        RefreshEvents(force: true);
     }
 }

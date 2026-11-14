@@ -205,4 +205,35 @@ public class StateSyncTests
         Assert.Equal(new PruneResult(25, 25, 0, 0), _sut.Prune([]));
         _blobs.DidNotReceiveWithAnyArgs().Delete(default!);
     }
+
+    private static BlobItem Item(string name) => new(name, null, true, 1, DateTime.UtcNow, "e-" + name, false);
+
+    [Fact]
+    public void Download_takes_the_container_s_board_events_and_files_and_writes_nothing_to_it()
+    {
+        _files.Put(P("board.json"), "stale");
+        _files.Put(P("events.jsonl"), "stale\n");
+        _blobs.Read("board.json").Returns(new BlobRead(false, "b1", B("{\"version\":2}")));
+        _blobs.Read("ideas/I-001/idea.md").Returns(new BlobRead(false, "i1", B("idea")));
+        _blobs.Read("events/2026-10.jsonl").Returns(new BlobRead(false, "o1", B("{\"n\":1}\n")));
+        _blobs.Read("events/2026-11.jsonl", Arg.Any<string?>()).Returns(new BlobRead(false, "n1", B("{\"n\":2}\n")));
+        _blobs.List("").Returns([Item("board.json"), Item("ideas/I-001/idea.md"), Item("events/2026-10.jsonl"), Item("locks/board")]);
+        _blobs.List("events/").Returns([Item("events/2026-11.jsonl"), Item("events/2026-10.jsonl")]);
+
+        _sut.Download();
+
+        Assert.Equal("{\"version\":2}", _files.Text(P("board.json")));
+        Assert.Equal("idea", _files.Text(P("ideas/I-001/idea.md")));
+        Assert.Equal("{\"n\":1}\n{\"n\":2}\n", _files.Text(P("events.jsonl")));
+        _blobs.DidNotReceiveWithAnyArgs().Write(default!, default!, default, default);
+        _blobs.DidNotReceiveWithAnyArgs().Append(default!, default!);
+        _blobs.DidNotReceiveWithAnyArgs().Delete(default!, default);
+        _blobs.DidNotReceiveWithAnyArgs().AcquireLease(default!, default);
+    }
+
+    [Fact]
+    public void Download_refuses_a_container_with_no_board()
+    {
+        Assert.Equal("state-import refused: the container has no board.json", Assert.Throws<FactoryException>(() => _sut.Download()).Message);
+    }
 }

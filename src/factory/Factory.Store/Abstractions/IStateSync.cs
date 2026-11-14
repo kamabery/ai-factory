@@ -37,4 +37,10 @@ public interface IStateSync
     /// board (last, so an interrupted migrate can run again). Returns how many blobs it wrote.
     /// </summary>
     int Migrate();
+
+    /// <summary>
+    /// state-import -Azure: the whole container into FACTORY_HOME as a pull would take it (board.json, events.jsonl rebuilt
+    /// from every month, every synced file), reading only. Refuses a container with no board.json.
+    /// </summary>
+    void Download();
 }

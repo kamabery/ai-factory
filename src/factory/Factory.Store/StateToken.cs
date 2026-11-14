@@ -18,8 +18,11 @@ public sealed class StateToken(IOptions<StateOptions> options, IFileStore files,
 {
     private const string Resource = "https://storage.azure.com";
 
-    /// <summary>az's launcher: a batch file on Windows, which a process start finds only by its full name.</summary>
-    public static readonly string AzProgram = OperatingSystem.IsWindows() ? "az.cmd" : "az";
+    /// <summary>
+    /// az's launcher: a batch file on Windows, which runs only by its full name (started as plain az.cmd it prints
+    /// "Failed to load python executable."), so it is looked up on PATH; az elsewhere.
+    /// </summary>
+    public static readonly string AzProgram = OperatingSystem.IsWindows() ? ToolPath.Find("az.cmd", Environment.GetEnvironmentVariable("PATH")) : "az";
 
     private (string Token, long ExpiresOn)? _token;
 

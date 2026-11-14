@@ -1,4 +1,6 @@
 using Factory.Core.Abstractions;
+using Factory.Data;
+using Factory.Data.Abstractions;
 using Factory.Server.Abstractions;
 using Factory.Store;
 using Factory.Store.Abstractions;
@@ -40,6 +42,8 @@ public static class ServerComposition
             o.AzCmd = Get("FACTORY_AZ_CMD");
             o.IdentityEndpoint = Get("IDENTITY_ENDPOINT");
             o.IdentityHeader = Get("IDENTITY_HEADER");
+            o.Db = Get("FACTORY_DB");
+            o.Sql = Get("FACTORY_SQL");
         });
         services.Configure<ServerOptions>(o =>
         {
@@ -64,6 +68,11 @@ public static class ServerComposition
         services.AddHttpClient<IStateToken, StateToken>();
         services.AddHttpClient<IBlobClient, BlobClient>(c => c.Timeout = TimeSpan.FromSeconds(100));
         services.AddSingleton<IStateSync, StateSync>();
+        services.AddSingleton<IDbConnectionInfo, StateDbConnection>();
+        services.AddSingleton<FactoryDbs>();
+        services.AddSingleton<IBoardRows, EfBoardRows>();
+        services.AddSingleton<IPause, ThreadPause>();
+        services.AddSingleton<IStateExport, StateExport>();
         services.AddSingleton<IFactoryLauncher, FactoryLauncher>();
 
         services.AddSingleton<IFactoryCalls, FactoryCalls>();

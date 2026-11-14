@@ -7,7 +7,7 @@ public sealed class CommandArgs
 {
     /// <summary>factory.ps1's [switch] parameters; every other -Name takes a value.</summary>
     public static readonly IReadOnlySet<string> Switches =
-        new HashSet<string>(["Failed", "Json", "Force", "Full", "NeedsCanary"], StringComparer.OrdinalIgnoreCase);
+        new HashSet<string>(["Failed", "Json", "Force", "Full", "NeedsCanary", "Azure"], StringComparer.OrdinalIgnoreCase);
 
     /// <summary>factory.ps1's [string] parameters. Any other token starting with '-' is a positional value (a rework note can).</summary>
     public static readonly IReadOnlySet<string> Values = new HashSet<string>(

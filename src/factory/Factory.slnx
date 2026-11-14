@@ -2,6 +2,7 @@
   <Project Path="Factory.AppHost/Factory.AppHost.csproj" />
   <Project Path="Factory.Cli/Factory.Cli.csproj" />
   <Project Path="Factory.Core/Factory.Core.csproj" />
+  <Project Path="Factory.Data/Factory.Data.csproj" />
   <Project Path="Factory.IntegrationTests/Factory.IntegrationTests.csproj" />
   <Project Path="Factory.Runner/Factory.Runner.csproj" />
   <Project Path="Factory.Server/Factory.Server.csproj" />

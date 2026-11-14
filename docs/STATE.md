@@ -147,3 +147,31 @@ container lacks once its last command has finished.
 
 Set `FACTORY_STATE=local` (or remove it). `.factory-runs/` is a complete cache, so the factory carries
 on from the last state this machine saw. Work done on other machines since then stays in the container.
+
+## Moving the board into a database (`sqlite` or `sql`)
+
+Spec 13 adds two backends that keep the board and events in a database, with `board.json` and
+`events.jsonl` as exports ([Database](FACTORY-CONTRACT.md#database-sqlite-and-sql)). The code is
+`Factory.Data` (the EF Core model and migrations) and `Factory.Store` (`DatabaseStore`, `StateExport`).
+
+**sqlite, one machine.** Set `FACTORY_STATE=sqlite` (the database is `<FACTORY_HOME>/factory.db` unless
+`FACTORY_DB` names another file), stop the dashboard and the runner, then move the board in once:
+
+```powershell
+factory state-import          # from FACTORY_HOME's board.json and events.jsonl (a local board)
+factory state-import -Azure   # from the container at FACTORY_BLOB_URL (an azure board), reading only
+```
+
+It prints `imported <i> ideas, <j> jobs, <e> events` and `check: board.json and events.jsonl match the
+database`, and rolls back if they don't. Until it has run, every other command refuses with "run factory
+state-import". With `-Azure` it also downloads every artifact into `FACTORY_HOME`, so keep
+`FACTORY_BLOB_URL` set for that one command.
+
+**sql (Azure SQL).** `FACTORY_STATE=sql` and `FACTORY_SQL=<connection string>`, keyless through Entra
+(`Authentication=Active Directory Default`). Provisioning it comes with cloud mode (spec 18); until then
+the artifacts stay in each machine's `FACTORY_HOME`, so run one machine per database.
+
+**Rollback.** To `local`: set `FACTORY_STATE=local`. The exports are a whole `board.json` and
+`events.jsonl`, so the file backend carries on with everything done on the database. To `azure`:
+`state-import -Azure` never writes to the container, so it holds the board as it was at the import; work
+done on the database since then is in the exports, not the container.
