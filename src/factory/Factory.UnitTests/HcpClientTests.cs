@@ -217,4 +217,22 @@ public class HcpClientTests
 
         Assert.Equal("HCP GET http://logs/plan-1: gone", Assert.Throws<FactoryException>(() => Sut.RunLog("ws-1")).Message);
     }
+
+    [Fact]
+    public void A_POST_with_no_body_still_says_it_is_JSON_API_as_HCP_requires()
+    {
+        string? type = null;
+        _env.Get("HCP_TOKEN").Returns("tok");
+        _env.Get("HCP_API_URL").Returns("http://hcp/");
+        _http.Reply = r =>
+        {
+            type = r.Content?.Headers.ContentType?.MediaType;
+            return new HttpResponseMessage(HttpStatusCode.NoContent);
+        };
+
+        Sut.SafeDelete("ws-1");
+
+        // HCP answers 415 "content-type must be application/vnd.api+json" otherwise (spec 14's live canary teardown).
+        Assert.Equal("application/vnd.api+json", type);
+    }
 }

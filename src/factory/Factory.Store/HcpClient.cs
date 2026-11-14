@@ -128,9 +128,10 @@ public sealed class HcpClient(HttpClient http, IDotEnv dotEnv, ISecrets secrets)
         var api = (dotEnv.Get("HCP_API_URL") ?? "https://app.terraform.io").TrimEnd('/');
         using var req = new HttpRequestMessage(method, $"{api}/api/v2{path}");
         req.Headers.TryAddWithoutValidation("Authorization", $"Bearer {token}");
-        if (body is not null)
+        // A POST with no body (safe-delete) still says JSON:API: HCP answers 415 without the content type.
+        if (body is not null || method == HttpMethod.Post)
         {
-            req.Content = new StringContent(body.ToJsonString(), Encoding.UTF8);
+            req.Content = new StringContent(body?.ToJsonString() ?? "", Encoding.UTF8);
             req.Content.Headers.ContentType = new("application/vnd.api+json");
         }
         HttpResponseMessage res;
