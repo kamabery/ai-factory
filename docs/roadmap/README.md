@@ -34,6 +34,7 @@ are merged.
 | 13 | [EF Core store](13-ef-core-store.md) | 1 | 12 | 1–2 sessions |
 | 14 | [`factory init` / `doctor`, GitHub App, secrets](14-init-doctor-github-app.md) | 2 | 13 | 2–3 sessions |
 | 15 | [Turn-key acceptance and the public repo](15-turnkey-public.md) | 2 | 14, decision D1 | 1–2 sessions |
+| 20 | [Retire the last PowerShell](20-retire-last-powershell.md) | 2 | 12 | 1–2 sessions |
 | 17 | [React dashboard](17-react-dashboard.md) | 4 | 12 | 2–3 sessions |
 | 16 | [`factory init previews`](16-init-previews.md) | 3 | 09, 14 | 2 sessions |
 | 18 | [Cloud mode on Container Apps](18-cloud-mode.md) | 5 | 13, 16, 17 | 2–3 sessions |
@@ -43,13 +44,18 @@ what it needs from these specs.
 
 ```text
 00 → 19 → 01 → 02 → 03 → 04 → 05 → 06 → 11 → 07 → 08 → 10 → 09 → 12 → 13 → 14 → 15
-                                                            │    │         └→ 16 ─┐
-                                                            │    └→ 17 ───────────┴→ 18
+                                                            │    │    │         └→ 16 ─┐
+                                                            │    │    └→ 17 ───────────┴→ 18
+                                                            │    └→ 20
                                                             └──────────────┘
 ```
 
-Arrows are dependencies (16 needs 09 and 14). The run order is the table's: 15, then 17, then the
-devops block, 16 → 18.
+Arrows are dependencies (16 needs 09 and 14). The run order is the table's: 15, then 20, then 17, then
+the devops block, 16 → 18.
+
+**No PowerShell at the end.** The goal of the replatform is a factory with no PowerShell. Spec 12 retired the control
+plane and Pester; 20 retires the rest (the gate's shell, the simulator, `test.ps1`, the tests' fake CLIs); 16 replaces
+the setup scripts, the last of it. Move 20 ahead of 15 if the public release must not need PowerShell either.
 
 **Previews last.** A deployable job spends about 30 minutes in its preview deploy, and a template
 change costs a `canary -Full`, so the port and the core product are proven without previews and the
