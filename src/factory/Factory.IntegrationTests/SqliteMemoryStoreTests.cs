@@ -11,6 +11,7 @@ public sealed class SqliteMemoryStoreTests : StoreContract
 
     public SqliteMemoryStoreTests()
     {
+        Factory.Data.SqliteNative.Init();
         _keeper = new SqliteConnection($"Data Source={_db}");
         _keeper.Open();
     }

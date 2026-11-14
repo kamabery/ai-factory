@@ -11,6 +11,7 @@ public sealed class SqliteMemoryBoardRowsTests : BoardRowsContract, IDisposable
     public SqliteMemoryBoardRowsTests()
     {
         Db = new TestDb(DbProvider.Sqlite, $"Data Source=file:m{Guid.NewGuid():N}?mode=memory&cache=shared");
+        Factory.Data.SqliteNative.Init();
         _keeper = new SqliteConnection(Db.ConnectionString);
         _keeper.Open();
     }

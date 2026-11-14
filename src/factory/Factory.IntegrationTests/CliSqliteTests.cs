@@ -12,6 +12,7 @@ public sealed class CliSqliteTests : CliDatabaseContract
         Run("event", "-Kind", "note", "-Detail", "x");
 
         Assert.True(File.Exists(Path.Combine(Home, "factory.db")));
+        Factory.Data.SqliteNative.Init();
         using var c = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={Path.Combine(Home, "factory.db")};Pooling=False");
         c.Open();
         using var q = c.CreateCommand();
@@ -36,7 +37,8 @@ public sealed class CliSqliteTests : CliDatabaseContract
         var (code, _, err) = RunWith(("FACTORY_DB", Dir.Path), "status");
 
         Assert.Equal(1, code);
-        Assert.StartsWith("factory: state: the database refused: SQLite Error 14: 'unable to open database file'", err, StringComparison.Ordinal);
+        // The wording is SQLite's: e_sqlite3 says error 14, the OS's libsqlite3 (Ubuntu 20.04) error 10, disk I/O.
+        Assert.StartsWith("factory: state: the database refused: SQLite Error ", err, StringComparison.Ordinal);
         Assert.Single(err.TrimEnd('\n').Split('\n'));
     }
 

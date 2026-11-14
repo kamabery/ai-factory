@@ -12,6 +12,7 @@ public sealed class FactoryDbs(IDbConnectionInfo info)
 
     public FactoryDb Open()
     {
+        if (info.Provider == DbProvider.Sqlite) SqliteNative.Init();
         FactoryDb db = info.Provider == DbProvider.Sqlite
             ? new SqliteFactoryDb(new DbContextOptionsBuilder<SqliteFactoryDb>().UseSqlite(info.ConnectionString).Options)
             : new SqlServerFactoryDb(new DbContextOptionsBuilder<SqlServerFactoryDb>().UseSqlServer(info.ConnectionString).Options);
