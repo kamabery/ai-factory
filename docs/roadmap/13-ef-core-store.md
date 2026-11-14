@@ -1,10 +1,11 @@
 # 13: EF Core store
 
-**Status:** in progress (2026-11-14). Done: contract, Factory.Data, the sqlite/sql backends, state-import; .NET 912
-unit and 171 integration green on Windows with the gates; Playwright 41/41 on the file backend and on sqlite; the live
-board (18 ideas, 19 jobs, 1476 events) imported from azure with an exact match; J-901 on sqlite ready in one round,
-$1.71, eval good (todoapp-two PR #18). Left: WSL run, final test.ps1, PR. A sqlite command costs about 1.3 s against
-0.2 s (EF's cold query compile). **Branch:** `feature/13-ef-core`. **Depends on:** 12.
+**Status:** done, in PR #22 (2026-11-14). .NET 912 unit and 175 integration, gates green, on Windows and in WSL
+(174 + 1 Windows-only skip); Playwright 41/41 on the file backend and 41/41 on sqlite, the dashboard unchanged. The
+live azure board (18 ideas, 19 jobs, 1,476 events) imported with an exact match and a sample diff; J-901 ran on sqlite,
+deploys off: one round, $1.71, eval good (todoapp-two PR #18). Found and fixed on the way: az.cmd started by its full
+path (the azure backend's token refresh), and SQLite on glibc older than 2.33 (the OS's libsqlite3). Known cost: a
+sqlite command takes about 1.3 s against 0.2 s, EF's cold query compile. **Branch:** `feature/13-ef-core`. **Depends on:** 12.
 
 ## Goal
 
