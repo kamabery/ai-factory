@@ -85,7 +85,7 @@ integration test that covers it. Spec 16 does the same for the setup scripts' Pe
 
 | Gate | Where | Bar |
 | --- | --- | --- |
-| Coverage (Microsoft.Testing.Extensions.CodeCoverage, line, unit and integration merged; `src/factory/test.ps1`) | before every PR, from spec 01 | **90%** on `Factory.Core`, **70%** on every other project with logic. `Factory.AppHost`, `Factory.ServiceDefaults` and `Factory.TestHost` (the tests' stubs) are excluded, as is source-generator output (`*.g.cs`, such as `[GeneratedRegex]`'s) |
+| Coverage (Microsoft.Testing.Extensions.CodeCoverage, line, unit and integration merged; `src/factory/test.ps1`) | before every PR, from spec 01 | **90%** on `Factory.Core`, **70%** on every other project with logic. `Factory.AppHost`, `Factory.ServiceDefaults` and `Factory.TestHost` (the tests' stubs) are excluded, as is generated code: source-generator output (`*.g.cs`, such as `[GeneratedRegex]`'s) and `dotnet ef` migrations (`Migrations/`) |
 | Mutation score (Stryker.NET) | on demand, `Factory.Core` | not a gate; each port spec records the score in its Status line |
 | Tier counts | before every PR | printed by `test.ps1`, not a gate |
 

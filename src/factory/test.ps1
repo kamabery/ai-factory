@@ -48,8 +48,8 @@ foreach ($f in Get-ChildItem $out -Recurse -Filter '*.cobertura.xml') {
         if ($pkg.name -in $excluded -or $pkg.name -like '*Tests') { continue }
         if (-not $lines.ContainsKey($pkg.name)) { $lines[$pkg.name] = @{} }
         foreach ($cls in $pkg.classes.class) {
-            # Source generators' output ([GeneratedRegex]'s RegexGenerator.g.cs) is not code we write or test.
-            if ($cls.filename -like '*.g.cs') { continue }
+            # Source generators' output ([GeneratedRegex]'s RegexGenerator.g.cs) and dotnet ef's migrations are not code we write.
+            if ($cls.filename -like '*.g.cs' -or $cls.filename -match '[\\/]Migrations[\\/]') { continue }
             foreach ($l in $cls.lines.line) {
                 $key = "$($cls.filename):$($l.number)"
                 $lines[$pkg.name][$key] = [bool]($lines[$pkg.name][$key]) -or ([int]$l.hits -gt 0)

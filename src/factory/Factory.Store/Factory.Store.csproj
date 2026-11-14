@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="..\Factory.Core\Factory.Core.csproj" />
+    <ProjectReference Include="..\Factory.Data\Factory.Data.csproj" />
     <PackageReference Include="Microsoft.Extensions.Options" />
   </ItemGroup>
 </Project>
