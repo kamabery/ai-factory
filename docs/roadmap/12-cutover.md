@@ -1,6 +1,14 @@
 # 12: Cutover, retire PowerShell
 
-**Status:** not started. **Branch:** `feature/12-cutover`. **Depends on:** 04–11.
+**Status:** built on its branch (2026-11-14), proven on Windows and Linux, deploys off. **Branch:** `feature/12-cutover`.
+**Depends on:** 04–11. The `factory` CLI is the control plane (`factory runner`, `serve`, `idea` replace the scripts; the
+plugin and its hooks call it by name); the canary fingerprint hashes the .NET deploy code; `FACTORY_GATE_SHELL` names
+the gate's shell, the one PowerShell a job still needs. Pester is retired: [12-pester-mapping.md](12-pester-mapping.md)
+maps all 387 cases (18 new tests); the stubs are `Factory.TestHost`. Kept until 16: `setup-azure.ps1`,
+`setup-platform.ps1`, `env-file.ps1` and their Pester; `simulate.ps1` stays for Playwright. Suites: .NET 862 unit, 100
+integration, gates green, on Windows and in WSL; Playwright 41/41; Pester left 30/30. Live proof: J-001 on
+kamabery/todoapp-two (PR #17) ran in WSL with no pwsh on PATH, a local state dir and no HCP_ORG; round 1 escalated on
+a missing git identity (an environment gap, logged as a factory lesson), round 2 reached Ready, $2.37; eval recorded.
 
 ## Scope
 

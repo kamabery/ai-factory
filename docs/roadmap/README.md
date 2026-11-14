@@ -4,10 +4,10 @@ This turns the approved replatform roadmap (2026-10-23, revised 2026-11-08) into
 session can pick up one at a time. The rationale and the decisions table live in
 `C:\Users\kamab\.claude\plans\grill-me-on-the-silly-yao.md`; this folder is the work.
 
-**Where things stand (2026-11-13):** specs 00, 19, 01–11 are merged (09 in PR #19). Every `factory.ps1` command,
-the runner, the dashboard server and idea turns run on .NET, and `factory.ps1`, `runner.ps1`, `serve.ps1` and
-`idea-turn.ps1` only forward to it, so cutover (12) is under way on `feature/12-cutover`. macOS is out of scope. Last
-green suites: .NET 830 unit, 78 integration; Pester on .NET (`-Impl dotnet`) 439 local, 235 azure. Reordered 2026-11-09 so
+**Where things stand (2026-11-14):** specs 00, 19 and 01–11 are merged (09 in PR #19). Spec 12, cutover, is built
+on `feature/12-cutover` and proven on Windows and Linux with deploys off: the factory is the .NET `factory` CLI, and the
+PowerShell control plane and Pester are gone. Next is 13 (EF Core store). macOS is out of scope. Last green suites:
+.NET 862 unit, 100 integration; Playwright 41; Pester (setup scripts and the simulator, until 16) 30. Reordered 2026-11-09 so
 previews come last (see below).
 
 ## Run order
