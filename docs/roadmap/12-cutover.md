@@ -1,6 +1,6 @@
 # 12: Cutover, retire PowerShell
 
-**Status:** built on its branch (2026-11-14), proven on Windows and Linux, deploys off. **Branch:** `feature/12-cutover`.
+**Status:** done, merged in PR #20 (2026-11-14). Proven on Windows and Linux, deploys off. **Branch:** `feature/12-cutover`.
 **Depends on:** 04–11. The `factory` CLI is the control plane (`factory runner`, `serve`, `idea` replace the scripts; the
 plugin and its hooks call it by name); the canary fingerprint hashes the .NET deploy code; `FACTORY_GATE_SHELL` names
 the gate's shell, the one PowerShell a job still needs. Pester is retired: [12-pester-mapping.md](12-pester-mapping.md)
