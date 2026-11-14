@@ -1,6 +1,6 @@
 # 13: EF Core store
 
-**Status:** done, in PR #22 (2026-11-14). .NET 912 unit and 175 integration, gates green, on Windows and in WSL
+**Status:** merged in PR #22 (2026-11-14). .NET 912 unit and 175 integration, gates green, on Windows and in WSL
 (174 + 1 Windows-only skip); Playwright 41/41 on the file backend and 41/41 on sqlite, the dashboard unchanged. The
 live azure board (18 ideas, 19 jobs, 1,476 events) imported with an exact match and a sample diff; J-901 ran on sqlite,
 deploys off: one round, $1.71, eval good (todoapp-two PR #18). Found and fixed on the way: az.cmd started by its full

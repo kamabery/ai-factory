@@ -4,8 +4,8 @@ This turns the approved replatform roadmap (2026-10-23, revised 2026-11-08) into
 session can pick up one at a time. The rationale and the decisions table live in
 `C:\Users\kamab\.claude\plans\grill-me-on-the-silly-yao.md`; this folder is the work.
 
-**Where things stand (2026-11-14):** specs 00, 19 and 01–12 are merged (12 in PR #20): the factory is the .NET
-`factory` CLI, and the PowerShell control plane and Pester are gone. 13 (EF Core store) is done, in PR #22; next is 14
+**Where things stand (2026-11-14):** specs 00, 19 and 01–13 are merged (13 in PR #22): the factory is the .NET
+`factory` CLI, and the PowerShell control plane and Pester are gone. Next is 14
 (`factory init` / `doctor`). macOS is out of scope. Last green suites: .NET 912 unit, 175 integration (Windows and WSL);
 Playwright 41 (file and sqlite); Pester (setup scripts and the simulator, until 16) 30. Reordered 2026-11-09 so
 previews come last (see below).
