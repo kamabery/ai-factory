@@ -28,7 +28,7 @@ public class DeployServiceTests : CommandTestBase
     public DeployServiceTests()
     {
         _pause = new FakePause(Clock);
-        _credential.Token().Returns("pat");
+        _credential.Token(Arg.Any<string?>()).Returns("pat");
         foreach (var (k, v) in new[] { ("AZURE_GH_CLIENT_ID", "gh-app"), ("AZURE_TENANT_ID", "tenant"), ("AZURE_SUBSCRIPTION_ID", "sub"), ("HCP_ORG", "org"), ("HCP_TEAM_TOKEN", "team") })
             DotEnv.Get(k).Returns(v);
         _tools.Gh(default!, default, default).ReturnsForAnyArgs(new ToolResult(0, ""));

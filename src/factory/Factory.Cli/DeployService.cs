@@ -141,7 +141,7 @@ public sealed partial class DeployService(
         // reaches gh through its environment, the team token through stdin: neither is on a command line.
         var teamToken = secrets.Get(SecretNames.HcpTeamToken) ?? throw new FactoryException("HCP_TEAM_TOKEN is not set in .env");
         var s = tools.Gh(["secret", "set", "TF_API_TOKEN", "--env", "preview", "--repo", target], teamToken,
-            new Dictionary<string, string?> { ["GH_TOKEN"] = credential.Token() });
+            new Dictionary<string, string?> { ["GH_TOKEN"] = credential.Token(target.Split('/')[0]) });
         if (s.Code != 0)
             throw new FactoryException($"gh secret set failed: {s.Out}{(Http403().IsMatch(s.Out) ? $"; {GitHubErrors.PatNeeds("secrets=write")}" : "")}");
 
