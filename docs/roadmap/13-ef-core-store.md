@@ -1,6 +1,10 @@
 # 13: EF Core store
 
-**Status:** not started. **Branch:** `feature/13-ef-core`. **Depends on:** 12.
+**Status:** in progress (2026-11-14). Done: contract, Factory.Data, the sqlite/sql backends, state-import; .NET 912
+unit and 171 integration green on Windows with the gates; Playwright 41/41 on the file backend and on sqlite; the live
+board (18 ideas, 19 jobs, 1476 events) imported from azure with an exact match; J-901 on sqlite ready in one round,
+$1.71, eval good (todoapp-two PR #18). Left: WSL run, final test.ps1, PR. A sqlite command costs about 1.3 s against
+0.2 s (EF's cold query compile). **Branch:** `feature/13-ef-core`. **Depends on:** 12.
 
 ## Goal
 
