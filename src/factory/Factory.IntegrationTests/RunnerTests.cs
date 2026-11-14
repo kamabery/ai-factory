@@ -23,9 +23,13 @@ public sealed class RunnerTests : IDisposable
         public long Cap => 0;
         public string? Account => null;
         public string Group => "";
+        public bool IsDatabase => false;
+        public bool IsSql => false;
+        public string? DbPath => null;
+        public string? SqlConnection => null;
     }
 
-    private RunnerLock Lock() => new(Paths(), new LocalState(), null!, Options.Create(new StateOptions()));
+    private RunnerLock Lock() => new(Paths(), new StateLeases(new LocalState(), null!, null!), Options.Create(new StateOptions()));
 
     private string LockFile => Path.Combine(_dir["state"], "runner.lock");
 

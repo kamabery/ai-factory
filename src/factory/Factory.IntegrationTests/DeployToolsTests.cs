@@ -101,8 +101,7 @@ public sealed class DeployToolsTests : IDisposable
         var paths = Paths(home);
         var state = Options.Create(new StateOptions());
         var settings = new StateSettings(state, paths, new DotEnv(paths, new FileStore()));
-        var sut = new CanaryLock(paths, settings, new BlobClient(new HttpClient(), settings,
-            new StateToken(state, new FileStore(), new ProcessRunner(), new HttpClient(), TimeProvider.System), TimeProvider.System), state);
+        var sut = new CanaryLock(paths, new StateLeases(settings, null!, null!), state);
         var file = Path.Combine(home, "canary.lock");
 
         using (var held = sut.TryTake(out var other))

@@ -16,7 +16,7 @@ namespace Factory.Cli;
 /// turn to chat.json and its cost to session.json. Exit 2: no such session; 3: a turn is already running.
 /// </summary>
 public sealed class IdeaTurnCommand(
-    IdeaFiles files, IFactoryPaths paths, ILlmProvider provider, IDotEnv dotEnv, IStateSettings state, IStateSync sync, IBlobClient blobs,
+    IdeaFiles files, IFactoryPaths paths, ILlmProvider provider, IDotEnv dotEnv, IStateSettings state, IStateSync sync, IStateLeases leases,
     IOptions<StateOptions> stateOptions, IIdeaClaude claude, CliEnvironment host) : IStandaloneCommand
 {
     public const string DefaultModel = "claude-opus-5-5";
@@ -34,7 +34,7 @@ public sealed class IdeaTurnCommand(
             return 2;
         }
         var dir = files.Dir(id);
-        using var held = new LeasedLock(Path.Combine(dir, "turn.lock"), $"turn-{id}", state, blobs, stateOptions).TryTake();
+        using var held = new LeasedLock(Path.Combine(dir, "turn.lock"), $"turn-{id}", leases, stateOptions).TryTake();
         if (held is null)
         {
             // A live local holder keeps turn.lock; a lease held elsewhere leaves none behind.

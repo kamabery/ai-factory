@@ -24,7 +24,7 @@ public class CompositionTests
             ["add-spec", "allow-ip", "approve", "block", "canary", "canary-destroy", "check-target", "checkout", "clone-target", "deploy", "deploy-fix", "deploy-log",
              "destroy", "discard", "edit-spec", "eval", "event", "feedback", "gate", "gate-check", "idea-abandon", "idea-done", "lesson", "lesson-mark", "list-repos",
              "merge", "new-idea", "next", "provenance", "prune", "publish", "purge", "qa-login", "read-decision", "read-reviews", "redeploy", "resume", "rework",
-             "set-cost", "set-review", "set-stage", "state-migrate", "state-pull", "status", "sweep", "sync-prs"],
+             "set-cost", "set-review", "set-stage", "state-import", "state-migrate", "state-pull", "status", "sweep", "sync-prs"],
             provider.GetServices<ICommand>().Select(c => c.Name).Order());
     }
 
@@ -71,7 +71,7 @@ public class CompositionTests
         {
             ["FACTORY_STATE"] = "azure", ["FACTORY_BLOB_URL"] = "u", ["FACTORY_STATE_CAP"] = "9", ["FACTORY_STATE_TOKEN"] = "t",
             ["FACTORY_LOCAL_DIR"] = "l", ["FACTORY_BOARD_LOCK_SECONDS"] = "1", ["FACTORY_STATE_LOCK_SECONDS"] = "2",
-            ["FACTORY_AZ_CMD"] = "a", ["IDENTITY_ENDPOINT"] = "ie", ["IDENTITY_HEADER"] = "ih",
+            ["FACTORY_AZ_CMD"] = "a", ["IDENTITY_ENDPOINT"] = "ie", ["IDENTITY_HEADER"] = "ih", ["FACTORY_DB"] = "d", ["FACTORY_SQL"] = "s",
         };
 
         using var provider = Composition.Build(new ServiceCollection().AddFactoryCli(Host(env)));
@@ -79,6 +79,7 @@ public class CompositionTests
         var o = provider.GetRequiredService<IOptions<StateOptions>>().Value;
         Assert.Equal(("azure", "u", "9", "t", "l", "1", "2", "a", "ie", "ih"),
             (o.State, o.BlobUrl, o.Cap, o.Token, o.LocalDir, o.BoardLockSeconds, o.StateLockSeconds, o.AzCmd, o.IdentityEndpoint, o.IdentityHeader));
+        Assert.Equal(("d", "s"), (o.Db, o.Sql));
     }
 
     [Fact]

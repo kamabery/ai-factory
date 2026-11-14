@@ -50,13 +50,35 @@ public class StateSettingsTests
     }
 
     [Theory]
-    [InlineData("cloud", null, "state: FACTORY_STATE 'cloud' must be local or azure")]
+    [InlineData("cloud", null, "state: FACTORY_STATE 'cloud' must be local, azure, sqlite or sql")]
     [InlineData("azure", null, "state: FACTORY_STATE=azure needs FACTORY_BLOB_URL (the container URL)")]
+    [InlineData("sql", null, "state: FACTORY_STATE=sql needs FACTORY_SQL (the connection string)")]
     public void Refuses_what_state_ps1_refuses(string state, string? url, string message)
     {
         var s = Settings(new StateOptions { State = state, BlobUrl = url });
 
         Assert.Equal(message, Assert.Throws<FactoryException>(() => s.IsAzure).Message);
+    }
+
+    [Fact]
+    public void Sqlite_is_a_database_in_the_home_unless_FACTORY_DB_names_one()
+    {
+        var s = Settings(new StateOptions { State = "SQLite" });
+
+        Assert.Equal((true, false, false), (s.IsDatabase, s.IsSql, s.IsAzure));
+        Assert.Equal(Path.Combine(Home, "factory.db"), s.DbPath);
+        Assert.Equal("/data/f.db", Settings(new StateOptions { State = "sqlite" }, "FACTORY_DB=/data/f.db").DbPath);
+    }
+
+    [Fact]
+    public void Sql_is_a_database_on_the_FACTORY_SQL_server_from_the_environment_or_env()
+    {
+        var s = Settings(new StateOptions { State = "sql" }, "FACTORY_SQL=Server=tcp:x.database.windows.net;Database=factory");
+
+        Assert.Equal((true, true), (s.IsDatabase, s.IsSql));
+        Assert.Equal("Server=tcp:x.database.windows.net;Database=factory", s.SqlConnection);
+        Assert.False(Settings(new StateOptions()).IsDatabase);
+        Assert.False(Settings(new StateOptions { State = "azure", BlobUrl = "https://a/c" }).IsDatabase);
     }
 
     [Fact]

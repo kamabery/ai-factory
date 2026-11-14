@@ -19,6 +19,7 @@ public sealed class FactoryDbs(IDbConnectionInfo info)
         lock (Migrated)
         {
             if (Migrated.Contains(key)) return db;
+            if (info.Provider == DbProvider.Sqlite && FileOf(info.ConnectionString) is { } file) Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(file))!);
             db.Database.Migrate();
             // WAL lets the dashboard's reads run beside a command's write; it stays set in the file.
             if (info.Provider == DbProvider.Sqlite) db.Database.ExecuteSqlRaw("PRAGMA journal_mode=WAL;");
@@ -26,4 +27,9 @@ public sealed class FactoryDbs(IDbConnectionInfo info)
         }
         return db;
     }
+
+    // An in-memory or URI data source has no folder to create.
+    private static string? FileOf(string connectionString) =>
+        new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder(connectionString).DataSource is { Length: > 0 } s && s != ":memory:"
+            && !s.StartsWith("file:", StringComparison.OrdinalIgnoreCase) ? s : null;
 }

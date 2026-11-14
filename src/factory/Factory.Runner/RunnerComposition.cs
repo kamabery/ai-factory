@@ -1,4 +1,6 @@
 using Factory.Core.Abstractions;
+using Factory.Data;
+using Factory.Data.Abstractions;
 using Factory.Runner.Abstractions;
 using Factory.Store;
 using Factory.Store.Abstractions;
@@ -37,6 +39,8 @@ public static class RunnerComposition
             o.IdentityEndpoint = Get("IDENTITY_ENDPOINT");
             o.IdentityHeader = Get("IDENTITY_HEADER");
             o.RenewSeconds = Get("FACTORY_STATE_RENEW_SECONDS");
+            o.Db = Get("FACTORY_DB");
+            o.Sql = Get("FACTORY_SQL");
         });
         services.Configure<RunnerOptions>(o =>
         {
@@ -60,6 +64,10 @@ public static class RunnerComposition
         services.AddSingleton<IStateSettings, StateSettings>();
         services.AddHttpClient<IStateToken, StateToken>();
         services.AddHttpClient<IBlobClient, BlobClient>(c => c.Timeout = TimeSpan.FromSeconds(100));
+        services.AddSingleton<IDbConnectionInfo, StateDbConnection>();
+        services.AddSingleton<FactoryDbs>();
+        services.AddSingleton<ILeaseRows, EfLeaseRows>();
+        services.AddSingleton<IStateLeases, StateLeases>();
         services.AddSingleton<IRunnerLock, RunnerLock>();
         services.AddSingleton<IFactoryCommands, FactoryScript>();
         services.AddSingleton<IClaudeRunner, ClaudeRunner>();

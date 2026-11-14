@@ -12,7 +12,9 @@ public sealed class EfLeaseRows(FactoryDbs dbs, TimeProvider clock) : ILeaseRows
 
     private long Now => clock.GetUtcNow().ToUnixTimeMilliseconds();
 
-    public string? Acquire(string name, int seconds)
+    public string? Acquire(string name, int seconds) => DbErrors.Guard(() => AcquireRow(name, seconds));
+
+    private string? AcquireRow(string name, int seconds)
     {
         var until = clock.GetUtcNow().AddSeconds(seconds);
         while (true)
@@ -43,16 +45,16 @@ public sealed class EfLeaseRows(FactoryDbs dbs, TimeProvider clock) : ILeaseRows
         return id;
     }
 
-    public bool Renew(string name, string id)
+    public bool Renew(string name, string id) => DbErrors.Guard(() =>
     {
         using var db = dbs.Open();
         var until = Now + LeaseMs;
         return db.Leases.Where(x => x.TenantId == T && x.Name == name && x.Holder == id).ExecuteUpdate(s => s.SetProperty(x => x.ExpiresAt, until)) == 1;
-    }
+    });
 
-    public void Release(string name, string id)
+    public void Release(string name, string id) => DbErrors.Guard(() =>
     {
         using var db = dbs.Open();
         db.Leases.Where(x => x.TenantId == T && x.Name == name && x.Holder == id).ExecuteDelete();
-    }
+    });
 }

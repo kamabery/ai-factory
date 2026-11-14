@@ -37,7 +37,7 @@ public class IdeaTurnTests : CommandTestBase, IDisposable
 
     private string SessionFile(string name) => Path.Combine(Home, "sessions", "S-001", name);
 
-    private IdeaTurnCommand Turn() => new(new IdeaFiles(Paths, Files), Paths, _provider, DotEnv, _state, _sync, null!, Options.Create(new StateOptions()), _claude,
+    private IdeaTurnCommand Turn() => new(new IdeaFiles(Paths, Files), Paths, _provider, DotEnv, _state, _sync, Substitute.For<IStateLeases>(), Options.Create(new StateOptions()), _claude,
         new CliEnvironment(_vars, "w", "\n", "appdata", Path.GetTempPath(), "bin", ["factory"]));
 
     private (int Code, string Err) Run(string id = "S-001")
@@ -199,15 +199,16 @@ public class IdeaTurnTests : CommandTestBase, IDisposable
         PutSession();
         _out = Ok;
         _state.IsAzure.Returns(true);
-        var blobs = Substitute.For<IBlobClient>();
-        blobs.AcquireLease("turn-S-001", 0).Returns("lease-1");
+        var blobs = Substitute.For<IStateLeases>();
+        blobs.Shared.Returns(true);
+        blobs.Acquire("turn-S-001", 0).Returns("lease-1");
         var turn = new IdeaTurnCommand(new IdeaFiles(Paths, Files), Paths, _provider, DotEnv, _state, _sync, blobs, Options.Create(new StateOptions()), _claude,
             new CliEnvironment(_vars, "w", "\n", "appdata", Path.GetTempPath(), "bin", ["factory"]));
 
         turn.Run(["S-001"], TextReader.Null, new StringWriter(), new StringWriter());
 
         Received.InOrder(() => { _sync.Pull("sessions/S-001/"); _sync.Push(); });
-        blobs.Received().ReleaseLease("turn-S-001", "lease-1");
+        blobs.Received().Release("turn-S-001", "lease-1");
     }
 
     [Fact]
@@ -215,8 +216,9 @@ public class IdeaTurnTests : CommandTestBase, IDisposable
     {
         PutSession();
         _state.IsAzure.Returns(true);
-        var blobs = Substitute.For<IBlobClient>();
-        blobs.AcquireLease("turn-S-001", 0).Returns((string?)null);
+        var blobs = Substitute.For<IStateLeases>();
+        blobs.Shared.Returns(true);
+        blobs.Acquire("turn-S-001", 0).Returns((string?)null);
         var err = new StringWriter();
 
         var code = new IdeaTurnCommand(new IdeaFiles(Paths, Files), Paths, _provider, DotEnv, _state, _sync, blobs, Options.Create(new StateOptions()), _claude,

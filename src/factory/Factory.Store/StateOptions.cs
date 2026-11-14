@@ -7,11 +7,17 @@ namespace Factory.Store;
 /// </summary>
 public sealed class StateOptions
 {
-    /// <summary>FACTORY_STATE: local (the default) or azure.</summary>
+    /// <summary>FACTORY_STATE: local (the default), azure, sqlite or sql.</summary>
     public string? State { get; set; }
 
     /// <summary>FACTORY_BLOB_URL: the container's URL; <c>{home}</c> becomes a hash of FACTORY_HOME (tests).</summary>
     public string? BlobUrl { get; set; }
+
+    /// <summary>FACTORY_DB: the sqlite backend's database file, else &lt;FACTORY_HOME&gt;/factory.db.</summary>
+    public string? Db { get; set; }
+
+    /// <summary>FACTORY_SQL: the sql backend's connection string.</summary>
+    public string? Sql { get; set; }
 
     /// <summary>FACTORY_STATE_CAP: the container's size cap in bytes.</summary>
     public string? Cap { get; set; }

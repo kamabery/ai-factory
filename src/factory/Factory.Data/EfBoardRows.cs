@@ -13,7 +13,9 @@ public sealed class EfBoardRows(FactoryDbs dbs) : IBoardRows
 {
     private string T => dbs.TenantId;
 
-    public BoardRead? Read()
+    public BoardRead? Read() => DbErrors.Guard(ReadRows);
+
+    private BoardRead? ReadRows()
     {
         using var db = dbs.Open();
         // Every commit bumps the revision: the same revision before and after the reads means they saw one state.
@@ -36,7 +38,9 @@ public sealed class EfBoardRows(FactoryDbs dbs) : IBoardRows
             jobs.ToDictionary(j => j.Id, j => new RowRead(j.Json, j.Version, j.Ordinal), StringComparer.OrdinalIgnoreCase));
     }
 
-    public BoardRead Save(BoardRead read, JsonObject board)
+    public BoardRead Save(BoardRead read, JsonObject board) => DbErrors.Guard(() => SaveRows(read, board));
+
+    private BoardRead SaveRows(BoardRead read, JsonObject board)
     {
         var plan = BoardRows.Plan(read, board);
         using var db = dbs.Open();
@@ -138,7 +142,9 @@ public sealed class EfBoardRows(FactoryDbs dbs) : IBoardRows
 
     private void Bump(FactoryDb db) => db.Boards.Where(x => x.TenantId == T).ExecuteUpdate(s => s.SetProperty(x => x.Revision, x => x.Revision + 1));
 
-    public void AddEvent(string line)
+    public void AddEvent(string line) => DbErrors.Guard(() => AddEventRow(line));
+
+    private void AddEventRow(string line)
     {
         using var db = dbs.Open();
         using var tx = db.Database.BeginTransaction();
@@ -157,19 +163,21 @@ public sealed class EfBoardRows(FactoryDbs dbs) : IBoardRows
         return new EventRow { TenantId = T, Ts = c.Ts, Job = c.Job, Idea = c.Idea, Kind = c.Kind, Line = line };
     }
 
-    public long Revision()
+    public long Revision() => DbErrors.Guard(() =>
     {
         using var db = dbs.Open();
         return db.Boards.Where(x => x.TenantId == T).Select(x => (long?)x.Revision).FirstOrDefault() ?? 0;
-    }
+    });
 
-    public IReadOnlyList<EventLine> EventsAfter(long seq)
+    public IReadOnlyList<EventLine> EventsAfter(long seq) => DbErrors.Guard<IReadOnlyList<EventLine>>(() =>
     {
         using var db = dbs.Open();
         return [.. db.Events.AsNoTracking().Where(x => x.TenantId == T && x.Seq > seq).OrderBy(x => x.Seq).Select(x => new EventLine(x.Seq, x.Line))];
-    }
+    });
 
-    public ImportResult Import(JsonObject board, IReadOnlyList<string> events)
+    public ImportResult Import(JsonObject board, IReadOnlyList<string> events) => DbErrors.Guard(() => ImportRows(board, events));
+
+    private ImportResult ImportRows(JsonObject board, IReadOnlyList<string> events)
     {
         var plan = BoardRows.Plan(BoardRead.None(), board);
         using var db = dbs.Open();
