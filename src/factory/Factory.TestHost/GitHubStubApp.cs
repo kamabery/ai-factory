@@ -42,13 +42,14 @@ public sealed partial class GitHubStubApp(string gitBase, string login, int port
         var method = ctx.Request.Method;
         var path = ctx.Request.Path.Value ?? "/";
         var raw = await StubHost.BodyText(ctx);
-        var body = raw.Length > 0 ? JsonNode.Parse(raw) as JsonObject ?? [] : [];
+        // GitHub's OAuth endpoint takes a form; everything else JSON.
+        var body = raw.Length == 0 ? [] : ctx.Request.HasFormContentType ? Form(raw) : JsonNode.Parse(raw) as JsonObject ?? [];
         var log = new JsonObject { ["method"] = method, ["path"] = path, ["auth"] = ctx.Request.Headers.Authorization.ToString(), ["body"] = body.DeepClone() };
         File.AppendAllText(Path.Combine(GitBase, "requests.jsonl"), log.ToJsonString() + "\n");
-        return Route(method, path, body, ctx.Request.Query);
+        return Route(method, path, body, ctx.Request.Query, ctx.Request.Headers.Authorization.ToString());
     }
 
-    private StubReply Route(string method, string path, JsonObject body, IQueryCollection q)
+    private StubReply Route(string method, string path, JsonObject body, IQueryCollection q, string auth)
     {
         if (method == "GET" && path == "/") return new(200);
         if (method == "GET" && Preview().Match(path) is { Success: true } pv)
@@ -64,6 +65,7 @@ public sealed partial class GitHubStubApp(string gitBase, string login, int port
             var key = path["/hcp-log/".Length..];
             return new(200, Text: Str(State()["logs"]![key]) ?? (key.StartsWith("apply-", StringComparison.Ordinal) ? "Apply complete!" : ""));
         }
+        if (App(method, path, body, auth, q) is { } app) return app;
         if (method == "GET" && path == "/user") return StubReply.Json(200, new JsonObject { ["login"] = login });
         if (method == "GET" && path == "/user/repos")
         {
@@ -356,6 +358,8 @@ public sealed partial class GitHubStubApp(string gitBase, string login, int port
 
     private StubReply Hcp(string method, string path, JsonObject body, IQueryCollection q)
     {
+        if (method == "GET" && path == "/api/v2/account/details")
+            return StubReply.Json(200, new JsonObject { ["data"] = new JsonObject { ["attributes"] = new JsonObject { ["username"] = "sim-hcp-user" } } });
         var s = State();
         var projects = s["projects"]!.AsObject();
         var workspaces = s["workspaces"]!.AsObject();
@@ -612,4 +616,149 @@ public sealed partial class GitHubStubApp(string gitBase, string login, int port
     [GeneratedRegex(@"^/api/v2/varsets/([^/]+)/relationships/vars")] private static partial Regex VarsetVars();
     [GeneratedRegex(@"^/api/v2/workspaces/([^/]+)/actions/safe-delete$")] private static partial Regex SafeDelete();
     [GeneratedRegex(@"\D")] private static partial Regex Digits();
+    [GeneratedRegex(@"^/app-manifests/([^/]+)/conversions$")] private static partial Regex ManifestConversion();
+    [GeneratedRegex(@"^/app/installations/(\d+)/access_tokens$")] private static partial Regex AccessTokens();
+    [GeneratedRegex(@"^/organizations/[^/]+/settings/apps/new$")] private static partial Regex OrgAppsNew();
+    [GeneratedRegex(@"^/apps/[^/]+/installations/new$")] private static partial Regex AppInstallNew();
+
+    // --- The GitHub App (spec 14) --------------------------------------------------------------------------------
+    // The App lives in <GitBase>/app.json once a manifest code is converted (any code but "bad"), with a real RSA key, so
+    // the factory's JWT is checked. Installations are <GitBase>/installations.json ([{ id, account, selection,
+    // permissions }], written by a test or the simulator). An installation token is ghs_<id>_<n> and acts as its account;
+    // like GitHub, it cannot read /user or create a user's repo. A user token is ghu_<n> (the code "sim-code", or a refresh
+    // token ghr_<n>), lasting 8 hours.
+
+    private string AppFile => Path.Combine(GitBase, "app.json");
+
+    private StubReply? App(string method, string path, JsonObject body, string auth, IQueryCollection q)
+    {
+        // The browser's side of init: the manifest form, the install page and the sign-in, each answered as the human would.
+        if (method == "POST" && (path == "/settings/apps/new" || OrgAppsNew().IsMatch(path)))
+        {
+            var manifest = JsonNode.Parse(Str(body["manifest"]) ?? "{}")!;
+            File.WriteAllText(Path.Combine(GitBase, "pending-manifest.json"), manifest.ToJsonString());
+            var redirect = Str(manifest["redirect_url"]) ?? "";
+            return new(302, Headers: new Dictionary<string, string> { ["Location"] = $"{redirect}?code=sim-code&state={Uri.EscapeDataString(q["state"].ToString())}" });
+        }
+        if (method == "GET" && AppInstallNew().IsMatch(path))
+        {
+            var perms = File.Exists(AppFile) ? JsonNode.Parse(File.ReadAllText(AppFile))!["permissions"]?.DeepClone() : null;
+            File.WriteAllText(Path.Combine(GitBase, "installations.json"),
+                new JsonArray(new JsonObject { ["id"] = 77, ["account"] = login, ["selection"] = File.Exists(Path.Combine(GitBase, "install-selected")) ? "selected" : "all", ["permissions"] = perms ?? new JsonObject() }).ToJsonString());
+            return new(200, Text: "<!doctype html><p>Installed.</p>", ContentType: "text/html");
+        }
+        if (method == "GET" && path == "/login/oauth/authorize")
+            return new(302, Headers: new Dictionary<string, string> { ["Location"] = $"{q["redirect_uri"]}?code=sim-code&state={Uri.EscapeDataString(q["state"].ToString())}" });
+        if (method == "POST" && ManifestConversion().Match(path) is { Success: true } mc) return Convert(mc.Groups[1].Value);
+        if (method == "POST" && path == "/login/oauth/access_token") return OAuth(body);
+        if (path == "/app" || path.StartsWith("/app/", StringComparison.Ordinal))
+        {
+            if (!JwtOk(auth)) return StubReply.Message(401, "A JSON web token could not be decoded");
+            var app = JsonNode.Parse(File.ReadAllText(AppFile))!;
+            if (method == "GET" && path == "/app") return StubReply.Json(200, new JsonObject { ["id"] = app["id"]!.GetValue<long>(), ["slug"] = Str(app["slug"]), ["name"] = Str(app["name"]) });
+            if (method == "GET" && path == "/app/installations") return StubReply.Json(200, Installations());
+            if (method == "POST" && AccessTokens().Match(path) is { Success: true } at)
+            {
+                var id = long.Parse(at.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+                if (!Installations().OfType<JsonObject>().Any(i => i["id"]!.GetValue<long>() == id)) return StubReply.Message(404, "Not Found");
+                var n = Counter("installation-tokens");
+                return StubReply.Json(201, new JsonObject { ["token"] = $"ghs_{id}_{n}", ["expires_at"] = DateTimeOffset.UtcNow.AddHours(1).ToString("yyyy-MM-ddTHH:mm:ssZ") });
+            }
+            return StubReply.Message(404, "Not Found");
+        }
+        var installation = InstallationOf(auth);
+        if (installation is null) return null;
+        if (path == "/user" || (method == "POST" && path == "/user/repos")) return StubReply.Message(403, "Resource not accessible by integration");
+        if (method == "GET" && path == "/installation/repositories")
+        {
+            var account = Str(installation["account"])!;
+            var dir = new DirectoryInfo(Path.Combine(GitBase, account));
+            var repos = dir.Exists ? dir.GetDirectories("*.git").OrderByDescending(d => d.LastWriteTimeUtc).ToList() : [];
+            return StubReply.Json(200, new JsonObject
+            {
+                ["total_count"] = repos.Count,
+                ["repositories"] = new JsonArray([.. repos.Select(d => (JsonNode)new JsonObject { ["full_name"] = $"{account}/{d.Name[..^4]}", ["pushed_at"] = d.LastWriteTimeUtc.ToString("yyyy-MM-ddTHH:mm:ssZ") })]),
+            });
+        }
+        return null;
+    }
+
+    private StubReply Convert(string code)
+    {
+        if (code == "bad") return StubReply.Message(404, "Not Found");
+        using var rsa = System.Security.Cryptography.RSA.Create(2048);
+        var app = new JsonObject
+        {
+            ["id"] = 1001L, ["slug"] = "ai-factory-sim", ["name"] = "AI factory (sim)", ["client_id"] = "Iv1.sim", ["client_secret"] = "sim-secret",
+            ["pem"] = rsa.ExportRSAPrivateKeyPem(), ["owner"] = new JsonObject { ["login"] = login },
+            // The manifest the browser posted, kept for the install page to grant.
+            ["permissions"] = File.Exists(Path.Combine(GitBase, "pending-manifest.json"))
+                ? JsonNode.Parse(File.ReadAllText(Path.Combine(GitBase, "pending-manifest.json")))!["default_permissions"]?.DeepClone() : null,
+        };
+        File.WriteAllText(AppFile, app.ToJsonString());
+        return StubReply.Json(201, app);
+    }
+
+    private StubReply OAuth(JsonObject form)
+    {
+        var refresh = Str(form["refresh_token"]);
+        var ok = Str(form["grant_type"]) == "refresh_token" ? refresh?.StartsWith("ghr_", StringComparison.Ordinal) == true : Str(form["code"]) == "sim-code";
+        if (!ok || Str(form["client_secret"]) != "sim-secret")
+            return StubReply.Json(200, new JsonObject { ["error"] = "bad_verification_code", ["error_description"] = "The code passed is incorrect or expired." });
+        var n = Counter("user-tokens");
+        return StubReply.Json(200, new JsonObject { ["access_token"] = $"ghu_{n}", ["refresh_token"] = $"ghr_{n}", ["expires_in"] = 28800, ["token_type"] = "bearer" });
+    }
+
+    private JsonArray Installations()
+    {
+        var f = Path.Combine(GitBase, "installations.json");
+        if (!File.Exists(f)) return [];
+        return new JsonArray([.. JsonNode.Parse(File.ReadAllText(f))!.AsArray().OfType<JsonObject>().Select(i => (JsonNode)new JsonObject
+        {
+            ["id"] = i["id"]!.GetValue<long>(), ["account"] = new JsonObject { ["login"] = Str(i["account"]) },
+            ["repository_selection"] = Str(i["selection"]) ?? "all", ["permissions"] = i["permissions"]?.DeepClone() ?? new JsonObject(),
+        })]);
+    }
+
+    private JsonObject? InstallationOf(string auth)
+    {
+        if (!auth.StartsWith("Bearer ghs_", StringComparison.Ordinal)) return null;
+        var id = auth["Bearer ghs_".Length..].Split('_')[0];
+        var f = Path.Combine(GitBase, "installations.json");
+        return File.Exists(f) ? JsonNode.Parse(File.ReadAllText(f))!.AsArray().OfType<JsonObject>().FirstOrDefault(i => i["id"]!.ToString() == id) : null;
+    }
+
+    private bool JwtOk(string auth)
+    {
+        if (!File.Exists(AppFile) || !auth.StartsWith("Bearer ", StringComparison.Ordinal)) return false;
+        var parts = auth["Bearer ".Length..].Split('.');
+        if (parts.Length != 3) return false;
+        var app = JsonNode.Parse(File.ReadAllText(AppFile))!;
+        using var rsa = System.Security.Cryptography.RSA.Create();
+        rsa.ImportFromPem(Str(app["pem"]));
+        static byte[] B64(string s) => System.Convert.FromBase64String(s.Replace('-', '+').Replace('_', '/').PadRight(s.Length + (4 - s.Length % 4) % 4, '='));
+        if (!rsa.VerifyData(Encoding.ASCII.GetBytes($"{parts[0]}.{parts[1]}"), B64(parts[2]), System.Security.Cryptography.HashAlgorithmName.SHA256,
+            System.Security.Cryptography.RSASignaturePadding.Pkcs1)) return false;
+        var claims = JsonNode.Parse(B64(parts[1]))!;
+        return Str(claims["iss"]) == app["id"]!.ToString() && claims["exp"]!.GetValue<long>() > DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+    }
+
+    private int Counter(string name)
+    {
+        var f = Path.Combine(GitBase, $"{name}.count");
+        var n = (File.Exists(f) ? int.Parse(File.ReadAllText(f), System.Globalization.CultureInfo.InvariantCulture) : 0) + 1;
+        File.WriteAllText(f, n.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        return n;
+    }
+
+    private static JsonObject Form(string raw)
+    {
+        var o = new JsonObject();
+        foreach (var pair in raw.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var kv = pair.Split('=', 2);
+            o[Uri.UnescapeDataString(kv[0].Replace('+', ' '))] = kv.Length > 1 ? Uri.UnescapeDataString(kv[1].Replace('+', ' ')) : "";
+        }
+        return o;
+    }
 }

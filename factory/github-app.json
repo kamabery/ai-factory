@@ -1,0 +1,17 @@
+{
+  "name": "AI factory",
+  "public": false,
+  "request_oauth_on_install": false,
+  "default_events": [],
+  "default_permissions": {
+    "administration": "write",
+    "contents": "write",
+    "pull_requests": "write",
+    "workflows": "write",
+    "actions": "write",
+    "environments": "write",
+    "secrets": "write",
+    "actions_variables": "write",
+    "metadata": "read"
+  }
+}

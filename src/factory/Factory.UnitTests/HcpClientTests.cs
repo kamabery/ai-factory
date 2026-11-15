@@ -15,7 +15,7 @@ public class HcpClientTests
 
     public HcpClientTests() => _env.Get(Arg.Any<string>()).Returns((string?)null);
 
-    private HcpClient Sut => new(new HttpClient(_http), _env);
+    private HcpClient Sut => new(new HttpClient(_http), _env, EnvSecrets.Over(_env));
 
     /// <summary>HCP at http://hcp/ with a token and an org; <paramref name="route"/> answers each request (status, body).</summary>
     private void Hcp(Func<string, string, (int Status, string Body)> route)
@@ -191,7 +191,7 @@ public class HcpClientTests
 
         Assert.Equal("HCP 409 on POST /workspaces/ws-1/actions/safe-delete: Latest workspace state is being processed; second",
             Assert.Throws<FactoryException>(() => Sut.SafeDelete("ws-1")).Message);
-        Assert.Null(_sent[0].Body);
+        Assert.Equal("", _sent[0].Body);   // no payload, though it carries the JSON:API content type
     }
 
     [Fact]
@@ -216,5 +216,23 @@ public class HcpClientTests
         _http.Reply = r => r.RequestUri!.Host == "logs" ? throw new HttpRequestException("gone") : inner(r);
 
         Assert.Equal("HCP GET http://logs/plan-1: gone", Assert.Throws<FactoryException>(() => Sut.RunLog("ws-1")).Message);
+    }
+
+    [Fact]
+    public void A_POST_with_no_body_still_says_it_is_JSON_API_as_HCP_requires()
+    {
+        string? type = null;
+        _env.Get("HCP_TOKEN").Returns("tok");
+        _env.Get("HCP_API_URL").Returns("http://hcp/");
+        _http.Reply = r =>
+        {
+            type = r.Content?.Headers.ContentType?.MediaType;
+            return new HttpResponseMessage(HttpStatusCode.NoContent);
+        };
+
+        Sut.SafeDelete("ws-1");
+
+        // HCP answers 415 "content-type must be application/vnd.api+json" otherwise (spec 14's live canary teardown).
+        Assert.Equal("application/vnd.api+json", type);
     }
 }

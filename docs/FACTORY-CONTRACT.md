@@ -75,12 +75,14 @@ Every idea names a **target**: a GitHub repository, written `owner/name`
 factory itself (this repo's `factory/`, `.claude/`, `.factory-runs/` and dashboard) never moves; only
 the code it builds goes to the target. Local paths are not targets.
 
-**GitHub access.** `factory` reads `GITHUB_TOKEN` and `GITHUB_OWNER` from `.env` at the repo root
-(`$env:FACTORY_ENV_FILE` overrides the file). The token is a fine-grained PAT with Contents,
-Pull requests and Administration (to create repos) read/write, on **All repositories**: a PAT limited
-to selected repos can create a repo but not push to it (see [GITHUB-PAT.md](GITHUB-PAT.md)). It is read into a local variable and
+**GitHub access.** `factory` signs in to GitHub as the factory's **GitHub App** (see
+[Secrets, init and doctor](#secrets-init-and-doctor)): every call uses an installation token for the target's owner,
+except creating a new repo, which uses the App's user token (it acts as the human, within the App's permissions).
+With no App set up, it falls back, until spec 15, to a fine-grained **GitHub PAT**, `GITHUB_TOKEN`, with Contents,
+Pull requests and Administration (to create repos) read/write on **All repositories**: a PAT limited
+to selected repos can create a repo but not push to it (see [GITHUB-APP.md](GITHUB-APP.md)). A token is held in a local variable and
 never set in the process environment, written to a remote URL or `.git/config`, or logged: git gets
-it per command as `-c http.extraHeader=...`. `GITHUB_OWNER` is the owner the dashboard suggests.
+it per command as `-c http.extraHeader=...`. `GITHUB_OWNER` (in `.env`) is the owner the dashboard suggests.
 `GITHUB_API_URL` (default `https://api.github.com`) and `FACTORY_GIT_BASE` (the clone URL prefix,
 default `https://github.com`, giving `<base>/<owner>/<name>.git`) in the same file point tests and
 the simulator at a stub.
@@ -220,6 +222,85 @@ every `claude` pass and every dashboard idea turn talks to. Nothing chooses a pr
 - Idea turns follow the same rule, through the same child environment: each turn is a `claude -p`
   pass; see [Idea sessions](#idea-sessions-dashboard). Nothing in the factory reads an
   `ANTHROPIC_API_KEY`.
+
+## Secrets, init and doctor
+
+The product is **AI factory**. `factory init` sets a machine up from nothing, and `factory doctor` says what is wrong
+with one; neither needs a hand edit of `.env`.
+
+**Secrets** live in the operating system's secret store, never in `.env` (which keeps the non-secret settings):
+- Windows: Credential Manager, generic credentials named `<prefix>/<NAME>`.
+- Linux: libsecret through `secret-tool`, attributes `service <prefix>` and `name <NAME>`.
+- macOS is out of scope; a deployed factory's store (Key Vault and a managed identity) comes with cloud mode (18).
+
+`<prefix>` is `ai-factory`, or `FACTORY_SECRET_PREFIX`. Tests and the simulator set `FACTORY_SECRET_DIR` instead: a
+folder holding one file per secret, which nothing real uses. The secrets are `GITHUB_APP_ID`, `GITHUB_APP_SLUG`,
+`GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_USER_TOKEN`,
+`GITHUB_USER_REFRESH_TOKEN`, `GITHUB_USER_TOKEN_EXPIRES`, and the older `GITHUB_TOKEN` (the GitHub PAT), `HCP_TOKEN`
+and `HCP_TEAM_TOKEN`. Each is read from the process environment, else the store, else `.env`; a secret still in `.env`
+works, and `doctor` warns about it.
+
+**The GitHub App** is defined by `factory/github-app.json`: no webhook, private, and repository permissions
+Administration, Contents, Pull requests, Workflows, Actions, Environments, Secrets and Variables, all read and write
+(Metadata read). Its tokens:
+- **Installation token**, for every GitHub call but one: a JWT (RS256 with `GITHUB_APP_PRIVATE_KEY`, issued 60 s in
+  the past, 9 minutes long, issuer `GITHUB_APP_ID`) finds the installation for the call's owner (`GET /app/installations`,
+  by `account.login`; the target's owner, else `GITHUB_OWNER`), and `POST /app/installations/<id>/access_tokens` mints
+  a one-hour token. It is cached in `<local dir>/github-token-<owner>.json` until five minutes before it expires.
+- **User token**, for creating a repo only (`POST /user/repos`, or `/orgs/<owner>/repos`), which an installation of
+  a user account cannot do. It acts as the human within the App's permissions. It lasts eight hours and is refreshed
+  with `GITHUB_USER_REFRESH_TOKEN` (`POST <web>/login/oauth/access_token`, `grant_type=refresh_token`) when it is
+  within five minutes of expiring. If GitHub still refuses to create the repo, `checkout` fails as any checkout does
+  (the job escalates) with `GitHub refused to create <owner/name> (<message>); create it, empty, then approve the
+  job again`.
+- With no `GITHUB_APP_ID`, every call uses the GitHub PAT as before. That fallback goes in spec 15.
+
+A `github-permission` flag ([Deploy](#deploy)) names the App permission to add (in the App's settings, then accepted
+on the installation) instead of the PAT's.
+
+**`factory doctor`** prints one line per check, `ok`, `warn` or `fail`, then `<check>: <detail>`. A `warn` or `fail`
+line is followed by `  fix: <what to do>`. It exits 1 if any check failed, else 0. The checks:
+
+| Check | Passes when |
+| --- | --- |
+| `tools` | `git`, `dotnet` and `claude` run; `az` too in cloud mode, and `terraform` while `HCP_ORG` is set |
+| `secret-store` | a probe secret can be written, read back and deleted |
+| `env-secrets` | `.env` holds none of the secrets above (`warn` otherwise; fix: `factory init --move-env-secrets`) |
+| `github` | with an App: a JWT reads `GET /app`; an installation exists for `GITHUB_OWNER` on all repositories, with every permission `github-app.json` asks for; it mints a token; the user token reads `GET /user`. With the PAT fallback: `GET /user` works (`warn`: the fallback) |
+| `llm` | local: `claude auth status`, run with the local child environment, is logged in with a claude.ai subscription; cloud: `az` is signed in and a one-token request to each pinned deployment succeeds |
+| `hcp` | only while `HCP_ORG` or `HCP_TOKEN` is set: `HCP_TOKEN` reads `GET /api/v2/account/details` |
+
+**`factory init [--org <org>] [--foundry <resource>] [--move-env-secrets] [--no-open]`** is idempotent: each step is
+skipped when it is already done, so a stopped init is run again.
+1. **Tools.** If `git`, `dotnet` or `claude` (or `az`, with `--foundry`) is missing, it prints this OS's install
+   command for each and exits 1.
+2. **GitHub App** (skipped when `doctor`'s `github` check would pass). It serves `http://127.0.0.1:<free port>/` and
+   opens the browser there (`FACTORY_BROWSER_CMD` overrides the opener). The page posts the manifest to
+   `<web>/settings/apps/new` (`<web>/organizations/<org>/settings/apps/new` with `--org`) with a random `state`.
+   - When the human creates the App, GitHub redirects to `/callback?code=&state=`. A wrong `state` is refused.
+     `POST <api>/app-manifests/<code>/conversions` returns the App's id, slug, client id and secret and private
+     key, which go to the store.
+   - It then opens `<web>/apps/<slug>/installations/new` and waits, up to 10 minutes, polling `GET /app/installations`
+     every 2 s, until the human installs it on the owner. An installation on selected repositories only is refused
+     (a new repo would not be on its list).
+   - Last, it signs the human in to the App (`<web>/login/oauth/authorize`, the code exchanged at
+     `<web>/login/oauth/access_token`) for the user token.
+   - `<web>` is `GITHUB_WEB_URL`, else `https://github.com`; `<api>` is `GITHUB_API_URL`. The tests point both at
+     Factory.TestHost's GitHub stub.
+3. **LLM.**
+   - Local: if `claude auth status` (as above) is not logged in to a subscription, it says to run `claude` and
+     `/login`, then exits 1.
+   - `--foundry <resource>`: the resource must exist (`az`). It assigns **Foundry User** on it to the signed-in user
+     (`az role assignment create`) and writes `FACTORY_MODE=cloud` and `FACTORY_FOUNDRY_RESOURCE` to `.env`.
+     Provisioning a resource stays the Terraform in [FOUNDRY.md](FOUNDRY.md).
+4. **Settings.** It writes `GITHUB_OWNER` (the App's installation account) to `.env`, creating `.env` from
+   `.env.example` if it is missing. With `--move-env-secrets` it copies each secret found in `.env` into the store and
+   comments the line out (`# NAME moved to the secret store`).
+5. **Check and open.** It runs `doctor`, prints it, and exits 1 if it failed. Otherwise it starts `factory serve
+   --state-dir <FACTORY_HOME> --env-file <its .env>` detached, unless a server already holds `serve.lock`, and opens the
+   dashboard unless `--no-open`. Both are passed because a server started without them falls back to the main
+   checkout's `.env` and its state: a second profile's dashboard would run on the first one's board. The first target
+   is typed in the dashboard's New idea, as ever.
 
 ## Ideas
 

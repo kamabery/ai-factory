@@ -12,7 +12,7 @@ public class PatCredentialTests
         var env = Substitute.For<IDotEnv>();
         env.Get("GITHUB_TOKEN").Returns("ghp_x");
 
-        var pat = new PatCredential(env);
+        var pat = new PatCredential(EnvSecrets.Over(env));
 
         Assert.Equal(("ghp_x", "GITHUB_TOKEN is not set in .env"), (pat.Token(), pat.Missing));
     }
