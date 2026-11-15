@@ -29,6 +29,19 @@ public sealed class PluginTests
         Assert.Empty(offending);
     }
 
+    [Fact]
+    public void No_agent_prompt_or_spec_template_writes_a_gate_for_a_shell()
+    {
+        // Gates run with no shell (contract, "Gate"): the spec-writer and the templates teach programs and factory check.
+        var files = Directory.EnumerateFiles(Plugin(), "*", SearchOption.AllDirectories)
+            .Concat(Directory.EnumerateFiles(GitHubStub.RepoFile("factory", "templates"), "*", SearchOption.AllDirectories));
+        var offending = files.Where(f => File.ReadAllText(f) is var t && (t.Contains("pwsh", StringComparison.Ordinal) || t.Contains("Set-Location", StringComparison.Ordinal)))
+            .Select(f => Path.GetRelativePath(GitHubStub.RepoFile("factory"), f)).ToList();
+
+        Assert.Empty(offending);
+        Assert.Contains("factory check file", File.ReadAllText(Plugin("agents", "spec-writer.md")));
+    }
+
     // A scaled-to-zero preview answers its first request 500 after about 45 s (J-027, "Backend call failure").
     [Theory, InlineData("approver"), InlineData("devops")]
     public void An_agent_checking_a_preview_retries_so_a_cold_start_is_not_an_escalation(string agent) =>

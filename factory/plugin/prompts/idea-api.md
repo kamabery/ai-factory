@@ -44,4 +44,4 @@ spec-writer's rules, written for a Claude Code session. Follow them, with the su
    template. Each spec copies the brief's target into `## Target` verbatim. If you can't write a
    single observable acceptance criterion, don't call it: say in one sentence what is missing.
 5. The human decides each spec in the panel. When they ask for a change to spec k, call `revise_spec`
-   with the whole new markdown, keeping `## Target` and `## Gate` valid. Then stop.
+   with the whole new markdown, keeping `## Target` and `## Gate` valid (each gate line one program and its arguments, run with no shell). Then stop.

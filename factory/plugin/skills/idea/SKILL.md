@@ -82,7 +82,7 @@ For each `spec-<k>.md`, in order: show it **in full**, then ask (AskUserQuestion
 
 - **Approve**: it goes to Approved and gets built.
 - **Change it**: take the human's changes, edit `spec-<k>.md` yourself (keep the template's shape,
-  the `## Target` line and the `## Gate` lines valid), show it again, and ask again.
+  the `## Target` line and the `## Gate` lines valid: each one program and its arguments, run with no shell), show it again, and ask again.
 - **Not yet**: it goes to Backlog for later editing on the dashboard.
 - **Reject**: it never reaches the board.
 

@@ -8,7 +8,10 @@
 - Repo: <owner/name>
 
 ## Gate
-<!-- The commands the gate runs in the job's clone of the target, in order. Each must exit 0. -->
+<!-- The commands the gate runs in the job's clone of the target, in order. Each must exit 0.
+     Each is one program and its arguments, run with no shell: no ; | && > $ cd or PowerShell.
+     Use a tool's directory flag (npm --prefix src/ui run build), and factory check file <path>
+     [--heading <re>] [--contains <text>] [--matches <re>] to check a file. -->
 - build: `<command>`
 - test: `<command>`
 
