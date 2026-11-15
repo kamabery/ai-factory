@@ -8,7 +8,7 @@ session can pick up one at a time. The rationale and the decisions table live in
 15 in PRs #25 and #27: the factory is the .NET `factory` CLI, the PowerShell control
 plane and Pester are gone, and `factory init` / `doctor` set a machine up with a GitHub App (now the only GitHub
 credential) and the OS secret store; nothing but spec 16's setup scripts needs PowerShell. 15's Windows acceptance run
-passed in 14:16 (the Ubuntu VM run was dropped); the repos are public, NuGet is deferred. **Next: 17, the React dashboard.**
+passed in 14:16 (the Ubuntu VM run was dropped); the repos are public and `ai-factory` 0.1.0 is on NuGet. **Next: 17, the React dashboard.**
 macOS is out of scope. Last green suites (15 part 2): .NET 1054 unit, 196 integration (Windows), 1054 / 193 in WSL with
 no pwsh; Playwright 41; Pester (spec 16's setup scripts) 29. Reordered 2026-11-09 so previews come last (see below).
 

@@ -34,10 +34,6 @@ dotnet tool install -g ai-factory
 factory init
 ```
 
-> **Not on NuGet yet.** Until `ai-factory` is published, build the package from a clone and install it from there:
-> `dotnet pack src/factory/Factory.Cli -c Release -o feed`, then
-> `dotnet tool install -g ai-factory --add-source feed`. Or run it as a checkout (see "Changing the factory itself").
-
 `init` checks the tools, then opens your browser to create the factory's **GitHub App** (private, no webhook), install
 it on your account (All repositories) and sign you in to it. Its keys go to your OS secret store (Windows Credential
 Manager, or libsecret on Linux), never to a file. It writes `GITHUB_OWNER` to `~/.ai-factory/.env`, clones the
