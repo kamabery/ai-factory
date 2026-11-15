@@ -19,7 +19,7 @@ public sealed class CliGitTests(GitHubStub gh) : IDisposable
     {
         var env = new Dictionary<string, string?>
         {
-            ["FACTORY_HOME"] = Home, ["FACTORY_ENV_FILE"] = gh.EnvFile(_dir), ["FACTORY_WORK"] = _dir["work"],
+            ["FACTORY_HOME"] = Home, ["FACTORY_ENV_FILE"] = gh.EnvFile(_dir), ["FACTORY_WORK"] = _dir["work"], ["FACTORY_SECRET_DIR"] = _dir["secrets"],
             ["FACTORY_SCRIPTS"] = GitHubStub.RepoFile("factory", "scripts"),
         };
         var stdout = new StringWriter { NewLine = "\n" };
