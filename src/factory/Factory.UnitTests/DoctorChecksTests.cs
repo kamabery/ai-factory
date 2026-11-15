@@ -91,8 +91,8 @@ public class DoctorChecksTests
         secrets.InEnvFile().Returns([]);
         Assert.Equal(DoctorResult.Ok("no secrets in .env"), new EnvSecretsCheck(secrets).Check());
 
-        secrets.InEnvFile().Returns(["GITHUB_TOKEN", "HCP_TOKEN"]);
-        Assert.Equal(DoctorResult.Warn("still in .env: GITHUB_TOKEN, HCP_TOKEN", "factory init --move-env-secrets"), new EnvSecretsCheck(secrets).Check());
+        secrets.InEnvFile().Returns(["GITHUB_APP_PRIVATE_KEY", "HCP_TOKEN"]);
+        Assert.Equal(DoctorResult.Warn("still in .env: GITHUB_APP_PRIVATE_KEY, HCP_TOKEN", "factory init --move-env-secrets"), new EnvSecretsCheck(secrets).Check());
     }
 
     // --- llm -----------------------------------------------------------------------------------------------------

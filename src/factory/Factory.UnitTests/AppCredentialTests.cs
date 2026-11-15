@@ -95,14 +95,14 @@ public class AppCredentialTests
     }
 
     [Fact]
-    public void The_credential_is_the_App_once_GITHUB_APP_ID_is_set_else_the_PAT()
+    public void With_no_GITHUB_APP_ID_there_is_no_token_and_no_PAT_fallback()
     {
-        var secrets = Substitute.For<ISecrets>();
-        secrets.Get("GITHUB_TOKEN").Returns("pat");
-        var both = new GitHubCredential(secrets, new PatCredential(secrets), Sut());
+        _secrets.Remove("GITHUB_APP_ID");
+        _secrets["GITHUB_TOKEN"] = "pat";
+        _secrets["GITHUB_USER_TOKEN"] = "ghu-1";
+        var sut = Sut();
 
-        Assert.Equal((false, "pat", "pat"), (both.IsApp, both.Token("x"), both.UserToken()));
-        secrets.Get("GITHUB_APP_ID").Returns("7");
-        Assert.True(both.IsApp);
+        Assert.Equal((null, null, "no GitHub App is set up; run factory init"), (sut.Token("x"), sut.UserToken(), sut.Missing));
+        _app.DidNotReceiveWithAnyArgs().Installations(default!);
     }
 }

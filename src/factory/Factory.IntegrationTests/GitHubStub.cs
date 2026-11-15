@@ -11,7 +11,6 @@ namespace Factory.IntegrationTests;
 /// </summary>
 public sealed class GitHubStub : IAsyncLifetime
 {
-    public const string Token = "ghp_test_token";
     private readonly TempDir _dir = new();
     private Microsoft.AspNetCore.Builder.WebApplication? _app;
 
@@ -32,13 +31,20 @@ public sealed class GitHubStub : IAsyncLifetime
         _dir.Dispose();
     }
 
-    /// <summary>A .env that points the factory at this stub, signed in with <see cref="Token"/>.</summary>
+    /// <summary>
+    /// A .env that points the factory at this stub, signed in as the stub's GitHub App installed on <c>test</c>, whose
+    /// secrets go to <c>dir["secrets"]</c> (the caller's FACTORY_SECRET_DIR; FACTORY_LOCAL_DIR keeps the token cache).
+    /// </summary>
     public string EnvFile(TempDir dir)
     {
+        Factory.TestHost.SimApp.Seed(GitBase, "test", dir["secrets"]);
         var path = dir["github.env"];
-        File.WriteAllLines(path, [$"GITHUB_TOKEN={Token}", $"GITHUB_API_URL=http://localhost:{Port}", $"FACTORY_GIT_BASE={GitUrl}"]);
+        File.WriteAllLines(path, ["GITHUB_OWNER=test", $"GITHUB_API_URL=http://localhost:{Port}", $"FACTORY_GIT_BASE={GitUrl}"]);
         return path;
     }
+
+    /// <summary>The Authorization header of the App's installation tokens (ghs_&lt;installation&gt;_&lt;n&gt;).</summary>
+    public const string InstallationAuth = "Bearer ghs_77_";
 
     /// <summary>A repo with one commit on main (README.md: fixture), as the stub serves it.</summary>
     public void NewRemote(string repo, TempDir scratch)

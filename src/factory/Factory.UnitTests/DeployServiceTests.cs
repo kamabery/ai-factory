@@ -146,7 +146,7 @@ public class DeployServiceTests : CommandTestBase
         _hcp.ClearReceivedCalls();
         _gh.Override = (m, p) => p.EndsWith("/environments/preview", StringComparison.Ordinal) ? new GitHubResponse(403, new JsonObject { ["message"] = "denied" }, "environments=write") : null;
         var r = Sut.Attempt(s, j, false, null);
-        Assert.Equal($"## Factory\nError: cannot create the preview environment: GitHub 403: denied; {GitHubErrors.PatNeeds("environments=write")}", r.Log);
+        Assert.Equal($"## Factory\nError: cannot create the preview environment: GitHub 403: denied; {GitHubErrors.AppNeeds("environments=write")}", r.Log);
         Assert.Null(r.WorkspaceId);
         _hcp.DidNotReceiveWithAnyArgs().EnsureProject(default!);
     }
@@ -301,14 +301,14 @@ public class DeployServiceTests : CommandTestBase
         string Refusal() => Assert.Throws<FactoryException>(() => Sut.PrepareGitHub("o/todo")).Message;
 
         _gh.Override = (m, p) => p.EndsWith("/environments/preview/variables", StringComparison.Ordinal) ? new GitHubResponse(403, new JsonObject { ["message"] = "no" }, "variables=write") : null;
-        Assert.Equal($"cannot set AZURE_CLIENT_ID: GitHub 403: no; {GitHubErrors.PatNeeds("variables=write")}", Refusal());
+        Assert.Equal($"cannot set AZURE_CLIENT_ID: GitHub 403: no; {GitHubErrors.AppNeeds("variables=write")}", Refusal());
 
         _gh.Override = (m, p) => p.EndsWith("/oidc/customization/sub", StringComparison.Ordinal) ? new GitHubResponse(500, new JsonObject { ["message"] = "x" }, null) : null;
         Assert.Equal("cannot read the OIDC subject format: GitHub 500: x", Refusal());
 
         _gh.Override = null;
         _tools.Gh(default!, default, default).ReturnsForAnyArgs(new ToolResult(1, "failed to set secret: HTTP 403: Resource not accessible"));
-        Assert.Equal($"gh secret set failed: failed to set secret: HTTP 403: Resource not accessible; {GitHubErrors.PatNeeds("secrets=write")}", Refusal());
+        Assert.Equal($"gh secret set failed: failed to set secret: HTTP 403: Resource not accessible; {GitHubErrors.AppNeeds("secrets=write")}", Refusal());
         _tools.Gh(default!, default, default).ReturnsForAnyArgs(new ToolResult(1, "network down"));
         Assert.Equal("gh secret set failed: network down", Refusal());
 

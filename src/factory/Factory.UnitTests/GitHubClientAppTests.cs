@@ -20,7 +20,6 @@ public class GitHubClientAppTests
     {
         _env.Get(Arg.Any<string>()).Returns((string?)null);
         _env.Get("GITHUB_API_URL").Returns("http://gh");
-        _cred.IsApp.Returns(true);
         _cred.Token(Arg.Any<string?>()).Returns(c => $"inst-{c.Arg<string?>() ?? "default"}");
         _cred.UserToken().Returns("user-tok");
     }

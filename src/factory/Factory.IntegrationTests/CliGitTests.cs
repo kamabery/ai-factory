@@ -19,7 +19,7 @@ public sealed class CliGitTests(GitHubStub gh) : IDisposable
     {
         var env = new Dictionary<string, string?>
         {
-            ["FACTORY_HOME"] = Home, ["FACTORY_ENV_FILE"] = gh.EnvFile(_dir), ["FACTORY_WORK"] = _dir["work"], ["FACTORY_SECRET_DIR"] = _dir["secrets"],
+            ["FACTORY_HOME"] = Home, ["FACTORY_ENV_FILE"] = gh.EnvFile(_dir), ["FACTORY_WORK"] = _dir["work"], ["FACTORY_SECRET_DIR"] = _dir["secrets"], ["FACTORY_LOCAL_DIR"] = _dir["local"],
             ["FACTORY_SCRIPTS"] = GitHubStub.RepoFile("factory", "scripts"),
         };
         var stdout = new StringWriter { NewLine = "\n" };
@@ -56,7 +56,7 @@ public sealed class CliGitTests(GitHubStub gh) : IDisposable
     }
 
     [Fact]
-    public void Checkout_gate_publish_and_merge_land_the_work_on_main_and_leave_no_PAT_on_disk()
+    public void Checkout_gate_publish_and_merge_land_the_work_on_main_and_leave_no_token_on_disk()
     {
         gh.NewRemote(_repo, _dir);
         Board("build");
@@ -92,9 +92,9 @@ public sealed class CliGitTests(GitHubStub gh) : IDisposable
         Assert.Equal(["feature.txt"], Job["merged"]!["added"]!.AsArray().Select(p => (string?)p));
         Assert.False(Directory.Exists(Wt));
         Assert.Empty(Git(bare, "branch", "--list", "factory/J-001"));
-        Assert.All(gh.Requests(_repo), r => Assert.Equal($"Bearer {GitHubStub.Token}", (string?)r["auth"]));
+        Assert.All(gh.Requests(_repo), r => Assert.StartsWith(GitHubStub.InstallationAuth, (string?)r["auth"], StringComparison.Ordinal));
         foreach (var f in Directory.EnumerateFiles(Home, "*", SearchOption.AllDirectories))
-            Assert.DoesNotContain(GitHubStub.Token, File.ReadAllText(f));
+            Assert.DoesNotContain("ghs_", File.ReadAllText(f));
     }
 
     [Fact]

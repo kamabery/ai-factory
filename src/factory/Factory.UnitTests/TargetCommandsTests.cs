@@ -40,12 +40,12 @@ public class TargetCommandsTests
     [Fact]
     public void CheckTarget_refuses_a_non_target_and_a_GitHub_error()
     {
-        _gh.Lookup("o/r").Throws(new FactoryException("GitHub 0: GITHUB_TOKEN is not set in .env"));
+        _gh.Lookup("o/r").Throws(new FactoryException("GitHub 0: no GitHub App is set up; run factory init"));
         var sut = new CheckTargetCommand(_gh);
 
         Assert.Equal(@"check-target refused: target 'D:\code' is not a GitHub repo written owner/name",
             Assert.Throws<FactoryException>(() => sut.Run(Args("check-target", @"D:\code"), FakeSession.With())).Message);
-        Assert.Equal("check-target refused: GitHub 0: GITHUB_TOKEN is not set in .env",
+        Assert.Equal("check-target refused: GitHub 0: no GitHub App is set up; run factory init",
             Assert.Throws<FactoryException>(() => sut.Run(Args("check-target", "o/r"), FakeSession.With())).Message);
     }
 

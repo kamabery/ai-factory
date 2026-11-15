@@ -27,7 +27,7 @@ public sealed class InitTests : IDisposable
             if (Directory.Exists(gh.GitBase)) File.Delete(Path.Combine(gh.GitBase, f));
         Directory.CreateDirectory(_dir["repo"]);
         File.WriteAllLines(Path.Combine(_dir["repo"], ".env.example"),
-            ["GITHUB_TOKEN=", "GITHUB_OWNER=", $"GITHUB_API_URL=http://localhost:{gh.Port}", $"GITHUB_WEB_URL=http://localhost:{gh.Port}", "FACTORY_MODE=cloud"]);
+            ["GITHUB_OWNER=", $"GITHUB_API_URL=http://localhost:{gh.Port}", $"GITHUB_WEB_URL=http://localhost:{gh.Port}", "FACTORY_MODE=cloud"]);
     }
 
     public void Dispose()

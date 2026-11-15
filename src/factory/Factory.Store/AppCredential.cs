@@ -19,12 +19,13 @@ public sealed class AppCredential(
     private static readonly TimeSpan Margin = TimeSpan.FromMinutes(5);
     private readonly Dictionary<string, AppToken> _tokens = new(StringComparer.OrdinalIgnoreCase);
 
-    public bool IsApp => true;
+    public string Missing => "no GitHub App is set up; run factory init";
 
-    public string Missing => "the GitHub App has no token (run factory doctor)";
+    private bool NoApp => string.IsNullOrEmpty(secrets.Get(SecretNames.AppId));
 
     public string? Token(string? owner = null)
     {
+        if (NoApp) return null;
         owner ??= dotEnv.Get("GITHUB_OWNER") ?? throw new FactoryException("GITHUB_OWNER is not set in .env; run factory init");
         var now = clock.GetUtcNow();
         if (_tokens.TryGetValue(owner, out var t) && t.ExpiresAt - Margin > now) return t.Token;
@@ -41,6 +42,7 @@ public sealed class AppCredential(
 
     public string? UserToken()
     {
+        if (NoApp) return null;
         var token = secrets.Get(SecretNames.UserToken);
         if (token is null) return null;
         var expires = secrets.Get(SecretNames.UserTokenExpires) is { } e ? DateTimeOffset.FromUnixTimeSeconds(long.Parse(e, CultureInfo.InvariantCulture)) : (DateTimeOffset?)null;

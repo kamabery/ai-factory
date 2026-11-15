@@ -7,7 +7,7 @@ namespace Factory.TestHost;
 
 /// <summary>
 /// A stand-in for the slice of the GitHub REST API the factory uses, and HCP Terraform's under /api/v2, so targets and
-/// deploys can be tested without a GitHub PAT or a network (it was factory/tests/fixtures/github-stub.ps1).
+/// deploys can be tested without a GitHub credential or a network (it was factory/tests/fixtures/github-stub.ps1).
 /// <para>
 /// Repos are bare git repos at &lt;GitBase&gt;/&lt;owner&gt;/&lt;name&gt;.git, which is also what the factory clones
 /// (FACTORY_GIT_BASE). Pull requests live in &lt;owner&gt;/&lt;name&gt;.prs.json beside them. Every request is appended to
@@ -221,7 +221,7 @@ public sealed partial class GitHubStubApp(string gitBase, string login, int port
 
     // --- Actions and environments -------------------------------------------------------------
 
-    /// <summary>A fine-grained PAT that lacks a permission: &lt;owner&gt;/&lt;name&gt;.deny lists the ones it does not have.</summary>
+    /// <summary>A GitHub App installation that lacks a permission: &lt;owner&gt;/&lt;name&gt;.deny lists the ones it does not have.</summary>
     private string? Denied(string o, string n, string method, string rest)
     {
         var f = Path.Combine(GitBase, o, n + ".deny");

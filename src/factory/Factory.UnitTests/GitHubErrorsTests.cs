@@ -27,21 +27,21 @@ public class GitHubErrorsTests
     }
 
     [Fact]
-    public void A_denied_permission_says_what_the_PAT_needs()
+    public void A_denied_permission_says_what_the_App_needs()
     {
         var r = new GitHubResponse(403, JsonNode.Parse("""{"message":"Resource not accessible by personal access token"}"""), "environments=write");
 
         Assert.Equal(
-            "GitHub 403: Resource not accessible by personal access token; the GitHub PAT needs environments=write (add it at https://github.com/settings/personal-access-tokens)",
+            "GitHub 403: Resource not accessible by personal access token; the GitHub App needs environments=write (add it in the App's settings, then accept it on the installation)",
             GitHubErrors.Text(r));
     }
 
     [Fact]
-    public void PatNeeds_is_the_sentence_deploy_matches()
+    public void AppNeeds_is_the_sentence_deploy_matches()
     {
-        var text = GitHubErrors.PatNeeds("variables=write");
+        var text = GitHubErrors.AppNeeds("variables=write");
 
-        Assert.Equal("the GitHub PAT needs variables=write (add it at https://github.com/settings/personal-access-tokens)", text);
-        Assert.Equal("variables=write", GitHubErrors.PatNeedsPattern.Match(text).Groups[1].Value);
+        Assert.Equal("the GitHub App needs variables=write (add it in the App's settings, then accept it on the installation)", text);
+        Assert.Equal("variables=write", GitHubErrors.AppNeedsPattern.Match(text).Groups[1].Value);
     }
 }

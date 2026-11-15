@@ -12,7 +12,7 @@ using NSubstitute.ExceptionExtensions;
 
 namespace Factory.UnitTests;
 
-/// <summary>doctor's github check, on the App and on the PAT fallback.</summary>
+/// <summary>doctor's github check: the GitHub App, the only GitHub credential.</summary>
 public class GitHubCheckTests
 {
     private static readonly string Pem = MakePem();
@@ -33,7 +33,6 @@ public class GitHubCheckTests
         _secrets.Get(Arg.Any<string>()).Returns((string?)null);
         _secrets.Get("GITHUB_APP_ID").Returns("7");
         _secrets.Get("GITHUB_APP_PRIVATE_KEY").Returns(Pem);
-        _cred.IsApp.Returns(true);
         _app.App(Arg.Any<string>()).Returns(new JsonObject { ["slug"] = "ai-factory-kamabery" });
         _github.UserLogin().Returns("kamabery");
         var scripts = Path.Combine(Path.GetTempPath(), "repo", "factory", "scripts");
@@ -93,12 +92,12 @@ public class GitHubCheckTests
     }
 
     [Fact]
-    public void The_PAT_fallback_is_a_warn_when_it_works_and_a_fail_when_it_does_not()
+    public void No_App_is_a_fail_even_with_a_GitHub_PAT_that_works()
     {
-        _cred.IsApp.Returns(false);
-        Assert.Equal(DoctorResult.Warn("using the GitHub PAT fallback, signed in as kamabery", "factory init sets up the GitHub App"), Check());
+        _secrets.Get("GITHUB_APP_ID").Returns((string?)null);
+        _secrets.Get("GITHUB_TOKEN").Returns("ghp_x");
 
-        _github.UserLogin().Throws(new FactoryException("GitHub 401: Bad credentials"));
-        Assert.Equal(DoctorResult.Fail("no GitHub App, and the GitHub PAT does not work: GitHub 401: Bad credentials", "factory init"), Check());
+        Assert.Equal(DoctorResult.Fail("no GitHub App is set up", "factory init"), Check());
+        _github.DidNotReceive().UserLogin();
     }
 }

@@ -6,7 +6,7 @@ namespace Factory.Runner;
 /// The settings every headless claude pass runs with (contract, "Runner"). Agents work in the job's
 /// throwaway clone, so the whole toolchain (scaffolding included) is allowed, plus read-only shell commands. Anything
 /// that would leave the branch (push, merge, switching to main) is denied, and so is reading .env and the environment:
-/// only the factory CLI holds the GitHub PAT. Each rule is given for both the Bash and the PowerShell tool.
+/// only the factory CLI holds the GitHub App's keys. Each rule is given for both the Bash and the PowerShell tool.
 /// </summary>
 public static class HeadlessSettings
 {

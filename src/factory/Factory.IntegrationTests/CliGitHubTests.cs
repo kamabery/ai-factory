@@ -19,7 +19,7 @@ public sealed class CliGitHubTests(GitHubStub gh) : IDisposable
     {
         var env = new Dictionary<string, string?>
         {
-            ["FACTORY_HOME"] = Home, ["FACTORY_ENV_FILE"] = gh.EnvFile(_dir), ["FACTORY_SECRET_DIR"] = _dir["secrets"],
+            ["FACTORY_HOME"] = Home, ["FACTORY_ENV_FILE"] = gh.EnvFile(_dir), ["FACTORY_SECRET_DIR"] = _dir["secrets"], ["FACTORY_LOCAL_DIR"] = _dir["local"],
             ["FACTORY_SCRIPTS"] = GitHubStub.RepoFile("factory", "scripts"), ["FACTORY_TEMPLATES"] = "TP",
         };
         var stdout = new StringWriter { NewLine = "\n" };
@@ -34,7 +34,7 @@ public sealed class CliGitHubTests(GitHubStub gh) : IDisposable
     private JsonObject Board => JsonNode.Parse(File.ReadAllText(Path.Combine(Home, "board.json")))!.AsObject();
 
     [Fact]
-    public void CheckTarget_asks_GitHub_with_the_PAT_and_writes_no_board()
+    public void CheckTarget_asks_GitHub_with_the_Apps_installation_token_and_writes_no_board()
     {
         gh.NewRemote(_repo, _dir);
         gh.NewEmpty(_new);
@@ -43,7 +43,7 @@ public sealed class CliGitHubTests(GitHubStub gh) : IDisposable
         Assert.Equal((0, "new\n", ""), Run("check-target", _new));
         Assert.Equal((0, "new\n", ""), Run("check-target", "test/missing-" + Guid.NewGuid().ToString("N")[..8]));
         Assert.False(File.Exists(Path.Combine(Home, "board.json")));
-        Assert.All(gh.Requests(_repo), r => Assert.Equal($"Bearer {GitHubStub.Token}", (string?)r["auth"]));
+        Assert.All(gh.Requests(_repo), r => Assert.StartsWith(GitHubStub.InstallationAuth, (string?)r["auth"], StringComparison.Ordinal));
     }
 
     [Fact]
@@ -92,19 +92,19 @@ public sealed class CliGitHubTests(GitHubStub gh) : IDisposable
         Assert.False(File.Exists(Path.Combine(dir, "stale.txt")));
         Assert.Equal("fixture", File.ReadAllText(Path.Combine(dir, "README.md")).TrimEnd());
         Assert.Equal("true", GitOut(dir, "rev-parse", "--is-shallow-repository"));
-        Assert.DoesNotContain(GitHubStub.Token, File.ReadAllText(Path.Combine(dir, ".git", "config")));
+        Assert.DoesNotContain("ghs_", File.ReadAllText(Path.Combine(dir, ".git", "config")));
     }
 
     [Fact]
-    public void A_refused_GitHub_call_is_the_commands_refusal()
+    public void A_refused_GitHub_call_is_the_commands_refusal_and_a_GitHub_PAT_is_not_a_fallback()
     {
         var bad = _dir["bad.env"];
-        File.WriteAllLines(bad, ["GITHUB_TOKEN=", $"GITHUB_API_URL=http://localhost:{gh.Port}"]);
-        var env = new Dictionary<string, string?> { ["FACTORY_HOME"] = Home, ["FACTORY_ENV_FILE"] = bad, ["FACTORY_SECRET_DIR"] = _dir["secrets"] };
+        File.WriteAllLines(bad, ["GITHUB_TOKEN=ghp_still_here", $"GITHUB_API_URL=http://localhost:{gh.Port}"]);
+        var env = new Dictionary<string, string?> { ["FACTORY_HOME"] = Home, ["FACTORY_ENV_FILE"] = bad, ["FACTORY_SECRET_DIR"] = _dir["no-app"], ["FACTORY_LOCAL_DIR"] = _dir["local"] };
         var stderr = new StringWriter { NewLine = "\n" };
 
         var code = CliHost.Run(["check-target", _repo], env, _dir.Path, new StringWriter(), stderr);
 
-        Assert.Equal((1, "factory: check-target refused: GitHub 0: GITHUB_TOKEN is not set in .env\n"), (code, stderr.ToString()));
+        Assert.Equal((1, "factory: check-target refused: GitHub 0: no GitHub App is set up; run factory init\n"), (code, stderr.ToString()));
     }
 }

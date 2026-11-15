@@ -17,7 +17,7 @@ public class GitHubClientTests
     {
         _env.Get(Arg.Any<string>()).Returns((string?)null);
         _cred.Token().Returns("tok");
-        _cred.Missing.Returns("GITHUB_TOKEN is not set in .env");
+        _cred.Missing.Returns("no GitHub App is set up; run factory init");
     }
 
     private GitHubClient Sut => new(new HttpClient(_http), _env, _cred);
@@ -59,7 +59,7 @@ public class GitHubClientTests
 
         var res = Sut.Send(HttpMethod.Get, "/user");
 
-        Assert.Equal("GitHub 0: GITHUB_TOKEN is not set in .env", GitHubErrors.Text(res));
+        Assert.Equal("GitHub 0: no GitHub App is set up; run factory init", GitHubErrors.Text(res));
         Assert.Equal(0, _http.Calls);
     }
 
@@ -78,7 +78,7 @@ public class GitHubClientTests
 
         var res = Sut.Send(HttpMethod.Put, "/repos/o/n/environments/j001");
 
-        Assert.Equal("GitHub 403: denied; " + GitHubErrors.PatNeeds("environments=write"), GitHubErrors.Text(res));
+        Assert.Equal("GitHub 403: denied; " + GitHubErrors.AppNeeds("environments=write"), GitHubErrors.Text(res));
     }
 
     [Fact]
@@ -124,18 +124,6 @@ public class GitHubClientTests
     }
 
     [Fact]
-    public void OwnedRepos_are_one_page_of_the_users_own_newest_push_first()
-    {
-        _http.Reply = r =>
-        {
-            Assert.Equal("/user/repos?affiliation=owner&sort=pushed&direction=desc&per_page=100", r.RequestUri!.PathAndQuery);
-            return Res(200, """[{"full_name":"o/new"},{"full_name":"o/old"}]""");
-        };
-
-        Assert.Equal(["o/new", "o/old"], Sut.OwnedRepos());
-    }
-
-    [Fact]
     public void OwnedRepos_refuses_with_GitHubs_error()
     {
         _http.Reply = _ => Res(401, """{"message":"Bad credentials"}""");
@@ -174,16 +162,6 @@ public class GitHubClientTests
         Assert.Null(Sut.CreateRepo("org/app"));
 
         Assert.Equal(["""/user/repos {"name":"app","private":true,"auto_init":false}""", """/orgs/org/repos {"name":"app","private":true,"auto_init":false}"""], posts);
-    }
-
-    [Fact]
-    public void CreateRepo_says_why_not()
-    {
-        _http.Reply = r => r.Method == HttpMethod.Get ? Res(401, """{"message":"Bad credentials"}""") : Res(201);
-        Assert.Equal("cannot create o/app: GitHub 401: Bad credentials", Sut.CreateRepo("o/app"));
-
-        _http.Reply = r => r.Method == HttpMethod.Get ? Res(200, """{"login":"o"}""") : Res(422, """{"message":"name already exists"}""");
-        Assert.Equal("cannot create o/app: GitHub 422: name already exists", Sut.CreateRepo("o/app"));
     }
 
     [Fact]

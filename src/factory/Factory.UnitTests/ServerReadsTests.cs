@@ -115,7 +115,7 @@ public class ServerReadsTests : ServerTestBase
         Factory.Run("list-repos").Returns(CallResult.Done("""["a/b"]"""));
         Assert.Equal((200, """["a/b"]"""), (Reads.Repos().Status, Reads.Repos().Body));
 
-        Factory.Run("list-repos").Returns(CallResult.Refuse("no GITHUB_TOKEN"));
+        Factory.Run("list-repos").Returns(CallResult.Refuse("no GitHub App is set up; run factory init"));
         Assert.Equal(409, Reads.Repos().Status);
     }
 

@@ -12,7 +12,7 @@ using Microsoft.Extensions.Options;
 namespace Factory.Cli;
 
 /// <summary>
-/// deploy.ps1 (contract, "Deploy"). GitHub is prepared first, so a missing GitHub PAT permission fails before anything
+/// deploy.ps1 (contract, "Deploy"). GitHub is prepared first, so a missing GitHub App permission fails before anything
 /// exists in HCP. Every wait is bounded (FACTORY_DEPLOY_TIMEOUT_MINUTES), and the board lock is released for all of it.
 /// The live lessons kept here: a deploy whose caller's shell was cut off (600 s against a 25-minute apply) is resumed on
 /// its run, not dispatched again (J-019, J-023); the sign-in smoke rides out Entra's replication of a new app (J-025);
@@ -43,7 +43,7 @@ public sealed partial class DeployService(
             string? wsId = null;
             try
             {
-                // GitHub first: a missing PAT permission fails here, before anything exists in HCP.
+                // GitHub first: a missing App permission fails here, before anything exists in HCP.
                 PrepareGitHub(target);
                 var repo = Preview.RepoName(target);
                 var project = hcp.EnsureProject(repo);
@@ -137,13 +137,13 @@ public sealed partial class DeployService(
         SetVariable($"/repos/{target}/environments/preview", "AZURE_SUBSCRIPTION_ID", dotEnv.Get("AZURE_SUBSCRIPTION_ID"));
         SetVariable($"/repos/{target}/actions", "TF_CLOUD_ORGANIZATION", dotEnv.Get("HCP_ORG"));
 
-        // GitHub encrypts secrets with the repo's public key (a libsodium sealed box), which gh does for us. The GitHub PAT
+        // GitHub encrypts secrets with the repo's public key (a libsodium sealed box), which gh does for us. The App's installation token
         // reaches gh through its environment, the team token through stdin: neither is on a command line.
         var teamToken = secrets.Get(SecretNames.HcpTeamToken) ?? throw new FactoryException("HCP_TEAM_TOKEN is not set in .env");
         var s = tools.Gh(["secret", "set", "TF_API_TOKEN", "--env", "preview", "--repo", target], teamToken,
             new Dictionary<string, string?> { ["GH_TOKEN"] = credential.Token(target.Split('/')[0]) });
         if (s.Code != 0)
-            throw new FactoryException($"gh secret set failed: {s.Out}{(Http403().IsMatch(s.Out) ? $"; {GitHubErrors.PatNeeds("secrets=write")}" : "")}");
+            throw new FactoryException($"gh secret set failed: {s.Out}{(Http403().IsMatch(s.Out) ? $"; {GitHubErrors.AppNeeds("secrets=write")}" : "")}");
 
         // Repos on GitHub's immutable subject (the default for new ones) present repo:<owner>@<id>/<name>@<id>.
         var oidc = github.Send(HttpMethod.Get, $"/repos/{target}/actions/oidc/customization/sub");

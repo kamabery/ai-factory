@@ -24,7 +24,7 @@ public sealed class CheckoutCommand(IFactoryPaths paths, IGitClient git, IJobWor
         session.Unlocked(() =>
         {
             err = work.EnsureClone(session.Board, j.Id);
-            // factory/base is the job's base branch as it is now, for the builder to merge in: agents have no PAT to
+            // factory/base is the job's base branch as it is now, for the builder to merge in: agents have no GitHub credential to
             // fetch with, and a branch cut before another job merged is stale (J-022).
             if (err is null && work.Fetch(wt) is { Code: not 0 } f) err = $"checkout: fetch failed: {f.Out}";
             if (err is null && git.Run(wt, "update-ref", "refs/remotes/factory/base", $"refs/remotes/origin/{MergeRules.BaseBranch(session.Board, j)}") is { Code: not 0 } u)

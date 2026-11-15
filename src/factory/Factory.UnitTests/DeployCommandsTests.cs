@@ -143,14 +143,14 @@ public class DeployCommandsTests : CommandTestBase
     public void A_missing_GitHub_PAT_permission_gives_the_attempt_back_and_blocks_the_job_naming_it()
     {
         var s = InDeploy();
-        Attempt(Failed($"## Factory\nError: cannot create the preview environment: GitHub 403: no; {GitHubErrors.PatNeeds("environments=write")}"));
+        Attempt(Failed($"## Factory\nError: cannot create the preview environment: GitHub 403: no; {GitHubErrors.AppNeeds("environments=write")}"));
 
         var e = Assert.Throws<FactoryException>(() => Deploy.Run(Args("deploy", "J-001"), s));
 
-        Assert.Equal($"deploy refused by GitHub: {GitHubErrors.PatNeeds("environments=write")}; then run: factory redeploy J-001", e.Message);
+        Assert.Equal($"deploy refused by GitHub: {GitHubErrors.AppNeeds("environments=write")}; then run: factory redeploy J-001", e.Message);
         var j = s.Job("J-001");
         Assert.Equal(("blocked", "github-permission", 0), ((string?)j["stage"], (string?)j["flag"]!["reason"], (int)j["deploy"]!["attempts"]!));
-        Assert.Equal(GitHubErrors.PatNeeds("environments=write"), (string?)j["flag"]!["detail"]);
+        Assert.Equal(GitHubErrors.AppNeeds("environments=write"), (string?)j["flag"]!["detail"]);
     }
 
     [Fact]

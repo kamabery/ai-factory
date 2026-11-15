@@ -33,7 +33,7 @@ you changed and its `## Template gaps`.
    note that and finish. Otherwise the preview is up: smoke the printed URLs (`curl -sf --retry 6 --retry-delay 10 --retry-all-errors
    <front end>/api/openapi/v1.json`, or `<api>/openapi/v1.json` with no front end, and the front end
    itself), note the result, and finish. The API's own address answers 401 behind a Static Web App.
-2. Exit 1 saying `deploy refused by GitHub: the GitHub PAT needs <permission>`: stop. The code is
+2. Exit 1 saying `deploy refused by GitHub: the GitHub App needs <permission>`: stop. The code is
    not at fault; the job is already with the human, who must add the permission. Never try to work
    around it.
 3. Any other exit 1: `factory deploy-log <id>`. Find the first real error,
