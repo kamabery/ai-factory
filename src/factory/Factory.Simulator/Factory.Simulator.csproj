@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Drives fake jobs through the factory CLI so the dashboard can be watched and tested without a token (it was
+       factory/scripts/simulate.ps1). Test tooling: not packed into the ai-factory tool, and not coverage-gated. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The GitHub stub, hosted in process when no .env names one. -->
+    <ProjectReference Include="..\Factory.TestHost\Factory.TestHost.csproj" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+</Project>
