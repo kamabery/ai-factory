@@ -60,6 +60,7 @@ factory runner                               # drains the Approved queue; the da
 factory status                               # the board as text; every command is in the contract's "factory commands"
 dotnet run --project src/factory/Factory.TestGates   # unit + integration tests, tier counts, coverage gates
 dotnet run --project src/factory/Factory.AppHost   # the dashboard (port 4317) and a runner together, under Aspire
+cd src/factory/Factory.Dashboard; npm test; npm run build   # the SPA's Vitest gate, then its build into factory/dashboard (committed)
 cd factory/tests/dashboard; npx playwright test --grep @smoke   # the dashboard smoke set; drop --grep for the whole suite
 bash factory/tests/linux/run.sh test         # in WSL: the same .NET suite on Linux, no pwsh (setup.sh once first)
 factory state-migrate | allow-ip | prune     # FACTORY_STATE=azure: state in Blob storage (docs/STATE.md)

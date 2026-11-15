@@ -1,6 +1,6 @@
 # 17: React dashboard
 
-**Status:** not started. **Branch:** `feature/17-react-dashboard`. **Depends on:** 12.
+**Status:** done (2026-11-15), PR pending. The SPA is `src/factory/Factory.Dashboard` (Vite, React 19, TypeScript, Tailwind 4 on the aspire-ui-react template's tokens, its Button and Spinner, TanStack Query); `npm run build` writes `factory/dashboard/`, committed, so neither install needs Node. The modal stays a div, not the template's native `<dialog>` (it would make the board inert and hide the toast). Playwright 41/41 (smoke 5) on the old page, then on the SPA under the Vite dev server (`FACTORY_DASHBOARD_DEV=1`), then on the build `factory serve` serves; Vitest 79, 99.4% lines (gate 70%); a tool install from a local feed serves it. **Branch:** `feature/17-react-dashboard`. **Depends on:** 12.
 
 ## Goal
 
