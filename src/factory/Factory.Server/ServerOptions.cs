@@ -9,7 +9,7 @@ public sealed class ServerOptions
     /// <summary>--env-file, else the .env beside factory/: the file factory.ps1 is handed as FACTORY_ENV_FILE.</summary>
     public string EnvFile { get; set; } = "";
 
-    /// <summary>factory/dashboard: index.html and vendor/.</summary>
+    /// <summary>factory/dashboard: the SPA's build, index.html and assets/ (src/factory/Factory.Dashboard builds it).</summary>
     public string DashboardDir { get; set; } = "";
 
     public int WatchdogSeconds { get; set; } = 10;

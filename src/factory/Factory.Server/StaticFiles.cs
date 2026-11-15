@@ -4,7 +4,7 @@ using Microsoft.Extensions.Options;
 
 namespace Factory.Server;
 
-/// <summary>GETs of index.html, /assets/..., /vendor/... and read-only files under the state dir (/state/...); nothing outside them.</summary>
+/// <summary>GETs of the dashboard (index.html and its bundle under /assets/...) and read-only files under the state dir (/state/...); nothing outside them.</summary>
 public sealed class StaticFiles(IFactoryPaths paths, IStateCache cache, IOptions<ServerOptions> options)
 {
     public Reply Index() => Reply.File(Path.Combine(options.Value.DashboardDir, "index.html"));
@@ -21,13 +21,9 @@ public sealed class StaticFiles(IFactoryPaths paths, IStateCache cache, IOptions
     }
 
     /// <summary>The SPA's bundle: <paramref name="rest"/> is the path after <c>/assets/</c>.</summary>
-    public Reply Assets(string rest) => Under("assets", rest);
-
-    public Reply Vendor(string rest) => Under("vendor", rest);
-
-    private Reply Under(string folder, string rest)
+    public Reply Assets(string rest)
     {
-        var root = Path.GetFullPath(Path.Combine(options.Value.DashboardDir, folder)) + Path.DirectorySeparatorChar;
+        var root = Path.GetFullPath(Path.Combine(options.Value.DashboardDir, "assets")) + Path.DirectorySeparatorChar;
         var full = Path.GetFullPath(Path.Combine(root, rest));
         return full.StartsWith(root, StringComparison.OrdinalIgnoreCase) ? Reply.File(full) : Reply.BadPath();
     }
