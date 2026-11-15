@@ -1,7 +1,10 @@
 namespace Factory.Core.Abstractions;
 
-/// <summary>factory.ps1's Invoke-GateCommand: one gate command, through <c>pwsh -NoProfile -Command</c>, in the work dir.</summary>
+/// <summary>
+/// One gate command in the work dir (contract, "Gate"): a program and its arguments with no shell, or a shell line left from
+/// before that rule through FACTORY_GATE_SHELL.
+/// </summary>
 public interface IGateShell
 {
-    ShellResult Run(string command, string workingDirectory);
+    ShellResult Run(GateCommand gate, string workingDirectory);
 }

@@ -32,8 +32,8 @@ public sealed class CliGitTests(GitHubStub gh) : IDisposable
 
     private static string Git(string dir, params string[] args) => new Factory.Store.GitClient(new Factory.Store.ProcessRunner()).Run(dir, args).Out;
 
-    /// <summary>A job in <paramref name="stage"/> on the stub's repo, its spec's gate one pwsh command.</summary>
-    private void Board(string stage, string gate = "exit 0")
+    /// <summary>A job in <paramref name="stage"/> on the stub's repo, its spec's gate one command, run with no shell.</summary>
+    private void Board(string stage, string gate = "factory check file feature.txt --contains work")
     {
         Directory.CreateDirectory(Path.Combine(Home, "jobs", "J-001"));
         File.WriteAllText(Path.Combine(Home, "jobs", "J-001", "spec.md"), $"# Spec: Ship it\n\n## Target\n- Repo: {_repo}\n\n## Gate\n- build: `{gate}`\n");
@@ -79,7 +79,7 @@ public sealed class CliGitTests(GitHubStub gh) : IDisposable
         SetStage("gate");
         Assert.Equal((0, "", ""), Run("gate", "J-001"));
         Assert.Equal(("ready", head), ((string?)Job["stage"], (string?)Job["gate"]!["sha"]));
-        Assert.Contains("## build: exit 0", File.ReadAllText(Path.Combine(Home, "jobs", "J-001", "gate.log")));
+        Assert.Contains("## build: factory check file feature.txt --contains work", File.ReadAllText(Path.Combine(Home, "jobs", "J-001", "gate.log")));
 
         var (code, url, _) = Run("publish", "J-001");
         Assert.Equal(0, code);
@@ -101,7 +101,7 @@ public sealed class CliGitTests(GitHubStub gh) : IDisposable
     public void A_red_gate_lands_in_ready_flagged_and_merge_refuses_it()
     {
         gh.NewRemote(_repo, _dir);
-        Board("build", "exit 4");
+        Board("build", "factory check file missing.txt");
         Run("checkout", "J-001");
         File.WriteAllText(Path.Combine(Wt, "feature.txt"), "work\n");
         Git(Wt, "add", "-A");
@@ -109,7 +109,7 @@ public sealed class CliGitTests(GitHubStub gh) : IDisposable
         SetStage("gate");
 
         Assert.Equal((1, "", ""), Run("gate", "J-001"));
-        Assert.Equal(("ready", "gate-failed", 4), ((string?)Job["stage"], (string?)Job["flag"]!["reason"], (int?)Job["gate"]!["build"]));
+        Assert.Equal(("ready", "gate-failed", 1), ((string?)Job["stage"], (string?)Job["flag"]!["reason"], (int?)Job["gate"]!["build"]));
 
         Assert.Equal((1, "", "factory: merge refused: gate red\n"), Run("merge", "J-001"));
         Assert.Null(Job["merged"]);

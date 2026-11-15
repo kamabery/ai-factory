@@ -5,7 +5,7 @@ namespace Factory.UnitTests;
 
 public class ApproveCommandTests : CommandTestBase
 {
-    private const string Spec = "# Spec: J-001 — Thing\n\n## Target\n- Repo: o/r\n\n## Gate\n- build: `exit 0`\n";
+    private const string Spec = "# Spec: J-001 — Thing\n\n## Target\n- Repo: o/r\n\n## Gate\n- build: `dotnet build`\n";
 
     private ApproveCommand Sut => new(Paths, Files, Clock);
 
@@ -35,6 +35,21 @@ public class ApproveCommandTests : CommandTestBase
         Files.Put(JobFile("J-001", "spec.md"), spec);
 
         Assert.Equal(message, Assert.Throws<FactoryException>(() => Sut.Run(Args("approve", "J-001"), s)).Message);
+        Assert.Equal((0, "backlog"), (s.Saves, (string?)s.Job("J-001")["stage"]));
+    }
+
+    [Fact]
+    public void Refuses_a_gate_with_shell_lines_naming_each_and_how_to_rewrite_it()
+    {
+        var s = FakeSession.With(Jobs.New("J-001", "backlog"));
+        Files.Put(JobFile("J-001", "spec.md"), "# Spec: x\n## Target\n- Repo: o/r\n## Gate\n- build: `dotnet build`\n" +
+            "- ui: `Set-Location src/ui; npm run build`\n- adr: `Test-Path docs/adr.md`\n- both: `dotnet build; dotnet test`\n");
+
+        Assert.Equal("approve refused: J-001's gate runs with no shell (contract, \"Gate\"): " +
+            "ui: `Set-Location` is a PowerShell cmdlet, so use the tool's directory flag or path; " +
+            "adr: `Test-Path` is a PowerShell cmdlet, so use factory check file; " +
+            "both: `;` needs a shell, so use one gate line per command, or a script the target commits",
+            Assert.Throws<FactoryException>(() => Sut.Run(Args("approve", "J-001"), s)).Message);
         Assert.Equal((0, "backlog"), (s.Saves, (string?)s.Job("J-001")["stage"]));
     }
 

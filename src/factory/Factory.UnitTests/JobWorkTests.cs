@@ -222,8 +222,8 @@ public class JobWorkTests : CommandTestBase
         Clone();
         _git.On("branch --show-current", 0, "factory/J-001").On("rev-parse HEAD", 0, "abcdef123456");
         _options.GateCmds = """[{"name":"build","cmd":"exit 0"},{"name":"test","cmd":"exit 3"}]""";
-        _shell.Run("exit 0", Wt).Returns(new ShellResult(0, "built\n"));
-        _shell.Run("exit 3", Wt).Returns(new ShellResult(3, ""));
+        _shell.Run(new GateCommand("build", "exit 0"), Wt).Returns(new ShellResult(0, "built\n"));
+        _shell.Run(new GateCommand("test", "exit 3"), Wt).Returns(new ShellResult(3, ""));
         var s = FakeSession.With(Jobs.New("J-001", "gate"));
         s.WhileUnlocked = b => b["jobs"]![0]!["flag"] = "moved meanwhile";
 

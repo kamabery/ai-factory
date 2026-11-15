@@ -5,6 +5,12 @@ using Factory.TestHost;
 //   github    --git-base <dir> [--login <user>]
 //   blob      [--token <t>] [--log <file>] [--page-size <n>] [--lease-scale <x>]
 //   anthropic --dir <dir> [--delay-ms <n>]
+// Factory.TestHost -NoProfile -Command <line>: a stand-in gate shell (FACTORY_GATE_SHELL) that prints what it was given.
+if (args is ["-NoProfile", ..])
+{
+    Console.WriteLine($"shell: {string.Join('|', args)}");
+    return 0;
+}
 var stub = args.Length > 0 ? args[0] : "";
 var opts = new ConfigurationBuilder().AddCommandLine([.. args.Skip(1)]).Build();
 if (!int.TryParse(opts["port"], out var port))

@@ -62,7 +62,7 @@ public sealed class GateCheckCommand(
         foreach (var c in cmds)
         {
             var hit = clean ? results[c.Name] as JsonObject : null;
-            var r = hit is not null ? new ShellResult(PsJsonReader.Int(hit["code"]), PsJsonReader.Text(hit["out"])) : shell.Run(c.Cmd, wt);
+            var r = hit is not null ? new ShellResult(PsJsonReader.Int(hit["code"]), PsJsonReader.Text(hit["out"])) : shell.Run(c, wt);
             if (hit is null && clean) results[c.Name] = new JsonObject { ["code"] = r.Code, ["out"] = r.Out };
             lines.Add($"\n## {c.Name}: {c.Cmd}");
             lines.Add(r.Out.TrimEnd());

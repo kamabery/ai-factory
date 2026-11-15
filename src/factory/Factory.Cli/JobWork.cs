@@ -132,7 +132,7 @@ public sealed partial class JobWork(
             {
                 // Add-Content: each write ends with a newline; the heading's own "`n" leads.
                 files.AppendText(log, $"\n## {c.Name}: {c.Cmd}{nl}");
-                var r = shell.Run(c.Cmd, wt);
+                var r = shell.Run(c, wt);
                 files.AppendText(log, r.Out + nl);
                 files.AppendText(log, $"exit {r.Code}{nl}");
                 result[c.Name] = r.Code;
