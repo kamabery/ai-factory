@@ -33,16 +33,16 @@ public class ToolRunnerTests
     }
 
     [Fact]
-    public void An_override_script_runs_in_pwsh_with_the_same_arguments()
+    public void An_override_runs_its_program_and_leading_arguments_then_the_real_arguments()
     {
-        _o.GhCmd = "stub.ps1";
-        _o.AzCmd = "stub.ps1";
+        _o.GhCmd = """["dotnet", "th.dll", "tool", "--"]""";
+        _o.AzCmd = "/fakes/az";
 
         Sut.Gh(["auth"]);
         Sut.Az(["ad", "app"]);
 
-        _processes.Received(1).Run("pwsh", Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "-NoProfile", "-File", "stub.ps1", "auth" })), "", null, null);
-        _processes.Received(1).Run("pwsh", Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "-NoProfile", "-File", "stub.ps1", "ad", "app" })), "", null, null);
+        _processes.Received(1).Run("dotnet", Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "th.dll", "tool", "--", "auth" })), "", null, null);
+        _processes.Received(1).Run("/fakes/az", Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "ad", "app" })), "", null, null);
     }
 
     [Fact]
@@ -58,9 +58,9 @@ public class ToolRunnerTests
         Sut.Signin(["--url", "u"], "pw");
         _processes.Received(1).Run("node", Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { Path.Combine("scripts", "signin-smoke.mjs"), "--url", "u" })), "", "pw", null);
 
-        _o.SigninCmd = "signin-stub.ps1";
+        _o.SigninCmd = """["dotnet", "th.dll", "signin"]""";
         Sut.Signin(["--url", "u"], "pw");
-        _processes.Received(1).Run("pwsh", Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "-NoProfile", "-File", "signin-stub.ps1", "--url", "u" })), "", "pw", null);
+        _processes.Received(1).Run("dotnet", Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "th.dll", "signin", "--url", "u" })), "", "pw", null);
     }
 
     [Fact]
@@ -70,15 +70,6 @@ public class ToolRunnerTests
 
         Assert.Equal(new ToolResult(2, "out\nerr"), Sut.Run("dir", "aspire-addon", ["add", "auth"]));
         _processes.Received(1).Run("aspire-addon", Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "add", "auth" })), "dir", null, null);
-    }
-
-    [Fact]
-    public void Pwsh_runs_in_the_directory_it_is_given()
-    {
-        _processes.Run(default!, default!, default!, default, default).ReturnsForAnyArgs(new ProcessResult(0, "", "  "));
-
-        Assert.Equal(new ToolResult(0, ""), Sut.Pwsh("dir", ["-Command", "x"]));
-        _processes.Received(1).Run("pwsh", Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "-NoProfile", "-Command", "x" })), "dir", null, null);
     }
 
     [Fact]

@@ -67,7 +67,7 @@ public sealed class StateToken(IOptions<StateOptions> options, IFileStore files,
         string[] args = ["account", "get-access-token", "--resource", Resource, "--output", "json"];
         var r = string.IsNullOrEmpty(O.AzCmd)
             ? processes.Run(AzProgram, args, "")
-            : processes.Run("pwsh", ["-NoProfile", "-File", O.AzCmd, .. args], "");
+            : processes.Run(CommandOverride.Parse("FACTORY_AZ_CMD", O.AzCmd)[0], [.. CommandOverride.Parse("FACTORY_AZ_CMD", O.AzCmd).Skip(1), .. args], "");
         var text = r.StdOut.Trim();
         if (r.ExitCode != 0 || text.Length == 0)
             throw new FactoryException($"state: az account get-access-token failed (is az logged in?): {(r.StdErr + r.StdOut).Trim()}");

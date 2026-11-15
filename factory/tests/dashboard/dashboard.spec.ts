@@ -3,9 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { simDir, factoryEnv, stubPort, cli } from './playwright.config';
-
-const repo = path.resolve(import.meta.dirname, '../../..');
+import { simDir, factoryEnv, stubPort, cli, simulator } from './playwright.config';
 
 type Job = {
   id: string; stage: string; round: number; target?: string; approvedAt?: string;
@@ -25,7 +23,7 @@ const sandbox = 'sim/sandbox';   // the simulator's GitHub target, served by the
 
 test.describe.serial('factory dashboard', () => {
   test.beforeAll(() => {
-    execFileSync('pwsh', ['-NoProfile', '-File', path.join(repo, 'factory/scripts/simulate.ps1'), '-Reset', '-Speed', '200'], {
+    execFileSync('dotnet', [simulator, '--reset', '--speed', '200'], {
       env: { ...process.env, ...factoryEnv },
       stdio: 'inherit',
     });
@@ -175,7 +173,7 @@ test.describe.serial('factory dashboard', () => {
     expect((await modal(page).boundingBox())!.width).toBeGreaterThanOrEqual(1000);
     const editor = page.locator('#spec-editor');
     await expect(editor).toHaveValue(/# Spec: J-005/);
-    const text = `# Spec: J-005 — Not-found page\n\n## Intent\nEdited by a human.\n\n## Target\n- Repo: ${sandbox}\n\n## Gate\n- build: \`exit 0\`\n\n## Acceptance criteria\n- [ ] AC1: shows a page\n`;
+    const text = `# Spec: J-005 — Not-found page\n\n## Intent\nEdited by a human.\n\n## Target\n- Repo: ${sandbox}\n\n## Gate\n- build: \`git --version\`\n\n## Acceptance criteria\n- [ ] AC1: shows a page\n`;
     await editor.fill(text);
     const preview = page.locator('#spec-preview');
     await expect(preview.locator('h2', { hasText: 'Acceptance criteria' })).toBeVisible();
@@ -259,7 +257,7 @@ test.describe.serial('factory dashboard', () => {
 
   test('a dashboard idea session grills, confirms the brief, and puts the specs on the board as decided', async ({ page }) => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'ideate-'));
-    const specMd = (t: string) => `# Spec: ${t}\n\n## Target\n- Repo: ${sandbox}\n\n## Gate\n- build: \`exit 0\`\n\n## Acceptance criteria\n- [ ] AC1: ${t}`;
+    const specMd = (t: string) => `# Spec: ${t}\n\n## Target\n- Repo: ${sandbox}\n\n## Gate\n- build: \`git --version\`\n\n## Acceptance criteria\n- [ ] AC1: ${t}`;
     const replies = [
       { content: [{ type: 'text', text: 'Hello! First, who is this for?' }, { type: 'tool_use', id: 'q1', name: 'ask_questions', input: { questions: [
         { question: 'Who uses it?', header: 'Users', multiSelect: false, options: [{ label: 'Just me', description: 'one person' }, { label: 'A team', description: 'several' }] }] } }], stop_reason: 'tool_use' },

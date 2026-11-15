@@ -38,7 +38,8 @@ public class BootstrapSpecTests
             "- test: `dotnet test todo.slnx`",
             "- apphost: `dotnet build .aspire/apphost.cs`",
             "- infra: `aspire-addon infra check`",
-            "- ui: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item -Force node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build`",
+            "- ui-deps: `npm --prefix src/ui/react ci --no-audit --no-fund`",
+            "- ui: `npm --prefix src/ui/react run build`",
             "## AC",
             "  - `dotnet new aspire-base -n todo -o . --dbProvider sqlite --resource Todo`",
             "  - `aspire-addon add ui-react`",
@@ -53,6 +54,18 @@ public class BootstrapSpecTests
         var lines = BootstrapSpec.Lines(Sc("""{"name":"x","resource":"X","db":"sqlite","ui":"blazor","auth":true}"""), "o/x", "{{auth}}\r\n{{gate}}", "t");
 
         Assert.Equal("true", lines[0]);
-        Assert.DoesNotContain(lines, l => l.StartsWith("- ui:", StringComparison.Ordinal));
+        Assert.DoesNotContain(lines, l => l.StartsWith("- ui", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("react")]
+    [InlineData("blazor")]
+    public void Every_gate_line_runs_with_no_shell_so_approve_takes_it(string ui)
+    {
+        var sc = Sc($$"""{"name":"x","resource":"X","db":"sqlite","ui":"{{ui}}"}""");
+        var meta = SpecText.Meta(BootstrapSpec.Lines(sc, "o/x", "## Gate\n{{gate}}\n", "t"));
+
+        Assert.NotEmpty(meta.Gate);
+        Assert.All(meta.Gate, g => Assert.Null(GateLine.Problem(g.Cmd)));
     }
 }

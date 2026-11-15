@@ -189,8 +189,9 @@ public sealed partial class CanaryService(
         var commands = Scaffold.Commands(sc);
         if (!string.IsNullOrEmpty(O.CanaryScaffoldCmd))
         {
-            // The stub (tests) is handed the commands it stands in for, as arguments.
-            var r = tools.Pwsh(dir, ["-File", O.CanaryScaffoldCmd, .. commands]);
+            // The stub (tests) is handed the commands it stands in for, as arguments after its own.
+            var stub = CommandOverride.Parse("FACTORY_CANARY_SCAFFOLD_CMD", O.CanaryScaffoldCmd);
+            var r = tools.Run(dir, stub[0], [.. stub.Skip(1), .. commands]);
             if (r.Code != 0) { log.Add($"## Scaffold\n{string.Join(' ', commands)}\n{r.Out}"); return $"scaffold: {commands[^1]} exited {r.Code}"; }
         }
         else

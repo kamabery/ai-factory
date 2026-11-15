@@ -5,4 +5,8 @@
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- The launch fake: a parent process that starts the CLI detached, as the runner and the server do. -->
+    <ProjectReference Include="..\Factory.Store\Factory.Store.csproj" />
+  </ItemGroup>
 </Project>

@@ -67,7 +67,7 @@ public sealed class IdeaTurnCommand(
             File.WriteAllText(mcp, McpConfig(id).ToJsonString(IdeaFiles.Indented));
             var claudeArgs = Arguments(model, system, mcp, first ? Guid.NewGuid().ToString() : resume!, first);
             var (file, argv) = host.Get("FACTORY_IDEA_CLAUDE_CMD") is { } fake
-                ? ("pwsh", (IReadOnlyList<string>)["-NoProfile", "-File", fake, .. claudeArgs])
+                ? (CommandOverride.Parse("FACTORY_IDEA_CLAUDE_CMD", fake)[0], (IReadOnlyList<string>)[.. CommandOverride.Parse("FACTORY_IDEA_CLAUDE_CMD", fake).Skip(1), .. claudeArgs])
                 : (ClaudeCli.Executable(), claudeArgs);
             var checkout = IdeaTools.Text(s["checkout"]);
             var work = checkout is { Length: > 0 } && Directory.Exists(checkout) ? checkout : dir;
@@ -107,6 +107,10 @@ public sealed class IdeaTurnCommand(
     internal JsonObject McpConfig(string session)
     {
         var self = host.SelfCommand;
+        // The turn's own state and .env, so the server never falls back to a checkout's .env (contract, "Idea sessions").
+        var env = new JsonObject { ["FACTORY_HOME"] = paths.Home };
+        if (paths.EnvFile is { Length: > 0 } envFile) env["FACTORY_ENV_FILE"] = envFile;
+        env["FACTORY_SCRIPTS"] = paths.ScriptsDir;
         return new JsonObject
         {
             ["mcpServers"] = new JsonObject
@@ -115,7 +119,7 @@ public sealed class IdeaTurnCommand(
                 {
                     ["command"] = self[0],
                     ["args"] = new JsonArray([.. self.Skip(1).Append("idea-mcp").Append(session).Select(a => (JsonNode)a)]),
-                    ["env"] = new JsonObject { ["FACTORY_HOME"] = paths.Home, ["FACTORY_SCRIPTS"] = paths.ScriptsDir },
+                    ["env"] = env,
                 },
             },
         };

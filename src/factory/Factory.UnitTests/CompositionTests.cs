@@ -33,7 +33,7 @@ public class CompositionTests
     {
         var env = new Dictionary<string, string?>
         {
-            ["FACTORY_GH_CMD"] = "gh.ps1", ["FACTORY_AZ_CMD"] = "az.ps1", ["FACTORY_SIGNIN_CMD"] = "signin.ps1", ["FACTORY_CANARY_SCAFFOLD_CMD"] = "sc.ps1",
+            ["FACTORY_GH_CMD"] = "gh-fake", ["FACTORY_AZ_CMD"] = "az-fake", ["FACTORY_SIGNIN_CMD"] = "signin-fake", ["FACTORY_CANARY_SCAFFOLD_CMD"] = "sc-fake",
             ["FACTORY_DEPLOY_POLL_SECONDS"] = "1", ["FACTORY_DEPLOY_TIMEOUT_MINUTES"] = "2", ["FACTORY_SMOKE_SECONDS"] = "3", ["FACTORY_SIGNIN_SECONDS"] = "4",
             ["FACTORY_SIGNIN_RETRY_SECONDS"] = "5", ["FACTORY_DESTROY_STALE_MINUTES"] = "6",
         };
@@ -41,7 +41,7 @@ public class CompositionTests
         using var provider = Composition.Build(new ServiceCollection().AddFactoryCli(Host(env)));
 
         var o = provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<Factory.Store.DeployOptions>>().Value;
-        Assert.Equal(("gh.ps1", "az.ps1", "signin.ps1", "sc.ps1", 1, 2, 3, 4, 5, 6),
+        Assert.Equal(("gh-fake", "az-fake", "signin-fake", "sc-fake", 1, 2, 3, 4, 5, 6),
             (o.GhCmd, o.AzCmd, o.SigninCmd, o.CanaryScaffoldCmd, o.Poll, o.Timeout, o.Smoke, o.Signin, o.SigninRetry, o.DestroyStale));
     }
 

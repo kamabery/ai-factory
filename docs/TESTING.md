@@ -12,11 +12,12 @@ Until spec 12 the suite was an inverted pyramid: every Pester test ran `factory.
 repo against HTTP stubs, so all 658 Pester runs were integration tests, about 18 minutes even in
 parallel, and Pester was the **oracle** the .NET port was held to. Spec 12 retired the PowerShell and
 pushed each of its 387 Pester cases down to a unit or integration test
-([the mapping](roadmap/12-pester-mapping.md)). Pester is left only for the PowerShell kept until spec
-16 (`setup-azure.ps1`, `setup-platform.ps1`) and the simulator (`simulate.ps1`). The .NET code is
-built unit-first from its first line (spec 01).
+([the mapping](roadmap/12-pester-mapping.md)). Spec 20 retired the rest: the simulator, the suite's runner and the
+tests' fake CLIs are .NET (`Factory.Simulator`, `Factory.TestGates`, Factory.TestHost's fakes), and a gate line runs
+with no shell. Pester is left only for the PowerShell kept until spec 16 (`setup-azure.ps1`, `setup-platform.ps1`).
+The .NET code is built unit-first from its first line (spec 01).
 
-**Target shape:** about 80% unit, 15% integration and 5% end to end, by test count. `test.ps1` reports the
+**Target shape:** about 80% unit, 15% integration and 5% end to end, by test count. `Factory.TestGates` reports the
 counts per tier; coverage is the gate, not the ratio.
 
 ## Tiers
@@ -25,11 +26,20 @@ counts per tier; coverage is the gate, not the ratio.
 | --- | --- | --- | --- |
 | **Unit** (small) | memory only: no file system, process, network, real clock or environment variables | `Factory.UnitTests` (xUnit v3) | locally, before every PR that touches `src/factory` |
 | **Integration** (medium) | temp directories, git, child processes, localhost stubs (GitHub, HCP, blob, Anthropic: `Factory.TestHost`, hosted in process) | `Factory.IntegrationTests` (xUnit v3) | locally, before every PR that touches `src/factory` |
-| **End to end** (large) | the dashboard in a browser against `simulate.ps1` | `factory/tests/dashboard` (Playwright) | locally: the `@smoke` set before a PR that touches the dashboard or `Factory.Server`; the whole suite on demand |
-| **Pester** (the scripts left until 16) | as integration | `factory/tests/*.Tests.ps1`: setup-azure, setup-platform, simulate | locally, before a PR that touches those scripts or their tests |
+| **End to end** (large) | the dashboard in a browser against `Factory.Simulator` | `factory/tests/dashboard` (Playwright) | locally: the `@smoke` set before a PR that touches the dashboard or `Factory.Server`; the whole suite on demand |
+| **Pester** (the scripts left until 16) | as integration | `factory/tests/*.Tests.ps1`: setup-azure, setup-platform | locally, before a PR that touches those scripts or their tests |
 
 A test that needs a temp directory is an integration test, even if it is fast. Put it in the
 integration project.
+
+**Fakes.** A program the factory runs is replaced, in a test, through its override (`FACTORY_GH_CMD`, `FACTORY_AZ_CMD`,
+`FACTORY_SIGNIN_CMD`, `FACTORY_CANARY_SCAFFOLD_CMD`, `FACTORY_BROWSER_CMD`, `FACTORY_IDEA_CLAUDE_CMD`,
+`FACTORY_CLAUDE_CMD`): a JSON array naming a program and its leading arguments (contract, "Implementations"). The
+fakes are Factory.TestHost's modes, `dotnet Factory.TestHost.dll <mode> [options --]`: `tool` (gh and az, logging each
+call), `signin` (the sign-in smoke), `claude` (an idea turn through the MCP server and the Anthropic stub, or a runner
+pass), `env` (what a child saw) and `launch` (a parent that starts the CLI detached). A fake's options go before the
+`--`, so a test configures it without setting this process's environment (`Fakes.Command` in the integration tests).
+Gate lines in tests are programs too: `git --version` passes, `git no-such-command` fails.
 
 ## Unit-testable design (.NET)
 
@@ -85,9 +95,9 @@ integration test that covers it. Spec 16 does the same for the setup scripts' Pe
 
 | Gate | Where | Bar |
 | --- | --- | --- |
-| Coverage (Microsoft.Testing.Extensions.CodeCoverage, line, unit and integration merged; `src/factory/test.ps1`) | before every PR, from spec 01 | **90%** on `Factory.Core`, **70%** on every other project with logic. `Factory.AppHost`, `Factory.ServiceDefaults` and `Factory.TestHost` (the tests' stubs) are excluded, as is generated code: source-generator output (`*.g.cs`, such as `[GeneratedRegex]`'s) and `dotnet ef` migrations (`Migrations/`) |
+| Coverage (Microsoft.Testing.Extensions.CodeCoverage, line, unit and integration merged; `Factory.TestGates`) | before every PR, from spec 01 | **90%** on `Factory.Core`, **70%** on every other project with logic. `Factory.AppHost`, `Factory.ServiceDefaults` and the test tooling (`Factory.TestHost`, the stubs and fakes; `Factory.Simulator`; `Factory.TestGates`, whose rules have unit tests of their own) are excluded, as is generated code: source-generator output (`*.g.cs`, such as `[GeneratedRegex]`'s) and `dotnet ef` migrations (`Migrations/`) |
 | Mutation score (Stryker.NET) | on demand, `Factory.Core` | not a gate; each port spec records the score in its Status line |
-| Tier counts | before every PR | printed by `test.ps1`, not a gate |
+| Tier counts | before every PR | printed by `Factory.TestGates`, not a gate |
 
 ## Before a PR (no CI)
 
@@ -97,21 +107,21 @@ touches and put the counts in the PR description:
 
 | The PR touches | Run |
 | --- | --- |
-| `src/factory/**` | `pwsh src/factory/test.ps1` (unit + integration, tier counts, coverage gates) |
-| `factory/plugin/**` | `pwsh src/factory/test.ps1` (`PluginTests` reads the plugin) |
-| the PowerShell left: `factory/scripts/*.ps1`, `factory/tests/*.Tests.ps1`, `factory/tests/fixtures/**` | `Invoke-Pester factory/tests` after `dotnet build src/factory` (the stub host), and the Playwright suite when it is `simulate.ps1` or a fixture it uses |
+| `src/factory/**` | `dotnet run --project src/factory/Factory.TestGates` (unit + integration, tier counts, coverage gates) |
+| `factory/plugin/**` or `factory/templates/**` | `dotnet run --project src/factory/Factory.TestGates` (`PluginTests` reads them) |
+| the PowerShell left until 16: `factory/scripts/*.ps1`, `factory/tests/*.Tests.ps1`, `factory/tests/fixtures/**` | `Invoke-Pester factory/tests` after `dotnet build src/factory` (the stub host) |
 | the dashboard or `Factory.Server` | the Playwright `@smoke` set; the whole suite for dashboard work |
 | only `docs/**` or root `*.md` | nothing |
-| a spec whose "Done when" names Linux | in WSL: `factory/tests/linux/setup.sh` once (a user-local .NET 10 SDK, pwsh, Pester and git, no sudo), then `factory/tests/linux/run.sh test` (or `unit`, `integration`, `pester`), which run on a copy of the working tree in `~/factory-test` |
+| a spec whose "Done when" names Linux | in WSL: `factory/tests/linux/setup.sh` once (a user-local .NET 10 SDK and git, no sudo; with `pester`, also pwsh and Pester for spec 16's scripts), then `factory/tests/linux/run.sh test` (or `unit`, `integration`, `pester`), which run on a copy of the working tree in `~/factory-test` |
 
 ## Commands
 
 ```powershell
 cd factory/tests/dashboard; npx playwright test --grep @smoke   # the smoke set
 cd factory/tests/dashboard; npx playwright test                 # the whole e2e suite
-pwsh src/factory/test.ps1                                        # .NET unit + integration, tier counts, coverage gates
-Invoke-Pester factory/tests                                      # the Pester left: setup-azure, setup-platform, simulate
-bash factory/tests/linux/run.sh test                             # in WSL: test.ps1 on Linux
+dotnet run --project src/factory/Factory.TestGates               # .NET unit + integration, tier counts, coverage gates
+Invoke-Pester factory/tests                                      # the Pester left until 16: setup-azure, setup-platform
+bash factory/tests/linux/run.sh test                             # in WSL: Factory.TestGates on Linux, no pwsh
 ```
 
 A Playwright test joins the smoke set with `{ tag: '@smoke' }`. Keep the set to the critical paths

@@ -4,12 +4,13 @@ This turns the approved replatform roadmap (2026-10-23, revised 2026-11-08) into
 session can pick up one at a time. The rationale and the decisions table live in
 `C:\Users\kamab\.claude\plans\grill-me-on-the-silly-yao.md`; this folder is the work.
 
-**Where things stand (2026-11-15):** specs 00, 19 and 01–14 are merged (13 in PR #22, 14 in PR #24): the factory is the
+**Where things stand (2026-11-15):** specs 00, 19 and 01–14 are merged (13 in PR #22, 14 in PR #24), 15 part 1 in PR #25, and 20 is done (its PR is open): the factory is the
 .NET `factory` CLI, the PowerShell control plane and Pester are gone, and `factory init` / `doctor` set a machine up with
-a GitHub App and the OS secret store. 15 is split around 20: its part 1 (packaging, the history review) is done on
-`feature/15-public`; next is 20, then 15's part 2 (acceptance and going public). macOS is out of scope. Last
-green suites: .NET 957 unit, 190 integration (Windows; WSL last ran at 13); Playwright 41 (file and sqlite, at 13);
-Pester (setup scripts and the simulator, until 16) 30. Reordered 2026-11-09 so previews come last (see below).
+a GitHub App and the OS secret store; since 20, nothing but spec 16's setup scripts needs PowerShell (gates run with no
+shell). 15 is split around 20: part 1 (packaging, the history review) is merged; next is 15's part 2 (acceptance and
+going public, on the hello target `kamabery/ai-factory-hello` that 20 created). macOS is out of scope. Last green
+suites (20): .NET 1054 unit, 196 integration (Windows), 1051 / 193 in WSL with no pwsh; Playwright 41; Pester (spec
+16's setup scripts) 29. Reordered 2026-11-09 so previews come last (see below).
 
 ## Run order
 

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Factory.Cli.Abstractions;
+using Factory.Core;
 using Factory.Core.Abstractions;
 
 namespace Factory.Cli;
@@ -11,7 +12,8 @@ public sealed class SystemBrowser(CliEnvironment host, IProcessRunner processes)
     {
         if (host.Get("FACTORY_BROWSER_CMD") is { } cmd)
         {
-            processes.Run("pwsh", ["-NoProfile", "-File", cmd, url], "");
+            var fake = CommandOverride.Parse("FACTORY_BROWSER_CMD", cmd);
+            processes.Run(fake[0], [.. fake.Skip(1), url], "");
             return;
         }
         try

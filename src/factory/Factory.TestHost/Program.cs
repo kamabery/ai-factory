@@ -2,9 +2,25 @@ using System.Globalization;
 using Factory.TestHost;
 
 // dotnet Factory.TestHost.dll <github|blob|anthropic> --port <n> [options]: one stub until it is stopped.
+// dotnet Factory.TestHost.dll <tool|signin|claude|env|launch> [options --] <args>: one fake call (ToolFake, SigninFake, ClaudeFake, EnvFake, LaunchFake).
 //   github    --git-base <dir> [--login <user>]
 //   blob      [--token <t>] [--log <file>] [--page-size <n>] [--lease-scale <x>]
 //   anthropic --dir <dir> [--delay-ms <n>]
+// Factory.TestHost -NoProfile -Command <line>: a stand-in gate shell (FACTORY_GATE_SHELL) that prints what it was given.
+if (args is ["-NoProfile", ..])
+{
+    Console.WriteLine($"shell: {string.Join('|', args)}");
+    return 0;
+}
+// The fakes a test override names in place of a program (contract, "Implementations"): Factory.TestHost <mode> [options --] <args>.
+switch (args.Length > 0 ? args[0] : "")
+{
+    case "tool": return ToolFake.Run(args[1..]);
+    case "signin": return SigninFake.Run(args[1..]);
+    case "claude": return ClaudeFake.Run(args[1..]);
+    case "env": return EnvFake.Run(args[1..]);
+    case "launch": return LaunchFake.Run(args[1..]);
+}
 var stub = args.Length > 0 ? args[0] : "";
 var opts = new ConfigurationBuilder().AddCommandLine([.. args.Skip(1)]).Build();
 if (!int.TryParse(opts["port"], out var port))

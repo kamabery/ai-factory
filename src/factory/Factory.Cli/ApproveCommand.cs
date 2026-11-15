@@ -19,6 +19,10 @@ public sealed class ApproveCommand(IFactoryPaths paths, IFileStore files, TimePr
         if (string.IsNullOrEmpty(meta.Repo)) throw new FactoryException("approve refused: the spec has no '## Target' with '- Repo: <owner/name>'");
         if (SpecText.TargetError(meta.Repo) is { } err) throw new FactoryException($"approve refused: {err}");
         if (meta.Gate.Count == 0) throw new FactoryException("approve refused: the spec's '## Gate' has no '- <name>: `<command>`' lines");
+        var shellLines = meta.Gate.Select(g => (g.Name, Problem: GateLine.Problem(g.Cmd))).Where(g => g.Problem is not null)
+            .Select(g => $"{g.Name}: {g.Problem!.Reason}, so {g.Problem.Hint}").ToList();
+        if (shellLines.Count > 0)
+            throw new FactoryException($"approve refused: {j.Id}'s gate runs with no shell (contract, \"Gate\"): {string.Join("; ", shellLines)}");
         var now = clock.GetUtcNow();
         j.Node["target"] = meta.Repo;
         j.Node["approvedAt"] = Iso.Format(now);

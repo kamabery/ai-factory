@@ -119,13 +119,13 @@ public class IdeaTurnTests : CommandTestBase, IDisposable
         PutSession();
         _out = Ok;
         DotEnv.Get("FACTORY_IDEA_MODEL").Returns("claude-sonnet-5-5");
-        _vars["FACTORY_IDEA_CLAUDE_CMD"] = "fake.ps1";
+        _vars["FACTORY_IDEA_CLAUDE_CMD"] = """["dotnet", "th.dll", "claude"]""";
 
         Run();
 
         var (file, args, _, _) = _ran!.Value;
-        Assert.Equal("pwsh", file);
-        Assert.Equal(["-NoProfile", "-File", "fake.ps1", "-p"], args.Take(4));
+        Assert.Equal("dotnet", file);
+        Assert.Equal(["th.dll", "claude", "-p"], args.Take(3));
         Assert.Equal("claude-sonnet-5-5", (string?)Session()["model"]);
     }
 
@@ -227,6 +227,17 @@ public class IdeaTurnTests : CommandTestBase, IDisposable
         Assert.Equal((3, "idea-turn: a turn is already running for S-001 on another machine" + Environment.NewLine), (code, err.ToString()));
         Assert.False(File.Exists(SessionFile("turn.lock")));
         _claude.DidNotReceiveWithAnyArgs().Run(default!, default!, default!, default!, default!, default!);
+    }
+
+    [Fact]
+    public void The_mcp_server_runs_on_the_turns_own_env_file()
+    {
+        Paths.Home.Returns("H");
+        Paths.EnvFile.Returns("E.env");
+
+        var env = Turn().McpConfig("S-001")["mcpServers"]!["factory"]!["env"]!;
+
+        Assert.Equal(("H", "E.env"), ((string?)env["FACTORY_HOME"], (string?)env["FACTORY_ENV_FILE"]));
     }
 
     [Fact]

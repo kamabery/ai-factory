@@ -153,8 +153,8 @@ public class GitCommandsTests : CommandTestBase
     public void Gate_check_runs_every_command_prints_them_and_exits_with_the_first_failure_leaving_the_board_alone()
     {
         Head("abc1234567");
-        _shell.Run("cmd a", Wt).Returns(new ShellResult(3, "ran a\n"));
-        _shell.Run("cmd b", Wt).Returns(new ShellResult(5, "ran b\n"));
+        _shell.Run(new GateCommand("a", "cmd a"), Wt).Returns(new ShellResult(3, "ran a\n"));
+        _shell.Run(new GateCommand("b", "cmd b"), Wt).Returns(new ShellResult(5, "ran b\n"));
         var s = FakeSession.With(Jobs.New("J-001", "review"));
 
         var r = GateCheck.Run(Args("gate-check", "J-001"), s);
@@ -170,11 +170,11 @@ public class GitCommandsTests : CommandTestBase
     public void Gate_check_runs_only_the_named_command_and_refuses_an_unknown_name()
     {
         Head("abc");
-        _shell.Run(Arg.Any<string>(), Arg.Any<string>()).Returns(new ShellResult(0, ""));
+        _shell.Run(Arg.Any<GateCommand>(), Arg.Any<string>()).Returns(new ShellResult(0, ""));
 
         GateCheck.Run(Args("gate-check", "J-001", "B"), FakeSession.With(Jobs.New("J-001", "build")));
-        _shell.Received(1).Run("cmd b", Wt);
-        _shell.DidNotReceive().Run("cmd a", Arg.Any<string>());
+        _shell.Received(1).Run(new GateCommand("b", "cmd b"), Wt);
+        _shell.DidNotReceive().Run(new GateCommand("a", "cmd a"), Arg.Any<string>());
 
         Assert.Equal("gate-check refused: no gate command named 'nope'",
             Assert.Throws<FactoryException>(() => GateCheck.Run(Args("gate-check", "J-001", "nope"), FakeSession.With(Jobs.New("J-001", "build")))).Message);
@@ -187,8 +187,8 @@ public class GitCommandsTests : CommandTestBase
     public void Gate_check_serves_a_clean_heads_results_from_its_cache_and_runs_again_on_a_new_head()
     {
         Head("abc1234567");
-        _shell.Run("cmd a", Wt).Returns(new ShellResult(0, "ran a\n"));
-        _shell.Run("cmd b", Wt).Returns(new ShellResult(4, "ran b\n"));
+        _shell.Run(new GateCommand("a", "cmd a"), Wt).Returns(new ShellResult(0, "ran a\n"));
+        _shell.Run(new GateCommand("b", "cmd b"), Wt).Returns(new ShellResult(4, "ran b\n"));
         GateCheck.Run(Args("gate-check", "J-001"), FakeSession.With(Jobs.New("J-001", "build")));
 
         var r = GateCheck.Run(Args("gate-check", "J-001"), FakeSession.With(Jobs.New("J-001", "build")));
@@ -196,24 +196,24 @@ public class GitCommandsTests : CommandTestBase
         Assert.Equal(4, r.ExitCode);
         Assert.Contains("exit 4 (cached at abc1234)", r.Out);
         Assert.Contains("ran b", r.Out);
-        _shell.Received(1).Run("cmd b", Wt);
+        _shell.Received(1).Run(new GateCommand("b", "cmd b"), Wt);
 
         Head("def");
         GateCheck.Run(Args("gate-check", "J-001", "a"), FakeSession.With(Jobs.New("J-001", "build")));
-        _shell.Received(2).Run("cmd a", Wt);
+        _shell.Received(2).Run(new GateCommand("a", "cmd a"), Wt);
     }
 
     [Fact]
     public void Gate_check_does_not_cache_a_dirty_tree()
     {
         Head("abc", clean: false);
-        _shell.Run(Arg.Any<string>(), Arg.Any<string>()).Returns(new ShellResult(0, ""));
+        _shell.Run(Arg.Any<GateCommand>(), Arg.Any<string>()).Returns(new ShellResult(0, ""));
 
         GateCheck.Run(Args("gate-check", "J-001", "a"), FakeSession.With(Jobs.New("J-001", "build")));
         var r = GateCheck.Run(Args("gate-check", "J-001", "a"), FakeSession.With(Jobs.New("J-001", "build")));
 
         Assert.DoesNotContain(r.Out, l => l.Contains("cached at"));
-        _shell.Received(2).Run("cmd a", Wt);
+        _shell.Received(2).Run(new GateCommand("a", "cmd a"), Wt);
         Assert.Null(Files.Text(JobFile("J-001", "gate-check.json")));
     }
 
@@ -221,14 +221,14 @@ public class GitCommandsTests : CommandTestBase
     public void Gate_check_does_not_serve_the_cache_once_the_tree_is_dirty_at_the_same_head()
     {
         Head("abc");
-        _shell.Run(Arg.Any<string>(), Arg.Any<string>()).Returns(new ShellResult(0, ""));
+        _shell.Run(Arg.Any<GateCommand>(), Arg.Any<string>()).Returns(new ShellResult(0, ""));
         GateCheck.Run(Args("gate-check", "J-001", "a"), FakeSession.With(Jobs.New("J-001", "build")));
 
         Head("abc", clean: false);
         var r = GateCheck.Run(Args("gate-check", "J-001", "a"), FakeSession.With(Jobs.New("J-001", "build")));
 
         Assert.DoesNotContain(r.Out, l => l.Contains("cached at"));
-        _shell.Received(2).Run("cmd a", Wt);
+        _shell.Received(2).Run(new GateCommand("a", "cmd a"), Wt);
     }
 
     [Fact]
@@ -236,7 +236,7 @@ public class GitCommandsTests : CommandTestBase
     {
         Head("abc");
         Files.Put(JobFile("J-001", "gate-check.json"), "{not json");
-        _shell.Run(Arg.Any<string>(), Arg.Any<string>()).Returns(new ShellResult(0, ""));
+        _shell.Run(Arg.Any<GateCommand>(), Arg.Any<string>()).Returns(new ShellResult(0, ""));
 
         Assert.Equal(0, GateCheck.Run(Args("gate-check", "J-001", "a"), FakeSession.With(Jobs.New("J-001", "build"))).ExitCode);
         Assert.Contains("\"sha\": \"abc\"", Files.Text(JobFile("J-001", "gate-check.json")));

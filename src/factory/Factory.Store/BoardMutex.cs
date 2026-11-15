@@ -4,7 +4,7 @@ namespace Factory.Store;
 
 /// <summary>
 /// factory.ps1's board mutex, <c>factory-board-&lt;hash of FACTORY_HOME&gt;</c>. A named mutex works across .NET
-/// processes on every OS, and pwsh is one, so a forwarded command and factory.ps1 exclude each other.
+/// processes on every OS, so every factory command on one state dir excludes the others (it once kept factory.ps1 out too).
 /// </summary>
 public sealed class BoardMutex(IFactoryPaths paths) : IBoardMutex, IDisposable
 {

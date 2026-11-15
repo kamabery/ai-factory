@@ -42,7 +42,7 @@ public abstract class CliDatabaseContract : IDisposable
         Directory.CreateDirectory(Path.Combine(Home, "jobs", "J-001"));
         System.IO.File.WriteAllText(File("board.json"), Board);
         System.IO.File.WriteAllText(File("events.jsonl"), "{\"ts\":\"2026-11-01T10:00:00Z\",\"idea\":\"I-001\",\"kind\":\"idea\",\"detail\":\"drafting\"}\n\n");
-        System.IO.File.WriteAllText(Path.Combine(Home, "jobs", "J-001", "spec.md"), "# Search\n\n## Target\n- Repo: kamabery/books\n\n## Gate\n- build: `exit 0`\n");
+        System.IO.File.WriteAllText(Path.Combine(Home, "jobs", "J-001", "spec.md"), "# Search\n\n## Target\n- Repo: kamabery/books\n\n## Gate\n- build: `git --version`\n");
     }
 
     [Fact]

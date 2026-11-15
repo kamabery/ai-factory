@@ -45,7 +45,8 @@ and `...\build-your-own-ai-software-factory-with-claude-code.md`. How to build t
   staging are ready to deploy by hand, and nothing in the factory deploys prod.
 - **Tests are seen red before green**, and follow `docs/TESTING.md`: unit-first .NET (DI, NSubstitute,
   AutoFixture, coverage gates) and Playwright as a smoke set with the whole suite on demand. Pester is
-  left only for the PowerShell kept until spec 16 (`setup-azure.ps1`, `setup-platform.ps1`) and the simulator.
+  left only for the PowerShell kept until spec 16 (`setup-azure.ps1`, `setup-platform.ps1`). Gate lines run with
+  no shell: a program and its arguments, with `factory check file` for file checks (contract, "Gate").
   **Tests run locally before a PR, never in CI**: the repo has no test workflows (Actions cost), and the
   PR description carries the local counts.
 
@@ -57,14 +58,15 @@ factory serve                                # dashboard on a random localhost p
 factory idea <owner/name|I-NNN>              # CLI fallback for the dashboard's New idea: grill -> brief -> specs -> you approve
 factory runner                               # drains the Approved queue; the dashboard's watchdog starts it for you
 factory status                               # the board as text; every command is in the contract's "factory commands"
-pwsh src/factory/test.ps1                    # unit + integration tests, tier counts, coverage gates
+dotnet run --project src/factory/Factory.TestGates   # unit + integration tests, tier counts, coverage gates
 dotnet run --project src/factory/Factory.AppHost   # the dashboard (port 4317) and a runner together, under Aspire
 cd factory/tests/dashboard; npx playwright test --grep @smoke   # the dashboard smoke set; drop --grep for the whole suite
-bash factory/tests/linux/run.sh test         # in WSL: the same .NET suite on Linux (setup.sh once first)
+bash factory/tests/linux/run.sh test         # in WSL: the same .NET suite on Linux, no pwsh (setup.sh once first)
 factory state-migrate | allow-ip | prune     # FACTORY_STATE=azure: state in Blob storage (docs/STATE.md)
 pwsh factory/scripts/setup-platform.ps1                # the shared platform previews run on, ~$18/month (docs/DEPLOY.md)
 factory canary -Full                         # after template IaC changes: the whole stack, off the platform
 cd factory/infra/llm; terraform test; terraform apply  # the Foundry account cloud mode runs on (docs/FOUNDRY.md)
 pwsh factory/scripts/setup-azure.ps1 -SubscriptionId <id> -HcpOrg <org> [-CreateExternalTenant <sub> -ExternalResourceGroup <rg> | -ExternalTenantId <id>]  # one-time preview identities (docs/DEPLOY.md)
-Invoke-Pester factory/tests                  # the Pester left: setup-azure, setup-platform and the simulator
+dotnet run --project src/factory/Factory.Simulator -- --reset --speed 0.5   # fake jobs for the dashboard, no tokens
+Invoke-Pester factory/tests                  # the Pester left until spec 16: setup-azure and setup-platform
 ```

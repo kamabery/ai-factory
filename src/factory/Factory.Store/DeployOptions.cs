@@ -8,14 +8,14 @@ namespace Factory.Store;
 /// </summary>
 public sealed class DeployOptions
 {
-    /// <summary>FACTORY_GH_CMD / FACTORY_AZ_CMD: a script run with <c>pwsh -File</c> in place of gh / az.</summary>
+    /// <summary>FACTORY_GH_CMD / FACTORY_AZ_CMD: a program and its leading arguments in place of gh / az.</summary>
     public string? GhCmd { get; set; }
     public string? AzCmd { get; set; }
 
-    /// <summary>FACTORY_SIGNIN_CMD: a script run with <c>pwsh -File</c> in place of signin-smoke.mjs.</summary>
+    /// <summary>FACTORY_SIGNIN_CMD: a program and its leading arguments in place of node signin-smoke.mjs.</summary>
     public string? SigninCmd { get; set; }
 
-    /// <summary>FACTORY_CANARY_SCAFFOLD_CMD: a script handed the scaffold commands, in place of running them.</summary>
+    /// <summary>FACTORY_CANARY_SCAFFOLD_CMD: a program and its leading arguments, handed the scaffold commands in place of running them.</summary>
     public string? CanaryScaffoldCmd { get; set; }
 
     public string? PollSeconds { get; set; }

@@ -46,7 +46,7 @@ public sealed partial class StateFirewall(
     {
         var r = string.IsNullOrEmpty(O.AzCmd)
             ? processes.Run(StateToken.AzProgram, args, "")
-            : processes.Run("pwsh", ["-NoProfile", "-File", O.AzCmd, .. args], "");
+            : processes.Run(CommandOverride.Parse("FACTORY_AZ_CMD", O.AzCmd)[0], [.. CommandOverride.Parse("FACTORY_AZ_CMD", O.AzCmd).Skip(1), .. args], "");
         if (r.ExitCode != 0) throw new FactoryException($"state: az {string.Join(' ', args.Take(4))} failed: {(r.StdOut + r.StdErr).Trim()}");
     }
 

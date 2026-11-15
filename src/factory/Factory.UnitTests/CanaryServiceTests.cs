@@ -42,8 +42,6 @@ public class CanaryServiceTests : CommandTestBase
         });
         _lock.TryTake(out Arg.Any<bool>()).Returns(_held);
         _tools.Run(default!, default!, default!).ReturnsForAnyArgs(c => { Files.Put(Tfvars, "project_name = \"canary\"\nentra_external_subdomain = \"old\"\n"); return new ToolResult(0, ""); });
-        // A stub scaffold (FACTORY_CANARY_SCAFFOLD_CMD) writes the same.
-        _tools.Pwsh(default!, default!).ReturnsForAnyArgs(c => { Files.Put(Tfvars, "project_name = \"canary\"\nentra_external_subdomain = \"old\"\n"); return new ToolResult(0, ""); });
         _github.Lookup(Arg.Any<string>()).Returns(RepoState.Existing);
         _github.GitAuth().Returns(["-c", "auth"]);
         _github.CloneUrl(Arg.Any<string>()).Returns("https://git/me/factory-canary.git");
@@ -90,7 +88,7 @@ public class CanaryServiceTests : CommandTestBase
 
         _tools.Received(1).Run(Path.Combine(Work, "canary"), "dotnet", Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual("new aspire-base -n canary -o . --dbProvider postgres --resource Item".Split(' '))));
         _tools.Received(1).Run(Arg.Any<string>(), "aspire-addon", Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "add", "auth" })));
-        _tools.DidNotReceiveWithAnyArgs().Pwsh(default!, default!);
+        _tools.DidNotReceive().Run(Arg.Any<string>(), "dotnet", Arg.Is<IReadOnlyList<string>>(a => a.Contains("scaffold")));
         Assert.Equal(string.Concat(new[] { "project_name = \"canary\"", "entra_external_tenant_id    = \"t\"", "entra_external_subdomain    = \"s\"", "entra_external_user_flow_id = \"f\"" }
             .Select(l => l + Environment.NewLine)), committed);
         Assert.False(Files.DirectoryExists(Path.Combine(Work, "canary")));
@@ -102,7 +100,7 @@ public class CanaryServiceTests : CommandTestBase
     [Fact]
     public void A_stub_scaffold_is_handed_the_commands_and_Full_builds_the_whole_stack()
     {
-        _o.CanaryScaffoldCmd = "stub.ps1";
+        _o.CanaryScaffoldCmd = """["dotnet", "th.dll", "scaffold"]""";
         _canary.Options().Returns(new JsonObject { ["name"] = "canary", ["resource"] = "Item", ["db"] = "sqlite", ["ui"] = "none" });
         _github.Lookup(Arg.Any<string>()).Returns(RepoState.Missing);
         string? committed = null;
@@ -110,7 +108,7 @@ public class CanaryServiceTests : CommandTestBase
 
         Sut.Run(_session, false, full: true);
 
-        _tools.Received(1).Pwsh(Arg.Any<string>(), Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "-File", "stub.ps1", "dotnet new aspire-base -n canary -o . --dbProvider sqlite --resource Item" })));
+        _tools.Received(1).Run(Arg.Any<string>(), "dotnet", Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "th.dll", "scaffold", "dotnet new aspire-base -n canary -o . --dbProvider sqlite --resource Item" })));
         Assert.EndsWith("use_platform = false" + Environment.NewLine, committed);
         Assert.True((bool)Canary["full"]!);
         _github.Received(1).CreateRepo("me/factory-canary");

@@ -73,7 +73,7 @@ Every machine works the same board. The container is the record, and each machin
 is a cache of it. Leases on `locks/` keep machines from colliding: one board write at a time, one
 runner, one canary, and one turn per idea session.
 
-**Needs:** PowerShell 7, git and the Azure CLI. Install Claude Code as well if this machine will run
+**Needs:** the .NET 10 SDK, git and the Azure CLI. Install Claude Code as well if this machine will run
 jobs or idea turns. Terraform is not needed.
 
 1. **Clone the repo**, and check out the branch the other machines run.
