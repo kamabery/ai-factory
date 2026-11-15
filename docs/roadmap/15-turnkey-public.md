@@ -1,6 +1,13 @@
 # 15: Turn-key acceptance and the public repo
 
-**Status:** in progress (2026-11-15), part 1 of 2. **Branch:** `feature/15-public`. **Depends on:** 14, decisions D1 and D5.
+**Status:** part 1 done on the branch (2026-11-15), part 2 waits for spec 20. Part 1: the contract's "Installs" (a
+checkout or the dotnet tool), tool installs keeping `.env`, state and the template workspace in `~/.ai-factory`, doctor's
+`templates`, init cloning `FACTORY_TEMPLATES_REPO`, previews refused in a tool install, and `dotnet pack` of `ai-factory`
+0.1.0 (CLI, runner, server and the factory root's files), proven by a sandboxed `dotnet tool install -g`. .NET 972 unit,
+190 integration + 1 skipped, gates green (Windows). Nothing published. **Part 2 (after 20):** the hello target, the README
+for a stranger, the acceptance runs (Windows Sandbox, Hyper-V Ubuntu 24.04), the PAT fallback's removal, the
+template-projects scrub (`tooling/verify/live.ps1`'s platform ids) and history review there, marking the repo a
+template, then (with Kurt's yes) publishing to NuGet and making both repos public. **Branch:** `feature/15-public`. **Depends on:** 14, decisions D1 and D5.
 
 **Decided 2026-11-15:** MIT; `kamabery/ai-factory` itself goes public (after the history review); D5 is a minimal hello
 target, `kamabery/ai-factory-hello`; acceptance on **Windows and Ubuntu 24.04 only** (macOS out of scope), on Windows
