@@ -1,133 +1,127 @@
-# ai-factory
+# AI factory
 
-A Claude Code software factory with a human at both ends: you approve the spec and accept the
-result, and agents do everything in between (build → four parallel reviewers → approver →
-deterministic gate). It builds GitHub target repos scaffolded from `template-projects`, and a
-live dashboard is where you work it.
+A software factory built on Claude Code, with a human at both ends. You approve the spec and accept the result; agents
+do everything in between. Claude grills an idea into small specs, then each job is built, checked by four reviewers in
+parallel (security, code, UX, UI) and an approver, and gated by commands you approved with the spec. What lands is a
+pull request on your GitHub repo, and a local dashboard is where you work it.
 
-- **Status:** the factory is built (guide steps 1–5) and tested; it has not run a real job yet.
-- **Contract:** [docs/FACTORY-CONTRACT.md](docs/FACTORY-CONTRACT.md) covers stages, files, board and event formats.
-- **Rules for agents:** [CLAUDE.md](CLAUDE.md).
-- **GitHub setup:** `factory init` creates the GitHub App ([docs/GITHUB-APP.md](docs/GITHUB-APP.md)); `factory doctor` checks it.
-- **Tests:** [docs/TESTING.md](docs/TESTING.md) covers the tiers, the stubs they run offline against, and what to run before a PR.
+A deterministic .NET control plane (the `factory` CLI) owns state, the gate and the merge, so an agent never moves a
+card, edits what judges it, or pushes. Only you accept a job: a drag to Done merges its PR.
+
+## What you need
+
+The **core tier** is GitHub plus an LLM:
+
+| | |
+| --- | --- |
+| **.NET 10 SDK** | `winget install --id Microsoft.DotNet.SDK.10 -e`, or on Linux `curl -sSL https://dot.net/v1/dotnet-install.sh \| bash -s -- --channel 10.0` |
+| **git** | `winget install --id Git.Git -e`, or `sudo apt-get install -y git` |
+| **Claude Code**, signed in to a Claude subscription | `irm https://claude.ai/install.ps1 \| iex` (Windows), or `curl -fsSL https://claude.ai/install.sh \| bash`; then `claude` and `/login` |
+| **A GitHub account** | `factory init` creates the factory's GitHub App on it; there is no token to make |
+
+No PowerShell 7, Node or Docker is needed: a spec's gate lines run as plain programs. Whatever your target repo builds
+with (Node for a React front end, say) has to be installed too, since the gate runs it. Windows and Linux (Ubuntu
+24.04) are supported; macOS is not, yet. On Linux the secrets go to the desktop keyring (libsecret's `secret-tool`).
+
+Instead of a subscription, the LLM can be **Claude in Microsoft Foundry**, keyless through Entra ID (`factory init
+--foundry <resource>`, with `az login`); see [docs/FOUNDRY.md](docs/FOUNDRY.md).
 
 ## Getting started
 
-Steps 1–5 of [docs/BUILD-GUIDE.md](docs/BUILD-GUIDE.md) are built: the control plane, runner,
-dashboard, agents and `/factory` skill. Step 6, the first real job, is yours. To see the board move
-without spending tokens, run the simulator first (see "Checking without spending tokens" below).
-
-**Prerequisites:** .NET 10 SDK, Aspire CLI, Node 22+, git, and the `claude` CLI signed in. No PowerShell: a spec's gate
-lines run with no shell. (Until spec 16, the one-time preview setup scripts in [DEPLOY.md](docs/DEPLOY.md) need PowerShell 7.) Build the CLI once, and put it on `PATH`:
-
-```powershell
-dotnet build src/factory
-$env:PATH = "$PWD/artifacts/bin/Factory.Cli/debug$([IO.Path]::PathSeparator)$env:PATH"   # or add it for good
+```bash
+dotnet tool install -g ai-factory
+factory init
 ```
 
-### 1. Start the dashboard
+`init` checks the tools, then opens your browser to create the factory's **GitHub App** (private, no webhook), install
+it on your account (All repositories) and sign you in to it. Its keys go to your OS secret store (Windows Credential
+Manager, or libsecret on Linux), never to a file. It writes `GITHUB_OWNER` to `~/.ai-factory/.env`, clones the
+templates new projects are scaffolded from, runs `factory doctor`, and opens the dashboard.
+[docs/GITHUB-APP.md](docs/GITHUB-APP.md) has the details.
 
-```powershell
-factory serve        # prints its URL (a random free port; --port N to fix one)
-```
+Then, in the dashboard:
+1. **New idea**: give a target repo (`owner/name`) and a sentence. A repo that doesn't exist yet is created, private,
+   and scaffolded first. For a small first job, fork
+   [kamabery/ai-factory-hello](https://github.com/kamabery/ai-factory-hello), a .NET console app and its tests.
+2. Answer Claude's questions until the brief is right, and approve the specs it proposes.
+3. Wait for the card to reach **Ready for review**, read its PR, and drag it to **Done**.
 
-That's the only process you start. The dashboard starts the agent runs itself. Targets are GitHub
-repos (`owner/name`). Run `factory init` once first: it creates and installs the factory's GitHub App, keeps
-its keys in your OS secret store, writes `GITHUB_OWNER` to `.env`, and starts the dashboard for you
-([docs/GITHUB-APP.md](docs/GITHUB-APP.md)). `factory doctor` says what is wrong, if anything. Each job
-builds and is tested in its own temp clone (`%TEMP%\ai-factory\jobs\J-NNN`), which is deleted
-when the job reaches Done or is discarded.
+`factory doctor` says what is wrong with a machine, and how to fix it. `dotnet tool update -g ai-factory` updates the
+factory.
 
-### 2. Work out an idea with Claude
+## Working the board
 
-Press **New idea** in the Ideas column, give the target repo (`owner/name`; a repo that doesn't exist
-yet is created, private, and scaffolded first) and a sentence, and the whole session runs in the
-panel on the `claude` CLI, headless, like a job (`claude-opus-5-5` unless `FACTORY_IDEA_MODEL` says
-otherwise). No API key is needed.
-Samples are in [factory/backlog.md](factory/backlog.md).
+Ideas are grilled in the panel on the `claude` CLI, headless, like a job (`claude-opus-5-5` unless
+`FACTORY_IDEA_MODEL` says otherwise). Claude asks rounds of clickable questions until nothing in the idea is assumed,
+reads the brief back for your yes, and splits it into one to five small specs. Each spec card asks you to approve it,
+change it (edit it, or ask Claude), choose "not yet" (it goes to **Backlog**), or reject it. The panel shows the
+session's cost as it goes. Closing the browser loses nothing: the session's card reopens it.
 
-Claude grills you in rounds of clickable questions until nothing in the idea is assumed, and reads
-the brief back for your yes. It then splits the brief into 1–5 small specs, and each spec card asks
-you to approve it, change it (edit it, or ask Claude), choose "not yet", or reject it. Approved
-specs land in **Approved** and the runner starts. "Not yet" goes to **Backlog**, and rejected specs
-never reach the board. The panel shows the session's cost as it goes (`claude`'s own estimate).
-Closing the browser loses nothing: the session's card reopens it.
-
-Idea sessions and jobs run on the same provider. In the **local** run mode, the default, that is
-your subscription, through the `claude` CLI's own login. In **cloud** mode (`FACTORY_MODE=cloud`,
-set by a deployed factory) both run on Claude in Microsoft Foundry through Entra ID, with no key at
-all; see [docs/FOUNDRY.md](docs/FOUNDRY.md). If you prefer a terminal, the CLI session still works:
-
-```powershell
-factory idea kamabery/todo-app   # or an I-NNN to resume one
-```
-
-### 3. Backlog (optional)
-
-Open a backlog card, read its spec (intent, acceptance criteria, scope, risks), edit it in the
-drawer and save. When it says what you want built, drag it to **Approved**. Discard the cards you
-don't want.
-
-Approved is a FIFO queue. Jobs build one at a time.
-
-### 4. Building (hands off)
-
-The card moves into **Building** and the pipeline strip lights up as each agent runs:
-
+**Approved** is a FIFO queue, and jobs build one at a time, each in its own temp clone that is deleted when the job is
+done or discarded. A building card's pipeline strip lights up as each agent runs:
 1. **builder:** implements the spec on branch `factory/<id>`.
-2. **security, code, UX and UI reviewers:** run in parallel. Any `CHANGES` sends the job back to
-   the builder for a second round.
+2. **security, code, UX and UI reviewers:** in parallel. Any `CHANGES` sends the job back to the builder for round 2.
 3. **approver:** checks every acceptance criterion against the evidence.
-4. **gate:** `dotnet build`, `dotnet test` and `npm run build` must all exit 0.
+4. **gate:** the spec's gate commands (`dotnet build`, `dotnet test`, ...) must all exit 0.
 
-### 5. Review → Done, Rework or Discard
+The job then lands in **Ready for review** with a pull request. Read the diff, the reviews and the decision in the
+drawer, then:
+- **drag to Done** to merge the PR. This is the only way anything merges; merging the PR on GitHub counts too;
+- **Rework**, with a note, to send it back to the queue for another build;
+- **Discard** to drop the job, close its PR and delete its branch.
 
-The job lands in **Ready for review**, and its branch is pushed with a pull request (the **PR** link
-in the drawer). Read the diff on GitHub, or run `aspire run` in its work dir, and read the build,
-reviews and decision in the drawer. Then:
-
-- **Drag to Done** to merge the PR (a merge commit into `main`) and delete the work dir. This is the
-  only way anything merges.
-- **Rework** with a note to send it back to the Approved queue for another build.
-- **Discard** to drop the job, close its PR, and delete its branch and its work dir.
-
-A red badge on the card means the factory gave up or refused, and why:
+A red badge on a card says why the factory gave up or refused:
 
 | Badge | Meaning | What to do |
 | --- | --- | --- |
-| `max-rounds` | Reviewers still want changes after round 2 | Read the reviews; rework, or drag to Done to overrule them |
-| `escalated` | The approver or an agent needs a human decision | Read `decision.md`; rework or discard |
-| `gate-failed` | Build or tests failed | Rework; Done is refused until the gate is green |
-| `merge-blocked` | Nothing to merge, uncommitted changes in the work dir, or GitHub won't merge the PR (conflict, branch protection) | Read the detail; commit or revert the change, or resolve the PR, then drag to Done again |
+| `max-rounds` | reviewers still want changes after round 2 | read the reviews; rework, or drag to Done to overrule them |
+| `escalated` | the approver or an agent needs a human decision | read `decision.md`; rework or discard |
+| `gate-failed` | a gate command failed | rework; Done is refused until the gate is green |
+| `merge-blocked` | nothing to merge, a dirty work dir, or GitHub won't merge the PR | read the detail, fix it, drag to Done again |
 
-Card cost and duration feed the "validated" bar in the build guide.
+`factory status` prints the board as text.
 
-### Checking without a browser
+## Previews (an add-on, still being proven)
 
-```powershell
-factory status             # the board as text
-dotnet run --project src/factory/Factory.TestGates   # the unit and integration tests, counts and coverage gates; see docs/TESTING.md
+With HCP Terraform and an Azure subscription, each job's branch can be deployed to an ephemeral Azure preview before the
+approver, for you to QA from Ready for review. Previews are off until `.env` has `HCP_ORG`, need a checkout install (below)
+and PowerShell 7 for their one-time setup scripts, and are still being proven: `factory init previews` replaces that
+setup in a later release. See [docs/DEPLOY.md](docs/DEPLOY.md).
+
+## Changing the factory itself
+
+**Use this template** on GitHub makes your own copy, whose plugin, agents and templates you can change. Run it from a
+checkout:
+
+```bash
+dotnet build src/factory   # then put artifacts/bin/Factory.Cli/debug on PATH as `factory`
+factory init
 ```
 
-### Checking without spending tokens
+A checkout keeps its `.env` and state (`.factory-runs/`, gitignored) in the repo. Before a pull request, run the tests
+locally ([docs/TESTING.md](docs/TESTING.md)); the repo has no CI:
 
-```powershell
-dotnet run --project src/factory/Factory.Simulator -- --reset --speed 0.5   # fake jobs, against its own GitHub stub
-cd factory/tests/dashboard; npm ci; npx playwright test          # the dashboard tests (serve + both stubs)
+```bash
+dotnet run --project src/factory/Factory.TestGates                   # unit + integration, tier counts, coverage gates
+dotnet run --project src/factory/Factory.Simulator -- --reset        # fake jobs on the dashboard, no tokens spent
+cd factory/tests/dashboard && npm ci && npx playwright test --grep @smoke
 ```
 
-Factory state lives in `.factory-runs/` (gitignored). Never edit it by hand; see [CLAUDE.md](CLAUDE.md).
+[docs/FACTORY-CONTRACT.md](docs/FACTORY-CONTRACT.md) is the source of truth for stages, transitions, files and
+formats, and [CLAUDE.md](CLAUDE.md) holds the rules for agents working on the factory.
 
 ## Layout
 
 ```
-.claude/agents/            7 factory agents (step 4)
-factory/plugin/            agents, /factory run | status, /factory:idea, grill, hooks
-factory/backlog.md         sample ideas for /factory:idea
-factory/templates/         spec / build / review / decision formats
-src/factory/               the factory CLI (control plane), the runner, the dashboard server, the AppHost, tests, stubs and fakes, the simulator, the test gates and fakes, the simulator, the test gates
-factory/scripts/           setup-azure.ps1, setup-platform.ps1 and env-file.ps1 (until spec 16), signin-smoke.mjs
-factory/dashboard/         index.html, the live view
-factory/tests/             Playwright, the Linux runner, and the Pester left for the setup scripts (until spec 16)
-.factory-runs/             runtime state (gitignored)
+factory/plugin/      the agents, skills (/factory, /factory:idea, grill) and hooks
+factory/templates/   spec, build, review and decision formats
+factory/dashboard/   the dashboard page
+src/factory/         the factory CLI, the runner, the dashboard server, the AppHost, tests, stubs and the simulator
+factory/scripts/     the preview setup scripts (PowerShell, until previews have their own init)
+factory/infra/       Terraform: the Foundry account, Blob state storage and a budget alert
+docs/                the contract, testing, GitHub App, deploy and Foundry guides, and the roadmap
 ```
+
+## License
+
+[MIT](LICENSE).
