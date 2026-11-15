@@ -120,7 +120,8 @@ Scaffold options (`-Scaffold <json>` on `new-idea`, `idea.scaffold` on the board
 | `events` | `true` / `false`; the event store follows `db` (fisher, polecat, marten) |
 | `auth` | optional, `true` / `false`: sign-in (`aspire-addon add auth`: Keycloak locally, Entra External ID in Azure); refused with `ui: none` |
 
-The template workspace is `$env:FACTORY_TEMPLATES`, else `<parent of this repo>\template-projects`.
+The template workspace is `$env:FACTORY_TEMPLATES`, else `<parent of this repo>\template-projects` in a checkout
+install and `<profile>/template-projects` in a tool install (see [Installs](#installs-a-checkout-or-the-dotnet-tool)).
 Agents may read it and never edit it. It is also a plugin (`aspire-starter`, its own
 `.claude-plugin/plugin.json`), loaded into every headless pass; see [Runner](#runner).
 
@@ -269,6 +270,7 @@ line is followed by `  fix: <what to do>`. It exits 1 if any check failed, else 
 | `github` | with an App: a JWT reads `GET /app`; an installation exists for `GITHUB_OWNER` on all repositories, with every permission `github-app.json` asks for; it mints a token; the user token reads `GET /user`. With the PAT fallback: `GET /user` works (`warn`: the fallback) |
 | `llm` | local: `claude auth status`, run with the local child environment, is logged in with a claude.ai subscription; cloud: `az` is signed in and a one-token request to each pinned deployment succeeds |
 | `hcp` | only while `HCP_ORG` or `HCP_TOKEN` is set: `HCP_TOKEN` reads `GET /api/v2/account/details` |
+| `templates` | the template workspace holds `.claude-plugin/plugin.json` (`warn` otherwise; fix: `factory init` in a tool install, else clone `FACTORY_TEMPLATES_REPO` to the template workspace) |
 
 **`factory init [--org <org>] [--foundry <resource>] [--move-env-secrets] [--no-open]`** is idempotent: each step is
 skipped when it is already done, so a stopped init is run again.
@@ -293,10 +295,13 @@ skipped when it is already done, so a stopped init is run again.
    - `--foundry <resource>`: the resource must exist (`az`). It assigns **Foundry User** on it to the signed-in user
      (`az role assignment create`) and writes `FACTORY_MODE=cloud` and `FACTORY_FOUNDRY_RESOURCE` to `.env`.
      Provisioning a resource stays the Terraform in [FOUNDRY.md](FOUNDRY.md).
-4. **Settings.** It writes `GITHUB_OWNER` (the App's installation account) to `.env`, creating `.env` from
+4. **Template workspace.** In a tool install, when `<profile>/template-projects` is missing, it clones
+   `https://github.com/<FACTORY_TEMPLATES_REPO>.git` there (default `kamabery/template-projects`) with `git`; one that
+   exists is left as it is. A checkout install, or a set `FACTORY_TEMPLATES`, skips this step.
+5. **Settings.** It writes `GITHUB_OWNER` (the App's installation account) to `.env`, creating `.env` from
    `.env.example` if it is missing. With `--move-env-secrets` it copies each secret found in `.env` into the store and
    comments the line out (`# NAME moved to the secret store`).
-5. **Check and open.** It runs `doctor`, prints it, and exits 1 if it failed. Otherwise it starts `factory serve
+6. **Check and open.** It runs `doctor`, prints it, and exits 1 if it failed. Otherwise it starts `factory serve
    --state-dir <FACTORY_HOME> --env-file <its .env>` detached, unless a server already holds `serve.lock`, and opens the
    dashboard unless `--no-open`. Both are passed because a server started without them falls back to the main
    checkout's `.env` and its state: a second profile's dashboard would run on the first one's board. The first target
@@ -989,7 +994,8 @@ database already has a board (`state-import refused: the database already has a 
 ## `factory` commands
 
 State resolves from `$env:FACTORY_HOME`, else `<main checkout>/.factory-runs` (found through
-`git rev-parse --git-common-dir` from this repo; the runner sets both for agents in a work directory). Writes to `board.json` are
+`git rev-parse --git-common-dir` from this repo; the runner sets both for agents in a work directory) in a checkout
+install, and `<profile>/state` in a tool install, wherever it is run from ([Installs](#installs-a-checkout-or-the-dotnet-tool)). Writes to `board.json` are
 atomic (a temp file, then a rename; the rename is retried for up to 2 s while a reader such as
 the server holds the file). Every command holds the board lock, a mutex named for the state
 directory, for its whole run, except around a long step (a gate command, a deploy or canary poll,
@@ -1019,6 +1025,33 @@ unset, to the .NET they run on, so the CLI's launcher finds a user-local install
 checkout (`factory/plugin`, `factory/templates`, the deploy code the canary hashes, and the template
 workspace beside the repo) above its own build folder, or through `FACTORY_SCRIPTS` (the checkout's
 `factory/scripts`).
+
+#### Installs: a checkout or the dotnet tool
+
+The CLI runs from one of two installs, decided by where it finds the **factory root**: the nearest folder, from the
+host's own folder upward (the CLI's, the runner's or the server's), holding `factory/plugin/.claude-plugin/plugin.json`,
+or the folder `FACTORY_SCRIPTS` names the `factory/scripts` of. When the root is the host's own folder it is a tool
+install; otherwise a checkout install.
+
+| | Checkout install | Tool install |
+| --- | --- | --- |
+| How | `dotnet build src/factory` in a clone or fork of this repo | `dotnet tool install -g ai-factory` (NuGet); `dotnet tool update -g ai-factory` updates it |
+| Factory root | above the CLI's build folder (`artifacts/bin/Factory.Cli/<config>/`) | the CLI's own folder |
+| Runner and server | `artifacts/bin/Factory.Runner/<config>/`, `artifacts/bin/Factory.Server/<config>/` | `Factory.Runner.dll` and `Factory.Server.dll` beside `factory.dll` |
+| Profile | none | `FACTORY_PROFILE`, else `<user home>/.ai-factory` |
+| The .env file | `<main checkout>/.env`, `.env.example` beside it | `<profile>/.env`, created from the package's `.env.example` |
+| State (`FACTORY_HOME` unset) | `<main checkout>/.factory-runs` | `<profile>/state`, wherever the CLI is run from |
+| Template workspace (`FACTORY_TEMPLATES` unset) | `<parent of this repo>/template-projects` | `<profile>/template-projects`, cloned by `init` |
+| The agents' `factory` command | the CLI's build folder | the global tools folder (`<DOTNET_CLI_HOME, else user home>/.dotnet/tools`), where `dotnet tool install -g` puts the `factory` command |
+
+Only a global install (`-g`) is a tool install; a local tool (a tool manifest) is not supported. `FACTORY_HOME`,
+`FACTORY_ENV_FILE` and `FACTORY_TEMPLATES` win over both columns, as `serve --state-dir --env-file` do. The package
+(`ai-factory`, its version from `src/factory/Directory.Build.props`) holds the CLI, the runner and the server built
+together (one set of dependencies), and under `factory/` the plugin, `templates`, `dashboard`, `github-app.json` and
+`scripts/signin-smoke.mjs`, with `.env.example` at its root. It holds no deploy code (`factory/infra`, the canary's
+inputs): until spec 16, previews and `canary` need a checkout install, and a tool install refuses them with
+`previews need a checkout install of the factory until spec 16`. **"Use this template"** on `kamabery/ai-factory` makes
+a fork, whose own plugin and agents run from a checkout install.
 
 The CLI calls `gh`, `az`, `node` (the sign-in smoke) and the canary's scaffold commands (`dotnet`,
 `aspire-addon`) as programs from `PATH`, with no shell between; the test overrides (`FACTORY_GH_CMD`,

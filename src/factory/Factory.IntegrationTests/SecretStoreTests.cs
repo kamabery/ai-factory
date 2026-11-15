@@ -12,7 +12,7 @@ public sealed class SecretStoreTests : IDisposable
     public void Dispose() => _dir.Dispose();
 
     // A GitHub App's private key is about 1.7 KB of PEM; Credential Manager caps a blob at 2,560 bytes.
-    private static readonly string Pem = "-----BEGIN RSA PRIVATE KEY-----\n" + string.Join("\n", Enumerable.Repeat(new string('A', 64), 25)) + "\n-----END RSA PRIVATE KEY-----\n";
+    private static readonly string Pem = "-----BEGIN RSA PRIVATE KEY-----\n" + string.Join("\n", Enumerable.Repeat(new string('A', 64), 25)) + "\n-----END RSA PRIVATE KEY-----\n"; // gitleaks:allow (fake key)
 
     private static void RoundTrip(ISecretStore store)
     {

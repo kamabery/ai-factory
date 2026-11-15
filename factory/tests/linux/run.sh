@@ -12,8 +12,9 @@
 set -euo pipefail
 
 # A clean Linux PATH: WSL appends the Windows PATH, whose git.exe and pwsh.exe must not stand in for Linux's.
+# ~/.local/bin is where claude installs; init's tools step needs it (spec 14's InitTests).
 export DOTNET_ROOT="$HOME/.dotnet10"
-export PATH="$HOME/.gitenv/bin:$HOME/.dotnet10:$HOME/.pwsh:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH="$HOME/.gitenv/bin:$HOME/.dotnet10:$HOME/.pwsh:$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
 # .NET keeps named mutexes (the board lock) under XDG_RUNTIME_DIR and refuses one others can write. WSLg sets it
 # to the world-writable /mnt/wslg/runtime-dir; a Linux desktop has a private /run/user/<uid>, so use one like it.

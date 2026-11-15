@@ -19,7 +19,7 @@ public sealed class CliGitHubTests(GitHubStub gh) : IDisposable
     {
         var env = new Dictionary<string, string?>
         {
-            ["FACTORY_HOME"] = Home, ["FACTORY_ENV_FILE"] = gh.EnvFile(_dir),
+            ["FACTORY_HOME"] = Home, ["FACTORY_ENV_FILE"] = gh.EnvFile(_dir), ["FACTORY_SECRET_DIR"] = _dir["secrets"],
             ["FACTORY_SCRIPTS"] = GitHubStub.RepoFile("factory", "scripts"), ["FACTORY_TEMPLATES"] = "TP",
         };
         var stdout = new StringWriter { NewLine = "\n" };
@@ -100,7 +100,7 @@ public sealed class CliGitHubTests(GitHubStub gh) : IDisposable
     {
         var bad = _dir["bad.env"];
         File.WriteAllLines(bad, ["GITHUB_TOKEN=", $"GITHUB_API_URL=http://localhost:{gh.Port}"]);
-        var env = new Dictionary<string, string?> { ["FACTORY_HOME"] = Home, ["FACTORY_ENV_FILE"] = bad };
+        var env = new Dictionary<string, string?> { ["FACTORY_HOME"] = Home, ["FACTORY_ENV_FILE"] = bad, ["FACTORY_SECRET_DIR"] = _dir["secrets"] };
         var stderr = new StringWriter { NewLine = "\n" };
 
         var code = CliHost.Run(["check-target", _repo], env, _dir.Path, new StringWriter(), stderr);

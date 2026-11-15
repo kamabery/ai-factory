@@ -6,7 +6,8 @@ session can pick up one at a time. The rationale and the decisions table live in
 
 **Where things stand (2026-11-15):** specs 00, 19 and 01–14 are merged (13 in PR #22, 14 in PR #24): the factory is the
 .NET `factory` CLI, the PowerShell control plane and Pester are gone, and `factory init` / `doctor` set a machine up with
-a GitHub App and the OS secret store. Next is 15 (turn-key acceptance and the public repo). macOS is out of scope. Last
+a GitHub App and the OS secret store. 15 is split around 20: its part 1 (packaging, the history review) is done on
+`feature/15-public`; next is 20, then 15's part 2 (acceptance and going public). macOS is out of scope. Last
 green suites: .NET 957 unit, 190 integration (Windows; WSL last ran at 13); Playwright 41 (file and sqlite, at 13);
 Pester (setup scripts and the simulator, until 16) 30. Reordered 2026-11-09 so previews come last (see below).
 
@@ -55,7 +56,8 @@ the devops block, 16 → 18.
 
 **No PowerShell at the end.** The goal of the replatform is a factory with no PowerShell. Spec 12 retired the control
 plane and Pester; 20 retires the rest (the gate's shell, the simulator, `test.ps1`, the tests' fake CLIs); 16 replaces
-the setup scripts, the last of it. Move 20 ahead of 15 if the public release must not need PowerShell either.
+the setup scripts, the last of it. **Decided 2026-11-15: 15 is split around 20.** 15's packaging, contract and history review run first; then 20; then
+15's acceptance runs and the repo going public, so the timings are taken once, on an install with no PowerShell.
 
 **Previews last.** A deployable job spends about 30 minutes in its preview deploy, and a template
 change costs a `canary -Full`, so the port and the core product are proven without previews and the
@@ -69,11 +71,11 @@ calls `lesson`. Spec numbers are names, not the order; sessions are one at a tim
 
 | # | Decision | Needed by | Recommendation |
 | --- | --- | --- | --- |
-| D1 | Product name (not "Claude") and license | 15 (public repo) | **Name decided 2026-11-14: AI factory** (`factory init` prints it). License still open; recommendation MIT |
+| D1 | Product name (not "Claude") and license | 15 (public repo) | **Decided: AI factory** (2026-11-14), **MIT** (2026-11-15); `kamabery/ai-factory` itself goes public after the history review |
 | D2 | What the port's store is | 03 | Port the file and blob backends faithfully (Pester reads `board.json` directly), then EF Core in 13 with `board.json` as an export |
 | D3 | Strangler routing | 01 | `factory.ps1` forwards a ported command to the .NET CLI, so agents, `serve.ps1` and the runner keep working while the port is part-way |
 | D4 | Preview Terraform state in cloud mode: HCP or Azure Storage | 16 | Keep HCP; the templates depend on it |
-| D5 | Sample target for the public repo: todoapp-two or a minimal "hello" | 15 | A minimal hello target; the ~15-minute bar needs a small one |
+| D5 | Sample target for the public repo: todoapp-two or a minimal "hello" | 15 | **Decided 2026-11-15: a minimal hello target** (`kamabery/ai-factory-hello`) |
 
 ## Rules for every spec
 

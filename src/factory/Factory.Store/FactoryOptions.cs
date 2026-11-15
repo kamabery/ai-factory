@@ -45,6 +45,15 @@ public sealed class FactoryOptions
     /// <summary>FACTORY_MODE from the environment; the .env file's is read when this is unset.</summary>
     public string? Mode { get; set; }
 
+    /// <summary>FACTORY_PROFILE: a tool install's profile folder, else &lt;user home&gt;/.ai-factory.</summary>
+    public string? Profile { get; set; }
+
+    /// <summary>The user's home folder (a tool install's default profile sits in it).</summary>
+    public string UserHome { get; set; } = "";
+
+    /// <summary>DOTNET_CLI_HOME: where dotnet keeps its global tools (&lt;it&gt;/.dotnet/tools), else the user home.</summary>
+    public string? DotnetCliHome { get; set; }
+
     /// <summary>The system temp folder.</summary>
     public string TempPath { get; set; } = "";
 

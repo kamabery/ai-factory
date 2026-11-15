@@ -10,5 +10,7 @@
     <UseArtifactsOutput>true</UseArtifactsOutput>
     <ArtifactsPath>$(MSBuildThisFileDirectory)../../artifacts</ArtifactsPath>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <!-- The ai-factory package's version (contract, "Installs"). -->
+    <Version>0.1.0</Version>
   </PropertyGroup>
 </Project>

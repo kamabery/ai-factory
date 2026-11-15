@@ -29,6 +29,9 @@ public static class ServerComposition
             o.Scripts = scripts;
             o.Cli = Get("FACTORY_CLI");
             o.BaseDirectory = AppContext.BaseDirectory;
+            o.Profile = Get("FACTORY_PROFILE");
+            o.UserHome = Get(OperatingSystem.IsWindows() ? "USERPROFILE" : "HOME") ?? "";
+            o.DotnetCliHome = Get("DOTNET_CLI_HOME");
             o.TempPath = tempPath;
             o.WorkingDirectory = workingDirectory;
         });

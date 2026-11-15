@@ -95,4 +95,85 @@ public class FactoryPathsTests
 
         Assert.Equal(("c.dll", "r.dll", "s.dll"), (p.CliDll, p.RunnerDll, p.ServerDll));
     }
+
+    // --- installs (contract, "Installs: a checkout or the dotnet tool") ---------------------------------------------
+
+    private static readonly string Tool = Path.Combine(Root, "store", "ai-factory", "tools") + Path.DirectorySeparatorChar;
+
+    private static FactoryPaths ToolPaths(IGitClient git, Action<FactoryOptions>? more = null)
+    {
+        var o = new FactoryOptions
+        {
+            BaseDirectory = Tool, Scripts = Path.Combine(Tool, "factory", "scripts"), UserHome = Path.Combine(Root, "user"),
+            WorkingDirectory = Path.Combine(Root, "some-target"),
+        };
+        more?.Invoke(o);
+        return new FactoryPaths(Options.Create(o), git);
+    }
+
+    [Theory, AutoNSubData]
+    public void A_factory_root_in_the_hosts_own_folder_is_a_tool_install(IGitClient git)
+    {
+        var bin = Path.Combine(Root, "repo", "artifacts", "bin", "Factory.Cli", "debug") + Path.DirectorySeparatorChar;
+        var checkout = new FactoryPaths(Options.Create(new FactoryOptions { BaseDirectory = bin, Scripts = Path.Combine(Root, "repo", "factory", "scripts") }), git);
+
+        Assert.True(ToolPaths(git).IsToolInstall);
+        Assert.False(checkout.IsToolInstall);
+    }
+
+    [Theory, AutoNSubData]
+    public void A_tool_install_keeps_state_env_and_templates_in_the_profile_wherever_it_runs(IGitClient git)
+    {
+        git.CommonDir(Arg.Any<string>()).Returns(Path.Combine(Root, "some-target", ".git"));
+        var profile = Path.Combine(Root, "user", ".ai-factory");
+
+        var p = ToolPaths(git);
+
+        Assert.Equal(profile, p.Profile);
+        Assert.Equal(Path.Combine(profile, "state"), p.Home);
+        Assert.Equal(Path.Combine(profile, ".env"), p.EnvFile);
+        Assert.Equal(Path.Combine(profile, "template-projects"), p.TemplatesRoot);
+        Assert.Equal(Path.Combine(Tool, ".env.example"), p.EnvExample);
+        git.DidNotReceiveWithAnyArgs().CommonDir(default!);
+    }
+
+    [Theory, AutoNSubData]
+    public void FACTORY_PROFILE_moves_the_profile_and_the_explicit_settings_still_win(IGitClient git)
+    {
+        var p = ToolPaths(git, o => o.Profile = Path.Combine(Root, "p2"));
+        var q = ToolPaths(git, o => { o.Home = "h"; o.EnvFile = "e.env"; o.Templates = "t"; });
+
+        Assert.Equal(Path.Combine(Root, "p2", "state"), p.Home);
+        Assert.Equal(("h", "e.env", "t"), (q.Home, q.EnvFile, q.TemplatesRoot));
+    }
+
+    [Theory, AutoNSubData]
+    public void A_tool_install_runs_the_runner_and_server_beside_the_CLI(IGitClient git)
+    {
+        var p = ToolPaths(git);
+
+        Assert.Equal(Path.Combine(Tool, "factory.dll"), p.CliDll);
+        Assert.Equal(Path.Combine(Tool, "Factory.Runner.dll"), p.RunnerDll);
+        Assert.Equal(Path.Combine(Tool, "Factory.Server.dll"), p.ServerDll);
+    }
+
+    [Theory, AutoNSubData]
+    public void The_agents_factory_command_is_the_global_tools_folder_in_a_tool_install_else_the_CLIs_build(IGitClient git)
+    {
+        var bin = Path.Combine(Root, "artifacts", "bin");
+        var checkout = new FactoryPaths(Options.Create(new FactoryOptions { BaseDirectory = Path.Combine(bin, "Factory.Runner", "debug") + Path.DirectorySeparatorChar }), git);
+
+        Assert.Equal(Path.Combine(bin, "Factory.Cli", "debug"), checkout.CommandDir);
+        Assert.Equal(Path.Combine(Root, "user", ".dotnet", "tools"), ToolPaths(git).CommandDir);
+        Assert.Equal(Path.Combine(Root, "cli-home", ".dotnet", "tools"), ToolPaths(git, o => o.DotnetCliHome = Path.Combine(Root, "cli-home")).CommandDir);
+    }
+
+    [Theory, AutoNSubData]
+    public void A_checkout_install_has_no_profile_and_its_env_example_sits_beside_the_env(IGitClient git)
+    {
+        var p = Paths(git, repo: Path.Combine(Root, "repo"));
+
+        Assert.Null(p.Profile);
+        Assert.Equal(Path.Combine(Root, "repo", ".env.example"), p.EnvExample);
+    }
 }

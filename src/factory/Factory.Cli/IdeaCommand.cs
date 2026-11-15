@@ -23,7 +23,7 @@ public sealed partial class IdeaCommand(IFactoryPaths paths, IFileStore files, I
         var repo = Path.GetFullPath(Path.Combine(paths.ScriptsDir, "..", ".."));
         var env = new Dictionary<string, string?>
         {
-            ["PATH"] = Path.GetDirectoryName(Path.GetFullPath(paths.CliDll)) + Path.PathSeparator + host.Get("PATH"),
+            ["PATH"] = paths.CommandDir + Path.PathSeparator + host.Get("PATH"),
         };
         if (!OperatingSystem.IsWindows() && host.Get("DOTNET_ROOT") is null && host.DotnetRoot is { } root) env["DOTNET_ROOT"] = root;
 

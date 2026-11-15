@@ -13,8 +13,10 @@ var env = Environment.GetEnvironmentVariables().Cast<DictionaryEntry>()
 var cli = new ConfigurationBuilder().AddCommandLine(args).Build();
 var scripts = env.GetValueOrDefault("FACTORY_SCRIPTS") is { Length: > 0 } s ? s : Factory.Store.FactoryPaths.FindScripts(AppContext.BaseDirectory)
     ?? throw new InvalidOperationException("cannot find factory/scripts above the .NET server; set FACTORY_SCRIPTS");
-// serve.ps1: -EnvFile, else the .env beside factory/. factory.ps1 reads the GitHub settings from the same file.
-var envFile = Path.GetFullPath(cli["env-file"] is { Length: > 0 } e ? e : Path.Combine(scripts, "..", "..", ".env"));
+// --env-file, else the .env beside factory/ in a checkout install, or the profile's in a tool install (contract, "Installs").
+var profile = Factory.Store.FactoryPaths.ToolProfile(scripts, AppContext.BaseDirectory, env.GetValueOrDefault("FACTORY_PROFILE"),
+    env.GetValueOrDefault(OperatingSystem.IsWindows() ? "USERPROFILE" : "HOME") ?? "");
+var envFile = Path.GetFullPath(cli["env-file"] is { Length: > 0 } e ? e : Path.Combine(profile ?? Path.Combine(scripts, "..", ".."), ".env"));
 var port = int.TryParse(cli["port"], out var p) ? p : 0;
 var watchdog = int.TryParse(cli["watchdog-seconds"], out var w) ? w : 10;
 var prSync = int.TryParse(cli["pr-sync-seconds"], out var ps) ? ps : 30;

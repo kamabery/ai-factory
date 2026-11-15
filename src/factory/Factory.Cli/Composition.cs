@@ -29,6 +29,9 @@ public static class Composition
             o.GateCmds = host.Get("FACTORY_GATE_CMDS");
             o.GateCheckWaitMinutes = host.Get("FACTORY_GATE_CHECK_WAIT_MINUTES");
             o.Mode = host.Get("FACTORY_MODE");
+            o.Profile = host.Get("FACTORY_PROFILE");
+            o.UserHome = host.Get(OperatingSystem.IsWindows() ? "USERPROFILE" : "HOME") ?? "";
+            o.DotnetCliHome = host.Get("DOTNET_CLI_HOME");
             o.TempPath = host.TempPath;
             o.WorkingDirectory = host.WorkingDirectory;
         });
@@ -172,11 +175,13 @@ public static class Composition
         services.AddSingleton<IDoctorCheck, GitHubCheck>();
         services.AddSingleton<IDoctorCheck>(sp => sp.GetRequiredService<LlmCheck>());
         services.AddSingleton<IDoctorCheck, HcpCheck>();
+        services.AddSingleton<IDoctorCheck, TemplatesCheck>();
         services.AddSingleton<IDoctor, Doctor>();
         services.AddSingleton<IStandaloneCommand, DoctorCommand>();
         services.AddSingleton<IBrowser, SystemBrowser>();
         services.AddSingleton<EnvSettings>();
         services.AddSingleton<DashboardStarter>();
+        services.AddSingleton<TemplateWorkspace>();
         services.AddSingleton<InitService>();
         services.AddSingleton<IStandaloneCommand, InitCommand>();
         services.AddSingleton<IdeaFiles>();

@@ -1,0 +1,5 @@
+# gitleaks false positives, reviewed for spec 15 (2026-11-15); format commit:file:rule:line.
+# SecretStoreTests' Pem is a fake key (25 lines of "A") sized to test Credential Manager's blob cap;
+# the line itself carries gitleaks:allow for later commits.
+da3b74141002a82c1761f8bbfbdaacceee974036:src/factory/Factory.IntegrationTests/SecretStoreTests.cs:private-key:15
+2f5600a4fab8f8774b14ea209f769c1b75790bc8:src/factory/Factory.IntegrationTests/SecretStoreTests.cs:private-key:15

@@ -6,7 +6,8 @@
 
 - **Packaging:** `aspire publish` to Azure Container Apps, with Azure SQL (13), Key Vault, Blob for
   artifacts, and a managed identity. The IaC is Terraform with AVM modules (per the AVM decision),
-  and `factory init cloud` deploys it.
+  and `factory init cloud` deploys it. The factory's container image is published to GHCR here (moved from 15,
+  2026-11-15): Key Vault and the managed identity are what a container has in place of the OS secret store.
 - **Runner:** unattended on Claude in Microsoft Foundry through the managed identity (Azure AI User
   on the Foundry resource only; no keys). `Factory__Mode=cloud`. A subscription never powers cloud
   jobs.

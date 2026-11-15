@@ -28,7 +28,7 @@ public sealed class CliDeployTests(GitHubStub gh) : IDisposable
         var tool = Script("tool.ps1", "$a = @($args); if ($a -contains 'list') { '[]' } else { '{}' }");
         var env = new Dictionary<string, string?>
         {
-            ["FACTORY_HOME"] = Home, ["FACTORY_ENV_FILE"] = envFile, ["FACTORY_WORK"] = _dir["work"], ["FACTORY_SCRIPTS"] = GitHubStub.RepoFile("factory", "scripts"),
+            ["FACTORY_HOME"] = Home, ["FACTORY_ENV_FILE"] = envFile, ["FACTORY_WORK"] = _dir["work"], ["FACTORY_SECRET_DIR"] = _dir["secrets"], ["FACTORY_SCRIPTS"] = GitHubStub.RepoFile("factory", "scripts"),
             ["FACTORY_GH_CMD"] = tool, ["FACTORY_AZ_CMD"] = tool, ["FACTORY_DEPLOY_POLL_SECONDS"] = "0", ["FACTORY_SMOKE_SECONDS"] = "0",
             // The password arrives on stdin; the stub proves it by printing it, and the log must show it masked.
             ["FACTORY_SIGNIN_CMD"] = Script("signin.ps1", "$pw = [Console]::In.ReadToEnd().Trim(); \"step: typed $pw\"; 'step: signed in: Sign out is showing'"),
