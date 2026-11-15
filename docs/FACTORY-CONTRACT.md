@@ -1039,10 +1039,10 @@ install; otherwise a checkout install.
 | Factory root | above the CLI's build folder (`artifacts/bin/Factory.Cli/<config>/`) | the CLI's own folder |
 | Runner and server | `artifacts/bin/Factory.Runner/<config>/`, `artifacts/bin/Factory.Server/<config>/` | `Factory.Runner.dll` and `Factory.Server.dll` beside `factory.dll` |
 | Profile | none | `FACTORY_PROFILE`, else `<user home>/.ai-factory` |
-| `.env` | `<main checkout>/.env`, `.env.example` beside it | `<profile>/.env`, created from the package's `.env.example` |
+| The .env file | `<main checkout>/.env`, `.env.example` beside it | `<profile>/.env`, created from the package's `.env.example` |
 | State (`FACTORY_HOME` unset) | `<main checkout>/.factory-runs` | `<profile>/state`, wherever the CLI is run from |
 | Template workspace (`FACTORY_TEMPLATES` unset) | `<parent of this repo>/template-projects` | `<profile>/template-projects`, cloned by `init` |
-| `factory` on the agents' `PATH` | the CLI's build folder | the global tools folder (`<DOTNET_CLI_HOME, else user home>/.dotnet/tools`), where `dotnet tool install -g` puts the `factory` command |
+| The agents' `factory` command | the CLI's build folder | the global tools folder (`<DOTNET_CLI_HOME, else user home>/.dotnet/tools`), where `dotnet tool install -g` puts the `factory` command |
 
 Only a global install (`-g`) is a tool install; a local tool (a tool manifest) is not supported. `FACTORY_HOME`,
 `FACTORY_ENV_FILE` and `FACTORY_TEMPLATES` win over both columns, as `serve --state-dir --env-file` do. The package
