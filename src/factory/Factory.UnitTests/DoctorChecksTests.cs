@@ -160,6 +160,25 @@ public class DoctorChecksTests
         Assert.Equal(DoctorStatus.Fail, new HcpCheck(_env, secrets, hcp).Check()!.Status);
     }
 
+    [Theory]
+    [InlineData(false, "clone FACTORY_TEMPLATES_REPO to the template workspace")]
+    [InlineData(true, "factory init")]
+    public void Templates_warns_when_the_workspace_has_no_plugin_and_says_how_this_install_gets_it(bool tool, string fix)
+    {
+        var paths = Substitute.For<IFactoryPaths>();
+        var files = Substitute.For<IFileStore>();
+        paths.TemplatesRoot.Returns(Path.Combine("p", "template-projects"));
+        paths.IsToolInstall.Returns(tool);
+        files.ReadText(Arg.Any<string>()).Returns((string?)null);
+        var check = new TemplatesCheck(paths, files);
+
+        var missing = check.Check()!;
+        files.ReadText(Path.Combine("p", "template-projects", ".claude-plugin", "plugin.json")).Returns("{}");
+
+        Assert.Equal(DoctorResult.Warn($"no template workspace at {Path.Combine("p", "template-projects")}", fix), missing);
+        Assert.Equal(DoctorResult.Ok($"template workspace {Path.Combine("p", "template-projects")}"), check.Check());
+    }
+
     // --- the report ----------------------------------------------------------------------------------------------
 
     [Fact]

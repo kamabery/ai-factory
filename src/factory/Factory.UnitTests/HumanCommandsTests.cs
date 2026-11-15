@@ -20,6 +20,7 @@ public class HumanCommandsTests
     {
         _paths.ScriptsDir.Returns(Path.Combine(Repo, "factory", "scripts"));
         _paths.CliDll.Returns(Path.Combine(Repo, "bin", "cli", "factory.dll"));
+        _paths.CommandDir.Returns(Path.Combine(Repo, "bin", "cli"));
         _paths.RunnerDll.Returns(Path.Combine(Repo, "bin", "runner", "Factory.Runner.dll"));
         _paths.ServerDll.Returns(Path.Combine(Repo, "bin", "server", "Factory.Server.dll"));
         _paths.WorkRoot.Returns(Path.Combine(Repo, "work"));

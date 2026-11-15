@@ -26,6 +26,7 @@ public sealed partial class CanaryCheck(IFactoryPaths paths, IFileStore files, I
 
     public string Fingerprint()
     {
+        if (paths.IsToolInstall) throw new FactoryException($"canary refused: {NoPreviews}");
         var lines = new List<string>();
         // factory/scripts -> factory -> the factory's own checkout, where the deploy code's sources are.
         var root = Path.GetFullPath(Path.Combine(paths.ScriptsDir, "..", ".."));
@@ -43,6 +44,9 @@ public sealed partial class CanaryCheck(IFactoryPaths paths, IFileStore files, I
         lines.Add($"canary {Repo()} {PsJson.WriteCompact(Options())}");
         return "sha256:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("\n", lines)))).ToLowerInvariant();
     }
+
+    /// <summary>A tool install's refusal of previews (contract, "Installs").</summary>
+    public const string NoPreviews = "previews need a checkout install of the factory until spec 16";
 
     /// <summary>The deploy path's .NET code (contract, "Canary"): a change to any of it invalidates the last canary.</summary>
     public static readonly IReadOnlyList<string> DeployCode =

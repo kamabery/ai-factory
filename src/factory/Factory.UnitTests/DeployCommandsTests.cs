@@ -181,6 +181,15 @@ public class DeployCommandsTests : CommandTestBase
             Assert.Throws<FactoryException>(() => Deploy.Run(Args("deploy", "J-001"), InDeploy())).Message);
     }
 
+    [Fact]
+    public void Deploy_refuses_in_a_tool_install_until_spec_16()
+    {
+        Paths.IsToolInstall.Returns(true);
+
+        Assert.Equal("deploy refused: previews need a checkout install of the factory until spec 16",
+            Assert.Throws<FactoryException>(() => Deploy.Run(Args("deploy", "J-001"), InDeploy())).Message);
+    }
+
     // --- deploy-log -------------------------------------------------------------------------------
 
     [Fact]

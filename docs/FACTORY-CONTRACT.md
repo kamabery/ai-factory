@@ -1029,8 +1029,9 @@ workspace beside the repo) above its own build folder, or through `FACTORY_SCRIP
 #### Installs: a checkout or the dotnet tool
 
 The CLI runs from one of two installs, decided by where it finds the **factory root**: the nearest folder, from the
-CLI's own folder upward, holding `factory/plugin/.claude-plugin/plugin.json`. Found in the CLI's own folder, it is a
-tool install; found above it, or named by `FACTORY_SCRIPTS` (the root's `factory/scripts`), a checkout install.
+host's own folder upward (the CLI's, the runner's or the server's), holding `factory/plugin/.claude-plugin/plugin.json`,
+or the folder `FACTORY_SCRIPTS` names the `factory/scripts` of. When the root is the host's own folder it is a tool
+install; otherwise a checkout install.
 
 | | Checkout install | Tool install |
 | --- | --- | --- |

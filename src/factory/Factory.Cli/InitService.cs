@@ -16,7 +16,7 @@ namespace Factory.Cli;
 public sealed class InitService(
     CliEnvironment host, ToolsCheck tools, LlmCheck llmCheck, ILlmProvider llm, ISecrets secrets, ISecretStore store, IGitHubApp app,
     AppManifest manifest, IDotEnv dotEnv, IFactoryPaths paths, EnvSettings env, IBrowser browser, DashboardStarter dashboard,
-    IProcessRunner processes, IPause pause, TimeProvider clock)
+    IProcessRunner processes, IPause pause, TimeProvider clock, TemplateWorkspace templates)
 {
     private const string FoundryUser = "53ca6127-db72-4b80-b1b0-d745d6d5456d";   // Foundry User (formerly Azure AI User), by id
 
@@ -37,13 +37,14 @@ public sealed class InitService(
         output.WriteLine("ok    tools");
 
         var envPath = paths.EnvFile ?? throw new FactoryException("init: run it inside the factory's checkout (no .env path)");
-        env.EnsureFrom(envPath, Path.Combine(Path.GetDirectoryName(Path.GetFullPath(envPath))!, ".env.example"));
+        env.EnsureFrom(envPath, paths.EnvExample!);
         // .env is read once per process: what init writes must be read again before the next step uses it.
         dotEnv.Refresh();
         if (o.MoveEnvSecrets) MoveSecrets(envPath, output);
 
         var owner = GitHubApp(o, envPath, output);
         if (Llm(o, envPath, output) is { } stop) return stop;
+        templates.Ensure(output);
 
         output.WriteLine();
         var doctor = processes.Run("dotnet", [paths.CliDll, "doctor"], host.WorkingDirectory, null, host.Variables);

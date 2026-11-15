@@ -30,6 +30,18 @@ public interface IFactoryPaths
     /// <summary>The dashboard server: FACTORY_SERVER, else Factory.Server.dll built beside this host.</summary>
     string ServerDll { get; }
 
-    /// <summary>FACTORY_TEMPLATES, else template-projects beside this repo (factory.ps1's TemplatesRoot).</summary>
+    /// <summary>FACTORY_TEMPLATES, else template-projects beside this repo, or in the profile in a tool install.</summary>
     string TemplatesRoot { get; }
+
+    /// <summary>True when the factory root is this host's own folder: the dotnet tool, not a checkout.</summary>
+    bool IsToolInstall { get; }
+
+    /// <summary>A tool install's profile (FACTORY_PROFILE, else &lt;user home&gt;/.ai-factory); null in a checkout install.</summary>
+    string? Profile { get; }
+
+    /// <summary>The .env.example a new .env starts from: the package's in a tool install, else beside the .env.</summary>
+    string? EnvExample { get; }
+
+    /// <summary>The folder put first on the agents' PATH so `factory` there is this install's.</summary>
+    string CommandDir { get; }
 }

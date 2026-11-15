@@ -17,10 +17,11 @@ public class CanaryCheckTests
     private readonly IDotEnv _env = Substitute.For<IDotEnv>();
     private readonly IHcpClient _hcp = Substitute.For<IHcpClient>();
     private readonly CanaryCheck _sut;
+    private readonly IFactoryPaths _paths = Substitute.For<IFactoryPaths>();
 
     public CanaryCheckTests()
     {
-        var paths = Substitute.For<IFactoryPaths>();
+        var paths = _paths;
         paths.Home.Returns(Home);
         paths.ScriptsDir.Returns(Scripts);
         paths.TemplatesRoot.Returns(Templates);
@@ -88,5 +89,14 @@ public class CanaryCheckTests
 
         _env.Get("FACTORY_CANARY_SCAFFOLD").Returns("""{"name":"x","resource":"X","db":"sqlite","ui":"none"}""");
         Assert.StartsWith("sha256:", _sut.Fingerprint());
+    }
+
+    [Fact]
+    public void A_tool_install_has_no_deploy_code_to_fingerprint_and_says_so()
+    {
+        _paths.IsToolInstall.Returns(true);
+
+        Assert.Equal("canary refused: previews need a checkout install of the factory until spec 16",
+            Assert.Throws<FactoryException>(() => _sut.Fingerprint()).Message);
     }
 }

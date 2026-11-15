@@ -37,7 +37,7 @@ public sealed class ClaudeRunner(IFactoryPaths paths, IFileStore files, IOptions
         foreach (var (name, value) in childEnv)
             if (value is null) psi.Environment.Remove(name); else psi.Environment[name] = value;
         // The skill, the agents and the hooks call `factory` by name: this build's CLI comes first on PATH.
-        psi.Environment["PATH"] = Path.GetDirectoryName(Path.GetFullPath(paths.CliDll)) + Path.PathSeparator + (psi.Environment.TryGetValue("PATH", out var path) ? path : "");
+        psi.Environment["PATH"] = paths.CommandDir + Path.PathSeparator + (psi.Environment.TryGetValue("PATH", out var path) ? path : "");
         if (options.Value.DotnetRoot is { } root && !(psi.Environment.TryGetValue("DOTNET_ROOT", out var had) && !string.IsNullOrEmpty(had))) psi.Environment["DOTNET_ROOT"] = root;
         psi.Environment["FACTORY_JOB"] = jobId;
         psi.Environment["FACTORY_HOME"] = paths.Home;
