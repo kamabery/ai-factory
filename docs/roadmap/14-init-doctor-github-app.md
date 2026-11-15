@@ -1,6 +1,12 @@
 # 14: `factory init` / `doctor`, the GitHub App and secrets
 
-**Status:** not started. **Branch:** `feature/14-init`. **Depends on:** 13. **Decision:** D1 (name)
+**Status:** done, in PR #24 (2026-11-15). .NET 957 unit, 190 integration + 1 skipped, gates green (Windows). Live
+proof on a simulated clean profile (fresh home, a .env init created with no GITHUB_TOKEN, a fresh Credential Manager
+prefix; the claude login carried over): `factory init` created, installed and authorized the GitHub App
+`ai-factory-kamab`, doctor all green, and J-951 went from idea to a reviewed PR (todoapp-two #19) opened by
+`app/ai-factory-kamab`, eval good. Decided in the session: the App's user token creates repos (falling back to "create it
+yourself"); Key Vault waits for 18; the PAT stays a fallback until 15. Found on the way: the manifest's webhook block and
+permission name, init's serve fell back to the main .env, HCP's safe-delete content type, the runner test's race. **Branch:** `feature/14-init`. **Depends on:** 13. **Decision:** D1 (name)
 should be made first.
 
 ## Scope
