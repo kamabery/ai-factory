@@ -1,7 +1,7 @@
 # 15: Turn-key acceptance and the public repo
 
-**Status:** done (2026-11-15): part 1 merged in PR #25, part 2 in PR #27, and the repos are public. NuGet is deferred:
-`ai-factory` is not published yet, so until it is, a stranger installs from a checkout. Part 1: the contract's "Installs" (a checkout or the dotnet tool), tool installs keeping `.env`, state and the
+**Status:** done (2026-11-15): part 1 merged in PR #25, part 2 in PR #27, the repos are public, and `ai-factory` 0.1.0 is on
+NuGet (`dotnet tool install -g ai-factory`). Part 1: the contract's "Installs" (a checkout or the dotnet tool), tool installs keeping `.env`, state and the
 template workspace in `~/.ai-factory`, doctor's `templates`, init cloning `FACTORY_TEMPLATES_REPO`, previews refused in a
 tool install, `dotnet pack` of `ai-factory` 0.1.0, the history review. **Part 2:** the GitHub PAT fallback removed (the
 App is the only GitHub credential; tests, the simulator and Playwright sign in as Factory.TestHost's `SimApp`); the
