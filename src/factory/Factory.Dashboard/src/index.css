@@ -1,0 +1,182 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens: the aspire-ui-react template's (template-projects, base-project/src/ui/react/src/index.css),
+ * unchanged, plus the dashboard's own below them in the same shape. Each token carries both palettes through
+ * `light-dark()`, resolved against `color-scheme` on :root. Components use these tokens, never raw values
+ * (`npm run lint` checks the .tsx files).
+ */
+@theme {
+  /* Surfaces and content */
+  --color-surface: light-dark(oklch(99% 0.004 250), oklch(20% 0.015 260));
+  --color-surface-raised: light-dark(oklch(100% 0 0), oklch(25% 0.018 260));
+  --color-surface-sunken: light-dark(oklch(96% 0.006 250), oklch(17% 0.014 260));
+  --color-border-subtle: light-dark(oklch(91% 0.008 250), oklch(33% 0.02 260));
+  --color-border-strong: light-dark(oklch(78% 0.012 250), oklch(46% 0.022 260));
+  --color-content: light-dark(oklch(24% 0.02 260), oklch(95% 0.01 250));
+  --color-content-muted: light-dark(oklch(52% 0.02 260), oklch(72% 0.02 255));
+  --color-content-disabled: light-dark(oklch(70% 0.012 255), oklch(50% 0.015 258));
+
+  /* Brand */
+  --color-brand: light-dark(oklch(51% 0.17 255), oklch(72% 0.14 255));
+  --color-brand-contrast: light-dark(oklch(99% 0.005 250), oklch(20% 0.02 260));
+  --color-brand-subtle: light-dark(oklch(96% 0.03 255), oklch(29% 0.05 260));
+
+  /* Intents: the solid fill, a tinted background, and the text that sits on the fill. */
+  --color-intent-info: light-dark(oklch(51% 0.17 255), oklch(72% 0.14 255));
+  --color-intent-info-subtle: light-dark(oklch(96% 0.03 255), oklch(29% 0.05 260));
+  --color-intent-info-contrast: light-dark(oklch(99% 0.005 250), oklch(20% 0.02 260));
+
+  --color-intent-success: light-dark(oklch(52% 0.13 155), oklch(72% 0.14 155));
+  --color-intent-success-subtle: light-dark(oklch(96% 0.03 155), oklch(29% 0.05 158));
+  --color-intent-success-contrast: light-dark(oklch(99% 0.005 155), oklch(20% 0.02 158));
+
+  --color-intent-warning: light-dark(oklch(75% 0.15 78), oklch(80% 0.14 78));
+  --color-intent-warning-subtle: light-dark(oklch(96% 0.04 85), oklch(30% 0.05 78));
+  --color-intent-warning-contrast: light-dark(oklch(24% 0.04 78), oklch(22% 0.03 78));
+
+  --color-intent-danger: light-dark(oklch(55% 0.20 25), oklch(70% 0.17 25));
+  --color-intent-danger-subtle: light-dark(oklch(96% 0.03 25), oklch(30% 0.06 25));
+  --color-intent-danger-contrast: light-dark(oklch(99% 0.005 25), oklch(20% 0.02 25));
+
+  /* Focus */
+  --color-focus-ring: light-dark(oklch(52% 0.18 255), oklch(78% 0.13 255));
+
+  /* Shape */
+  --radius-control: 0.5rem;
+  --radius-surface: 0.75rem;
+  --radius-pill: 9999px;
+
+  /* Elevation */
+  --shadow-raised: 0 1px 2px light-dark(rgb(0 0 0 / 0.06), rgb(0 0 0 / 0.4));
+  --shadow-overlay:
+    0 10px 30px light-dark(rgb(0 0 0 / 0.12), rgb(0 0 0 / 0.55)),
+    0 2px 8px light-dark(rgb(0 0 0 / 0.08), rgb(0 0 0 / 0.4));
+
+  /*
+   * The dashboard's own. "Running" is work in flight and money being spent (a building card, cloud mode): the
+   * template's warning amber is too light to be text, so it is its own intent, orange, as text on its subtle fill.
+   */
+  --color-intent-running: light-dark(oklch(55% 0.17 45), oklch(78% 0.14 60));
+  --color-intent-running-subtle: light-dark(oklch(96% 0.035 60), oklch(30% 0.05 55));
+  --color-intent-running-contrast: light-dark(oklch(99% 0.005 60), oklch(20% 0.02 55));
+
+  /* The modal's backdrop: translucent black dims either theme alike. */
+  --color-scrim: rgb(0 0 0 / 0.4);
+
+  /* The Output tab is a terminal: dark in both themes. */
+  --color-term: oklch(18% 0.01 260);
+  --color-term-content: oklch(88% 0.01 250);
+  --color-term-muted: oklch(62% 0.015 255);
+  --color-term-tool: oklch(76% 0.11 260);
+  --color-term-tag: oklch(78% 0.11 45);
+  --color-term-done: oklch(80% 0.15 150);
+
+  --font-mono: ui-monospace, 'Cascadia Code', Consolas, monospace;
+}
+
+:root {
+  color-scheme: light dark;
+  --motion-fast: 120ms;
+  --motion-slow: 240ms;
+  /* The old page's name for the running intent, kept: dashboard.spec.ts reads it. */
+  --run: var(--color-intent-running);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 1ms;
+    --motion-slow: 1ms;
+  }
+}
+
+@layer base {
+  body {
+    @apply bg-surface text-content antialiased;
+    font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    margin: 0;
+  }
+  code {
+    font-family: var(--font-mono);
+  }
+}
+
+/*
+ * The few shared atoms that rendered markdown and many cards use. Their class names are also the hooks
+ * dashboard.spec.ts finds them by (chip, flag, sub, card, title, md, term, ...).
+ */
+@layer components {
+  .chip {
+    @apply rounded-control border border-border-subtle px-1.5 font-mono text-[11px] whitespace-nowrap;
+  }
+  .chip.PASS { @apply border-transparent bg-intent-success-subtle text-intent-success; }
+  .chip.CHANGES { @apply border-transparent bg-intent-danger-subtle text-intent-danger; }
+  .chip.running, .sub { @apply border-transparent bg-intent-running-subtle text-intent-running; }
+  .chip.kind, .chip.pr, .chip.preview { @apply border-transparent bg-brand-subtle text-brand no-underline; }
+  .chip.preview.down, .chip.preview.expired { @apply border-border-subtle bg-transparent text-content-muted; }
+  .chip.preview.failed, .chip.rating-poor { @apply border-transparent bg-intent-danger-subtle text-intent-danger; }
+  .chip.rating-good { @apply border-transparent bg-intent-success-subtle text-intent-success; }
+  .chip.rating-mixed { @apply border-transparent bg-intent-running-subtle text-intent-running; }
+  .flag { @apply rounded-control bg-intent-danger px-1.5 text-[11px] font-semibold text-intent-danger-contrast; }
+  .sub { @apply rounded-control px-1.5 text-[11px]; }
+
+  .card {
+    @apply cursor-pointer rounded-surface border border-border-subtle bg-surface-raised px-2.5 py-2 shadow-raised;
+  }
+  .card[draggable='true'] { @apply cursor-grab; }
+  .card.selected { @apply border-brand; }
+  .card .top { @apply flex justify-between gap-1.5 font-mono text-[11.5px] text-content-muted; }
+  .card .title { @apply mt-0.5 mb-1 font-semibold; }
+  .card .meta { @apply flex flex-wrap items-center gap-1 text-[11.5px] text-content-muted; }
+  .card .repo { @apply truncate font-mono text-[11px] text-content-muted; }
+
+  .md { @apply text-sm leading-normal; }
+  .md h1 { @apply my-3 text-xl font-semibold; }
+  .md h2 { @apply mt-4 mb-2 text-base font-semibold; }
+  .md h3 { @apply mt-3 mb-1 text-sm font-semibold; }
+  .md p { @apply my-2; }
+  .md a { @apply text-brand underline; }
+  .md code { @apply rounded-control bg-surface-sunken px-1 text-[12.5px]; }
+  .md pre { @apply my-2 overflow-auto rounded-control border border-border-subtle bg-surface-sunken px-2.5 py-2 text-[12.5px] whitespace-pre-wrap; }
+  .md pre code { @apply bg-transparent p-0; }
+  .md ul { @apply my-2 list-disc pl-6; }
+  .md ol { @apply my-2 list-decimal pl-6; }
+  .md li { @apply my-0.5; }
+  .md table { @apply my-2 border-collapse text-[13px]; }
+  .md th, .md td { @apply border border-border-subtle px-2 py-1 text-left; }
+  .md input[type='checkbox'] { @apply mr-1.5; }
+  .md blockquote { @apply border-l-4 border-border-strong pl-3 text-content-muted; }
+
+  .term {
+    @apply h-full overflow-auto rounded-control bg-term px-3 py-2.5 font-mono text-xs leading-[1.45] break-words whitespace-pre-wrap text-term-content;
+  }
+  .term .ln { @apply py-px; }
+  .term .tag { @apply mr-1.5 text-term-tag; }
+  .term .tool { @apply text-term-tool; }
+  .term .res, .term .dim { @apply text-term-muted; }
+  .term .thinking { @apply text-term-muted italic; }
+  .term .sep { @apply mt-2 mb-1 border-t border-dashed border-term-muted pt-1.5 text-term-muted; }
+  .term .done { @apply text-term-done; }
+
+  .live::after {
+    content: ' ▍';
+    @apply text-brand;
+    animation: pulse 1s infinite;
+  }
+}
+
+@keyframes pulse {
+  50% { opacity: 0.4; }
+}
+
+@keyframes glow {
+  50% { box-shadow: 0 0 0 4px var(--color-intent-running-subtle); }
+}

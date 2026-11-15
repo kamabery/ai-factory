@@ -6,6 +6,10 @@ import os from 'node:os';
 const repo = path.resolve(import.meta.dirname, '../../..');
 export const simDir = path.join(repo, '.factory-runs-sim');
 export const port = 4318;
+// FACTORY_DASHBOARD_DEV=1: the same suite against the SPA's Vite dev server (src/factory/Factory.Dashboard), which
+// proxies /api and /state to the server above; otherwise against the page `factory serve` serves.
+const dev = process.env.FACTORY_DASHBOARD_DEV === '1';
+const devPort = 4321;
 // The Anthropic stub for idea sessions, and the GitHub stub the targets live in.
 export const stubPort = 4319;
 export const githubPort = 4320;
@@ -55,7 +59,7 @@ export default defineConfig({
   expect: { timeout: 20_000 },
   workers: 1,
   reporter: 'list',
-  use: { baseURL: `http://localhost:${port}`, trace: 'retain-on-failure' },
+  use: { baseURL: `http://localhost:${dev ? devPort : port}`, trace: 'retain-on-failure' },
   webServer: [
     {
       command: `dotnet "${testHost}" anthropic --port ${stubPort} --dir "${os.tmpdir()}" --delay-ms 5`,
@@ -76,5 +80,13 @@ export default defineConfig({
       timeout: 30_000,
       env: factoryEnv,
     },
+    ...(dev ? [{
+      command: `npm run dev -- --port ${devPort}`,
+      cwd: path.join(repo, 'src/factory/Factory.Dashboard'),
+      url: `http://localhost:${devPort}/`,
+      reuseExistingServer: false,
+      timeout: 60_000,
+      env: { FACTORY_SERVE_URL: `http://localhost:${port}` },
+    }] : []),
   ],
 });
