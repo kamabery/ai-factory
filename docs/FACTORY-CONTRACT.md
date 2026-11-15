@@ -170,8 +170,8 @@ one, naming each and how to rewrite it (see [Job transitions](#job-transitions))
 `FACTORY_GATE_SHELL` names (a program on `PATH` or a path), as `<shell> -NoProfile -Command <line>`, after quoting an
 unquoted `-name=value` token with a dot in it (pwsh splits it at the dot: J-022's `-var-file=envs/ephemeral.tfvars`).
 So an approved or building job finishes as it was approved, and a rework keeps its spec. With `FACTORY_GATE_SHELL`
-unset, a shell line fails with exit 127 (`gate line '<name>' needs a shell: set FACTORY_GATE_SHELL (such as pwsh) to
-finish this job, or discard it and approve a rewritten spec`). A shell that cannot start fails it with exit 127
+unset, a shell line fails with exit 127 (`gate line '<name>' needs a shell: set FACTORY_GATE_SHELL to the PowerShell 7 it
+was written for to finish this job, or discard it and approve a rewritten spec`). A shell that cannot start fails it with exit 127
 (`cannot start the gate shell '<shell>': <reason>`).
 
 The spec's `## Scope` `- In:` line is followed by one sub-bullet per path the builder may touch,
