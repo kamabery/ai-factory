@@ -413,8 +413,10 @@ turn time from `factory/plugin/prompts/idea-api.md`, the `grill` skill, the spec
 `factory/templates/brief.md` and `spec.md`.
 
 **Tools.** `factory idea-mcp <S>` is a stdio MCP server, named `factory`, that each turn's `claude`
-starts; its tools are the only ones `claude` has. It writes `session.json` while the turn runs, and the
-turn re-reads it before its own last write.
+starts; its tools are the only ones `claude` has. The turn's `--mcp-config` starts it on the turn's own state
+directory and `.env` (`FACTORY_HOME`, `FACTORY_ENV_FILE` when the turn has one, and `FACTORY_SCRIPTS`), so it never
+falls back to a checkout's `.env`. It writes `session.json` while the turn runs, and the turn re-reads it before its
+own last write.
 
 | Tool | Kind | Effect |
 | --- | --- | --- |
