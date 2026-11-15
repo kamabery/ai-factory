@@ -52,26 +52,16 @@ public sealed class FactoryLauncherTests : IDisposable
     }
 
     /// <summary>
-    /// A parent process (pwsh, loading this build's Factory.Store) that calls StartDetached for <c>event</c> on
-    /// <paramref name="home"/>, prints how long the call took, and exits; returns what it printed once its output closes.
+    /// A parent process (Factory.TestHost's launch fake, on this build's Factory.Store) that calls StartDetached for
+    /// <c>event</c> on <paramref name="home"/>, prints how long the call took, and exits; returns what it printed once its
+    /// output closes.
     /// </summary>
     private async Task<string> Parent(string home, TimeSpan timeout)
     {
-        var bin = AppContext.BaseDirectory;
         var envFile = _dir["empty.env"];
         File.WriteAllText(envFile, "");
-        // Options comes from the shared ASP.NET Core framework (the server's tests reference it), not this bin.
-        var options = typeof(Options).Assembly.Location;
-        var script = string.Join("; ",
-            $"Add-Type -Path '{options}'",
-            $"foreach ($d in 'Factory.Core', 'Factory.Store') {{ Add-Type -Path (Join-Path '{bin}' \"$d.dll\") }}",
-            $"$o = [Microsoft.Extensions.Options.Options]::Create([Factory.Store.FactoryOptions]@{{ BaseDirectory = '{bin}' }})",
-            "$paths = [Factory.Store.FactoryPaths]::new($o, [Factory.Store.GitClient]::new([Factory.Store.ProcessRunner]::new()))",
-            "$w = [Diagnostics.Stopwatch]::StartNew()",
-            "[Factory.Store.FactoryLauncher]::new($paths).StartDetached([string[]]@('event', '-Kind', 'note', '-Detail', 'launched'))",
-            "$w.ElapsedMilliseconds");
-        var psi = new ProcessStartInfo("pwsh") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
-        foreach (var a in new[] { "-NoProfile", "-Command", script }) psi.ArgumentList.Add(a);
+        var psi = new ProcessStartInfo("dotnet") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+        foreach (var a in new[] { Fakes.TestHostDll, "launch", "--base", AppContext.BaseDirectory, "--", "event", "-Kind", "note", "-Detail", "launched" }) psi.ArgumentList.Add(a);
         // The child inherits these: a state dir of its own, and no .env from whatever checkout the test runs in.
         psi.Environment["FACTORY_HOME"] = home;
         psi.Environment["FACTORY_ENV_FILE"] = envFile;

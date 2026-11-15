@@ -18,22 +18,18 @@ public sealed class DeployToolsTests : IDisposable
     private FactoryPaths Paths(string? home = null) => new(Options.Create(new FactoryOptions { Home = home, Scripts = _dir["scripts"], EnvFile = _dir["none.env"] }),
         new GitClient(new ProcessRunner()));
 
-    private string Script(string name, string text)
-    {
-        var p = _dir[name];
-        File.WriteAllText(p, text);
-        return p;
-    }
-
     [Fact]
     public void A_gh_override_gets_the_arguments_stdin_and_a_variable_set_for_it_alone()
     {
-        var stub = Script("gh.ps1", "\"args: $($args -join ',')\"; \"stdin: $([Console]::In.ReadToEnd())\"; \"token: $env:GH_TOKEN\"; [Console]::Error.WriteLine('warn'); exit 4");
-        var tools = new ToolRunner(new ProcessRunner(), Paths(), Options.Create(new DeployOptions { GhCmd = stub }));
+        var log = _dir["tool.jsonl"];
+        var tools = new ToolRunner(new ProcessRunner(), Paths(), Options.Create(new DeployOptions { GhCmd = Fakes.Command("tool", "--log", log, "--fail", "^secret set|warn", "--") }));
 
         var r = tools.Gh(["secret", "set", "a b"], "team-token", new Dictionary<string, string?> { ["GH_TOKEN"] = "pat" });
 
-        Assert.Equal(new ToolResult(4, "args: secret,set,a b\nstdin: team-token\ntoken: pat\nwarn"), r with { Out = r.Out.Replace("\r\n", "\n") });
+        Assert.Equal(new ToolResult(1, "warn"), r);
+        var call = Assert.Single(Fakes.Log(log));
+        Assert.Equal(["secret", "set", "a b"], Fakes.Args(call));
+        Assert.Equal(("team-token", "pat"), ((string?)call["stdin"], (string?)call["ghTokenValue"]));
         Assert.Null(Environment.GetEnvironmentVariable("GH_TOKEN"));
     }
 
@@ -43,9 +39,9 @@ public sealed class DeployToolsTests : IDisposable
         Environment.SetEnvironmentVariable("FACTORY_IT_PROBE", "inherited");
         try
         {
-            var r = new ProcessRunner().Run("pwsh", ["-NoProfile", "-Command", "\"[$env:FACTORY_IT_PROBE]\""], "", null,
+            var r = new ProcessRunner().Run("dotnet", [Fakes.TestHostDll, "env", "FACTORY_IT_PROBE"], "", null,
                 new Dictionary<string, string?> { ["FACTORY_IT_PROBE"] = null });
-            Assert.Equal("[]", r.StdOut.Trim());
+            Assert.Equal("FACTORY_IT_PROBE=[]", r.StdOut.Split('\n')[0].Trim());
         }
         finally { Environment.SetEnvironmentVariable("FACTORY_IT_PROBE", null); }
     }
@@ -114,7 +110,7 @@ public sealed class DeployToolsTests : IDisposable
         }
         Assert.False(File.Exists(file));
 
-        using var gone = Process.Start(new ProcessStartInfo("pwsh", "-NoProfile -Command exit") { UseShellExecute = false })!;
+        using var gone = Process.Start(new ProcessStartInfo("git", "--version") { UseShellExecute = false, RedirectStandardOutput = true })!;
         gone.WaitForExit();
         File.WriteAllText(file, $"{gone.Id}");
         using var taken = sut.TryTake(out _);

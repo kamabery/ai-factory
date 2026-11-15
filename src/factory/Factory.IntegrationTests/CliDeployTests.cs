@@ -5,7 +5,7 @@ namespace Factory.IntegrationTests;
 
 /// <summary>
 /// deploy, deploy-log, qa-login and destroy end to end, in process, against github-stub.ps1 (which serves HCP's API too),
-/// real git, and gh, az and the sign-in smoke as small pwsh scripts.
+/// real git, and gh, az and the sign-in smoke as Factory.TestHost's tool and signin fakes.
 /// </summary>
 [Collection(GitHubStubCollection.Name)]
 public sealed class CliDeployTests(GitHubStub gh) : IDisposable
@@ -25,25 +25,18 @@ public sealed class CliDeployTests(GitHubStub gh) : IDisposable
         File.WriteAllLines(envFile, File.ReadAllLines(gh.EnvFile(_dir)).Concat([
             "HCP_ORG=test-org", "HCP_TOKEN=hcp-test", "HCP_TEAM_TOKEN=team", "HCP_AZURE_VARSET=varset-azure", "AZURE_GH_CLIENT_ID=gh-app",
             "AZURE_TENANT_ID=tenant", "AZURE_SUBSCRIPTION_ID=sub", $"HCP_API_URL=http://localhost:{gh.Port}"]));
-        var tool = Script("tool.ps1", "$a = @($args); if ($a -contains 'list') { '[]' } else { '{}' }");
+        var tool = Fakes.Command("tool");
         var env = new Dictionary<string, string?>
         {
             ["FACTORY_HOME"] = Home, ["FACTORY_ENV_FILE"] = envFile, ["FACTORY_WORK"] = _dir["work"], ["FACTORY_SECRET_DIR"] = _dir["secrets"], ["FACTORY_SCRIPTS"] = GitHubStub.RepoFile("factory", "scripts"),
             ["FACTORY_GH_CMD"] = tool, ["FACTORY_AZ_CMD"] = tool, ["FACTORY_DEPLOY_POLL_SECONDS"] = "0", ["FACTORY_SMOKE_SECONDS"] = "0",
-            // The password arrives on stdin; the stub proves it by printing it, and the log must show it masked.
-            ["FACTORY_SIGNIN_CMD"] = Script("signin.ps1", "$pw = [Console]::In.ReadToEnd().Trim(); \"step: typed $pw\"; 'step: signed in: Sign out is showing'"),
+            // The password arrives on stdin; the fake proves it by printing it, and the log must show it masked.
+            ["FACTORY_SIGNIN_CMD"] = Fakes.Command("signin"),
         };
         var stdout = new StringWriter { NewLine = "\n" };
         var stderr = new StringWriter { NewLine = "\n" };
         var code = CliHost.Run(args, env, _dir.Path, stdout, stderr);
         return (code, stdout.ToString(), stderr.ToString());
-    }
-
-    private string Script(string name, string text)
-    {
-        var p = _dir[name];
-        if (!File.Exists(p)) File.WriteAllText(p, text);
-        return p;
     }
 
     private JsonObject Job => JsonNode.Parse(File.ReadAllText(Path.Combine(Home, "board.json")))!["jobs"]![0]!.AsObject();

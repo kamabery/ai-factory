@@ -149,13 +149,14 @@ public class StateAdminTests
         _files.Put(Path.Combine(LocalDir, "allowed-ip.txt"), "203.0.113.7\r\n");
         _http.Respond = r => r.RequestUri!.Host == "ip.test" ? " 198.51.100.9\n" : "";
 
-        var r = Firewall(new StateOptions { LocalDir = LocalDir, IpUrl = "http://ip.test/", AzCmd = "fake-az.ps1" }).AllowIp();
+        var r = Firewall(new StateOptions { LocalDir = LocalDir, IpUrl = "http://ip.test/", AzCmd = "/fakes/az" }).AllowIp();
 
         Assert.Equal(new AllowIpResult("198.51.100.9", "203.0.113.7", "stacct"), r);
         Assert.Equal([
-            "-NoProfile -File fake-az.ps1 storage account network-rule add --account-name stacct --resource-group rg-x --ip-address 198.51.100.9 --output none",
-            "-NoProfile -File fake-az.ps1 storage account network-rule remove --account-name stacct --resource-group rg-x --ip-address 203.0.113.7 --output none",
+            "storage account network-rule add --account-name stacct --resource-group rg-x --ip-address 198.51.100.9 --output none",
+            "storage account network-rule remove --account-name stacct --resource-group rg-x --ip-address 203.0.113.7 --output none",
         ], AzCalls());
+        Assert.All(_proc.ReceivedCalls(), c => Assert.Equal("/fakes/az", (string)c.GetArguments()[0]!));
         Assert.Equal("198.51.100.9", _files.Text(Path.Combine(LocalDir, "allowed-ip.txt"))!.Trim());
     }
 

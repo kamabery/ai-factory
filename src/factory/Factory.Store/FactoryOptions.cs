@@ -36,7 +36,7 @@ public sealed class FactoryOptions
     /// <summary>FACTORY_GATE_CMDS: a JSON array of <c>{ name, cmd }</c> that replaces every spec's gate (tests use it).</summary>
     public string? GateCmds { get; set; }
 
-    /// <summary>FACTORY_GATE_SHELL: the shell gate commands run in (a program on PATH, or a path), else pwsh.</summary>
+    /// <summary>FACTORY_GATE_SHELL: the shell a gate line left from before shell-neutral gates runs in (a program on PATH, or a path).</summary>
     public string? GateShell { get; set; }
 
     /// <summary>FACTORY_GATE_CHECK_WAIT_MINUTES: how long gate-check waits for another's lock (default 20).</summary>

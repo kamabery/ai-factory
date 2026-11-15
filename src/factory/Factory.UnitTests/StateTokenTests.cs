@@ -70,9 +70,9 @@ public class StateTokenTests
     {
         Az(0, """{"accessToken":"cmd","expiresOn":"2099-01-01 00:00:00.000000"}""");
 
-        Assert.Equal("cmd", Token(new StateOptions { AzCmd = "fake-az.ps1" }).Get());
+        Assert.Equal("cmd", Token(new StateOptions { AzCmd = """["dotnet", "th.dll", "tool", "--"]""" }).Get());
 
-        _processes.Received(1).Run("pwsh", Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "-NoProfile", "-File", "fake-az.ps1" }.Concat(AzArgs))), Arg.Any<string>());
+        _processes.Received(1).Run("dotnet", Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "th.dll", "tool", "--" }.Concat(AzArgs))), Arg.Any<string>());
     }
 
     [Fact]

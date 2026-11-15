@@ -13,7 +13,7 @@ namespace Factory.Runner;
 /// <summary>
 /// One claude pass (contract, "Runner"): writes headless-settings.json, then runs
 /// <c>claude -p &lt;prompt&gt; [--resume s] --plugin-dir ... --settings ... --add-dir &lt;state&gt; --output-format stream-json
-/// --verbose --permission-mode acceptEdits</c> in the work dir, or FACTORY_CLAUDE_CMD through <c>pwsh -Command</c>.
+/// --verbose --permission-mode acceptEdits</c> in the work dir, or FACTORY_CLAUDE_CMD (a program and its leading arguments) with the same arguments.
 /// Every output line goes to the run log as it arrives, through one stream shared for reading, so a reader (the
 /// dashboard's Output tab) can never make a write fail.
 /// </summary>
@@ -79,8 +79,10 @@ public sealed class ClaudeRunner(IFactoryPaths paths, IFileStore files, IOptions
     {
         if (options.Value.ClaudeCmd is { Length: > 0 } fake)
         {
-            var psi = new ProcessStartInfo("pwsh");
-            foreach (var a in new[] { "-NoProfile", "-Command", fake }) psi.ArgumentList.Add(a);
+            // A program and its leading arguments, then claude's own (contract, "Implementations").
+            var cmd = Factory.Core.CommandOverride.Parse("FACTORY_CLAUDE_CMD", fake);
+            var psi = new ProcessStartInfo(cmd[0]);
+            foreach (var a in cmd.Skip(1).Concat(Arguments(prompt, resumeSession, FactoryRoot, paths.TemplatesRoot, settings, paths.Home))) psi.ArgumentList.Add(a);
             // A fake claude sees the session it would continue.
             psi.Environment["FACTORY_CLAUDE_RESUME"] = resumeSession;
             return psi;

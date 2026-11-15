@@ -6,7 +6,7 @@ using Microsoft.Extensions.Options;
 
 namespace Factory.IntegrationTests;
 
-/// <summary>The runner's lock on a real disk, and a claude pass through a real pwsh stand-in.</summary>
+/// <summary>The runner's lock on a real disk, and a claude pass through Factory.TestHost's claude fake.</summary>
 public sealed class RunnerTests : IDisposable
 {
     private readonly TempDir _dir = new();
@@ -61,23 +61,10 @@ public sealed class RunnerTests : IDisposable
     [Fact]
     public void A_claude_pass_streams_every_line_to_the_log_as_utf8_with_its_environment_and_returns_the_result()
     {
-        var fake = _dir["fake.ps1"];
-        File.WriteAllText(fake, """
-            '{"type":"system","subtype":"init"}'
-            [Console]::Error.WriteLine('warn: from stderr')
-            $held = [IO.File]::Open((Join-Path $env:FACTORY_HOME "jobs/$env:FACTORY_JOB/run-1.jsonl"), 'Open', 'Read', 'ReadWrite, Delete')
-            '{"type":"assistant","text":"caf' + [char]0xE9 + ' ' + [char]0x2713 + '"}'
-            $held.Dispose()
-            "key=[$env:ANTHROPIC_API_KEY] resume=[$env:FACTORY_CLAUDE_RESUME] cwd=$((Get-Location).Path)"
-            # pwsh puts its own folder first on PATH as it starts; what the runner gave it comes next.
-            "path=[$($env:PATH.Split([IO.Path]::PathSeparator) | Where-Object { $_ -and $_.TrimEnd('\/') -ne $PSHOME.TrimEnd('\/') } | Select-Object -First 1)] root=[$env:DOTNET_ROOT]"
-            '{"type":"result","total_cost_usd":0.25,"duration_ms":7}'
-            exit 1
-            """);
         Environment.SetEnvironmentVariable("ANTHROPIC_API_KEY", "sk-from-the-runner");
         try
         {
-            var options = Options.Create(new RunnerOptions { ClaudeCmd = $"& '{fake}'", DotnetRoot = "dotnet-root" });
+            var options = Options.Create(new RunnerOptions { ClaudeCmd = Fakes.Command("claude", "--stream", "--exit", "1", "--"), DotnetRoot = "dotnet-root" });
             var log = Path.Combine(_dir["state"], "jobs", "J-001", "run-1.jsonl");
             var wt = Directory.CreateDirectory(_dir["wt"]).FullName;
 

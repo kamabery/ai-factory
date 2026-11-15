@@ -34,7 +34,7 @@ public sealed class StateOptions
     /// <summary>FACTORY_STATE_LOCK_SECONDS: the board lease's wait, default the mutex's.</summary>
     public string? StateLockSeconds { get; set; }
 
-    /// <summary>FACTORY_AZ_CMD: a script that stands in for az (tests).</summary>
+    /// <summary>FACTORY_AZ_CMD: a program and its leading arguments that stand in for az (tests).</summary>
     public string? AzCmd { get; set; }
 
     /// <summary>IDENTITY_ENDPOINT and IDENTITY_HEADER: a managed identity (Container Apps, App Service).</summary>
