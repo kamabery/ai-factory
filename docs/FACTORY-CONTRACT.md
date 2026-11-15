@@ -1101,6 +1101,15 @@ concurrently, `/api` requests one at a time, and each write is one `factory` cal
 `FACTORY_ENV_FILE` (as `--env-file`), `FACTORY_MODE`, `FACTORY_FOUNDRY_RESOURCE` and `FACTORY_WORK` through
 when they are set.
 
+**`factory check file <path> [--heading <re>]... [--contains <text>]... [--matches <re>]...`** is a gate's file check
+(see [Gate](#gate)), with `<path>` from the current directory: the file exists, has a Markdown heading (`#` to `######`
+and a space) whose text matches each `--heading`, contains each `--contains` text, and has a line matching each
+`--matches`, every comparison without case and each `<re>` a .NET regex. It prints nothing and exits 0, or prints one
+`check failed: <path> <what>` line per failed check (`does not exist`, then nothing else; `has no heading matching
+'<re>'`, `does not contain '<text>'`, `has no line matching '<re>'`) and exits 1. A usage error (no `file`, no path, an
+unknown option, an option with no value, an invalid regex) prints `check refused: <reason>` and exits 2. It reads no
+state and takes no board lock.
+
 **`factory idea [<owner/name> | I-NNN]`** is the CLI door to an idea (see [Ideas](#ideas)): an interactive
 `claude --plugin-dir factory/plugin "/factory:idea <arg>"` session in this repo, with the CLI's folder first
 on `PATH`. For a resumed idea it sets `FACTORY_IDEA`, so the spec-writer's hook events go to it. An existing
@@ -1125,7 +1134,6 @@ target is cloned with `clone-target` into `<work>\cli\<owner>-<name>` and passed
 | `canary [-Force]` (see [Canary](#canary)) | the runner (before a deployable job), the server (**Run canary**), a human |
 | `destroy <id>` (any stage; a no-op without a preview) · `qa-login <id>` (prints the preview's QA user and password) | the server (**Tear down**, **QA login**), and `merge`/`discard` |
 | `sweep` · `canary-destroy` (see [Deploy](#deploy) and [Canary](#canary)) | the server at startup and the runner when it drains; `canary` and `sweep` start `canary-destroy` |
-| `check file <path> [--heading <re>]... [--contains <text>]... [--matches <re>]...` (a file a gate checks, `<path>` from the current directory: it exists, has a Markdown heading whose text matches each `--heading`, contains each `--contains` text, and has a line matching each `--matches`, all without case and each regex .NET's; prints nothing and exits 0, else prints one `check failed: <path> <what>` line per failed check (`does not exist`, `has no heading matching '<re>'`, `does not contain '<text>'`, `has no line matching '<re>'`) and exits 1; a usage error is `check refused: <reason>`, exit 2. It reads no state and takes no board lock) | spec gates (see [Gate](#gate)) |
 | `event <json \| -Job -Idea -Kind -Agent>`, or `event` alone: a `SubagentStart` / `SubagentStop` hook payload on stdin, which appends `agent-start` or `agent-stop` for `FACTORY_JOB` (else `FACTORY_IDEA`; neither set, nothing), the plugin's `factory:` prefix stripped and an empty `agent_type` (Claude Code's internal agents) skipped; `agent-start` adds `agentId` and `transcript` (`<transcript_path without .jsonl>/subagents/agent-<agent_id>.jsonl`). The hook form prints nothing and always exits 0, so a hook never breaks a session | the plugin's hooks |
 | `eval <id> -File <path>` | a human session evaluating a finished job (see [Evaluations](#evaluations)) |
 | `feedback <id> -File <path>` | the server (the human's feedback on an evaluation) |
