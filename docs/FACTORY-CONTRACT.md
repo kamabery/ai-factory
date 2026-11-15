@@ -284,7 +284,7 @@ line is followed by `  fix: <what to do>`. It exits 1 if any check failed, else 
 
 | Check | Passes when |
 | --- | --- |
-| `tools` | `git`, `dotnet` and `claude` run; `az` too in cloud mode, and `terraform` while `HCP_ORG` is set |
+| `tools` | `git`, `dotnet` and `claude` run; `az` too in cloud mode, and `terraform` while `HCP_ORG` is set; and `git config user.name` and `user.email` are set, since the builder commits (fix: `git config --global user.name "<name>"; git config --global user.email <email>`) |
 | `secret-store` | a probe secret can be written, read back and deleted |
 | `env-secrets` | `.env` holds none of the secrets above (`warn` otherwise; fix: `factory init --move-env-secrets`) |
 | `github` | with an App: a JWT reads `GET /app`; an installation exists for `GITHUB_OWNER` on all repositories, with every permission `github-app.json` asks for; it mints a token; the user token reads `GET /user`. With no `GITHUB_APP_ID`: `fail`, `no GitHub App is set up` (fix: `factory init`) |
