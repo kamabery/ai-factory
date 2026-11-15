@@ -145,13 +145,34 @@ The spec carries the target and the gate, and the human can edit both in Backlog
 - test: `dotnet test`
 ```
 
-Gate lines are ``- <name>: `<command>` ``, where `<name>` is lower-case letters, digits or `-`. The
-commands run with `pwsh -NoProfile -Command` in the job's work directory, or with the shell `FACTORY_GATE_SHELL`
-names (a program on `PATH` or a path, taking the same arguments), so a factory can keep PowerShell off its
-`PATH` and still run gates. A shell that cannot start fails the command with exit 127
-(`cannot start the gate shell '<shell>': <reason>`). An unquoted `-name=value` token with a
-dot in it is quoted first, because pwsh would split it at the dot (J-022's `-var-file=envs/ephemeral.tfvars`). The human approves them along with the spec, and
-no agent can edit `jobs/<id>/spec.md`.
+Gate lines are ``- <name>: `<command>` ``, where `<name>` is lower-case letters, digits or `-`. The human approves
+them along with the spec, and no agent can edit `jobs/<id>/spec.md`.
+
+**A gate command is a program and its arguments, run with no shell** in the job's work directory, so a gate reads
+and runs the same on every OS. The command is split at spaces; a `"..."` or `'...'` keeps its spaces in one argument
+and its quotes are dropped (`--filter "Category=Unit"` is two arguments), with no escapes, so a Windows path's `\`
+is kept. The program is found on `PATH` (on Windows with `PATHEXT`, so `npm` runs `npm.cmd`), and a program of
+`factory` runs this CLI as the runner does (`dotnet <factory.dll>`), so a gate needs no `factory` on `PATH`. A program
+that cannot start fails the command with exit 127 (`cannot start '<program>': <reason>`). What a spec once wrote in
+a shell is written instead as:
+- a check of a file the job writes: [`factory check file`](#factory-commands)
+  (`factory check file docs/ADR-001.md --heading "^Decision$" --contains "Postgres"`);
+- a `cd`: the tool's own directory flag or path (`dotnet test src/api`, `npm --prefix src/ui run build`,
+  `terraform -chdir=IaC validate`);
+- a sequence or a condition (`npm ci` only when the lock file changed): one gate line per step, or a script the target
+  commits, run by the interpreter it names (`node scripts/gate.mjs`, `bash scripts/gate.sh`).
+
+**A shell line** is one this rule cannot run: it has `;`, `|`, `&`, `>`, `<`, `$`, `` ` ``, `(`, `)`, `{` or `}`
+outside quotes, or an unterminated quote, or its program is a PowerShell cmdlet (`Verb-Noun`, such as `Test-Path`) or
+a shell builtin (`cd`, `exit`, `echo`, `set`, `export`, `if`, `test`, `true`, `false`). `approve` refuses a spec with
+one, naming each and how to rewrite it (see [Job transitions](#job-transitions)). A spec approved before this rule
+(roadmap spec 20) may still hold shell lines; `gate` and `gate-check` run those lines, and only those, with the shell
+`FACTORY_GATE_SHELL` names (a program on `PATH` or a path), as `<shell> -NoProfile -Command <line>`, after quoting an
+unquoted `-name=value` token with a dot in it (pwsh splits it at the dot: J-022's `-var-file=envs/ephemeral.tfvars`).
+So an approved or building job finishes as it was approved, and a rework keeps its spec. With `FACTORY_GATE_SHELL`
+unset, a shell line fails with exit 127 (`gate line '<name>' needs a shell: set FACTORY_GATE_SHELL (such as pwsh) to
+finish this job, or discard it and approve a rewritten spec`). A shell that cannot start fails it with exit 127
+(`cannot start the gate shell '<shell>': <reason>`).
 
 The spec's `## Scope` `- In:` line is followed by one sub-bullet per path the builder may touch,
 each starting with a backticked glob, repo-relative, with `/` separators, then optional prose:
@@ -172,14 +193,13 @@ each starting with a backticked glob, repo-relative, with `/` separators, then o
 A spec with no backticked sub-bullets under `- In:` (written before this rule) is not scope-checked,
 and `set-stage review` appends a `note` event saying so.
 
-A dependency install in a gate is guarded, so the gate does not reinstall on every run. For npm,
-that means `npm ci` runs only when `node_modules/.package-lock.json` (which npm writes at the end
-of an install) is missing or older than `package-lock.json`. `Get-Item` needs `-Force` there: pwsh
-on Linux and macOS counts a dot-file as hidden, and without it the comparison sees `$null` and
-reinstalls on every run:
+A dependency install is its own gate line, before the line that needs it, and uses the lock file as it is
+(`npm ci`, never `npm install`, which can rewrite `package-lock.json` and leave the tree dirty for `merge`). It
+reinstalls on every gate run; `gate-check` caches it per head like any other line:
 
 ```
-- ui: `Set-Location src/ui/react; if (-not (Test-Path node_modules/.package-lock.json) -or (Get-Item package-lock.json).LastWriteTime -gt (Get-Item -Force node_modules/.package-lock.json).LastWriteTime) { npm ci }; npm run build`
+- ui-deps: `npm --prefix src/ui/react ci --no-audit --no-fund`
+- ui: `npm --prefix src/ui/react run build`
 ```
 
 ## Run mode and providers
@@ -369,8 +389,8 @@ write in a session is a human click that the dashboard turns into one `factory` 
 credential chain. `FACTORY_IDEA_MODEL` in `.env` overrides the model (default `claude-opus-5-5`, which
 in cloud mode is the Foundry deployment name). The dashboard checks only that the mode can run: cloud
 mode needs `FACTORY_FOUNDRY_RESOURCE`; without it, the dashboard shows the `factory idea` hint instead of
-**New idea**. `FACTORY_IDEA_CLAUDE_CMD` (a script run with `pwsh -File` and the same arguments) replaces
-`claude` for tests.
+**New idea**. `FACTORY_IDEA_CLAUDE_CMD` (a program and its leading arguments, see
+[Implementations](#implementations)) replaces `claude` for tests.
 
 **Turns.** Each assistant turn is a detached `factory idea-turn <S>` process, with the server's state
 directory and `.env` as `FACTORY_HOME` and `FACTORY_ENV_FILE`. It holds `sessions/<S>/turn.lock` (exclusive create) for
@@ -459,7 +479,7 @@ has merged), and closing the session deletes the clone.
 
 | From | To | Allowed when | `flag.reason` |
 | --- | --- | --- | --- |
-| backlog | approved | human; `spec.md` has a valid `## Target` and at least one `## Gate` command. Sets `approvedAt` and `target` | |
+| backlog | approved | human; `spec.md` has a valid `## Target` and at least one `## Gate` command, and no [shell line](#gate) (`approve refused: <id>'s gate runs with no shell (contract, "Gate"): <name>: <reason>, so <hint>[; <name>: ...]`, where the reason is `` `<x>` is a PowerShell cmdlet ``, `` `<x>` is a shell builtin ``, `` `<c>` needs a shell `` or `an unterminated quote`, and the hint is `use factory check file` for a cmdlet that reads files (`Test-Path`, `Get-Content`, `Select-String`, `Get-Item`, `Get-ChildItem`), `use the tool's directory flag or path` for a `cd` (`cd`, `Set-Location`, `Push-Location`), else `use one gate line per command, or a script the target commits`). Sets `approvedAt` and `target` | |
 | backlog | discarded | human | |
 | approved | build | runner; no job is in `build`, `review`, `approve` or `gate`, and this is the oldest `approvedAt` | |
 | build | review | `round-<n>/build.md` exists and the [build checks](#build-checks) pass | |
@@ -1054,10 +1074,14 @@ inputs): until spec 16, previews and `canary` need a checkout install, and a too
 a fork, whose own plugin and agents run from a checkout install.
 
 The CLI calls `gh`, `az`, `node` (the sign-in smoke) and the canary's scaffold commands (`dotnet`,
-`aspire-addon`) as programs from `PATH`, with no shell between; the test overrides (`FACTORY_GH_CMD`,
-`FACTORY_AZ_CMD`, `FACTORY_SIGNIN_CMD`, `FACTORY_CANARY_SCAFFOLD_CMD`) are scripts run with
-`pwsh -File` in their place. The only PowerShell a real job needs is the gate's shell (see
-[Gate](#gate)): `pwsh`, or `FACTORY_GATE_SHELL`, which nothing else runs.
+`aspire-addon`) as programs from `PATH`, with no shell between. **The test overrides** (`FACTORY_GH_CMD`,
+`FACTORY_AZ_CMD`, `FACTORY_SIGNIN_CMD`, `FACTORY_CANARY_SCAFFOLD_CMD`, `FACTORY_BROWSER_CMD`, `FACTORY_IDEA_CLAUDE_CMD`
+and `FACTORY_CLAUDE_CMD`) name a program and its leading arguments to run in place of the real one, with the real
+one's arguments after them and no shell between: a JSON array of strings (`["dotnet", "<dir>/Factory.TestHost.dll",
+"tool"]`), or else a path or program name, which is the program alone. The tests' fakes are Factory.TestHost's
+`claude`, `tool` and `signin` modes. A real job needs no PowerShell: gates run with no shell, and `FACTORY_GATE_SHELL`
+only finishes jobs approved before that rule (see [Gate](#gate)). Until spec 16, `setup-azure.ps1` and
+`setup-platform.ps1` are PowerShell, and read `FACTORY_AZ_CMD` as a script of their own.
 
 **`factory runner`** starts the runner (`artifacts/bin/Factory.Runner/debug/Factory.Runner.dll` beside the
 CLI's build, or `FACTORY_RUNNER`) and returns its exit code. Its run mode is `FACTORY_MODE` from the
@@ -1101,6 +1125,7 @@ target is cloned with `clone-target` into `<work>\cli\<owner>-<name>` and passed
 | `canary [-Force]` (see [Canary](#canary)) | the runner (before a deployable job), the server (**Run canary**), a human |
 | `destroy <id>` (any stage; a no-op without a preview) · `qa-login <id>` (prints the preview's QA user and password) | the server (**Tear down**, **QA login**), and `merge`/`discard` |
 | `sweep` · `canary-destroy` (see [Deploy](#deploy) and [Canary](#canary)) | the server at startup and the runner when it drains; `canary` and `sweep` start `canary-destroy` |
+| `check file <path> [--heading <re>]... [--contains <text>]... [--matches <re>]...` (a file a gate checks, `<path>` from the current directory: it exists, has a Markdown heading whose text matches each `--heading`, contains each `--contains` text, and has a line matching each `--matches`, all without case and each regex .NET's; prints nothing and exits 0, else prints one `check failed: <path> <what>` line per failed check (`does not exist`, `has no heading matching '<re>'`, `does not contain '<text>'`, `has no line matching '<re>'`) and exits 1; a usage error is `check refused: <reason>`, exit 2. It reads no state and takes no board lock) | spec gates (see [Gate](#gate)) |
 | `event <json \| -Job -Idea -Kind -Agent>`, or `event` alone: a `SubagentStart` / `SubagentStop` hook payload on stdin, which appends `agent-start` or `agent-stop` for `FACTORY_JOB` (else `FACTORY_IDEA`; neither set, nothing), the plugin's `factory:` prefix stripped and an empty `agent_type` (Claude Code's internal agents) skipped; `agent-start` adds `agentId` and `transcript` (`<transcript_path without .jsonl>/subagents/agent-<agent_id>.jsonl`). The hook form prints nothing and always exits 0, so a hook never breaks a session | the plugin's hooks |
 | `eval <id> -File <path>` | a human session evaluating a finished job (see [Evaluations](#evaluations)) |
 | `feedback <id> -File <path>` | the server (the human's feedback on an evaluation) |
@@ -1116,11 +1141,12 @@ does not move. `set-stage` only performs `approved → build`, `build → review
 `approve` and `gate`; every other transition has its own command.
 
 Overrides, for tests: `$env:FACTORY_GATE_CMDS` (JSON `[{ "name", "cmd" }]`; wins over the spec's
-`## Gate`, so tests can use `exit 0` / `exit 1`), `$env:FACTORY_WORK` (the work root),
-`$env:FACTORY_ENV_FILE` (the `.env` holding the GitHub settings) and `$env:FACTORY_REPO` (this
-repo's main checkout). For [Deploy](#deploy): `$env:FACTORY_GH_CMD` and `$env:FACTORY_AZ_CMD` (a
-script run with `pwsh -File` in place of `gh` / `az`), `$env:FACTORY_DEPLOY_POLL_SECONDS` (default
-15) and `$env:FACTORY_DEPLOY_TIMEOUT_MINUTES` (default 60).
+`## Gate` and runs by the same rule, so tests can use `git --version` to pass and `git no-such-command` to fail),
+`$env:FACTORY_WORK` (the work root), `$env:FACTORY_ENV_FILE` (the `.env` holding the GitHub settings) and
+`$env:FACTORY_REPO` (this repo's main checkout). For [Deploy](#deploy): `$env:FACTORY_GH_CMD` and
+`$env:FACTORY_AZ_CMD` (a program and its leading arguments in place of `gh` / `az`; see
+[Implementations](#implementations)), `$env:FACTORY_DEPLOY_POLL_SECONDS` (default 15) and
+`$env:FACTORY_DEPLOY_TIMEOUT_MINUTES` (default 60).
 
 ## Agents
 
@@ -1497,7 +1523,8 @@ CLI session shows the command that resumes it.
 
 "Starts the runner" means: spawn `factory runner` detached, unless `runner.lock` is held. The
 [watchdog](#runner) also starts it when Approved is not empty and no live runner holds the lock. The claude
-command is taken from `$env:FACTORY_CLAUDE_CMD` when it is set, so tests spend no tokens.
+command is taken from `$env:FACTORY_CLAUDE_CMD` (a program and its leading arguments, see
+[Implementations](#implementations)) when it is set, so tests spend no tokens.
 
 The header's **Board** and **Evaluations** tabs switch the page. Evaluations lists every
 evaluation with its rating, the human's rating if given, and snapshot facts, and opens one to its
