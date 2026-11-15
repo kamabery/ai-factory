@@ -86,8 +86,8 @@ jobs or idea turns. Terraform is not needed.
    `.sync.json` would push its old files over newer ones.
 4. **Sign in to Azure** as an identity that has access:
    ```powershell
-   az login --tenant 72235cc7-6e4e-48cd-9275-9a9f4fe07458   # as factory-admin
-   az account set --subscription 168ea8ac-e788-469b-926d-7a09731ab37c
+   az login --tenant <tenant-id>       # as an identity in principal_ids
+   az account set --subscription <subscription-id>
    ```
    Only the object ids in the workspace's `principal_ids` variable are granted. factory-admin is
    already granted. To use another identity (a second person, or a managed identity later), add its
