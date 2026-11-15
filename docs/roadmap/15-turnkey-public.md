@@ -1,13 +1,20 @@
 # 15: Turn-key acceptance and the public repo
 
-**Status:** part 1 done on the branch (2026-11-15), part 2 waits for spec 20. Part 1: the contract's "Installs" (a
-checkout or the dotnet tool), tool installs keeping `.env`, state and the template workspace in `~/.ai-factory`, doctor's
-`templates`, init cloning `FACTORY_TEMPLATES_REPO`, previews refused in a tool install, and `dotnet pack` of `ai-factory`
-0.1.0 (CLI, runner, server and the factory root's files), proven by a sandboxed `dotnet tool install -g`. .NET 972 unit,
-190 integration + 1 skipped, gates green (Windows). Nothing published. **Part 2 (after 20):** the hello target, the README
-for a stranger, the acceptance runs (Windows Sandbox, Hyper-V Ubuntu 24.04), the PAT fallback's removal, the
-template-projects scrub (`tooling/verify/live.ps1`'s platform ids) and history review there, marking the repo a
-template, then (with Kurt's yes) publishing to NuGet and making both repos public. **Branch:** `feature/15-public`. **Depends on:** 14, decisions D1 and D5.
+**Status:** part 1 merged in PR #25; part 2 done on `feature/15-public-part2` (2026-11-15), publishing waits for Kurt's
+yes. Part 1: the contract's "Installs" (a checkout or the dotnet tool), tool installs keeping `.env`, state and the
+template workspace in `~/.ai-factory`, doctor's `templates`, init cloning `FACTORY_TEMPLATES_REPO`, previews refused in a
+tool install, `dotnet pack` of `ai-factory` 0.1.0, the history review. **Part 2:** the GitHub PAT fallback removed (the
+App is the only GitHub credential; tests, the simulator and Playwright sign in as Factory.TestHost's `SimApp`); the
+README for a stranger and the MIT `LICENSE`; found by scripting the acceptance runs and fixed, contract first: doctor's
+`tools` needs a git identity, and init clones the templates as the App (template-projects was private). **Acceptance:**
+the Windows Sandbox run passed, **14:16** from a fresh Sandbox (installs 1:30, the Claude sign-in, `factory init` 1:32, the
+idea session 6:00, build to Ready 2:54) to J-001 in Ready for review, round 1, PR kamabery/ai-factory-hello#4; the
+rehearsal's J-001 (PR #3) also passed round 1. **The Ubuntu 24.04 Hyper-V run was dropped by Kurt** (2026-11-15); Linux is
+proven by the WSL suite and spec 20's WSL live job. Kit and results: `D:\code\Scratchpad\factory-15b`. template-projects
+PR #7 scrubs `live.ps1`'s platform ids; ai-factory-hello PR #2 adds its LICENSE; `kamabery/ai-factory` is marked a
+template. .NET 1054 unit, 196 integration + 1 skipped, gates green (Windows); 1054 / 193 + 4 skipped in WSL; Playwright
+41. Still to do, with Kurt's yes: publish `ai-factory` to NuGet and make ai-factory, template-projects and
+ai-factory-hello public. **Branch:** `feature/15-public-part2`. **Depends on:** 14, decisions D1 and D5.
 
 **Decided 2026-11-15:** MIT; `kamabery/ai-factory` itself goes public (after the history review); D5 is a minimal hello
 target, `kamabery/ai-factory-hello`; acceptance on **Windows and Ubuntu 24.04 only** (macOS out of scope), on Windows
