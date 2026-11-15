@@ -1,6 +1,6 @@
 # 14: `factory init` / `doctor`, the GitHub App and secrets
 
-**Status:** done, in PR #24 (2026-11-15). .NET 957 unit, 190 integration + 1 skipped, gates green (Windows). Live
+**Status:** merged in PR #24 (2026-11-15). .NET 957 unit, 190 integration + 1 skipped, gates green (Windows). Live
 proof on a simulated clean profile (fresh home, a .env init created with no GITHUB_TOKEN, a fresh Credential Manager
 prefix; the claude login carried over): `factory init` created, installed and authorized the GitHub App
 `ai-factory-kamab`, doctor all green, and J-951 went from idea to a reviewed PR (todoapp-two #19) opened by
