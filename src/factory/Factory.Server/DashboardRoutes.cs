@@ -35,6 +35,7 @@ public static class DashboardRoutes
         Get(app, "/", (StaticFiles f) => f.Index());
         Get(app, "/index.html", (StaticFiles f) => f.Index());
         Get(app, "/state/{**rest}", (StaticFiles f, string rest) => f.State(rest));
+        Get(app, "/assets/{**rest}", (StaticFiles f, string rest) => f.Assets(rest));
         Get(app, "/vendor/{**rest}", (StaticFiles f, string rest) => f.Vendor(rest));
 
         Get(app, "/api/agents/{agentId:regex(^[A-Za-z0-9_-]+$)}/transcript", (JobsApi j, string agentId) => j.Transcript(agentId));
