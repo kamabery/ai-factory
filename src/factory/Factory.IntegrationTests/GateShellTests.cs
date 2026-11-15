@@ -73,13 +73,13 @@ public sealed class GateShellTests : IDisposable
     {
         var r = Shell().Run(new GateCommand("ui", "Set-Location src/ui; npm run build"), _dir.Path);
 
-        Assert.Equal((127, "gate line 'ui' needs a shell: set FACTORY_GATE_SHELL (such as pwsh) to finish this job, or discard it and approve a rewritten spec" + Environment.NewLine), (r.Code, r.Out));
+        Assert.Equal((127, "gate line 'ui' needs a shell: set FACTORY_GATE_SHELL to the PowerShell 7 it was written for to finish this job, or discard it and approve a rewritten spec" + Environment.NewLine), (r.Code, r.Out));
     }
 
     [Fact]
     public void A_shell_line_runs_through_FACTORY_GATE_SHELL_with_a_dotted_name_value_argument_quoted()
     {
-        // J-022: pwsh handed terraform `-var-file=envs/ephemeral` and `.tfvars` as two arguments. The stand-in shell echoes.
+        // J-022: PowerShell handed terraform `-var-file=envs/ephemeral` and `.tfvars` as two arguments. The stand-in shell echoes.
         var r = Run("Set-Location IaC; terraform plan -var-file=envs/ephemeral.tfvars", TestHost);
 
         Assert.Equal((0, "shell: -NoProfile|-Command|Set-Location IaC; terraform plan \"-var-file=envs/ephemeral.tfvars\""), (r.Code, r.Out.Trim()));

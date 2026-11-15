@@ -310,10 +310,10 @@ public class RunnerLoopTests : CommandTestBase
         Assert.Equal("fatal: set-stage J-001 build refused", Sut.Run());
 
         var broken = Substitute.For<IFactoryCommands>();
-        broken.Run(Arg.Any<string[]>()).Returns(_ => throw new InvalidOperationException("pwsh is gone"));
+        broken.Run(Arg.Any<string[]>()).Returns(_ => throw new InvalidOperationException("the CLI is gone"));
         var lines = new List<string>();
-        Assert.Equal("fatal: pwsh is gone", new RunnerLoop(_lock, broken, _claude, _provider, LogTo(lines), Paths, Files).Run());
-        Assert.Equal("exit fatal: pwsh is gone", lines[^1]);
+        Assert.Equal("fatal: the CLI is gone", new RunnerLoop(_lock, broken, _claude, _provider, LogTo(lines), Paths, Files).Run());
+        Assert.Equal("exit fatal: the CLI is gone", lines[^1]);
     }
 
     [Fact]

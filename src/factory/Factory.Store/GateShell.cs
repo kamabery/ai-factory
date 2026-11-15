@@ -23,7 +23,7 @@ public sealed class GateShell(IOptions<FactoryOptions> options, IFactoryPaths pa
         if (GateLine.Problem(gate.Cmd) is not null)
         {
             if (string.IsNullOrEmpty(options.Value.GateShell))
-                return new ShellResult(127, $"gate line '{gate.Name}' needs a shell: set FACTORY_GATE_SHELL (such as pwsh) to finish this job, or discard it and approve a rewritten spec{nl}");
+                return new ShellResult(127, $"gate line '{gate.Name}' needs a shell: set FACTORY_GATE_SHELL to the PowerShell 7 it was written for to finish this job, or discard it and approve a rewritten spec{nl}");
             var shell = options.Value.GateShell;
             return Start(shell, ["-NoProfile", "-Command", NativeArgs.Quote(gate.Cmd)], workingDirectory, $"cannot start the gate shell '{shell}'");
         }
