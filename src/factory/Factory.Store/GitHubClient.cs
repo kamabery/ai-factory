@@ -113,9 +113,9 @@ public sealed class GitHubClient(HttpClient http, IDotEnv dotEnv, IGitHubCredent
 
     public string CloneUrl(string target) => $"{GitBase}/{target}.git";
 
-    public IReadOnlyList<string> GitAuth()
+    public IReadOnlyList<string> GitAuth(string? owner = null)
     {
-        var basic = Convert.ToBase64String(Encoding.ASCII.GetBytes($"x-access-token:{credential.Token()}"));
+        var basic = Convert.ToBase64String(Encoding.ASCII.GetBytes($"x-access-token:{credential.Token(owner)}"));
         return ["-c", "credential.helper=", "-c", $"http.extraHeader=Authorization: Basic {basic}"];
     }
 

@@ -318,8 +318,8 @@ skipped when it is already done, so a stopped init is run again.
 4. **Template workspace.** In a tool install, when `<profile>/template-projects` is missing, it clones
    `<FACTORY_GIT_BASE>/<FACTORY_TEMPLATES_REPO>.git` there (default `kamabery/template-projects`) with `git`, signed in as
    the GitHub App's installation on the repo's owner when it has one (so a private templates repo or fork clones), else
-   anonymously, never with a credential helper; one that
-   exists is left as it is. A checkout install, or a set `FACTORY_TEMPLATES`, skips this step.
+   anonymously, never with a credential helper; one that exists is left as it is. A checkout install, or a set
+   `FACTORY_TEMPLATES`, skips this step.
 5. **Settings.** It writes `GITHUB_OWNER` (the App's installation account) to `.env`, creating `.env` from
    `.env.example` if it is missing. With `--move-env-secrets` it copies each secret found in `.env` into the store and
    comments the line out (`# NAME moved to the secret store`).

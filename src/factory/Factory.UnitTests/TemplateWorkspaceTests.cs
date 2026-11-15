@@ -3,6 +3,7 @@ using Factory.Core;
 using Factory.Core.Abstractions;
 using Factory.Store.Abstractions;
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 
 namespace Factory.UnitTests;
 
@@ -15,6 +16,8 @@ public class TemplateWorkspaceTests
     private readonly IFileStore _files = Substitute.For<IFileStore>();
     private readonly IGitClient _git = Substitute.For<IGitClient>();
     private readonly IDotEnv _env = Substitute.For<IDotEnv>();
+    private readonly IGitHub _github = Substitute.For<IGitHub>();
+    private readonly IGitHubCredential _credential = Substitute.For<IGitHubCredential>();
     private readonly StringWriter _out = new() { NewLine = "\n" };
 
     public TemplateWorkspaceTests()
@@ -23,18 +26,42 @@ public class TemplateWorkspaceTests
         _paths.TemplatesRoot.Returns(Default);
         _env.Get(Arg.Any<string>()).Returns((string?)null);
         _git.Run(Arg.Any<string>(), Arg.Any<string[]>()).Returns(new GitResult(0, ""));
+        _github.CloneUrl(Arg.Any<string>()).Returns(c => $"https://github.com/{c.Arg<string>()}.git");
+        _credential.Token(Arg.Any<string?>()).Returns((string?)null);
     }
 
-    private TemplateWorkspace Sut => new(_paths, _files, _git, _env);
+    private TemplateWorkspace Sut => new(_paths, _files, _git, _env, _github, _credential);
 
     [Fact]
-    public void A_tool_install_clones_the_default_repo_into_the_profile()
+    public void A_tool_install_clones_the_default_repo_into_the_profile_anonymously_with_no_App()
     {
         Sut.Ensure(_out);
 
         _files.Received(1).EnsureDirectory(Profile);
-        _git.Received(1).Run(Profile, "clone", "https://github.com/kamabery/template-projects.git", Default);
+        _git.Received(1).Run(Profile, "-c", "credential.helper=", "clone", "https://github.com/kamabery/template-projects.git", Default);
         Assert.Equal($"ok    templates: cloned kamabery/template-projects to {Default}\n", _out.ToString());
+    }
+
+    [Fact]
+    public void It_clones_as_the_Apps_installation_on_the_repos_owner_so_a_private_repo_clones()
+    {
+        _credential.Token("kamabery").Returns("ghs_1");
+        _github.GitAuth("kamabery").Returns(["-c", "auth"]);
+
+        Sut.Ensure(_out);
+
+        _git.Received(1).Run(Profile, "-c", "auth", "clone", "https://github.com/kamabery/template-projects.git", Default);
+    }
+
+    [Fact]
+    public void An_owner_the_App_is_not_installed_on_is_cloned_anonymously()
+    {
+        _env.Get("FACTORY_TEMPLATES_REPO").Returns("someone/templates");
+        _credential.Token("someone").Throws(new FactoryException("the GitHub App is not installed on someone"));
+
+        Sut.Ensure(_out);
+
+        _git.Received(1).Run(Profile, "-c", "credential.helper=", "clone", "https://github.com/someone/templates.git", Default);
     }
 
     [Fact]
@@ -44,7 +71,7 @@ public class TemplateWorkspaceTests
 
         Sut.Ensure(_out);
 
-        _git.Received(1).Run(Profile, "clone", "https://github.com/me/my-templates.git", Default);
+        _git.Received(1).Run(Profile, "-c", "credential.helper=", "clone", "https://github.com/me/my-templates.git", Default);
     }
 
     [Fact]
