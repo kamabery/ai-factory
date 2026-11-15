@@ -26,8 +26,11 @@ dest="$HOME/factory-test"
 
 sync() {
   mkdir -p "$dest"
-  rsync -a --delete --exclude artifacts --exclude node_modules --exclude .factory-runs --exclude TestResults \
+  # Never the checkout's .env: a copy there holds the real GitHub PAT and state settings, and a CLI started without
+  # FACTORY_ENV_FILE would fall back to it. The rm removes a copy an earlier sync left.
+  rsync -a --delete --exclude /.env --exclude artifacts --exclude node_modules --exclude .factory-runs --exclude TestResults \
     --exclude bin --exclude obj "$src/" "$dest/ai-factory/"
+  rm -f "$dest/ai-factory/.env"
   if [ -d "$src/../template-projects" ]; then
     rsync -a --delete --exclude node_modules --exclude bin --exclude obj "$src/../template-projects/" "$dest/template-projects/"
   fi
