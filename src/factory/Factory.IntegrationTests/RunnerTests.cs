@@ -87,8 +87,10 @@ public sealed class RunnerTests : IDisposable
 
             Assert.Equal((1, 0.25), (run.Code, (double)run.Result!["total_cost_usd"]!));
             var lines = File.ReadAllLines(log);
-            Assert.Equal("{\"type\":\"system\",\"subtype\":\"init\"}", lines[0]);
-            Assert.Contains("{\"type\":\"assistant\",\"text\":\"café ✓\"}", lines);
+            // stdout and stderr are two pipes merged into one log: stdout keeps its order, and where the stderr line
+            // falls among it is a race (under load it can come first), which the contract does not promise either way.
+            Assert.Equal(["{\"type\":\"system\",\"subtype\":\"init\"}", "{\"type\":\"assistant\",\"text\":\"café ✓\"}"],
+                lines.Where(l => l.StartsWith("{\"type\":\"system\"", StringComparison.Ordinal) || l.StartsWith("{\"type\":\"assistant\"", StringComparison.Ordinal)));
             Assert.Contains("warn: from stderr", lines);
             Assert.Contains($"key=[] resume=[sess-9] cwd={wt}", lines);
             // The CLI's folder first, so `factory` is this build's; DOTNET_ROOT only where it was unset.
