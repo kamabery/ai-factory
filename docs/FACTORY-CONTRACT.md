@@ -316,7 +316,9 @@ skipped when it is already done, so a stopped init is run again.
      (`az role assignment create`) and writes `FACTORY_MODE=cloud` and `FACTORY_FOUNDRY_RESOURCE` to `.env`.
      Provisioning a resource stays the Terraform in [FOUNDRY.md](FOUNDRY.md).
 4. **Template workspace.** In a tool install, when `<profile>/template-projects` is missing, it clones
-   `https://github.com/<FACTORY_TEMPLATES_REPO>.git` there (default `kamabery/template-projects`) with `git`; one that
+   `<FACTORY_GIT_BASE>/<FACTORY_TEMPLATES_REPO>.git` there (default `kamabery/template-projects`) with `git`, signed in as
+   the GitHub App's installation on the repo's owner when it has one (so a private templates repo or fork clones), else
+   anonymously, never with a credential helper; one that
    exists is left as it is. A checkout install, or a set `FACTORY_TEMPLATES`, skips this step.
 5. **Settings.** It writes `GITHUB_OWNER` (the App's installation account) to `.env`, creating `.env` from
    `.env.example` if it is missing. With `--move-env-secrets` it copies each secret found in `.env` into the store and
