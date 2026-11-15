@@ -1,6 +1,18 @@
 # 20: Retire the last PowerShell
 
-**Status:** not started. **Branch:** `feature/20-last-powershell`. **Depends on:** 12.
+**Status:** done on `feature/20-last-powershell` (2026-11-15), PR to `main`. Decided: shell-neutral gates with
+`factory check file`; `approve` refuses a shell line naming its rewrite, and approved jobs finish on `FACTORY_GATE_SHELL`;
+`Factory.TestGates` and `Factory.Simulator` projects (not packed); the overrides name a program (TestHost's `tool`,
+`signin`, `claude`, `env`, `launch` fakes). Windows: .NET 1054 unit, 196 integration + 1 skipped, gates green;
+Playwright smoke 5/5, whole 41/41; Pester (spec 16's scripts) 29. WSL with no pwsh (~/.pwsh moved aside, no Windows
+PATH): 1051 unit + 3 skipped, 193 integration + 4 skipped, gates green. Live proof: J-001 "Greet by name" on the new
+hello target `kamabery/ai-factory-hello` (D5, private) ran end to end in WSL with no PowerShell, deploys off: gate
+build/test/`factory check` green, four PASS, APPROVE, PR ai-factory-hello#1, $1.09, eval good. Found on the way: run.sh
+copied the real `.env` into the WSL sandbox (now excluded), and the idea turn's MCP server lacked the turn's `.env`
+(now passed). Left for later: the devops agent tries `aspire-addon` on a non-Aspire target, the lesson count counts
+"None" gaps, and a signed-out claude in WSL costs a round (the eval's factory lessons). `grep pwsh` outside spec 16's
+files finds only spec 16's Pester plumbing in the Linux scripts, the guard tests, and the legacy-shell fallback.
+**Branch:** `feature/20-last-powershell`. **Depends on:** 12.
 
 ## Goal
 
