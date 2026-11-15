@@ -15,13 +15,14 @@ The **core tier** is GitHub plus an LLM:
 | | |
 | --- | --- |
 | **.NET 10 SDK** | `winget install --id Microsoft.DotNet.SDK.10 -e`, or on Linux `curl -sSL https://dot.net/v1/dotnet-install.sh \| bash -s -- --channel 10.0` |
-| **git** | `winget install --id Git.Git -e`, or `sudo apt-get install -y git` |
+| **git**, with your identity | `winget install --id Git.Git -e`, or `sudo apt-get install -y git`; then `git config --global user.name "<your name>"` and `user.email`, since the builder commits as you |
 | **Claude Code**, signed in to a Claude subscription | `irm https://claude.ai/install.ps1 \| iex` (Windows), or `curl -fsSL https://claude.ai/install.sh \| bash`; then `claude` and `/login` |
 | **A GitHub account** | `factory init` creates the factory's GitHub App on it; there is no token to make |
 
 No PowerShell 7, Node or Docker is needed: a spec's gate lines run as plain programs. Whatever your target repo builds
 with (Node for a React front end, say) has to be installed too, since the gate runs it. Windows and Linux (Ubuntu
-24.04) are supported; macOS is not, yet. On Linux the secrets go to the desktop keyring (libsecret's `secret-tool`).
+24.04) are supported; macOS is not, yet. On Linux the secrets go to the desktop keyring through `secret-tool`:
+`sudo apt-get install -y libsecret-tools`.
 
 Instead of a subscription, the LLM can be **Claude in Microsoft Foundry**, keyless through Entra ID (`factory init
 --foundry <resource>`, with `az login`); see [docs/FOUNDRY.md](docs/FOUNDRY.md).
