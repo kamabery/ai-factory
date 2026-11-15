@@ -83,6 +83,17 @@ public class CompositionTests
     }
 
     [Fact]
+    public void Binds_the_secret_settings_and_the_secrets_the_environment_sets()
+    {
+        var env = new Dictionary<string, string?> { ["FACTORY_SECRET_PREFIX"] = "p", ["FACTORY_SECRET_DIR"] = "d", ["HCP_TOKEN"] = "t" };
+
+        using var provider = Composition.Build(new ServiceCollection().AddFactoryCli(Host(env)));
+
+        var o = provider.GetRequiredService<IOptions<SecretOptions>>().Value;
+        Assert.Equal(("p", "d", "t", null), (o.Prefix, o.Dir, o.Environment["HCP_TOKEN"], o.Environment["GITHUB_TOKEN"]));
+    }
+
+    [Fact]
     public void The_token_cache_defaults_to_the_app_data_folder_and_empty_settings_count_as_unset()
     {
         using var provider = Composition.Build(new ServiceCollection().AddFactoryCli(Host(new() { ["FACTORY_LOCAL_DIR"] = "", ["FACTORY_HOME"] = "" })));

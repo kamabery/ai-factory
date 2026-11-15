@@ -15,7 +15,20 @@ public sealed class GitHubClient(HttpClient http, IDotEnv dotEnv, IGitHubCredent
 
     public GitHubResponse Send(HttpMethod method, string path, JsonNode? body = null)
     {
-        if (credential.Token() is not { } token) return new GitHubResponse(0, JsonValue.Create(credential.Missing), null);
+        string? token;
+        try { token = credential.Token(OwnerOf(path)); }
+        catch (FactoryException e) { return new GitHubResponse(0, JsonValue.Create(e.Message), null); }
+        return SendAs(token, method, path, body);
+    }
+
+    // The App's installation token is per account: the one a repo or org path names, else GITHUB_OWNER's.
+    private static string? OwnerOf(string path) =>
+        path.StartsWith("/repos/", StringComparison.Ordinal) || path.StartsWith("/orgs/", StringComparison.Ordinal)
+            ? path.Split('/', 4, StringSplitOptions.None)[2].Split('?')[0] : null;
+
+    private GitHubResponse SendAs(string? token, HttpMethod method, string path, JsonNode? body)
+    {
+        if (token is null) return new GitHubResponse(0, JsonValue.Create(credential.Missing), null);
         using var req = new HttpRequestMessage(method, $"{Api}{path}");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
@@ -48,20 +61,45 @@ public sealed class GitHubClient(HttpClient http, IDotEnv dotEnv, IGitHubCredent
 
     public IReadOnlyList<string> OwnedRepos()
     {
+        if (credential.IsApp)
+        {
+            // An installation token has no user: the repos are the installation's, newest push first.
+            var i = Send(HttpMethod.Get, "/installation/repositories?per_page=100");
+            if (i.Status != 200) throw new FactoryException(GitHubErrors.Text(i));
+            return [.. (i.Body?["repositories"] as JsonArray ?? []).OfType<JsonObject>()
+                .OrderByDescending(x => PsJsonReader.Str(x["pushed_at"]), StringComparer.Ordinal).Select(x => PsJsonReader.Text(x["full_name"]))];
+        }
         var r = Send(HttpMethod.Get, "/user/repos?affiliation=owner&sort=pushed&direction=desc&per_page=100");
         if (r.Status != 200) throw new FactoryException(GitHubErrors.Text(r));
         return r.Body is JsonArray a ? [.. a.Select(x => PsJsonReader.Text(x?["full_name"]))] : [];
     }
 
+    // Creating a repo acts as the human: the App's user token (an installation cannot create one on a user account), or the PAT.
     public string? CreateRepo(string target)
     {
         var parts = target.Split('/', 2);
-        var me = Send(HttpMethod.Get, "/user");
-        if (me.Status != 200) return $"cannot create {target}: {GitHubErrors.Text(me)}";
+        string? token;
+        try { token = credential.UserToken(); }
+        catch (FactoryException e) { return Refused(target, e.Message); }
+        if (token is null) return Refused(target, credential.IsApp ? "the GitHub App has no user token; run factory init" : credential.Missing);
+        var me = SendAs(token, HttpMethod.Get, "/user", null);
+        if (me.Status != 200) return Refused(target, GitHubErrors.Text(me));
         var path = PsJsonReader.Is(PsJsonReader.Str((me.Body as JsonObject)?["login"]), parts[0]) ? "/user/repos" : $"/orgs/{parts[0]}/repos";
-        var r = Send(HttpMethod.Post, path, new JsonObject { ["name"] = parts[1], ["private"] = true, ["auto_init"] = false });
-        return r.Status == 201 ? null : $"cannot create {target}: {GitHubErrors.Text(r)}";
+        var r = SendAs(token, HttpMethod.Post, path, new JsonObject { ["name"] = parts[1], ["private"] = true, ["auto_init"] = false });
+        return r.Status == 201 ? null : Refused(target, GitHubErrors.Text(r));
     }
+
+    public string UserLogin()
+    {
+        var token = credential.UserToken() ?? throw new FactoryException(credential.IsApp ? "the GitHub App has no user token; run factory init" : credential.Missing);
+        var me = SendAs(token, HttpMethod.Get, "/user", null);
+        if (me.Status != 200) throw new FactoryException(GitHubErrors.Text(me));
+        return PsJsonReader.Text((me.Body as JsonObject)?["login"]);
+    }
+
+    private string Refused(string target, string why) => credential.IsApp
+        ? $"GitHub refused to create {target} ({why}); create it, empty, then approve the job again"
+        : $"cannot create {target}: {why}";
 
     public PullRequest? OpenPr(string target, string branch)
     {

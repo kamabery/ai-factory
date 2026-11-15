@@ -64,6 +64,12 @@ public static class Composition
             o.SigninRetrySeconds = host.Get("FACTORY_SIGNIN_RETRY_SECONDS");
             o.DestroyStaleMinutes = host.Get("FACTORY_DESTROY_STALE_MINUTES");
         });
+        services.Configure<SecretOptions>(o =>
+        {
+            o.Prefix = host.Get("FACTORY_SECRET_PREFIX") ?? "ai-factory";
+            o.Dir = host.Get("FACTORY_SECRET_DIR");
+            o.Environment = SecretNames.All.ToDictionary(n => n, host.Get);
+        });
         services.Configure<CliOptions>(o => o.NewLine = host.NewLine);
         services.Configure<LlmOptions>(o => o.Environment = host.Variables);
         services.AddSingleton(host);
@@ -74,6 +80,8 @@ public static class Composition
         services.AddSingleton<IGitClient, GitClient>();
         services.AddSingleton<IFactoryPaths, FactoryPaths>();
         services.AddSingleton<IDotEnv, DotEnv>();
+        services.AddSingleton<ISecretStore, SecretStore>();
+        services.AddSingleton<ISecrets, Secrets>();
         services.AddSingleton<IStateSettings, StateSettings>();
         services.AddHttpClient<IStateToken, StateToken>();
         services.AddHttpClient<IBlobClient, BlobClient>(c => c.Timeout = TimeSpan.FromSeconds(100));
@@ -91,7 +99,10 @@ public static class Composition
         services.AddSingleton<IFactoryStore, FactoryStore>();
         services.AddSingleton<ICanary, CanaryCheck>();
         services.AddSingleton<ITemplateProvenance, TemplateProvenance>();
-        services.AddSingleton<IGitHubCredential, PatCredential>();
+        services.AddHttpClient<IGitHubApp, GitHubAppClient>(c => c.Timeout = TimeSpan.FromSeconds(30));
+        services.AddSingleton<PatCredential>();
+        services.AddSingleton<AppCredential>();
+        services.AddSingleton<IGitHubCredential, GitHubCredential>();
         services.AddHttpClient<IGitHub, GitHubClient>();
         services.AddSingleton<IGateShell, GateShell>();
         services.AddSingleton<IFactoryLauncher, FactoryLauncher>();
@@ -151,6 +162,23 @@ public static class Composition
         services.AddSingleton<ICommand, CanaryDestroyCommand>();
         services.AddSingleton<ICommand, QaLoginCommand>();
         services.AddSingleton<ILlmProvider, LlmProvider>();
+        services.AddSingleton<AppManifest>();
+        services.AddHttpClient<IFoundryProbe, FoundryProbe>(c => c.Timeout = TimeSpan.FromSeconds(60));
+        services.AddSingleton<ToolsCheck>();
+        services.AddSingleton<LlmCheck>();
+        services.AddSingleton<IDoctorCheck>(sp => sp.GetRequiredService<ToolsCheck>());
+        services.AddSingleton<IDoctorCheck, SecretStoreCheck>();
+        services.AddSingleton<IDoctorCheck, EnvSecretsCheck>();
+        services.AddSingleton<IDoctorCheck, GitHubCheck>();
+        services.AddSingleton<IDoctorCheck>(sp => sp.GetRequiredService<LlmCheck>());
+        services.AddSingleton<IDoctorCheck, HcpCheck>();
+        services.AddSingleton<IDoctor, Doctor>();
+        services.AddSingleton<IStandaloneCommand, DoctorCommand>();
+        services.AddSingleton<IBrowser, SystemBrowser>();
+        services.AddSingleton<EnvSettings>();
+        services.AddSingleton<DashboardStarter>();
+        services.AddSingleton<InitService>();
+        services.AddSingleton<IStandaloneCommand, InitCommand>();
         services.AddSingleton<IdeaFiles>();
         services.AddSingleton<IIdeaClaude, IdeaClaude>();
         services.AddSingleton<IStandaloneCommand, IdeaTurnCommand>();

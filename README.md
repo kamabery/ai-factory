@@ -8,7 +8,7 @@ live dashboard is where you work it.
 - **Status:** the factory is built (guide steps 1–5) and tested; it has not run a real job yet.
 - **Contract:** [docs/FACTORY-CONTRACT.md](docs/FACTORY-CONTRACT.md) covers stages, files, board and event formats.
 - **Rules for agents:** [CLAUDE.md](CLAUDE.md).
-- **GitHub PAT setup:** [docs/GITHUB-PAT.md](docs/GITHUB-PAT.md).
+- **GitHub setup:** `factory init` creates the GitHub App ([docs/GITHUB-APP.md](docs/GITHUB-APP.md)); `factory doctor` checks it.
 - **Tests:** [docs/TESTING.md](docs/TESTING.md) covers the tiers, the stubs they run offline against, and what to run before a PR.
 
 ## Getting started
@@ -32,9 +32,9 @@ factory serve        # prints its URL (a random free port; --port N to fix one)
 ```
 
 That's the only process you start. The dashboard starts the agent runs itself. Targets are GitHub
-repos (`owner/name`): put a GitHub PAT in `GITHUB_TOKEN`, and set `GITHUB_OWNER`, in `.env` (see
-`.env.example`). [docs/GITHUB-PAT.md](docs/GITHUB-PAT.md) says how to create the PAT and which
-permissions it needs. Each job
+repos (`owner/name`). Run `factory init` once first: it creates and installs the factory's GitHub App, keeps
+its keys in your OS secret store, writes `GITHUB_OWNER` to `.env`, and starts the dashboard for you
+([docs/GITHUB-APP.md](docs/GITHUB-APP.md)). `factory doctor` says what is wrong, if anything. Each job
 builds and is tested in its own temp clone (`%TEMP%\ai-factory\jobs\J-NNN`), which is deleted
 when the job reaches Done or is discarded.
 

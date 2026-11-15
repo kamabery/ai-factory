@@ -28,4 +28,7 @@ public interface IGitHub
 
     /// <summary>Invoke-GitAuth's <c>-c</c> options: the token as a one-command header, never in a remote URL or .git/config.</summary>
     IReadOnlyList<string> GitAuth();
+
+    /// <summary>GET /user with the user token (the App's, or the PAT): the human's login. Refuses with GitHub's error.</summary>
+    string UserLogin();
 }

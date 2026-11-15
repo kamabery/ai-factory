@@ -7,7 +7,7 @@ using Factory.Store.Abstractions;
 namespace Factory.Store;
 
 /// <summary>hcp.ps1's Invoke-Hcp and its helpers over <see cref="HttpClient"/>, with HCP_ORG, HCP_TOKEN and HCP_API_URL from .env.</summary>
-public sealed class HcpClient(HttpClient http, IDotEnv dotEnv) : IHcpClient
+public sealed class HcpClient(HttpClient http, IDotEnv dotEnv, ISecrets secrets) : IHcpClient
 {
     private static readonly int[] Ok = [200, 201, 202, 204];
 
@@ -101,6 +101,8 @@ public sealed class HcpClient(HttpClient http, IDotEnv dotEnv) : IHcpClient
 
     public HcpRun Run(string runId) => ToRun(Send(HttpMethod.Get, $"/runs/{runId}"));
 
+    public string Account() => PsJsonReader.Text(Send(HttpMethod.Get, "/account/details")?["data"]?["attributes"]?["username"]);
+
     public void SafeDelete(string workspaceId) => Send(HttpMethod.Post, $"/workspaces/{workspaceId}/actions/safe-delete");
 
     private static HcpRun ToRun(JsonNode? body) =>
@@ -122,13 +124,14 @@ public sealed class HcpClient(HttpClient http, IDotEnv dotEnv) : IHcpClient
     /// <summary>Invoke-Hcp: the parsed body (null for 204, or for 404 when allowed); any other status throws.</summary>
     private JsonNode? Send(HttpMethod method, string path, JsonNode? body = null, bool allowNotFound = false)
     {
-        var token = dotEnv.Get("HCP_TOKEN") ?? throw new FactoryException("HCP_TOKEN is not set in .env");
+        var token = secrets.Get(SecretNames.HcpToken) ?? throw new FactoryException("HCP_TOKEN is not set in .env");
         var api = (dotEnv.Get("HCP_API_URL") ?? "https://app.terraform.io").TrimEnd('/');
         using var req = new HttpRequestMessage(method, $"{api}/api/v2{path}");
         req.Headers.TryAddWithoutValidation("Authorization", $"Bearer {token}");
-        if (body is not null)
+        // A POST with no body (safe-delete) still says JSON:API: HCP answers 415 without the content type.
+        if (body is not null || method == HttpMethod.Post)
         {
-            req.Content = new StringContent(body.ToJsonString(), Encoding.UTF8);
+            req.Content = new StringContent(body?.ToJsonString() ?? "", Encoding.UTF8);
             req.Content.Headers.ContentType = new("application/vnd.api+json");
         }
         HttpResponseMessage res;

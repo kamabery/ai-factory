@@ -20,7 +20,7 @@ namespace Factory.Cli;
 /// </summary>
 public sealed partial class DeployService(
     IGitHub github, IGitHubCredential credential, IHcpClient hcp, IToolRunner tools, IHttpProbe probe, IGitClient git, IFileStore files,
-    IFactoryPaths paths, IDotEnv dotEnv, IPause pause, TimeProvider clock, IOptions<DeployOptions> options, IOptions<FactoryOptions> factory)
+    IFactoryPaths paths, IDotEnv dotEnv, ISecrets secrets, IPause pause, TimeProvider clock, IOptions<DeployOptions> options, IOptions<FactoryOptions> factory)
     : IDeployService
 {
     private DeployOptions O => options.Value;
@@ -139,9 +139,9 @@ public sealed partial class DeployService(
 
         // GitHub encrypts secrets with the repo's public key (a libsodium sealed box), which gh does for us. The GitHub PAT
         // reaches gh through its environment, the team token through stdin: neither is on a command line.
-        var teamToken = dotEnv.Get("HCP_TEAM_TOKEN") ?? throw new FactoryException("HCP_TEAM_TOKEN is not set in .env");
+        var teamToken = secrets.Get(SecretNames.HcpTeamToken) ?? throw new FactoryException("HCP_TEAM_TOKEN is not set in .env");
         var s = tools.Gh(["secret", "set", "TF_API_TOKEN", "--env", "preview", "--repo", target], teamToken,
-            new Dictionary<string, string?> { ["GH_TOKEN"] = credential.Token() });
+            new Dictionary<string, string?> { ["GH_TOKEN"] = credential.Token(target.Split('/')[0]) });
         if (s.Code != 0)
             throw new FactoryException($"gh secret set failed: {s.Out}{(Http403().IsMatch(s.Out) ? $"; {GitHubErrors.PatNeeds("secrets=write")}" : "")}");
 
