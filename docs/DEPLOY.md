@@ -10,7 +10,7 @@ Deploys are **off** until `.env` has `HCP_ORG`. Everything else keeps working wi
 
 Everything in Azure and Entra, including the Entra External ID tenant, is done by
 `factory/scripts/setup-azure.ps1`. The browser is needed for the HCP organization, its tokens and
-variable set, editing the GitHub PAT, and the script's sign-in to the new tenant.
+variable set, and the script's sign-in to the new tenant.
 
 ## Every value, and where it comes from
 
@@ -26,7 +26,7 @@ Work through the sections in order: later values depend on earlier ones.
 | Variable set values (`TFC_*`, `ARM_*`, `deployer_object_id`) | HCP variable set | printed by `setup-azure.ps1` | 3 → 4 |
 | `entra_external_*` (auth add-on only) | the target repo's `IaC/envs/*.tfvars` | printed by `setup-azure.ps1` | 4 |
 | `HCP_AZURE_VARSET` | `.env` | the `varset-...` id in the variable set's URL | 4 |
-| `GITHUB_TOKEN` (more permissions) | `.env` (unchanged) | edit the existing GitHub PAT | 5 |
+| GitHub App permissions | `factory/github-app.json` (unchanged) | already asked for by the App `factory init` creates | 5 |
 | `contact_email` | budget `terraform apply` | your email | 6 |
 | `FACTORY_TEMPLATES_REPO` | `.env` | `owner/name` of your template-projects repo on GitHub | 7 |
 
@@ -223,12 +223,12 @@ answers **500 `Backend call failure`** after about 45 s, and the next ones work 
 is a cold start, not a fault, so reload. Scale-to-zero stays because it keeps idle previews free. The
 factory's smoke and the agents' preview checks retry, so it doesn't fail a job.
 
-## 5. GitHub PAT
+## 5. GitHub App permissions
 
 The deploy stage pushes workflows, creates each target's `preview` environment and its variables,
 sets the `TF_API_TOKEN` secret and dispatches the workflow. The GitHub App that `factory init` creates
-already asks for **Workflows**, **Actions**, **Environments**, **Secrets** and **Variables** (read and write);
-with the PAT fallback, edit the PAT and add them. Details in [GITHUB-APP.md](GITHUB-APP.md). `gh` must be
+already asks for **Workflows**, **Actions**, **Environments**, **Secrets** and **Variables** (read and write),
+so there is nothing to add. Details in [GITHUB-APP.md](GITHUB-APP.md). `gh` must be
 installed; the factory runs it with the token in its environment only.
 
 ## 6. A budget alert
