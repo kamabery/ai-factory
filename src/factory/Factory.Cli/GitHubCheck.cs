@@ -7,7 +7,7 @@ namespace Factory.Cli;
 
 /// <summary>
 /// The GitHub App: a JWT reads the App, it is installed on GITHUB_OWNER on all repositories with every permission the
-/// manifest asks for, it mints a token, and the user token reads /user. With the PAT fallback: the PAT reads /user (a warn).
+/// manifest asks for, it mints a token, and the user token reads /user. With no App, a fail: there is no other credential.
 /// </summary>
 public sealed class GitHubCheck(
     ISecrets secrets, IGitHubApp app, IGitHubCredential credential, IGitHub github, IDotEnv dotEnv, AppManifest manifest, TimeProvider clock) : IDoctorCheck
@@ -18,11 +18,7 @@ public sealed class GitHubCheck(
 
     public DoctorResult Check()
     {
-        if (!credential.IsApp)
-        {
-            try { return DoctorResult.Warn($"using the GitHub PAT fallback, signed in as {github.UserLogin()}", "factory init sets up the GitHub App"); }
-            catch (FactoryException e) { return DoctorResult.Fail($"no GitHub App, and the GitHub PAT does not work: {e.Message}", "factory init"); }
-        }
+        if (string.IsNullOrEmpty(secrets.Get(SecretNames.AppId))) return DoctorResult.Fail("no GitHub App is set up", "factory init");
         try
         {
             var jwt = GitHubJwt.Create(Need(SecretNames.AppId), Need(SecretNames.AppPrivateKey), clock.GetUtcNow());

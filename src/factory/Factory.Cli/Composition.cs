@@ -103,9 +103,7 @@ public static class Composition
         services.AddSingleton<ICanary, CanaryCheck>();
         services.AddSingleton<ITemplateProvenance, TemplateProvenance>();
         services.AddHttpClient<IGitHubApp, GitHubAppClient>(c => c.Timeout = TimeSpan.FromSeconds(30));
-        services.AddSingleton<PatCredential>();
-        services.AddSingleton<AppCredential>();
-        services.AddSingleton<IGitHubCredential, GitHubCredential>();
+        services.AddSingleton<IGitHubCredential, AppCredential>();
         services.AddHttpClient<IGitHub, GitHubClient>();
         services.AddSingleton<IGateShell, GateShell>();
         services.AddSingleton<IFactoryLauncher, FactoryLauncher>();

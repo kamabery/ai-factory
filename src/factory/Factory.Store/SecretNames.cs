@@ -11,10 +11,9 @@ public static class SecretNames
     public const string UserToken = "GITHUB_USER_TOKEN";
     public const string UserRefreshToken = "GITHUB_USER_REFRESH_TOKEN";
     public const string UserTokenExpires = "GITHUB_USER_TOKEN_EXPIRES";
-    public const string Pat = "GITHUB_TOKEN";
     public const string HcpToken = "HCP_TOKEN";
     public const string HcpTeamToken = "HCP_TEAM_TOKEN";
 
     public static readonly IReadOnlyList<string> All =
-        [AppId, AppSlug, AppClientId, AppClientSecret, AppPrivateKey, UserToken, UserRefreshToken, UserTokenExpires, Pat, HcpToken, HcpTeamToken];
+        [AppId, AppSlug, AppClientId, AppClientSecret, AppPrivateKey, UserToken, UserRefreshToken, UserTokenExpires, HcpToken, HcpTeamToken];
 }

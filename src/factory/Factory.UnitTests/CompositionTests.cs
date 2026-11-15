@@ -90,7 +90,7 @@ public class CompositionTests
         using var provider = Composition.Build(new ServiceCollection().AddFactoryCli(Host(env)));
 
         var o = provider.GetRequiredService<IOptions<SecretOptions>>().Value;
-        Assert.Equal(("p", "d", "t", null), (o.Prefix, o.Dir, o.Environment["HCP_TOKEN"], o.Environment["GITHUB_TOKEN"]));
+        Assert.Equal(("p", "d", "t", null), (o.Prefix, o.Dir, o.Environment["HCP_TOKEN"], o.Environment["GITHUB_APP_ID"]));
     }
 
     [Fact]

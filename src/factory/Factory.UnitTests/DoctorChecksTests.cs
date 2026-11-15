@@ -53,6 +53,16 @@ public class DoctorChecksTests
         _proc.Received(1).Run("terraform", Arg.Any<IReadOnlyList<string>>(), "");
     }
 
+    [Fact]
+    public void Tools_fails_when_git_has_no_identity_for_the_builders_commits()
+    {
+        _proc.Run("git", Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "config", "user.email" })), Arg.Any<string>())
+            .Returns(new ProcessResult(1, "", ""));
+
+        Assert.Equal(DoctorResult.Fail("git has no user.email; the builder's commits need one",
+            "git config --global user.name \"<your name>\"; git config --global user.email <your email>"), new ToolsCheck(_proc, _llm, _env).Check());
+    }
+
     // --- secret-store --------------------------------------------------------------------------------------------
 
     [Fact]
@@ -91,8 +101,8 @@ public class DoctorChecksTests
         secrets.InEnvFile().Returns([]);
         Assert.Equal(DoctorResult.Ok("no secrets in .env"), new EnvSecretsCheck(secrets).Check());
 
-        secrets.InEnvFile().Returns(["GITHUB_TOKEN", "HCP_TOKEN"]);
-        Assert.Equal(DoctorResult.Warn("still in .env: GITHUB_TOKEN, HCP_TOKEN", "factory init --move-env-secrets"), new EnvSecretsCheck(secrets).Check());
+        secrets.InEnvFile().Returns(["GITHUB_APP_PRIVATE_KEY", "HCP_TOKEN"]);
+        Assert.Equal(DoctorResult.Warn("still in .env: GITHUB_APP_PRIVATE_KEY, HCP_TOKEN", "factory init --move-env-secrets"), new EnvSecretsCheck(secrets).Check());
     }
 
     // --- llm -----------------------------------------------------------------------------------------------------

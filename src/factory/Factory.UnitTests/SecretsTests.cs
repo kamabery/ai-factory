@@ -18,11 +18,11 @@ public class SecretsTests
     {
         _store.Get("HCP_TOKEN").Returns("from-store");
         _dotEnv.Get("HCP_TOKEN").Returns("from-env-file");
-        _dotEnv.Get("GITHUB_TOKEN").Returns("pat-in-env-file");
+        _dotEnv.Get("GITHUB_APP_SLUG").Returns("slug-in-env-file");
 
         Assert.Equal("from-process", Sut(("HCP_TOKEN", "from-process")).Get("HCP_TOKEN"));
         Assert.Equal("from-store", Sut().Get("HCP_TOKEN"));
-        Assert.Equal("pat-in-env-file", Sut().Get("GITHUB_TOKEN"));
+        Assert.Equal("slug-in-env-file", Sut().Get("GITHUB_APP_SLUG"));
         Assert.Null(Sut().Get("GITHUB_APP_ID"));
     }
 
@@ -36,11 +36,12 @@ public class SecretsTests
     }
 
     [Fact]
-    public void Lists_the_secrets_env_still_holds_in_order()
+    public void Lists_the_secrets_env_still_holds_in_order_and_not_the_retired_GitHub_PAT()
     {
         _dotEnv.Get("HCP_TOKEN").Returns("x");
-        _dotEnv.Get("GITHUB_TOKEN").Returns("y");
+        _dotEnv.Get("GITHUB_APP_ID").Returns("y");
+        _dotEnv.Get("GITHUB_TOKEN").Returns("ghp_x");
 
-        Assert.Equal(["GITHUB_TOKEN", "HCP_TOKEN"], Sut().InEnvFile());
+        Assert.Equal(["GITHUB_APP_ID", "HCP_TOKEN"], Sut().InEnvFile());
     }
 }

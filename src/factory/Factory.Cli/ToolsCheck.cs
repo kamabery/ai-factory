@@ -5,7 +5,7 @@ using Factory.Store.Abstractions;
 
 namespace Factory.Cli;
 
-/// <summary>git, dotnet and claude run; az too in cloud mode, terraform while HCP_ORG is set.</summary>
+/// <summary>git, dotnet and claude run; az too in cloud mode, terraform while HCP_ORG is set; git has a user.name and user.email.</summary>
 public sealed class ToolsCheck(IProcessRunner processes, ILlmProvider llm, IDotEnv dotEnv) : IDoctorCheck
 {
     public string Name => "tools";
@@ -32,6 +32,10 @@ public sealed class ToolsCheck(IProcessRunner processes, ILlmProvider llm, IDotE
         if (missing.Count > 0)
             return DoctorResult.Fail($"not found: {string.Join(", ", missing)}",
                 string.Join("; ", missing.Select(m => InstallHints.For(m, OperatingSystem.IsWindows()))));
+        // The builder commits in the job's clone; a fresh machine's git has no identity to commit as.
+        if (new[] { "user.name", "user.email" }.FirstOrDefault(k => string.IsNullOrWhiteSpace(Version("git", ["config", k]))) is { } unset)
+            return DoctorResult.Fail($"git has no {unset}; the builder's commits need one",
+                "git config --global user.name \"<your name>\"; git config --global user.email <your email>");
         return DoctorResult.Ok(string.Join(", ", found.Select(f => f.Version!.Length > 0 ? $"{f.Tool} {f.Version}" : f.Tool)));
     }
 

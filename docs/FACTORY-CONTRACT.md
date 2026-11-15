@@ -78,9 +78,8 @@ the code it builds goes to the target. Local paths are not targets.
 **GitHub access.** `factory` signs in to GitHub as the factory's **GitHub App** (see
 [Secrets, init and doctor](#secrets-init-and-doctor)): every call uses an installation token for the target's owner,
 except creating a new repo, which uses the App's user token (it acts as the human, within the App's permissions).
-With no App set up, it falls back, until spec 15, to a fine-grained **GitHub PAT**, `GITHUB_TOKEN`, with Contents,
-Pull requests and Administration (to create repos) read/write on **All repositories**: a PAT limited
-to selected repos can create a repo but not push to it (see [GITHUB-APP.md](GITHUB-APP.md)). A token is held in a local variable and
+The App is the only GitHub credential: spec 15 removed the GitHub PAT fallback, and `GITHUB_TOKEN` is not read. With
+no App set up (no `GITHUB_APP_ID`), every GitHub call fails with `no GitHub App is set up; run factory init`. A token is held in a local variable and
 never set in the process environment, written to a remote URL or `.git/config`, or logged: git gets
 it per command as `-c http.extraHeader=...`. `GITHUB_OWNER` (in `.env`) is the owner the dashboard suggests.
 `GITHUB_API_URL` (default `https://api.github.com`) and `FACTORY_GIT_BASE` (the clone URL prefix,
@@ -257,8 +256,8 @@ with one; neither needs a hand edit of `.env`.
 `<prefix>` is `ai-factory`, or `FACTORY_SECRET_PREFIX`. Tests and the simulator set `FACTORY_SECRET_DIR` instead: a
 folder holding one file per secret, which nothing real uses. The secrets are `GITHUB_APP_ID`, `GITHUB_APP_SLUG`,
 `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_USER_TOKEN`,
-`GITHUB_USER_REFRESH_TOKEN`, `GITHUB_USER_TOKEN_EXPIRES`, and the older `GITHUB_TOKEN` (the GitHub PAT), `HCP_TOKEN`
-and `HCP_TEAM_TOKEN`. Each is read from the process environment, else the store, else `.env`; a secret still in `.env`
+`GITHUB_USER_REFRESH_TOKEN`, `GITHUB_USER_TOKEN_EXPIRES`, `HCP_TOKEN` and
+`HCP_TEAM_TOKEN`. Each is read from the process environment, else the store, else `.env`; a secret still in `.env`
 works, and `doctor` warns about it.
 
 **The GitHub App** is defined by `factory/github-app.json`: no webhook, private, and repository permissions
@@ -274,20 +273,21 @@ Administration, Contents, Pull requests, Workflows, Actions, Environments, Secre
   within five minutes of expiring. If GitHub still refuses to create the repo, `checkout` fails as any checkout does
   (the job escalates) with `GitHub refused to create <owner/name> (<message>); create it, empty, then approve the
   job again`.
-- With no `GITHUB_APP_ID`, every call uses the GitHub PAT as before. That fallback goes in spec 15.
+- With no `GITHUB_APP_ID` there is no token, and a call fails with `no GitHub App is set up; run factory init`. There
+  is no GitHub PAT fallback (removed in spec 15): a `GITHUB_TOKEN` left in `.env` or the store is ignored.
 
 A `github-permission` flag ([Deploy](#deploy)) names the App permission to add (in the App's settings, then accepted
-on the installation) instead of the PAT's.
+on the installation).
 
 **`factory doctor`** prints one line per check, `ok`, `warn` or `fail`, then `<check>: <detail>`. A `warn` or `fail`
 line is followed by `  fix: <what to do>`. It exits 1 if any check failed, else 0. The checks:
 
 | Check | Passes when |
 | --- | --- |
-| `tools` | `git`, `dotnet` and `claude` run; `az` too in cloud mode, and `terraform` while `HCP_ORG` is set |
+| `tools` | `git`, `dotnet` and `claude` run; `az` too in cloud mode, and `terraform` while `HCP_ORG` is set; and `git config user.name` and `user.email` are set, since the builder commits (fix: `git config --global user.name "<name>"; git config --global user.email <email>`) |
 | `secret-store` | a probe secret can be written, read back and deleted |
 | `env-secrets` | `.env` holds none of the secrets above (`warn` otherwise; fix: `factory init --move-env-secrets`) |
-| `github` | with an App: a JWT reads `GET /app`; an installation exists for `GITHUB_OWNER` on all repositories, with every permission `github-app.json` asks for; it mints a token; the user token reads `GET /user`. With the PAT fallback: `GET /user` works (`warn`: the fallback) |
+| `github` | with an App: a JWT reads `GET /app`; an installation exists for `GITHUB_OWNER` on all repositories, with every permission `github-app.json` asks for; it mints a token; the user token reads `GET /user`. With no `GITHUB_APP_ID`: `fail`, `no GitHub App is set up` (fix: `factory init`) |
 | `llm` | local: `claude auth status`, run with the local child environment, is logged in with a claude.ai subscription; cloud: `az` is signed in and a one-token request to each pinned deployment succeeds |
 | `hcp` | only while `HCP_ORG` or `HCP_TOKEN` is set: `HCP_TOKEN` reads `GET /api/v2/account/details` |
 | `templates` | the template workspace holds `.claude-plugin/plugin.json` (`warn` otherwise; fix: `factory init` in a tool install, else clone `FACTORY_TEMPLATES_REPO` to the template workspace) |
@@ -316,8 +316,10 @@ skipped when it is already done, so a stopped init is run again.
      (`az role assignment create`) and writes `FACTORY_MODE=cloud` and `FACTORY_FOUNDRY_RESOURCE` to `.env`.
      Provisioning a resource stays the Terraform in [FOUNDRY.md](FOUNDRY.md).
 4. **Template workspace.** In a tool install, when `<profile>/template-projects` is missing, it clones
-   `https://github.com/<FACTORY_TEMPLATES_REPO>.git` there (default `kamabery/template-projects`) with `git`; one that
-   exists is left as it is. A checkout install, or a set `FACTORY_TEMPLATES`, skips this step.
+   `<FACTORY_GIT_BASE>/<FACTORY_TEMPLATES_REPO>.git` there (default `kamabery/template-projects`) with `git`, signed in as
+   the GitHub App's installation on the repo's owner when it has one (so a private templates repo or fork clones), else
+   anonymously, never with a credential helper; one that exists is left as it is. A checkout install, or a set
+   `FACTORY_TEMPLATES`, skips this step.
 5. **Settings.** It writes `GITHUB_OWNER` (the App's installation account) to `.env`, creating `.env` from
    `.env.example` if it is missing. With `--move-env-secrets` it copies each secret found in `.env` into the store and
    comments the line out (`# NAME moved to the secret store`).
@@ -498,7 +500,7 @@ has merged), and closing the session deletes the clone.
 | deploy | blocked | `deploy-fix` when `deployFixes` is already 2 | `deploy-fix-rounds` |
 | deploy | blocked | the fifth failed `deploy` of the round; the preview is left up for diagnosis | `deploy-failed` |
 | deploy | blocked | `factory block <id> -Detail <line>`: the last attempt failed and the devops agent judged the environment or the factory at fault (a credential, a quota, a factory bug), not the change | `environment` |
-| deploy | blocked | GitHub refused a call because the GitHub PAT lacks a permission; the attempt is not counted, and the detail names the permission | `github-permission` |
+| deploy | blocked | GitHub refused a call because the GitHub App lacks a permission; the attempt is not counted, and the detail names the permission | `github-permission` |
 | blocked | approved | human `redeploy <id>`, when the job was blocked from `deploy` (the human fixed the cause). Sets `resume: "deploy"` and `approvedAt`, and `deploy.attempts` back to 0; round and `deployFixes` are unchanged | |
 | blocked | approved | human `rework <id> <note>`, as from `ready` | |
 | blocked | discarded | human `discard <id>`, as from `ready` | |
@@ -1276,7 +1278,7 @@ straight to `approve` and appends a `note` event "deploy skipped: no HCP_ORG in 
 deploys; a target without HCP-ready infrastructure gets it from the devops agent's author pass. A
 job is **deployable** when deploys are on and it is not a bootstrap.
 
-**Settings** (`.env`, read like `GITHUB_TOKEN`: into a local variable, never into the environment of
+**Settings** (`.env`, read like a secret: into a local variable, never into the environment of
 anything but the one child process that needs it, never logged):
 
 | Key | What |
@@ -1305,7 +1307,7 @@ anything but the one child process that needs it, never logged):
 3. GitHub, first, so a missing permission fails before anything is created in HCP: ensures the
    environment `preview`, its variables `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
    `AZURE_SUBSCRIPTION_ID`, the repo variable `TF_CLOUD_ORGANIZATION`, and the secret
-   `TF_API_TOKEN` (`gh secret set`, the GitHub PAT in `gh`'s environment only, the value on stdin).
+   `TF_API_TOKEN` (`gh secret set`, the App's installation token in `gh`'s environment only, the value on stdin).
    Azure: ensures the federated credential `preview-<owner>-<name>` on `AZURE_GH_CLIENT_ID`
    (`az ad app federated-credential`, under the human's own `az login`) for the subject GitHub
    presents: `<prefix>:environment:preview`, where `<prefix>` is the repo's `sub_claim_prefix` from
@@ -1380,11 +1382,11 @@ the first real error as one of three, and acts:
 an agent cannot skip the deploy. A deploy-fix round is like a rework round: one build and one review
 pass, and a `CHANGES` verdict then blocks the job `max-rounds`.
 
-**A missing GitHub PAT permission is not a failed attempt.** When GitHub answers 403 with an
+**A missing GitHub App permission is not a failed attempt.** When GitHub answers 403 with an
 `X-Accepted-GitHub-Permissions` header (or `gh` reports HTTP 403 setting the secret, which needs
-`secrets=write`), the error reads `the GitHub PAT needs <permission>`. `deploy` then gives the
+`secrets=write`), the error reads `the GitHub App needs <permission> (add it in the App's settings, then accept it on the installation)`. `deploy` then gives the
 attempt back, writes `deploy-<a>.log` as usual, and moves the job to `blocked` with flag
-`github-permission` and that sentence as the detail. No agent can widen the PAT: a human adds the
+`github-permission` and that sentence as the detail. No agent can widen the App's permissions: a human adds the
 permission (GitHub requires their 2FA for it) and clicks **Retry deploy** (`redeploy <id>`), which
 queues the job in Approved to resume at `deploy`. The factory never grants itself permissions.
 

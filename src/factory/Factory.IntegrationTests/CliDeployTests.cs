@@ -28,7 +28,7 @@ public sealed class CliDeployTests(GitHubStub gh) : IDisposable
         var tool = Fakes.Command("tool");
         var env = new Dictionary<string, string?>
         {
-            ["FACTORY_HOME"] = Home, ["FACTORY_ENV_FILE"] = envFile, ["FACTORY_WORK"] = _dir["work"], ["FACTORY_SECRET_DIR"] = _dir["secrets"], ["FACTORY_SCRIPTS"] = GitHubStub.RepoFile("factory", "scripts"),
+            ["FACTORY_HOME"] = Home, ["FACTORY_ENV_FILE"] = envFile, ["FACTORY_WORK"] = _dir["work"], ["FACTORY_SECRET_DIR"] = _dir["secrets"], ["FACTORY_LOCAL_DIR"] = _dir["local"], ["FACTORY_SCRIPTS"] = GitHubStub.RepoFile("factory", "scripts"),
             ["FACTORY_GH_CMD"] = tool, ["FACTORY_AZ_CMD"] = tool, ["FACTORY_DEPLOY_POLL_SECONDS"] = "0", ["FACTORY_SMOKE_SECONDS"] = "0",
             // The password arrives on stdin; the fake proves it by printing it, and the log must show it masked.
             ["FACTORY_SIGNIN_CMD"] = Fakes.Command("signin"),

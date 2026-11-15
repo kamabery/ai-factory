@@ -4,17 +4,17 @@ using System.Text.RegularExpressions;
 
 namespace Factory.Core;
 
-/// <summary>github.ps1's GhError and PatNeeds: the text a refused GitHub call becomes (contract, "Targets").</summary>
+/// <summary>The text a refused GitHub call becomes (contract, "Targets").</summary>
 public static partial class GitHubErrors
 {
-    /// <summary>The sentence a missing PAT permission becomes; deploy matches it with <see cref="PatNeedsPattern"/>.</summary>
-    public static string PatNeeds(string permission) =>
-        $"the GitHub PAT needs {permission} (add it at https://github.com/settings/personal-access-tokens)";
+    /// <summary>The sentence a missing App permission becomes; deploy matches it with <see cref="AppNeedsPattern"/>.</summary>
+    public static string AppNeeds(string permission) =>
+        $"the GitHub App needs {permission} (add it in the App's settings, then accept it on the installation)";
 
-    /// <summary>github.ps1's <c>$PatNeedsPattern</c>; group 1 is the permission.</summary>
-    public static Regex PatNeedsPattern => PatNeedsRegex();
+    /// <summary>What deploy matches a missing App permission with; group 1 is the permission.</summary>
+    public static Regex AppNeedsPattern => AppNeedsRegex();
 
-    /// <summary><c>GitHub &lt;status&gt;: &lt;message&gt;</c>, trimmed, then what the PAT needs when GitHub said so.</summary>
+    /// <summary><c>GitHub &lt;status&gt;: &lt;message&gt;</c>, trimmed, then what the App needs when GitHub said so.</summary>
     public static string Text(GitHubResponse r)
     {
         var msg = r.Body switch
@@ -24,8 +24,8 @@ public static partial class GitHubErrors
             _ => "",
         };
         var text = $"GitHub {r.Status}: {msg}".Trim();
-        return string.IsNullOrEmpty(r.Permission) ? text : $"{text}; {PatNeeds(r.Permission)}";
+        return string.IsNullOrEmpty(r.Permission) ? text : $"{text}; {AppNeeds(r.Permission)}";
     }
 
-    [GeneratedRegex(@"the GitHub PAT needs (\S+)", RegexOptions.IgnoreCase)] private static partial Regex PatNeedsRegex();
+    [GeneratedRegex(@"the GitHub App needs (\S+)", RegexOptions.IgnoreCase)] private static partial Regex AppNeedsRegex();
 }

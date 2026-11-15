@@ -10,7 +10,7 @@ namespace Factory.Cli;
 /// <summary>
 /// <c>deploy &lt;id&gt;</c> (contract, "Deploy"): one attempt at the job's preview. A pass moves the job to approve; a failure
 /// writes deploy-&lt;a&gt;.log, exits 1 and leaves the job in deploy, or on the fifth attempt blocks it deploy-failed. A
-/// missing GitHub PAT permission gives the attempt back and blocks it github-permission. A bootstrap never deploys.
+/// missing GitHub App permission gives the attempt back and blocks it github-permission. A bootstrap never deploys.
 /// </summary>
 public sealed class DeployCommand(IDeployService deploy, IFactoryPaths paths, IFileStore files, IDotEnv dotEnv, TimeProvider clock) : ICommand
 {
@@ -73,10 +73,10 @@ public sealed class DeployCommand(IDeployService deploy, IFactoryPaths paths, IF
         files.WriteAtomic(log, new UTF8Encoding(false).GetBytes(res.Log + Environment.NewLine));
         var first = FirstError.Of(res.Log);
         session.AddEvent(Events.Create(clock.GetUtcNow(), ("job", j.Id), ("kind", "deploy"), ("detail", $"failed (attempt {attempt}): {first}")));
-        if (GitHubErrors.PatNeedsPattern.Match(res.Log) is { Success: true } m)
+        if (GitHubErrors.AppNeedsPattern.Match(res.Log) is { Success: true } m)
         {
             // Not the change's fault: give the attempt back and wait for a human to add the permission.
-            var needs = GitHubErrors.PatNeeds(m.Groups[1].Value);
+            var needs = GitHubErrors.AppNeeds(m.Groups[1].Value);
             d["attempts"] = PsJsonReader.Int(d["attempts"]) - 1;
             BoardMoves.Move(session, j, Transitions.EscalationStage(j, deploysOn), "orchestrator", clock, "github-permission", needs);
             throw new FactoryException($"deploy refused by GitHub: {needs}; then run: factory redeploy {j.Id}");

@@ -73,22 +73,8 @@ Every `warn` or `fail` line is followed by a `fix:` line that says what to do.
 | `the installation on <owner> lacks <permission>` | The App's permissions changed (`github-app.json`): accept them on the installation's settings page |
 | `github: GitHub 401 (GET /app)` | The App or its key is gone: run `factory init` again |
 | A job escalated with `GitHub refused to create <repo> (...); create it, empty, then approve the job again` | Create the repo yourself, private and empty, on the owner; then approve the job again |
-| `env-secrets: still in .env: GITHUB_TOKEN, ...` | `factory init --move-env-secrets` copies them to the store and comments them out |
+| `env-secrets: still in .env: GITHUB_APP_PRIVATE_KEY, ...` | `factory init --move-env-secrets` copies them to the store and comments them out |
 
 A `github-permission` flag on a deploy names the permission the App lacks. Add it in the App's settings
 (GitHub → Settings → Developer settings → GitHub Apps → *the App* → Permissions), then accept it on the
 installation.
-
-## The GitHub PAT fallback
-
-Until spec 15, a factory with no App (no `GITHUB_APP_ID`) still signs in with a fine-grained **GitHub PAT**,
-`GITHUB_TOKEN`. `doctor` warns about it (`using the GitHub PAT fallback`). To keep using one, create it under
-GitHub → **Settings → Developer settings → Personal access tokens → Fine-grained tokens**:
-
-- **Resource owner:** the owner of your targets (`GITHUB_OWNER`).
-- **Repository access:** **All repositories**. With *Only select repositories*, the PAT can create a repo but
-  can't push to it, as J-012 found.
-- **Permissions:** the ones in the table above, read and write.
-
-Put it in the secret store, or in `.env` as `GITHUB_TOKEN=github_pat_...`; `factory init --move-env-secrets` moves
-it from `.env` to the store.

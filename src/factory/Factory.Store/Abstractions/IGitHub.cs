@@ -26,9 +26,12 @@ public interface IGitHub
     /// <summary>&lt;FACTORY_GIT_BASE, else https://github.com&gt;/owner/name.git</summary>
     string CloneUrl(string target);
 
-    /// <summary>Invoke-GitAuth's <c>-c</c> options: the token as a one-command header, never in a remote URL or .git/config.</summary>
-    IReadOnlyList<string> GitAuth();
+    /// <summary>
+    /// Invoke-GitAuth's <c>-c</c> options: the token (for <paramref name="owner"/>'s repos; null: GITHUB_OWNER's) as a one-command
+    /// header, never in a remote URL or .git/config.
+    /// </summary>
+    IReadOnlyList<string> GitAuth(string? owner = null);
 
-    /// <summary>GET /user with the user token (the App's, or the PAT): the human's login. Refuses with GitHub's error.</summary>
+    /// <summary>GET /user with the user token (the App's): the human's login. Refuses with GitHub's error.</summary>
     string UserLogin();
 }

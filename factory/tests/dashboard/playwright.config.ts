@@ -15,11 +15,11 @@ export const cli = path.join(repo, 'artifacts/bin/Factory.Cli/debug/factory.dll'
 const testHost = path.join(repo, 'artifacts/bin/Factory.TestHost/debug/Factory.TestHost.dll');
 export const simulator = path.join(repo, 'artifacts/bin/Factory.Simulator/debug/Factory.Simulator.dll');
 
-// The .env the dashboard and the simulator read: a fake GitHub token, and the GitHub stub. Written here because the
-// GitHub stub's clone base is an absolute path.
+// The .env the dashboard and the simulator read: the GitHub stub (signed in as its GitHub App, which the simulator
+// seeds into FACTORY_SECRET_DIR below). Written here because the GitHub stub's clone base is an absolute path.
 const envFile = path.join(os.tmpdir(), 'factory-playwright.env');
 writeFileSync(envFile, [
-  'GITHUB_TOKEN=gh-playwright-fake', 'GITHUB_OWNER=sim', `GITHUB_API_URL=http://localhost:${githubPort}`,
+  'GITHUB_OWNER=sim', `GITHUB_API_URL=http://localhost:${githubPort}`,
   `FACTORY_GIT_BASE=file:///${gitBase.replace(/\\/g, '/')}`,
   // Previews: the HCP token and API (the GitHub stub serves both), but no HCP_ORG, so deploys stay
   // off for the dashboard's own moves; the simulator deploys J-008 with an env of its own.
@@ -35,6 +35,9 @@ export const factoryEnv = {
   FACTORY_HOME: simDir,
   FACTORY_WORK: path.join(simDir, 'work'),
   FACTORY_ENV_FILE: envFile,
+  // The stub App's secrets and its token cache: never the machine's Credential Manager or local app data.
+  FACTORY_SECRET_DIR: path.join(simDir, 'secrets'),
+  FACTORY_LOCAL_DIR: path.join(simDir, 'local'),
   FACTORY_GATE_CMDS: '[{"name":"build","cmd":"git --version"},{"name":"test","cmd":"git --version"},{"name":"ui","cmd":"git --version"}]',
   // A program and its leading arguments (contract, "Implementations"): the runner's pass exits 0 at once.
   FACTORY_CLAUDE_CMD: JSON.stringify(['dotnet', testHost, 'claude', '--']),

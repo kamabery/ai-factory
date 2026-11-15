@@ -6,8 +6,9 @@ namespace Factory.UnitTests;
 public class ProgramPathTests
 {
     private const string Ext = ".COM;.EXE;.BAT;.CMD";
-    private static readonly string A = Path.Combine("C:", "a");
-    private static readonly string B = Path.Combine("C:", "b");
+    // Full paths with no ":" off Windows, where ":" separates PATH (C:/a would split at its drive letter).
+    private static readonly string A = Path.GetFullPath("a");
+    private static readonly string B = Path.GetFullPath("b");
     private static readonly string Path2 = A + Path.PathSeparator + B;
 
     private static string Resolve(string program, params string[] existing) =>

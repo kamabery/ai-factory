@@ -52,6 +52,8 @@ public sealed class Simulation(string repoRoot, string stateDir, double speed, T
         _f.Env["FACTORY_HOME"] = stateDir;
         _f.Env["FACTORY_WORK"] = Environment.GetEnvironmentVariable("FACTORY_WORK") is { Length: > 0 } w ? w : Path.Combine(stateDir, "work");
         _f.Env["FACTORY_GATE_CMDS"] = Environment.GetEnvironmentVariable("FACTORY_GATE_CMDS") is { Length: > 0 } g ? g : GreenGate;
+        // The App's token cache, never the machine's own <local app data>/ai-factory.
+        _f.Env["FACTORY_LOCAL_DIR"] = Environment.GetEnvironmentVariable("FACTORY_LOCAL_DIR") is { Length: > 0 } l ? l : Path.Combine(stateDir, "local");
 
         WebApplication? stub = null;
         var envFile = Environment.GetEnvironmentVariable("FACTORY_ENV_FILE");
@@ -62,9 +64,18 @@ public sealed class Simulation(string repoRoot, string stateDir, double speed, T
             stub = StubHost.Build(port, new GitHubStubApp(gitBase, "sim", port).Handle);
             await stub.StartAsync();
             envFile = Path.Combine(stateDir, "github.env");
-            File.WriteAllLines(envFile, ["GITHUB_TOKEN=sim", "GITHUB_OWNER=sim", $"GITHUB_API_URL=http://localhost:{port}", $"FACTORY_GIT_BASE=file:///{gitBase.Replace('\\', '/')}"]);
+            File.WriteAllLines(envFile, ["GITHUB_OWNER=sim", $"GITHUB_API_URL=http://localhost:{port}", $"FACTORY_GIT_BASE=file:///{gitBase.Replace('\\', '/')}"]);
         }
         _f.Env["FACTORY_ENV_FILE"] = envFile;
+        // Signed in as the stub's GitHub App, the only GitHub credential, in whichever stub the .env points at (its own,
+        // or the one Playwright started): seeded after any --reset, into FACTORY_SECRET_DIR, else <state>/secrets.
+        var ghEnv = ReadEnv(envFile);
+        if (ghEnv.TryGetValue("FACTORY_GIT_BASE", out var gitUrl) && gitUrl.StartsWith("file:///", StringComparison.Ordinal))
+        {
+            var secrets = Environment.GetEnvironmentVariable("FACTORY_SECRET_DIR") is { Length: > 0 } s ? s : Path.Combine(stateDir, "secrets");
+            SimApp.Seed(gitUrl["file:///".Length..], ghEnv.GetValueOrDefault("GITHUB_OWNER") ?? "sim", secrets);
+            _f.Env["FACTORY_SECRET_DIR"] = secrets;
+        }
         try { await Scenario(envFile); }
         finally { if (stub is not null) await stub.DisposeAsync(); }
     }
@@ -317,7 +328,7 @@ public sealed class Simulation(string repoRoot, string stateDir, double speed, T
     private async Task SeedSandbox(Dictionary<string, string> gh)
     {
         using var http = new HttpClient();
-        http.DefaultRequestHeaders.Authorization = new("Bearer", gh["GITHUB_TOKEN"]);
+        http.DefaultRequestHeaders.Authorization = new("Bearer", "ghu_sim");   // the App's user token, as a human creates the repo
         var api = gh["GITHUB_API_URL"].TrimEnd('/');
         if ((await http.GetAsync($"{api}/repos/{Sandbox}")).StatusCode != System.Net.HttpStatusCode.OK)
             (await http.PostAsync($"{api}/orgs/sim/repos", new StringContent("""{"name":"sandbox","private":true}""", System.Text.Encoding.UTF8, "application/json"))).EnsureSuccessStatusCode();
