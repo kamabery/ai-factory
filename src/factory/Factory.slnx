@@ -7,7 +7,9 @@
   <Project Path="Factory.Runner/Factory.Runner.csproj" />
   <Project Path="Factory.Server/Factory.Server.csproj" />
   <Project Path="Factory.ServiceDefaults/Factory.ServiceDefaults.csproj" />
+  <Project Path="Factory.Simulator/Factory.Simulator.csproj" />
   <Project Path="Factory.Store/Factory.Store.csproj" />
+  <Project Path="Factory.TestGates/Factory.TestGates.csproj" />
   <Project Path="Factory.TestHost/Factory.TestHost.csproj" />
   <Project Path="Factory.UnitTests/Factory.UnitTests.csproj" />
 </Solution>

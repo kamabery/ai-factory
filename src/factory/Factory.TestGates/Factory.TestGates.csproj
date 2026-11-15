@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The .NET suite's runner (it was src/factory/test.ps1): the tiers, their counts, the coverage merged across them and
+       the gates (docs/TESTING.md). Run it with dotnet run on this project; Program.cs has the options.
+       Test tooling: not packed into the ai-factory tool. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+</Project>

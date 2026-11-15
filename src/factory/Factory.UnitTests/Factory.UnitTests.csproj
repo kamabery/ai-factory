@@ -16,6 +16,7 @@
     <ProjectReference Include="..\Factory.Cli\Factory.Cli.csproj" />
     <ProjectReference Include="..\Factory.Runner\Factory.Runner.csproj" />
     <ProjectReference Include="..\Factory.Server\Factory.Server.csproj" />
+    <ProjectReference Include="..\Factory.TestGates\Factory.TestGates.csproj" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
   <ItemGroup>
