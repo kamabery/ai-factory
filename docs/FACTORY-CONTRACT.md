@@ -1337,7 +1337,8 @@ factory/infra/previews first` and exits 1, changing nothing.
    `AZURE_SUBSCRIPTION_ID`, the repo variable `TF_CLOUD_ORGANIZATION`, and the secret
    `TF_API_TOKEN` (`gh secret set`, the App's installation token in `gh`'s environment only, the value on stdin).
    Azure: ensures the federated credential `preview-<owner>-<name>` on `AZURE_GH_CLIENT_ID`
-   (`az ad app federated-credential`, under the human's own `az login`) for the subject GitHub
+   (`az ad app federated-credential`, under the human's own `az login`; in a deployed factory, the managed identity's,
+which owns that app and holds Graph's `Application.ReadWrite.OwnedBy`, so it can change that app and no other) for the subject GitHub
    presents: `<prefix>:environment:preview`, where `<prefix>` is the repo's `sub_claim_prefix` from
    `GET /repos/<t>/actions/oidc/customization/sub` when it has `use_immutable_subject` (the
    default for new repos: `repo:<owner>@<id>/<name>@<id>`), else `repo:<owner>/<name>`. A
@@ -1669,7 +1670,8 @@ used, because its Bicep would sit outside the HCP Terraform state everything els
 
 **What runs where.** One managed identity is the deployed factory's only credential to Azure. It has Foundry User on
 the Foundry account (assigned by `factory/infra/cloud`, not `factory/infra/llm`), is the Entra admin of its own Azure SQL
-server (Entra-only, so no database user is made by hand), and has Storage Blob Data Owner on the artifacts container, Key Vault Secrets Officer on the factory's vault (it writes the refreshed user
+server (Entra-only, so no database user is made by hand), owns the previews' GitHub deploy app (`AZURE_GH_CLIENT_ID`) with Graph's `Application.ReadWrite.OwnedBy` (for the
+deploy step's federated credentials), and has Storage Blob Data Owner on the artifacts container, Key Vault Secrets Officer on the factory's vault (it writes the refreshed user
 token back), and the right to start its own runner job. No key, connection secret or subscription login exists anywhere in it.
 
 | Part | Is | Environment |

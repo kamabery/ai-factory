@@ -30,6 +30,15 @@ mock_provider "azuread" {
   mock_resource "azuread_service_principal" {
     defaults = { object_id = "33333333-3333-3333-3333-333333333333" }
   }
+  mock_data "azuread_service_principal" {
+    defaults = { object_id = "44444444-4444-4444-4444-444444444444", app_role_ids = { "Application.ReadWrite.OwnedBy" = "18a4783c-866b-4cc7-a460-3d5e5662c884" } }
+  }
+  mock_data "azuread_application_published_app_ids" {
+    defaults = { result = { MicrosoftGraph = "00000003-0000-0000-c000-000000000000" } }
+  }
+  mock_data "azuread_application" {
+    defaults = { id = "/applications/55555555-5555-5555-5555-555555555555" }
+  }
 }
 
 # The AVM modules are Microsoft's and tested there; here they stand in with their outputs, and the root's wiring is what
@@ -71,7 +80,7 @@ variables {
   image                        = "ghcr.io/kamabery/ai-factory:0.3.0"
   github_owner                 = "kamabery"
   signin_user_object_ids       = ["cccccccc-cccc-cccc-cccc-cccccccccccc", "dddddddd-dddd-dddd-dddd-dddddddddddd"]
-  settings                     = { HCP_ORG = "kurt-mabery", FACTORY_MODE = "local" }
+  settings                     = { HCP_ORG = "kurt-mabery", FACTORY_MODE = "local", AZURE_GH_CLIENT_ID = "66666666-6666-6666-6666-666666666666" }
   monthly_budget               = 25
   budget_start_date            = "2026-12-01T00:00:00Z"
   contact_email                = "factory@example.com"
@@ -173,4 +182,30 @@ run "no_one_to_sign_in_is_refused" {
   }
 
   expect_failures = [var.signin_user_object_ids]
+}
+
+run "the_identity_owns_the_github_deploy_app_and_may_change_only_apps_it_owns" {
+  command = apply
+
+  assert {
+    condition     = data.azuread_application.github[0].client_id == "66666666-6666-6666-6666-666666666666" && azuread_application_owner.github[0].owner_object_id == azurerm_user_assigned_identity.factory.principal_id
+    error_message = "the identity owns AZURE_GH_CLIENT_ID's app, whose federated credentials the deploy step keeps"
+  }
+  assert {
+    condition     = azuread_app_role_assignment.graph[0].app_role_id == "18a4783c-866b-4cc7-a460-3d5e5662c884" && azuread_app_role_assignment.graph[0].principal_object_id == azurerm_user_assigned_identity.factory.principal_id
+    error_message = "Graph's Application.ReadWrite.OwnedBy, and nothing wider"
+  }
+}
+
+run "without_previews_the_identity_gets_no_graph_role" {
+  command = plan
+
+  variables {
+    settings = {}
+  }
+
+  assert {
+    condition     = length(azuread_app_role_assignment.graph) == 0 && length(azuread_application_owner.github) == 0
+    error_message = "no deploy app, no Graph role"
+  }
 }
