@@ -113,7 +113,7 @@ public class PreviewsEnvCommandTests
     public void Refuses_when_terraform_fails_with_its_first_error_line()
     {
         _proc.Run("terraform", Arg.Any<IReadOnlyList<string>>(), Arg.Any<string>())
-            .Returns(new ProcessResult(1, "", "\nError: No outputs found\nmore\n"));
+            .Returns(new ProcessResult(1, "", "╷\n│ Error: No outputs found\n│ \n│ The state file either has no outputs defined.\n╵\n"));
 
         Assert.Equal((1, "", "factory: previews-env refused: terraform output failed: Error: No outputs found; run terraform apply in factory/infra/previews first\n"), Run());
     }

@@ -60,7 +60,8 @@ public sealed class PreviewsEnvCommand(CliEnvironment host, IFactoryPaths paths,
         var dir = Path.GetFullPath(Path.Combine(paths.ScriptsDir, "..", "infra", "previews"));
         var r = processes.Run("terraform", [$"-chdir={dir}", "output", "-json"], dir);
         if (r.ExitCode == 0) return r.StdOut;
-        var why = r.StdErr.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.Length > 0) ?? $"exit code {r.ExitCode}";
+        // Terraform frames a diagnostic in box-drawing characters (╷ │ ╵); the first line with text is its summary.
+        var why = r.StdErr.Split('\n').Select(l => l.Trim().Trim('╷', '│', '╵').Trim()).FirstOrDefault(l => l.Length > 0) ?? $"exit code {r.ExitCode}";
         throw Refused($"terraform output failed: {why}");
     }
 
