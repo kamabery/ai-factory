@@ -2,3 +2,5 @@
 src/factory/Factory.UnitTests/Golden/* -text
 # Linux test scripts run under bash in WSL, which refuses CRLF.
 factory/tests/linux/*.sh text eol=lf
+# The image builds on Linux, where a CRLF line continuation breaks a RUN.
+factory/container/Dockerfile text eol=lf
