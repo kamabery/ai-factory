@@ -10,7 +10,7 @@ namespace Factory.Cli;
 /// <c>factory container serve|job</c> (contract, "Cloud mode (deployed)"): the image's entry point. az signs in as the
 /// managed identity, the template workspace is cloned when missing, then the dashboard behind sign-in, or one job.
 /// </summary>
-public sealed class ContainerCommand(IFactoryPaths paths, IProcessRunner processes, IFileStore files, TemplateWorkspace templates, CliEnvironment host) : IStandaloneCommand
+public sealed class ContainerCommand(IFactoryPaths paths, IProcessRunner processes, IFileStore files, IPause pause, TemplateWorkspace templates, CliEnvironment host) : IStandaloneCommand
 {
     private static readonly string[] Settings = ["GITHUB_", "HCP_", "AZURE_", "FACTORY_"];
 
@@ -25,7 +25,13 @@ public sealed class ContainerCommand(IFactoryPaths paths, IProcessRunner process
         string[] login = host.Get("AZURE_CLIENT_ID") is { } id
             ? ["login", "--identity", "--client-id", id, "--output", "none"]
             : ["login", "--identity", "--output", "none"];
+        // The identity endpoint can answer empty while the container starts: three tries, 10 s apart.
         var r = processes.Run(StateToken.AzProgram, login, "");
+        for (var attempt = 2; r.ExitCode != 0 && attempt <= 3; attempt++)
+        {
+            pause.Sleep(TimeSpan.FromSeconds(10));
+            r = processes.Run(StateToken.AzProgram, login, "");
+        }
         if (r.ExitCode != 0) return Refuse(stderr, 1, $"az login --identity failed: {(r.StdErr + r.StdOut).Trim()}");
 
         // The factory reads its settings from .env; a container has only its environment.

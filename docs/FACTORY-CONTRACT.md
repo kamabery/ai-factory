@@ -1699,7 +1699,8 @@ deployed factory runs exactly one release.
 
 **`factory container serve|job`** is the image's entry point and does nothing outside a container:
 1. With `IDENTITY_ENDPOINT` set (a managed identity), `az login --identity --client-id <AZURE_CLIENT_ID>`, so every
-   `az` the factory runs (Foundry tokens for idea turns, `az rest`) acts as the identity. It refuses with
+   `az` the factory runs (Foundry tokens for idea turns, `az rest`) acts as the identity. The identity endpoint can
+   answer empty while a container starts, so a failed login is tried again, up to 3 times in all, 10 s apart. It refuses with
    `container refused: no managed identity (IDENTITY_ENDPOINT is unset)` otherwise.
 2. It writes `.env` (the tool install's, `<profile>/.env`): one `NAME=value` line for each environment variable named
    `GITHUB_*`, `HCP_*`, `AZURE_*` or `FACTORY_*` that is not one of the secrets above, sorted by name, replacing the

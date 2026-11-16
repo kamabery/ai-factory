@@ -14,6 +14,7 @@ public class HumanCommandsTests
     private readonly IFactoryPaths _paths = Substitute.For<IFactoryPaths>();
     private readonly MemoryFiles _files = new();
     private readonly IProcessRunner _processes = Substitute.For<IProcessRunner>();
+    private readonly IPause _pause = Substitute.For<IPause>();
     private List<(string File, string[] Args, string Dir, Dictionary<string, string?> Env)> Attached { get; } = [];
 
     public HumanCommandsTests()
@@ -67,7 +68,7 @@ public class HumanCommandsTests
     }
 
     private ContainerCommand Container(Dictionary<string, string?> env) =>
-        new(_paths, _processes, _files, new TemplateWorkspace(_paths, _files, Substitute.For<IGitClient>(), Substitute.For<IDotEnv>(),
+        new(_paths, _processes, _files, _pause, new TemplateWorkspace(_paths, _files, Substitute.For<IGitClient>(), Substitute.For<IDotEnv>(),
             Substitute.For<IGitHub>(), Substitute.For<IGitHubCredential>()), Host(env));
 
     private static Dictionary<string, string?> Identity(string? port = null) =>
@@ -119,12 +120,25 @@ public class HumanCommandsTests
     }
 
     [Fact]
+    public void Container_tries_az_login_again_while_the_identity_endpoint_starts_up()
+    {
+        _processes.Run(StateToken.AzProgram, Arg.Any<IReadOnlyList<string>>(), Arg.Any<string>())
+            .Returns(new ProcessResult(1, "", "ERROR: JSON is invalid"), new ProcessResult(0, "", ""));
+
+        Assert.Equal((7, ""), Run(Container(Identity()), "job"));
+
+        _processes.Received(2).Run(StateToken.AzProgram, Arg.Any<IReadOnlyList<string>>(), "");
+        _pause.Received(1).Sleep(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
     public void Container_refuses_outside_a_managed_identity_a_failed_az_login_and_a_bad_argument()
     {
         Assert.Equal((1, "factory: container refused: no managed identity (IDENTITY_ENDPOINT is unset)"), Run(Container(new()), "serve"));
         Assert.Equal((2, "factory: container refused: usage: factory container serve|job"), Run(Container(Identity()), "both"));
         _processes.Run(StateToken.AzProgram, Arg.Any<IReadOnlyList<string>>(), Arg.Any<string>()).Returns(new ProcessResult(1, "", "ERROR: no identity\n"));
         Assert.Equal((1, "factory: container refused: az login --identity failed: ERROR: no identity"), Run(Container(Identity()), "job"));
+        _processes.Received(3).Run(StateToken.AzProgram, Arg.Any<IReadOnlyList<string>>(), "");
         Assert.Empty(Attached);
     }
 
