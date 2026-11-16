@@ -112,7 +112,6 @@ module "sql" {
       auto_pause_delay_in_minutes = 60
       max_size_gb                 = 2
       storage_account_type        = "Local"
-      geo_backup_enabled          = false
       zone_redundant              = false
     }
   }
