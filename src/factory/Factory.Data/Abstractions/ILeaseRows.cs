@@ -13,4 +13,7 @@ public interface ILeaseRows
     bool Renew(string name, string id);
 
     void Release(string name, string id);
+
+    /// <summary>Whether anyone holds the lease now (a row that has not lapsed), without taking it.</summary>
+    bool Held(string name);
 }

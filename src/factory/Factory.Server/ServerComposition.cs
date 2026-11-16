@@ -35,6 +35,7 @@ public static class ServerComposition
             o.TempPath = tempPath;
             o.WorkingDirectory = workingDirectory;
         });
+        services.Configure<CloudOptions>(o => o.RunnerJob = Get("FACTORY_RUNNER_JOB"));
         services.Configure<StateOptions>(o =>
         {
             o.State = Get("FACTORY_STATE");
@@ -78,6 +79,9 @@ public static class ServerComposition
         services.AddSingleton<IPause, ThreadPause>();
         services.AddSingleton<IStateExport, StateExport>();
         services.AddSingleton<IFactoryLauncher, FactoryLauncher>();
+        services.AddSingleton<ILeaseRows, EfLeaseRows>();
+        services.AddSingleton<IStateLeases, StateLeases>();
+        services.AddSingleton<IRunnerStarter, RunnerStarter>();
 
         services.AddSingleton<IFactoryCalls, FactoryCalls>();
         services.AddSingleton<IProcessProbe, ProcessProbe>();

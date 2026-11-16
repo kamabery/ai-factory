@@ -15,11 +15,15 @@ public abstract class ServerTestBase : CommandTestBase
     protected readonly IProcessProbe Procs = Substitute.For<IProcessProbe>();
     protected readonly IStateCache Cache = Substitute.For<IStateCache>();
     protected readonly IServerSettings Settings = Substitute.For<IServerSettings>();
+    protected readonly IStateLeases Leases = Substitute.For<IStateLeases>();
+    protected IRunnerStarter Runner;
     protected readonly ServerOptions Options = new() { EnvFile = Path.Combine(Home, ".env"), WorkRoot = Work, WatchdogSeconds = 10, PrSyncSeconds = 30 };
 
     protected ServerTestBase()
     {
         Paths.BoardPath.Returns(Path.Combine(Home, "board.json"));
+        Runner = new Factory.Store.RunnerStarter(Microsoft.Extensions.Options.Options.Create(new Factory.Store.CloudOptions()),
+            Microsoft.Extensions.Options.Options.Create(new Factory.Store.StateOptions()), Launcher, Substitute.For<Factory.Core.Abstractions.IProcessRunner>());
         Procs.CurrentPid.Returns(4242);
         Factory.Run(Arg.Any<string[]>()).Returns(CallResult.Done(""));
         Settings.Env(Arg.Any<string>()).Returns((string?)null);
@@ -32,7 +36,7 @@ public abstract class ServerTestBase : CommandTestBase
 
     protected BoardFile Board => new(Paths, Files);
 
-    protected JobsApi Jobs => new(Factory, Launcher, Paths, Files, Board, Cache, Procs);
+    protected JobsApi Jobs => new(Factory, Launcher, Runner, Paths, Files, Board, Cache, Procs);
 
     protected SessionFiles Sessions => new(Paths, Files, Procs, Opts, Clock);
 
@@ -40,7 +44,7 @@ public abstract class ServerTestBase : CommandTestBase
 
     protected ReadsApi Reads => new(Factory, Paths, Files, Settings, Procs);
 
-    protected Watchdog Dog => new(Board, Paths, Files, Launcher, Procs, Opts, Clock, NullLogger<Watchdog>.Instance);
+    protected Watchdog Dog => new(Board, Paths, Files, Launcher, Runner, Leases, Procs, Opts, Clock, NullLogger<Watchdog>.Instance);
 
     /// <summary>A board.json holding these jobs (id, stage, and an optional pr).</summary>
     protected void SetBoard(params (string Id, string Stage, bool Pr)[] jobs) =>

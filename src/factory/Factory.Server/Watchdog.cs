@@ -11,9 +11,13 @@ namespace Factory.Server;
 /// hold its PID yet. PR sync starts factory.ps1 sync-prs, detached, while a ready job has a PR the human may have merged.
 /// </summary>
 public sealed class Watchdog(
-    BoardFile board, IFactoryPaths paths, IFileStore files, IFactoryLauncher launcher, IProcessProbe procs, IOptions<ServerOptions> options,
-    TimeProvider clock, ILogger<Watchdog> log) : BackgroundService
+    BoardFile board, IFactoryPaths paths, IFileStore files, IFactoryLauncher launcher, IRunnerStarter runner, IStateLeases leases, IProcessProbe procs,
+    IOptions<ServerOptions> options, TimeProvider clock, ILogger<Watchdog> log) : BackgroundService
 {
+    /// <summary>How long a started runner execution may take to start and take the runner lease.</summary>
+    private static readonly TimeSpan ExecutionStart = TimeSpan.FromMinutes(3);
+
+    private DateTimeOffset? _executionStarted;
     private DateTimeOffset _nextWatch = DateTimeOffset.MinValue;
     private DateTimeOffset _nextSync = DateTimeOffset.MinValue;
 
@@ -49,13 +53,23 @@ public sealed class Watchdog(
     private void Watch(DateTimeOffset now)
     {
         if (!board.Jobs().Any(j => BoardFile.Str(j, "stage") == "approved")) return;
-        var lockPath = Path.Combine(paths.Home, "runner.lock");
-        if (files.Stat(lockPath) is { } stat)
+        if (runner.StartsExecutions)
         {
-            if (new DateTimeOffset(stat.LastWriteTicks, TimeSpan.Zero) > now.AddSeconds(-5)) return;
-            if (ServerFiles.LockHolder(files, lockPath) is { } pid && procs.IsAlive(pid)) return;
+            // The runner is in another container: alive while it holds the lease, or while one it started is starting.
+            if (_executionStarted is { } at && now - at < ExecutionStart) return;
+            if (leases.Held("runner")) return;
         }
-        launcher.StartDetached(["runner"]);
-        files.AppendText(Path.Combine(paths.Home, "runner.log"), $"{now.UtcDateTime:o} watchdog: started runner{Environment.NewLine}");
+        else
+        {
+            var lockPath = Path.Combine(paths.Home, "runner.lock");
+            if (files.Stat(lockPath) is { } stat)
+            {
+                if (new DateTimeOffset(stat.LastWriteTicks, TimeSpan.Zero) > now.AddSeconds(-5)) return;
+                if (ServerFiles.LockHolder(files, lockPath) is { } pid && procs.IsAlive(pid)) return;
+            }
+        }
+        var started = runner.Start();
+        _executionStarted = now;
+        files.AppendText(Path.Combine(paths.Home, "runner.log"), $"{now.UtcDateTime:o} watchdog: {started}{Environment.NewLine}");
     }
 }

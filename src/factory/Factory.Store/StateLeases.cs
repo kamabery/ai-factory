@@ -12,6 +12,8 @@ public sealed class StateLeases(IStateSettings settings, IBlobClient blobs, ILea
 
     public bool Renew(string name, string id) => settings.IsAzure ? blobs.RenewLease(name, id) : rows.Renew(name, id);
 
+    public bool Held(string name) => settings.IsSql && rows.Held(name);
+
     public void Release(string name, string id)
     {
         if (settings.IsAzure) blobs.ReleaseLease(name, id);

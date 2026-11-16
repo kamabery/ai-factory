@@ -15,7 +15,7 @@ namespace Factory.Runner;
 /// </summary>
 public sealed partial class RunnerLoop(
     IRunnerLock runnerLock, IFactoryCommands factory, IClaudeRunner claude, ILlmProvider provider, IRunnerLog log, IFactoryPaths paths,
-    Core.Abstractions.IFileStore files)
+    Core.Abstractions.IFileStore files, IRunnerStarter starter, Microsoft.Extensions.Options.IOptions<RunnerOptions> options)
 {
     private static readonly string[] Building = [Stages.Build, Stages.Review, Stages.Deploy, Stages.Approve, Stages.Gate];
     private static readonly string[] Resumable = [Stages.Build, Stages.Review, Stages.Deploy, Stages.Approve];
@@ -78,6 +78,13 @@ public sealed partial class RunnerLoop(
                 if (PsJsonReader.In(Stage(id), Building)) Escalate(id, $"runner error: {e.Message}");
             }
             finally { log.Write($"stage {id} {Stage(id)}"); }
+
+            // A job execution takes one job; the next waits for an execution of its own (contract, "Runner").
+            if (options.Value.One)
+            {
+                if (factory.Run("next").Out.Length > 0) log.Write(starter.Start());
+                return "one";
+            }
         }
     }
 
@@ -121,6 +128,8 @@ public sealed partial class RunnerLoop(
             // A refused cost is an error finishing the job.
             var cost = factory.Run("set-cost", id, PsJsonReader.Text(result["total_cost_usd"]), ms);
             if (cost.Code != 0) throw new InvalidOperationException($"set-cost {id} refused (exit {cost.Code})");
+            var usage = result["usage"] as JsonObject;
+            log.Write($"cost {id} usd={PsJsonReader.Text(result["total_cost_usd"])} ms={ms} in={Tokens(usage, "input_tokens")} out={Tokens(usage, "output_tokens")}");
         }
 
         // A usage limit (the subscription's, or a Foundry 429) is no one's decision: flag it with the session to
@@ -155,6 +164,8 @@ public sealed partial class RunnerLoop(
         }
         return null;
     }
+
+    private static string Tokens(JsonObject? usage, string key) => usage?[key] is { } n ? PsJsonReader.Text(n) : "0";
 
     private void Escalate(string id, string detail) => factory.Run("set-stage", id, "ready", "-By", "runner", "-Reason", "escalated", "-Detail", detail);
 

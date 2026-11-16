@@ -52,6 +52,13 @@ public sealed class EfLeaseRows(FactoryDbs dbs, TimeProvider clock) : ILeaseRows
         return db.Leases.Where(x => x.TenantId == T && x.Name == name && x.Holder == id).ExecuteUpdate(s => s.SetProperty(x => x.ExpiresAt, until)) == 1;
     });
 
+    public bool Held(string name) => DbErrors.Guard(() =>
+    {
+        using var db = dbs.Open();
+        var now = Now;
+        return db.Leases.AsNoTracking().Any(x => x.TenantId == T && x.Name == name && x.ExpiresAt > now);
+    });
+
     public void Release(string name, string id) => DbErrors.Guard(() =>
     {
         using var db = dbs.Open();

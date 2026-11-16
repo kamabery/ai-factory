@@ -10,7 +10,7 @@ namespace Factory.Server;
 /// transition logic of its own. "Starts the runner" means runner.ps1, detached; the runner itself refuses a second copy.
 /// </summary>
 public sealed class JobsApi(
-    IFactoryCalls factory, IFactoryLauncher launcher, IFactoryPaths paths, IFileStore files, BoardFile board, IStateCache cache, IProcessProbe procs)
+    IFactoryCalls factory, IFactoryLauncher launcher, IRunnerStarter runner, IFactoryPaths paths, IFileStore files, BoardFile board, IStateCache cache, IProcessProbe procs)
 {
     public Reply Files(string id)
     {
@@ -87,7 +87,7 @@ public sealed class JobsApi(
 
     public Reply QaLogin(string id) => Reply.Of(factory.Run("qa-login", id));
 
-    public void StartRunner() => launcher.StartDetached(["runner"]);
+    public void StartRunner() => runner.Start();
 
     private Reply RunThenStartRunner(string command, string id)
     {

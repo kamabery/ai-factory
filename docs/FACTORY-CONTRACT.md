@@ -1642,9 +1642,9 @@ longer running. Otherwise it loops:
    goes back to step 1.
 6. It appends to `<stateDir>/runner.log`, one timestamped line each: `start pid=<pid>`,
    `take <id>`, `checkout <id> failed: <message>` (the job is then escalated with detail
-   `work dir: <message>`), `claude <id> exit=<code> result=<yes|no>`, `stage <id> <stage>`,
+   `work dir: <message>`), `claude <id> exit=<code> result=<yes|no>`, `cost <id> usd=<usd> ms=<ms> in=<tokens> out=<tokens>`, `stage <id> <stage>`,
    `error <id>: <message>` followed by the stack, and how it ended: `exit drained`, `exit usage-limit`, `exit fatal: <message>`,
-   or `exit stopped` (interrupted, e.g. its console closed, before the loop finished).
+   `exit one` (`runner --one`), or `exit stopped` (interrupted, e.g. its console closed, before the loop finished).
 
 **Watchdog.** The server checks the board every 10 seconds (`--watchdog-seconds`). If a job is in
 `approved` and `runner.lock` is missing or names a PID that is no longer running, it starts
@@ -1694,9 +1694,9 @@ deployed factory runs exactly one release.
 2. The template workspace as `init` step 4 clones it, when missing.
 3. `serve`: the server on `0.0.0.0:<PORT, else 8080>` with `--require-signin`. `job`: `factory runner --one`, whose
    exit code is the container's.
-Each runner log line is also written to stdout, and after `set-cost` the runner logs
-`cost <id> usd=<costUsd> ms=<ms> provider=<provider> in=<input tokens> out=<output tokens>` from the result line's
-`usage`, so the environment's Log Analytics workspace holds the runs and their token use beside the account's own
+It sets `FACTORY_CONTAINER=1`, under which each runner log line is also written to stdout (`runner <line>`). After
+`set-cost` the runner logs `cost <id> usd=<costUsd> ms=<ms> in=<input tokens> out=<output tokens>` from the result
+line's `usage` (0 when it has none), so the environment's Log Analytics workspace holds the runs and their token use beside the account's own
 metrics (`docs/CLOUD.md` has the query).
 
 **Starting the runner.** With `FACTORY_RUNNER_JOB` set, everything that starts the runner (an approval, **Retry
