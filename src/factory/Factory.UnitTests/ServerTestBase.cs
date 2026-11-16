@@ -44,7 +44,7 @@ public abstract class ServerTestBase : CommandTestBase
 
     protected ReadsApi Reads => new(Factory, Paths, Files, Settings, Procs);
 
-    protected Watchdog Dog => new(Board, Paths, Files, Launcher, Runner, Leases, Procs, Opts, Clock, NullLogger<Watchdog>.Instance);
+    protected Watchdog Dog => new(Board, Paths, Files, Launcher, Runner, Leases, Factory, Procs, Opts, Clock, NullLogger<Watchdog>.Instance);
 
     /// <summary>A board.json holding these jobs (id, stage, and an optional pr).</summary>
     protected void SetBoard(params (string Id, string Stage, bool Pr)[] jobs) =>

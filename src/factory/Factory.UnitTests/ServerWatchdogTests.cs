@@ -1,4 +1,5 @@
 using Factory.Server;
+using Factory.Server.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
 using Factory.Store.Abstractions;
 using NSubstitute;
@@ -73,7 +74,7 @@ public class ServerWatchdogTests : ServerTestBase
         var written = new DateTimeOffset(Files.Stat(RunnerLock)!.LastWriteTicks, TimeSpan.Zero);
         var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(written.AddSeconds(2));
 
-        new Factory.Server.Watchdog(Board, Paths, Files, Launcher, Runner, Leases, Procs, Opts, clock, Microsoft.Extensions.Logging.Abstractions.NullLogger<Factory.Server.Watchdog>.Instance).Tick();
+        new Factory.Server.Watchdog(Board, Paths, Files, Launcher, Runner, Leases, Factory, Procs, Opts, clock, Microsoft.Extensions.Logging.Abstractions.NullLogger<Factory.Server.Watchdog>.Instance).Tick();
 
         Launcher.DidNotReceive().StartDetached(Arg.Is<IReadOnlyList<string>>(a => a[0] == "runner" || a[0] == "idea-turn"));
     }
@@ -121,6 +122,19 @@ public class ServerWatchdogTests : ServerTestBase
         Runner = Substitute.For<IRunnerStarter>();
         Runner.StartsExecutions.Returns(true);
         Runner.Start().Returns("started runner execution r-1");
+        Factory.Run("next", "-NeedsCanary").Returns(CallResult.Done("J-001"));
+    }
+
+    [Fact]
+    public void In_the_cloud_it_starts_nothing_while_next_has_nothing_to_run()
+    {
+        Cloud();
+        SetBoard(("J-001", "approved", false));
+        Factory.Run("next", "-NeedsCanary").Returns(CallResult.Done(""));
+
+        Dog.Tick();
+
+        Runner.DidNotReceive().Start();
     }
 
     [Fact]

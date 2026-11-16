@@ -1685,7 +1685,9 @@ reads its settings from `.env`, so `factory container` writes the container's (t
 before it starts anything. The secrets (`GITHUB_APP_*`, `GITHUB_USER_*`, `HCP_TOKEN`, `HCP_TEAM_TOKEN`) are in the vault.
 
 **The image** is `ghcr.io/<owner>/ai-factory:<package version>`, public, built from `factory/container/Dockerfile`:
-the package installed as a tool install, with `git`, `node`, `claude`, `az`, `gh` and `terraform` on `PATH`, running as
+the package installed as a tool install, with `git`, `node`, `claude`, `az`, `gh` and `terraform` on `PATH`, and the
+template workspace's pack (`AspireStarter.Templates`, so `dotnet new aspire-base`), its `aspire-addon` tool and the
+`aspire` CLI installed, which scaffolds and the canary run; running as
 a non-root user. It is built and pushed by hand (the repo has no workflows); the tag is the package version, so a
 deployed factory runs exactly one release.
 
@@ -1709,7 +1711,9 @@ deploy**, **Resume**, the watchdog, `runner --one` itself) starts one execution 
 `az rest --method post --url https://management.azure.com<FACTORY_RUNNER_JOB>/start?api-version=2025-01-01`, and logs
 `started runner execution <name>`. The watchdog then counts the runner as alive while the `runner` lease is held (a
 row in `Leases`), or for 3 minutes after it started an execution (a container's start), not by `runner.lock`'s PID,
-which is in another container. A second execution that finds the lease held exits 0, as a second runner does.
+which is in another container. Nor does it start one while `next -NeedsCanary` prints nothing (a job held by a
+failed canary, say): an execution would only drain and exit, each one billed. A second execution that finds the lease
+held exits 0, as a second runner does.
 
 **Sign-in.** Easy Auth (Microsoft Entra, an app registration with assignment required) stands in front of the
 dashboard: only the users assigned to the app reach it, and Container Apps strips any `X-MS-CLIENT-PRINCIPAL*`

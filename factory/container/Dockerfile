@@ -3,6 +3,7 @@
 # package, never from the repo root (which holds .env):
 #
 #   dotnet pack src/factory/Factory.Cli -c Release -o artifacts/container
+#   copy the template workspace's AspireStarter.Templates.1.0.0.nupkg and AspireStarter.Addon.1.0.0.nupkg there too
 #   docker build -f factory/container/Dockerfile --build-arg VERSION=<package version> \
 #     -t ghcr.io/<owner>/ai-factory:<package version> artifacts/container
 #
@@ -35,8 +36,14 @@ RUN useradd --create-home --shell /bin/bash factory
 USER factory
 WORKDIR /home/factory
 
-COPY --chown=factory:factory ai-factory.${VERSION}.nupkg /tmp/pkg/
+ARG ASPIRE_VERSION=13.5.1
+COPY --chown=factory:factory ai-factory.${VERSION}.nupkg AspireStarter.Templates.1.0.0.nupkg AspireStarter.Addon.1.0.0.nupkg /tmp/pkg/
+# The factory, then what scaffolds and the canary run: the template workspace's pack (dotnet new aspire-base), its
+# aspire-addon CLI, and the aspire CLI. The pack's staging needs PowerShell, so it is built outside and copied in.
 RUN dotnet tool install --global ai-factory --add-source /tmp/pkg --version ${VERSION} \
+ && dotnet new install /tmp/pkg/AspireStarter.Templates.1.0.0.nupkg \
+ && dotnet tool install --global AspireStarter.Addon --add-source /tmp/pkg --version 1.0.0 \
+ && dotnet tool install --global aspire.cli --version ${ASPIRE_VERSION} \
  && rm -rf /tmp/pkg \
  && git config --global user.name "AI factory" \
  && git config --global user.email "ai-factory@users.noreply.github.com"

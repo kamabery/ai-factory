@@ -11,7 +11,7 @@ namespace Factory.Server;
 /// hold its PID yet. PR sync starts factory.ps1 sync-prs, detached, while a ready job has a PR the human may have merged.
 /// </summary>
 public sealed class Watchdog(
-    BoardFile board, IFactoryPaths paths, IFileStore files, IFactoryLauncher launcher, IRunnerStarter runner, IStateLeases leases, IProcessProbe procs,
+    BoardFile board, IFactoryPaths paths, IFileStore files, IFactoryLauncher launcher, IRunnerStarter runner, IStateLeases leases, IFactoryCalls factory, IProcessProbe procs,
     IOptions<ServerOptions> options, TimeProvider clock, ILogger<Watchdog> log) : BackgroundService
 {
     /// <summary>How long a started runner execution may take to start and take the runner lease.</summary>
@@ -58,6 +58,8 @@ public sealed class Watchdog(
             // The runner is in another container: alive while it holds the lease, or while one it started is starting.
             if (_executionStarted is { } at && now - at < ExecutionStart) return;
             if (leases.Held("runner")) return;
+            // An execution that can take nothing (a job held by a failed canary) only drains and exits, billed each time.
+            if (factory.Run("next", "-NeedsCanary").Message.Trim().Length == 0) return;
         }
         else
         {
