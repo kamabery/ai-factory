@@ -46,7 +46,14 @@ public sealed partial class JobWork(
         if (MergeRules.BaseJob(board, j) is { } b && PsJsonReader.Is(b.Stage, Stages.Discarded)) return $"{id} is stacked on {b.Id}, which was discarded";
         var start = MergeRules.BaseBranch(board, j);
         GitResult r;
-        if (git.Run(wt, "rev-parse", "--verify", "--quiet", $"refs/remotes/origin/{branch}").Code == 0) r = git.Run(wt, "checkout", "-q", "-B", branch, $"origin/{branch}");
+        if (git.Run(wt, "rev-parse", "--verify", "--quiet", $"refs/remotes/origin/{branch}").Code == 0)
+        {
+            // Only a branch this board published (it recorded the PR) is this job's: ids are per board, so another
+            // board's job of the same id may have left one on the target (contract, "factory commands", checkout).
+            if (j.Node["pr"] is null)
+                return $"{target} already has {branch}, which this board never published (another board's job?); delete or rename that branch, then approve the job again";
+            r = git.Run(wt, "checkout", "-q", "-B", branch, $"origin/{branch}");
+        }
         else if (git.Run(wt, "rev-parse", "--verify", "--quiet", $"refs/remotes/origin/{start}").Code == 0) r = git.Run(wt, "checkout", "-q", "-b", branch, $"origin/{start}");
         else return $"{target} has no {start} branch";
         return r.Code == 0 ? null : $"checkout {branch} failed: {r.Out}";

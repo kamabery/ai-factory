@@ -63,10 +63,21 @@ public class JobWorkTests : CommandTestBase
     public void A_pushed_branch_is_checked_out_again_after_a_rework()
     {
         Clone();
+        var job = Jobs.New("J-001", "build").With("pr", new JsonObject { ["number"] = 7, ["url"] = "https://gh/o/r/pull/7" });
 
-        Assert.Null(Sut.EnsureClone(FakeSession.With(Jobs.New("J-001", "build")).Board, "J-001"));
+        Assert.Null(Sut.EnsureClone(FakeSession.With(job).Board, "J-001"));
 
         Assert.Equal("checkout -q -B factory/J-001 origin/factory/J-001", _git.Ran("checkout").Single().Args);
+    }
+
+    [Fact]
+    public void A_remote_branch_this_board_never_published_is_another_boards_job_and_is_refused()
+    {
+        Clone();
+
+        Assert.Equal("o/r already has factory/J-001, which this board never published (another board's job?); delete or rename that branch, then approve the job again",
+            Sut.EnsureClone(FakeSession.With(Jobs.New("J-001", "build")).Board, "J-001"));
+        Assert.Empty(_git.Ran("checkout"));
     }
 
     [Fact]
@@ -115,6 +126,7 @@ public class JobWorkTests : CommandTestBase
     {
         _gh.Lookup("o/r").Returns(RepoState.Missing);
         _gh.CreateRepo("o/r").Returns((string?)null);
+        _git.On("refs/remotes/origin/factory/J-001", 1);   // a new repo has only main
 
         Assert.Null(Sut.EnsureClone(FakeSession.With(Jobs.New("J-001", "build")).Board, "J-001"));
 
