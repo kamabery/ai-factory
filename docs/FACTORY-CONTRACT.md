@@ -1099,7 +1099,7 @@ or `FACTORY_SERVER`) with those arguments and `--parent-pid` with its own PID; t
 `serve.lock`) within about a second of that process ending, so stopping `factory serve` never leaves an
 orphaned server, and a reused PID with a different start time does not count as the parent. Started without
 `--parent-pid` (the AppHost), it does not watch. Without `--port` it takes a free localhost port and prints it.
-It keeps the [Dashboard API](#dashboard-api): static reads (`/state`, `/vendor`, the page) are served
+It keeps the [Dashboard API](#dashboard-api): static reads (`/state`, `/assets`, the page) are served
 concurrently, `/api` requests one at a time, and each write is one `factory` call. The AppHost
 (`src/factory/Factory.AppHost`) runs the server on port 4317 and a runner, and passes `FACTORY_HOME`,
 `FACTORY_ENV_FILE` (as `--env-file`), `FACTORY_MODE`, `FACTORY_FOUNDRY_RESOURCE` and `FACTORY_WORK` through
@@ -1492,9 +1492,10 @@ auth add-on's), or refuses when the preview has none. Only the dashboard calls i
 
 ## Dashboard API
 
-The server listens on localhost only. GETs serve `factory/dashboard/index.html`, the files under
-`factory/dashboard/vendor/` (at `/vendor/...`) and read-only files under the state dir: it rejects
-`..`, and serves `.md` as text/plain. Every write is a thin
+The server listens on localhost only. GETs serve the dashboard, a React SPA built into `factory/dashboard/`
+(`index.html` at `/`, its bundle under `factory/dashboard/assets/` at `/assets/...`), and read-only files under the
+state dir: it rejects `..`, and serves `.md` as text/plain. The SPA's source is `src/factory/Factory.Dashboard`, and
+`npm run build` there writes `factory/dashboard/`, which is committed, so neither install needs Node. Every write is a thin
 wrapper over one `factory` call. The response is `{ "ok": bool, "message": "<stderr or stdout>" }`,
 and a refused move snaps the card back and shows the message.
 

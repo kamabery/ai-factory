@@ -154,13 +154,13 @@ public class ServerReadsTests : ServerTestBase
     }
 
     [Fact]
-    public void Vendor_files_and_the_index_come_from_the_dashboard_folder()
+    public void The_index_and_the_spa_bundle_come_from_the_dashboard_folder_and_never_leave_it()
     {
         Options.DashboardDir = Path.Combine(Home, "dashboard");
         var files = new StaticFiles(Paths, Cache, Opts);
 
         Assert.Equal(Path.Combine(Home, "dashboard", "index.html"), files.Index().FilePath);
-        Assert.Equal(Path.Combine(Home, "dashboard", "vendor", "a.js"), files.Vendor("a.js").FilePath);
-        Assert.Equal(400, files.Vendor("../index.html").Status);
+        Assert.Equal(Path.Combine(Home, "dashboard", "assets", "index-abc.js"), files.Assets("index-abc.js").FilePath);
+        Assert.Equal(400, files.Assets("../index.html").Status);
     }
 }

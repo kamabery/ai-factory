@@ -25,6 +25,7 @@ counts per tier; coverage is the gate, not the ratio.
 | Tier | May touch | Where | Runs |
 | --- | --- | --- | --- |
 | **Unit** (small) | memory only: no file system, process, network, real clock or environment variables | `Factory.UnitTests` (xUnit v3) | locally, before every PR that touches `src/factory` |
+| **Unit, the SPA** (small) | jsdom only: components and hooks with `fetch` stubbed | `src/factory/Factory.Dashboard` (Vitest, Testing Library) | locally, before every PR that touches the dashboard |
 | **Integration** (medium) | temp directories, git, child processes, localhost stubs (GitHub, HCP, blob, Anthropic: `Factory.TestHost`, hosted in process) | `Factory.IntegrationTests` (xUnit v3) | locally, before every PR that touches `src/factory` |
 | **End to end** (large) | the dashboard in a browser against `Factory.Simulator` | `factory/tests/dashboard` (Playwright) | locally: the `@smoke` set before a PR that touches the dashboard or `Factory.Server`; the whole suite on demand |
 | **Pester** (the scripts left until 16) | as integration | `factory/tests/*.Tests.ps1`: setup-azure, setup-platform | locally, before a PR that touches those scripts or their tests |
@@ -96,6 +97,7 @@ integration test that covers it. Spec 16 does the same for the setup scripts' Pe
 | Gate | Where | Bar |
 | --- | --- | --- |
 | Coverage (Microsoft.Testing.Extensions.CodeCoverage, line, unit and integration merged; `Factory.TestGates`) | before every PR, from spec 01 | **90%** on `Factory.Core`, **70%** on every other project with logic. `Factory.AppHost`, `Factory.ServiceDefaults` and the test tooling (`Factory.TestHost`, the stubs and fakes; `Factory.Simulator`; `Factory.TestGates`, whose rules have unit tests of their own) are excluded, as is generated code: source-generator output (`*.g.cs`, such as `[GeneratedRegex]`'s) and `dotnet ef` migrations (`Migrations/`) |
+| SPA coverage (Vitest, v8, lines) | before a PR that touches the dashboard, from spec 17 | **70%** on `src/factory/Factory.Dashboard/src`; `npm test` fails under it. `Factory.TestGates` does not run it, so the .NET suites need no Node |
 | Mutation score (Stryker.NET) | on demand, `Factory.Core` | not a gate; each port spec records the score in its Status line |
 | Tier counts | before every PR | printed by `Factory.TestGates`, not a gate |
 
@@ -110,13 +112,16 @@ touches and put the counts in the PR description:
 | `src/factory/**` | `dotnet run --project src/factory/Factory.TestGates` (unit + integration, tier counts, coverage gates) |
 | `factory/plugin/**` or `factory/templates/**` | `dotnet run --project src/factory/Factory.TestGates` (`PluginTests` reads them) |
 | the PowerShell left until 16: `factory/scripts/*.ps1`, `factory/tests/*.Tests.ps1`, `factory/tests/fixtures/**` | `Invoke-Pester factory/tests` after `dotnet build src/factory` (the stub host) |
-| the dashboard or `Factory.Server` | the Playwright `@smoke` set; the whole suite for dashboard work |
+| the dashboard (`src/factory/Factory.Dashboard`) | `npm test` and `npm run build` there (the build in `factory/dashboard/` is committed with its source), then the Playwright `@smoke` set; the whole suite for dashboard work |
+| `Factory.Server` | the Playwright `@smoke` set |
 | only `docs/**` or root `*.md` | nothing |
 | a spec whose "Done when" names Linux | in WSL: `factory/tests/linux/setup.sh` once (a user-local .NET 10 SDK and git, no sudo; with `pester`, also pwsh and Pester for spec 16's scripts), then `factory/tests/linux/run.sh test` (or `unit`, `integration`, `pester`), which run on a copy of the working tree in `~/factory-test` |
 
 ## Commands
 
 ```powershell
+cd src/factory/Factory.Dashboard; npm test                      # the SPA's Vitest suite and its 70% gate
+cd src/factory/Factory.Dashboard; npm run build                 # rebuilds factory/dashboard/ (committed)
 cd factory/tests/dashboard; npx playwright test --grep @smoke   # the smoke set
 cd factory/tests/dashboard; npx playwright test                 # the whole e2e suite
 dotnet run --project src/factory/Factory.TestGates               # .NET unit + integration, tier counts, coverage gates
