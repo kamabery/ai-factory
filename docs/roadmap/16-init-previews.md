@@ -51,7 +51,7 @@ spec 12. After 16 and 20, the repo has no PowerShell.
 ## Done when
 
 `terraform test` passes; a plan against the live subscription, after import, shows no changes; and, as 09's live
-check, one `factory canary -Full` and one real job on `kamabery/ai-factory-hello` reach `preview: up` from the .NET
+check, one `factory canary -Full` and one real job on `kamabery/todoapp-two` (not `ai-factory-hello`, decided 2026-11-16: a console app with no IaC, so a job there would first bolt Azure onto the public sample) reach `preview: up` from the .NET
 implementation and are torn down with no resource group left, checked in Azure. The live run uses its own state dir,
 `.env`, secret prefix and local dir. The PowerShell and Pester are deleted with their mapping; the .NET suites pass on
 Windows and in WSL; DEPLOY.md describes the Terraform path; this Status line and the roadmap README are updated.
