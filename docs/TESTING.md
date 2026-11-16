@@ -14,7 +14,8 @@ parallel, and Pester was the **oracle** the .NET port was held to. Spec 12 retir
 pushed each of its 387 Pester cases down to a unit or integration test
 ([the mapping](roadmap/12-pester-mapping.md)). Spec 20 retired the rest: the simulator, the suite's runner and the
 tests' fake CLIs are .NET (`Factory.Simulator`, `Factory.TestGates`, Factory.TestHost's fakes), and a gate line runs
-with no shell. Pester is left only for the PowerShell kept until spec 16 (`setup-azure.ps1`, `setup-platform.ps1`).
+with no shell. Spec 16 replaced the last PowerShell, the preview setup scripts, with Terraform tested by `terraform test`
+([its mapping](roadmap/16-pester-mapping.md)); the repo has no Pester.
 The .NET code is built unit-first from its first line (spec 01).
 
 **Target shape:** about 80% unit, 15% integration and 5% end to end, by test count. `Factory.TestGates` reports the
@@ -28,7 +29,7 @@ counts per tier; coverage is the gate, not the ratio.
 | **Unit, the SPA** (small) | jsdom only: components and hooks with `fetch` stubbed | `src/factory/Factory.Dashboard` (Vitest, Testing Library) | locally, before every PR that touches the dashboard |
 | **Integration** (medium) | temp directories, git, child processes, localhost stubs (GitHub, HCP, blob, Anthropic: `Factory.TestHost`, hosted in process) | `Factory.IntegrationTests` (xUnit v3) | locally, before every PR that touches `src/factory` |
 | **End to end** (large) | the dashboard in a browser against `Factory.Simulator` | `factory/tests/dashboard` (Playwright) | locally: the `@smoke` set before a PR that touches the dashboard or `Factory.Server`; the whole suite on demand |
-| **Pester** (the scripts left until 16) | as integration | `factory/tests/*.Tests.ps1`: setup-azure, setup-platform | locally, before a PR that touches those scripts or their tests |
+| **Terraform** (the factory's own IaC) | nothing: every provider mocked | `factory/infra/*/tests/*.tftest.hcl` (`terraform test`) | locally, before a PR that touches that folder |
 
 A test that needs a temp directory is an integration test, even if it is fast. Put it in the
 integration project.
@@ -90,7 +91,7 @@ When a command was ported (specs 04–11), its Pester cases were **pushed down**
   (`FACTORY_IMPL=ps` and `dotnet`). That is how a command counted as ported.
 
 [Spec 12's mapping file](roadmap/12-pester-mapping.md) names, for every Pester case, the unit or
-integration test that covers it. Spec 16 does the same for the setup scripts' Pester.
+integration test that covers it. [Spec 16's](roadmap/16-pester-mapping.md) does the same for the setup scripts' Pester.
 
 ## Gates
 
@@ -111,11 +112,11 @@ touches and put the counts in the PR description:
 | --- | --- |
 | `src/factory/**` | `dotnet run --project src/factory/Factory.TestGates` (unit + integration, tier counts, coverage gates) |
 | `factory/plugin/**` or `factory/templates/**` | `dotnet run --project src/factory/Factory.TestGates` (`PluginTests` reads them) |
-| the PowerShell left until 16: `factory/scripts/*.ps1`, `factory/tests/*.Tests.ps1`, `factory/tests/fixtures/**` | `Invoke-Pester factory/tests` after `dotnet build src/factory` (the stub host) |
+| `factory/infra/<name>/**` | `terraform init -backend=false; terraform test` in that folder (offline, mocked providers); a live `terraform plan` before anyone applies |
 | the dashboard (`src/factory/Factory.Dashboard`) | `npm test` and `npm run build` there (the build in `factory/dashboard/` is committed with its source), then the Playwright `@smoke` set; the whole suite for dashboard work |
 | `Factory.Server` | the Playwright `@smoke` set |
 | only `docs/**` or root `*.md` | nothing |
-| a spec whose "Done when" names Linux | in WSL: `factory/tests/linux/setup.sh` once (a user-local .NET 10 SDK and git, no sudo; with `pester`, also pwsh and Pester for spec 16's scripts), then `factory/tests/linux/run.sh test` (or `unit`, `integration`, `pester`), which run on a copy of the working tree in `~/factory-test` |
+| a spec whose "Done when" names Linux | in WSL: `factory/tests/linux/setup.sh` once (a user-local .NET 10 SDK and git, no sudo), then `factory/tests/linux/run.sh test` (or `unit`, `integration`), which run on a copy of the working tree in `~/factory-test` |
 
 ## Commands
 
@@ -125,7 +126,7 @@ cd src/factory/Factory.Dashboard; npm run build                 # rebuilds facto
 cd factory/tests/dashboard; npx playwright test --grep @smoke   # the smoke set
 cd factory/tests/dashboard; npx playwright test                 # the whole e2e suite
 dotnet run --project src/factory/Factory.TestGates               # .NET unit + integration, tier counts, coverage gates
-Invoke-Pester factory/tests                                      # the Pester left until 16: setup-azure, setup-platform
+cd factory/infra/previews; terraform test                        # the preview setup's Terraform, offline
 bash factory/tests/linux/run.sh test                             # in WSL: Factory.TestGates on Linux, no pwsh
 ```
 

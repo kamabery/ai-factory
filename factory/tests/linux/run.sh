@@ -5,13 +5,12 @@
 #   sync         copy the working tree and template-projects (beside it) into ~/factory-test
 #   unit         sync, then the .NET unit tests
 #   integration  sync, then the .NET integration tests
-#   test         sync, then Factory.TestGates: unit and integration, tier counts and the coverage gates (no pwsh)
-#   pester       sync, build, then the Pester left until spec 16 (setup-azure, setup-platform); needs setup.sh pester
+#   test         sync, then Factory.TestGates: unit and integration, tier counts and the coverage gates
 #   versions     print the toolchain the suites run on
 # Run from Windows: wsl.exe -d Ubuntu -- bash /mnt/d/code/ai-factory/factory/tests/linux/run.sh <suite>
 set -euo pipefail
 
-# A clean Linux PATH: WSL appends the Windows PATH, whose git.exe and pwsh.exe must not stand in for Linux's. pwsh is on it only for pester.
+# A clean Linux PATH: WSL appends the Windows PATH, whose git.exe and pwsh.exe must not stand in for Linux's.
 # ~/.local/bin is where claude installs; init's tools step needs it (spec 14's InitTests).
 export DOTNET_ROOT="$HOME/.dotnet10"
 export PATH="$HOME/.gitenv/bin:$HOME/.dotnet10:$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -41,10 +40,6 @@ case "${1:-}" in
   unit) sync; cd "$dest/ai-factory/src/factory"; dotnet test Factory.UnitTests -v q ;;
   integration) sync; cd "$dest/ai-factory/src/factory"; dotnet test Factory.IntegrationTests -v q ;;
   test) sync; cd "$dest/ai-factory"; dotnet run --project src/factory/Factory.TestGates ;;
-  pester)
-    export PATH="$HOME/.pwsh:$PATH"
-    sync; cd "$dest/ai-factory"; dotnet build src/factory -v q -nologo
-    pwsh -NoProfile -Command '$r = Invoke-Pester factory/tests/setup-azure.Tests.ps1, factory/tests/setup-platform.Tests.ps1 -PassThru; exit $r.FailedCount' ;;
-  versions) git --version; dotnet --version; if command -v pwsh > /dev/null; then echo "pwsh on PATH: $(command -v pwsh)"; else echo "pwsh: not on PATH"; fi ;;
-  *) echo "usage: run.sh sync|unit|integration|test|pester|versions" >&2; exit 2 ;;
+  versions) git --version; dotnet --version ;;
+  *) echo "usage: run.sh sync|unit|integration|test|versions" >&2; exit 2 ;;
 esac

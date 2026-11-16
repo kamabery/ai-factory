@@ -9,9 +9,9 @@ session can pick up one at a time. The rationale and the decisions table live in
 plane and Pester are gone, and `factory init` / `doctor` set a machine up with a GitHub App (now the only GitHub
 credential) and the OS secret store; nothing but spec 16's setup scripts needs PowerShell. 15's Windows acceptance run
 passed in 14:16 (the Ubuntu VM run was dropped); the repos are public and `ai-factory` 0.1.0 is on NuGet. 17 (the React
-dashboard) is done on `feature/17-react-dashboard`. **Next: 16, `factory init previews`.**
-macOS is out of scope. Last green suites (17): .NET 1054 unit, 196 integration + 1 skipped (Windows), 1054 / 193 + 4
-skipped in WSL with no pwsh; Vitest 79 (99.4% lines); Playwright 41; Pester (spec 16's setup scripts) 29. Reordered 2026-11-09 so previews come last (see below).
+dashboard) is merged (PR #30). 16 is done: the preview setup is Terraform (`factory/infra/previews`), adopted live with no change to Azure, and **deploys are back on**: a canary and a real job previewed from the .NET implementation and were torn down. The repo has no PowerShell. **Next: 18, cloud mode on Container Apps.**
+macOS is out of scope. Last green suites (16): .NET 1070 unit, 196 integration + 1 skipped (Windows), 1070 / 193 + 4
+skipped in WSL; Vitest 79 (17); Playwright smoke 5; `terraform test` 5; no Pester. Reordered 2026-11-09 so previews come last (see below).
 
 ## Run order
 

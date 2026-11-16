@@ -51,6 +51,7 @@ public class DoctorChecksTests
         Assert.Equal((DoctorStatus.Fail, "not found: git, az"), (r.Status, r.Detail));
         Assert.Equal($"{InstallHints.For("git", OperatingSystem.IsWindows())}; {InstallHints.For("az", OperatingSystem.IsWindows())}", r.Fix);
         _proc.Received(1).Run("terraform", Arg.Any<IReadOnlyList<string>>(), "");
+        _proc.Received(1).Run("gh", Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "--version" })), "");
     }
 
     [Fact]

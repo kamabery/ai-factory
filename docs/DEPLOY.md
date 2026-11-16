@@ -8,32 +8,28 @@ HCP Terraform. A rework keeps it, and the next round deploys over it. Production
 
 Deploys are **off** until `.env` has `HCP_ORG`. Everything else keeps working without it.
 
-Everything in Azure and Entra, including the Entra External ID tenant, is done by
-`factory/scripts/setup-azure.ps1`. The browser is needed for the HCP organization, its tokens and
-variable set, and the script's sign-in to the new tenant.
+Everything in Azure, Entra and the HCP variable set is Terraform: `factory/infra/previews`, applied by you, with its
+state in the HCP workspace `factory-setup` (execution mode local, so it runs here under your `az login`). By hand: the
+HCP organization and its team token (section 1) and, for the auth add-on, the External tenant itself (section 2).
+`factory previews-env` then copies the results into `.env`, and `factory doctor` checks them.
 
 ## Every value, and where it comes from
 
-Work through the sections in order: later values depend on earlier ones.
-
 | Value | Goes in | Where you get it | Section |
 | --- | --- | --- | --- |
-| `HCP_ORG` | `.env`, `setup-azure.ps1 -HcpOrg` | the organization name you create at app.terraform.io | 1 |
-| `HCP_TOKEN`, `HCP_TEAM_TOKEN` | `.env` | one owners team token, in both: Settings → API tokens → Team tokens | 1 |
-| External tenant ID | `setup-azure.ps1 -ExternalTenantId` | the External tenant's **Overview** page | 2 |
-| `AZURE_SUBSCRIPTION_ID` | `.env`, `setup-azure.ps1 -SubscriptionId` | `az account list -o table` | 3 |
-| `AZURE_TENANT_ID`, `AZURE_GH_CLIENT_ID` | `.env` | written by `setup-azure.ps1` | 3 |
-| Variable set values (`TFC_*`, `ARM_*`, `deployer_object_id`) | HCP variable set | printed by `setup-azure.ps1` | 3 → 4 |
-| `entra_external_*` (auth add-on only) | the target repo's `IaC/envs/*.tfvars` | printed by `setup-azure.ps1` | 4 |
-| `HCP_AZURE_VARSET` | `.env` | the `varset-...` id in the variable set's URL | 4 |
+| `HCP_ORG` | `.env`, `hcp_org` | the organization name you create at app.terraform.io | 1 |
+| `HCP_TOKEN`, `HCP_TEAM_TOKEN` | the secret store | one owners team token, in both: Settings → API tokens → Team tokens | 1 |
+| External tenant ID | `external_tenant_id` | the External tenant's **Overview** page | 2 |
+| `subscription_id`, `tenant_id`, `contact_email` | `factory/infra/previews/local.auto.tfvars` (gitignored) | `az account show`, your email | 3 |
+| `AZURE_SUBSCRIPTION_ID`, `AZURE_TENANT_ID`, `AZURE_GH_CLIENT_ID`, `HCP_AZURE_VARSET`, `FACTORY_ENTRA_*` | `.env` | written by `factory previews-env` | 3 |
+| `entra_external_*` (auth add-on only) | the target repo's `IaC/envs/*.tfvars` | `terraform output target_tfvars` | 3 |
 | GitHub App permissions | `factory/github-app.json` (unchanged) | already asked for by the App `factory init` creates | 5 |
-| `contact_email` | budget `terraform apply` | your email | 6 |
-| `FACTORY_TEMPLATES_REPO` | `.env` | `owner/name` of your template-projects repo on GitHub | 7 |
+| `FACTORY_TEMPLATES_REPO` | `.env` | `owner/name` of your template-projects repo on GitHub | 6 |
 
 ## 1. HCP Terraform: organization and tokens
 
-HCP Terraform runs each preview's Terraform and holds its state. `factory` drives it over the
-API; the workflow in each target queues runs.
+HCP Terraform runs each preview's Terraform and holds its state, and holds this setup's state too. `factory` drives it
+over the API; the workflow in each target queues runs.
 
 1. **Organization → `HCP_ORG`.** Sign in at https://app.terraform.io and create an organization. Its
    name, as it appears in the URL `app.terraform.io/app/<org>`, is `HCP_ORG`. Azure will trust tokens
@@ -42,32 +38,28 @@ API; the workflow in each target queues runs.
    https://app.terraform.io/app/<org>/settings/authentication-tokens?tabIndex=1 (**Settings** →
    **Security** → **API tokens** → **Team tokens**) → **Create a team token**: team **owners** (the only
    team on the Free plan), description `ai-factory`, 90 days. Copy it when shown; it isn't shown
-   again, and creating another replaces it. Put the same token in both lines.
+   again, and creating another replaces it. The same token is both secrets (`factory init --move-env-secrets` moves
+   them from `.env` into the secret store).
    - `HCP_TOKEN`: `factory` creates each target's project and workspaces, attaches the variable
      set, and queues destroy runs.
    - `HCP_TEAM_TOKEN`: becomes each target's `TF_API_TOKEN` secret, which its workflow uses to
      queue runs.
    Not an organization token: HCP's own page says those "can't perform plans and applies", so
    tear-down would fail.
+3. **`terraform login`**, once, for this machine's Terraform (the setup's state and the `tfe` provider). Or set
+   `TF_TOKEN_app_terraform_io` (and `TFE_TOKEN`) to the team token for one shell.
 
 ## 2. Entra External ID: the tenant previews sign in with
 
 Only targets with the auth add-on use it; skip this section until you have one. Preview users sign
 in against a separate customer-facing tenant, so test accounts never land in your own directory.
 
-**Scripted (recommended):** pass `-CreateExternalTenant <subdomain> -ExternalResourceGroup <rg>` to
-`setup-azure.ps1` (section 3). It creates `<subdomain>.onmicrosoft.com` as an Azure resource
-(`Microsoft.AzureActiveDirectory/ciamDirectories`, `-ExternalLocation` default `United States`,
-`-ExternalCountryCode` default `US`, neither changeable later), waits for it, and opens a browser
-for you to sign in to it. The subdomain must be globally unique.
-
-**The tenant's admin is whoever creates it.** Create it as the account you will keep using. If that
-account later loses the name the tenant knows it by (an alias removed, the account deleted), nobody
-can sign in to the tenant again; `az login` answers "You can't sign in here with a personal
+**The tenant's admin is whoever creates it.** Create it as the work account you will keep using (factory-admin, say),
+never a personal Microsoft account. If that account later loses the name the tenant knows it by (an alias removed, the
+account deleted), nobody can sign in to the tenant again; `az login` answers "You can't sign in here with a personal
 account", and the only way forward is a new tenant.
 
-**By hand**, if you prefer the portal (you need the **Tenant Creator** role or higher on the
-subscription):
+You need the **Tenant Creator** role or higher on the subscription.
 
 1. In the [Microsoft Entra admin center](https://entra.microsoft.com), browse to **Entra ID** →
    **Overview** → **Manage tenants**, and select **Create**.
@@ -81,35 +73,47 @@ subscription):
    **Notifications**.
 5. Note its **Tenant ID**: **Settings** (gear, top bar) → **Directories + subscriptions** → **Switch**
    to the new directory → **Entra ID** → **Overview**.
+6. Sign `az` in to it as the same account: `az login --tenant <External tenant ID> --allow-no-subscriptions`. Entra
+   can take a few minutes to replicate a new tenant; a sign-in refused right after creation usually works a little
+   later. Then switch back: `az account set --subscription <subscription ID>`.
 
-`setup-azure.ps1` does the rest inside it: the user flow, the app HCP signs in as, and its permissions.
+The Terraform does the rest inside it: the user flow, the app HCP signs in as, and its permissions.
 
-## 3. Azure: identities and permissions (`setup-azure.ps1`)
+## 3. The setup (`factory/infra/previews`)
 
-Sign `az` in to your Azure tenant, as the same account throughout, and pick the subscription the
-previews deploy into and bill to:
-
-```powershell
-az login --tenant <your Azure tenant>                                   # or plain az login
-az account list --query "[].{name:name, id:id}" -o table                 # the id is the subscription ID
-```
-
-Then run, from the repo root, one of:
+Sign `az` in to your Azure tenant as that same work account, and pick the subscription the previews deploy into and
+bill to. `az account show` should name the work account, not a personal one: `az` keeps one token cache for every
+account you have signed in with, and a later `az login` as someone else changes who Terraform runs as.
 
 ```powershell
-# creating the External tenant too (section 2, scripted)
-pwsh factory/scripts/setup-azure.ps1 -SubscriptionId <subscription ID> -HcpOrg <HCP_ORG> -CreateExternalTenant <subdomain> -ExternalResourceGroup <rg>
-# with an External tenant you already have
-pwsh factory/scripts/setup-azure.ps1 -SubscriptionId <subscription ID> -HcpOrg <HCP_ORG> -ExternalTenantId <External tenant ID>
-# no auth add-on yet
-pwsh factory/scripts/setup-azure.ps1 -SubscriptionId <subscription ID> -HcpOrg <HCP_ORG>
+az login --tenant <your Azure tenant>
+az account set --subscription <subscription ID>
+az account show --query "{user:user.name, subscription:id, tenant:tenantId}"
 ```
 
-When the script reaches the External tenant and `az` isn't signed in to it, it runs
-`az login --tenant <id> --allow-no-subscriptions` and a browser opens; sign in as the same account. The script finds each object before it
-creates it, so it is safe to re-run, including over anything you made by hand. It leaves `az` on the
-subscription it started on. It writes `AZURE_SUBSCRIPTION_ID`, `AZURE_TENANT_ID` and
-`AZURE_GH_CLIENT_ID` into `.env`, and prints the variable set values for section 4.
+Write `factory/infra/previews/local.auto.tfvars` (gitignored):
+
+```hcl
+subscription_id    = "<subscription ID>"
+tenant_id          = "<its tenant ID>"
+hcp_org            = "<HCP_ORG>"
+external_tenant_id = "<External tenant ID>"   # auth add-on only; leave out otherwise
+contact_email      = "<you>"                  # the budget's alerts
+```
+
+Then, from that folder, with `TF_CLOUD_ORGANIZATION` set to your `HCP_ORG`:
+
+```powershell
+$env:TF_CLOUD_ORGANIZATION = '<HCP_ORG>'
+terraform init                 # creates the factory-setup workspace; set its Execution Mode to Local in HCP once
+terraform plan                 # read it: the platform is about $18 a month (below)
+terraform apply
+factory previews-env           # AZURE_*, HCP_AZURE_VARSET and FACTORY_ENTRA_* into .env
+terraform output target_tfvars # auth add-on targets commit these in IaC/envs/{dev,staging,ephemeral}.tfvars
+```
+
+Then set `HCP_ORG` in `.env` last: it is what turns deploys on. `factory doctor` checks the variable set and the
+settings (its `previews` line). Re-applying changes nothing unless something drifted.
 
 What it creates, and why:
 
@@ -119,70 +123,50 @@ What it creates, and why:
 | Your subscription | **Contributor** for `factory-github-actions` | Each preview lives in its own resource group (`rg-<project>-j<NNN>`) that doesn't exist until the job deploys, so the grant can't be scoped to a group up front. Contributor can build and deploy but can't grant access to others |
 | Your tenant | App registration `factory-hcp-terraform` and its service principal; appId → `TFC_AZURE_RUN_CLIENT_ID` | HCP Terraform runs the preview's Terraform with dynamic credentials (OIDC), again no secret |
 | Your subscription | **Contributor** and **User Access Administrator** for `factory-hcp-terraform` | Contributor creates each preview's resource group and resources; User Access Administrator lets it grant roles inside them (managed identity → registry pull, for example), which Contributor can't |
-| Your tenant | Federated credential `hcp-terraform` on `factory-hcp-terraform` | Trusts tokens from `https://app.terraform.io` for your organization only. HCP's token subject is `organization:<org>:project:<p>:workspace:<w>:run_phase:<plan\|apply>`, and every preview gets a new workspace, so this is a *flexible* federated credential (Graph beta) matching `organization:<org>:project:*:workspace:*:run_phase:*` rather than one exact subject |
-| External tenant | User flow `preview-signin` (email + password, sign-up allowed) → `entra_external_user_flow_id` | The sign-in experience preview apps are attached to |
+| Your tenant | Flexible federated credential `hcp-terraform` on `factory-hcp-terraform` | Trusts tokens from `https://app.terraform.io` for your organization only. HCP's token subject is `organization:<org>:project:<p>:workspace:<w>:run_phase:<plan\|apply>`, and every preview gets a new workspace, so it matches `organization:<org>:project:*:workspace:*:run_phase:*` rather than one exact subject |
+| Your subscription | The resource providers the templates deploy to (Microsoft.App among them) | azurerm registers only its own core set, and a new subscription then fails the Container Apps environment (canary-6) |
+| External tenant | User flow `preview-signin` (email + password, sign-up allowed) → `FACTORY_ENTRA_USER_FLOW_ID` | The sign-in experience preview apps are attached to |
 | External tenant | App registration `factory-hcp-terraform`, its service principal and federated credential → `TFC_AZURE_RUN_CLIENT_ID_EXTERNAL` | A preview's Terraform run creates its app registration, test users and sign-in wiring in the External tenant, signing in the same way |
 | External tenant | Microsoft Graph **Application.ReadWrite.All**, **User.ReadWrite.All**, **EventListener.ReadWrite.All**, **DelegatedPermissionGrant.ReadWrite.All**, granted (admin consent) | Create the preview's app registration, its QA users, attach the app to the user flow, and admin-consent its delegated scopes (`azuread_service_principal_delegated_permission_grant`; without it the apply fails 403, J-022) |
+| `rg-factory-platform` | The shared platform (below) | Previews are about twice as fast to create and six times to destroy |
+| HCP | Variable set `factory-azure` → `HCP_AZURE_VARSET`: `TFC_AZURE_PROVIDER_AUTH`, `TFC_AZURE_RUN_CLIENT_ID`, `ARM_SUBSCRIPTION_ID`, `ARM_TENANT_ID`, (`TFC_*_EXTERNAL`), `deployer_object_id`, `platform` | Every preview's Terraform reads them. The factory attaches the set to each target's project. The three `entra_external_*` ids are not on it: a target commits them in its tfvars, one source (J-022) |
+| Your subscription | Budget `factory-previews` ($50 a month; email at 50, 80 and 100% actual and 100% forecast) | Previews auto-destroy after 24 hours, but a failed destroy leaves resources billing |
 
-The GitHub Actions app has no federated credential yet, so it can't sign in from anywhere.
-`factory deploy` adds one per target repo (`repo:<owner>/<name>:environment:preview`) under
-**your** `az login`, so you need the right to update that app registration. The subject limits
-sign-in to that repo's `preview` environment.
+The GitHub Actions app has no federated credential here, so it can't sign in from anywhere until a target deploys:
+`factory deploy` adds one per target repo (`repo:<owner>/<name>:environment:preview`) under **your** `az login`, so
+you need the right to update that app registration. Terraform ignores them.
 
 Contributor and User Access Administrator on a whole subscription are broad. Use a subscription that
 holds only previews, so the factory's identities can't touch anything else.
 
-Options: `-UserFlowName` (default `preview-signin`), `-ExternalSubdomain` (default: read from the
-External tenant's initial domain), `-EnvFile` (default the repo's `.env`). `-SubscriptionId` and
-`-HcpOrg` default to `AZURE_SUBSCRIPTION_ID` and `HCP_ORG` in `.env` when set.
+Other variables (defaults in `variables.tf`): `user_flow_name`, `location` (`centralus`), `platform_resource_group`,
+`varset_name`, `monthly_budget`, `budget_start_date`, `keyvault_admin_object_id`.
 
-To see any value later:
+### Adopting an existing setup
 
-```powershell
-az ad app list --display-name factory-github-actions --query "[].appId" -o tsv    # AZURE_GH_CLIENT_ID
-az ad app list --display-name factory-hcp-terraform --query "[].appId" -o tsv     # TFC_AZURE_RUN_CLIENT_ID (per tenant)
+Objects made earlier (by the old `setup-azure.ps1` / `setup-platform.ps1`, or in the portal) are imported, not
+created: name each in `adopt` in `local.auto.tfvars`, keyed as in `imports.tf`, with its provider's import id, and
+`terraform plan` shows "to import" with no changes to Azure. For example:
+
+```hcl
+adopt = {
+  github_app         = "/applications/<object id>"
+  github_sp          = "/servicePrincipals/<object id>"
+  github_contributor = "/subscriptions/<sub>/providers/Microsoft.Authorization/roleAssignments/<name>"
+  hcp_fic            = "/applications/<object id>/federatedIdentityCredentials/<credential id>"
+  external_graph_user = "/servicePrincipals/<Graph's service principal in the External tenant>/appRoleAssignedTo/<assignment id>"
+  external_user_flow = "/identity/authenticationEventsFlows/<flow id>"
+  postgres_secret    = "https://<vault>.vault.azure.net/secrets/postgres-admin-password/<version>"
+  varset             = "varset-..."
+  var_platform       = "<HCP_ORG>/varset-.../var-..."
+  # ... one per object
+}
 ```
 
-The appId is the portal's **Application (client) ID**. The app's object ID and the service
-principal's object ID are different GUIDs, and none of them goes in `.env` but the appId.
+An adopted Postgres server keeps its password (the vault's), and an az-made firewall rule keeps its dated name
+(`postgres_azure_rule_name`). Once imported, the blocks are no-ops.
 
-## 4. HCP Terraform: the variable set
-
-**Organization settings** → **Variable sets** → **Create variable set**, scoped to *specific
-projects* with none selected (the factory attaches it to each target's project). Add what
-`setup-azure.ps1` printed:
-
-| Variable | Category | Value |
-| --- | --- | --- |
-| `TFC_AZURE_PROVIDER_AUTH` | env | `true` |
-| `TFC_AZURE_RUN_CLIENT_ID` | env | printed |
-| `ARM_SUBSCRIPTION_ID` | env | printed |
-| `ARM_TENANT_ID` | env | printed |
-| `deployer_object_id` | terraform | printed: the GitHub Actions identity, which each environment's Key Vault lets read its secrets (the workflow's schema step) |
-| `TFC_AZURE_PROVIDER_AUTH_EXTERNAL` | env | `true` (auth add-on only) |
-| `TFC_AZURE_RUN_CLIENT_ID_EXTERNAL` | env | printed (auth add-on only) |
-
-The three `entra_external_*` ids are not in the variable set. A target with the auth add-on commits
-them, as printed, in `IaC/envs/dev.tfvars`, `staging.tfvars` and `ephemeral.tfvars`. That is one
-source, and the workflow's `-var-file` would override the set anyway (J-022). They are not secrets.
-The canary scaffolds with auth, so put the same three in the factory's `.env` as
-`FACTORY_ENTRA_TENANT_ID`, `FACTORY_ENTRA_SUBDOMAIN` and `FACTORY_ENTRA_USER_FLOW_ID`; it writes
-them into its scaffold's `ephemeral.tfvars`.
-
-Save it. Its id is in the URL, `.../settings/varsets/varset-XXXXXXXX` → `HCP_AZURE_VARSET`. Or
-list them with the team token:
-
-```powershell
-$h = @{ Authorization = "Bearer <HCP_TOKEN>" }
-(Invoke-RestMethod "https://app.terraform.io/api/v2/organizations/<HCP_ORG>/varsets" -Headers $h).data |
-  ForEach-Object { "$($_.id)  $($_.attributes.name)" }
-```
-
-## The shared platform (`setup-platform.ps1`)
-
-```powershell
-pwsh factory/scripts/setup-platform.ps1     # after section 3; re-running is safe
-```
+## 4. The shared platform
 
 `j<NNN>` previews share one Container Apps environment, Log Analytics workspace, Key Vault and Postgres
 server in `rg-factory-platform`, so a fresh preview takes about 13 to 16 minutes rather than 31, and a destroy
@@ -195,11 +179,10 @@ because one noisy preview now spends for all of them. The price list also has a 
 Management Hour" meter (about $73 a month) that the billing docs do not name or apply here; check the
 first bill for it.
 
-**What is not in Terraform, and why:**
+**What is outside this Terraform, and why:**
 
-| What | Done by | Why not HCP Terraform |
+| What | Done by | Why not here |
 | --- | --- | --- |
-| The platform itself | `setup-platform.ps1` (`az`) | It belongs to the subscription, not to one scaffold; it is set up once and nothing else needs its state |
 | Each preview's Postgres login | `deploy.yml` (`psql`, from the GitHub runner) | HCP's runners sit outside Azure and the firewall keeps them out; the runner has already been let in for the schema step |
 | Dropping that login | the next `deploy.yml` run | A destroy runs in HCP too, so each deploy drops the `preview_*` roles whose databases have gone. A stale role owns nothing, and its database is already gone |
 
@@ -213,8 +196,8 @@ first bill for it.
 A fresh preview no longer proves a from-scratch create; `factory canary -Full` does. dev, staging, a
 preview in another region and scaffolds made before this keep a full stack of their own.
 
-To remove the platform: `az group delete -n rg-factory-platform`, then delete the `platform` variable from
-the HCP variable set. Previews go back to full stacks.
+To remove the platform: remove `platform.tf`'s resources and the `platform` variable from the Terraform (or
+`terraform destroy -target` them) and apply. Previews go back to full stacks.
 
 ### A 500 on an idle preview
 
@@ -231,36 +214,25 @@ already asks for **Workflows**, **Actions**, **Environments**, **Secrets** and *
 so there is nothing to add. Details in [GITHUB-APP.md](GITHUB-APP.md). `gh` must be
 installed; the factory runs it with the token in its environment only.
 
-## 6. A budget alert
-
-Previews auto-destroy after 24 hours, but a failed destroy leaves resources billing. A monthly
-budget on the subscription emails you before that adds up. Once, from `factory/infra/budget`:
-
-```powershell
-terraform init
-terraform apply -var subscription_id=<AZURE_SUBSCRIPTION_ID> -var contact_email=<your email>
-```
-
-`monthly_amount` and `start_date` have defaults; see `main.tf`.
-
-## 7. `.env`
+## 6. `.env`
 
 `FACTORY_TEMPLATES_REPO` is the GitHub `owner/name` of your template-projects repo, where the
 Lessons tab proposes template fixes. From its local clone:
 `gh repo view --json nameWithOwner -q .nameWithOwner`.
 
 ```dotenv
-HCP_ORG=your-org              # section 1
-HCP_TOKEN=...                 # section 1: owners team token, factory only
-HCP_TEAM_TOKEN=...            # section 1: the same token; becomes each target's TF_API_TOKEN secret
-HCP_AZURE_VARSET=varset-...   # section 4
-AZURE_GH_CLIENT_ID=...        # section 3, written by setup-azure.ps1
-AZURE_TENANT_ID=...           # section 3, written by setup-azure.ps1
-AZURE_SUBSCRIPTION_ID=...     # section 3, written by setup-azure.ps1
+HCP_ORG=your-org              # section 1; set it last: it turns deploys on
+HCP_AZURE_VARSET=varset-...   # section 3, written by factory previews-env
+AZURE_GH_CLIENT_ID=...        # section 3, written by factory previews-env
+AZURE_TENANT_ID=...           # section 3, written by factory previews-env
+AZURE_SUBSCRIPTION_ID=...     # section 3, written by factory previews-env
+FACTORY_ENTRA_TENANT_ID=...   # section 3, written by factory previews-env (auth add-on)
+FACTORY_ENTRA_SUBDOMAIN=...
+FACTORY_ENTRA_USER_FLOW_ID=...
 FACTORY_TEMPLATES_REPO=you/template-projects
 ```
 
-Set `HCP_ORG` last: it is what turns deploys on.
+`HCP_TOKEN` and `HCP_TEAM_TOKEN` belong in the secret store, not here (`factory doctor` warns).
 
 ## Check it
 

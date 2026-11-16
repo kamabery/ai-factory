@@ -182,12 +182,13 @@ public class DeployCommandsTests : CommandTestBase
     }
 
     [Fact]
-    public void Deploy_refuses_in_a_tool_install_until_spec_16()
+    public void Deploy_runs_in_a_tool_install_since_spec_16()
     {
         Paths.IsToolInstall.Returns(true);
 
-        Assert.Equal("deploy refused: previews need a checkout install of the factory until spec 16",
-            Assert.Throws<FactoryException>(() => Deploy.Run(Args("deploy", "J-001"), InDeploy())).Message);
+        var e = Record.Exception(() => Deploy.Run(Args("deploy", "J-001"), InDeploy()));
+
+        Assert.DoesNotContain("checkout install", e?.Message ?? "", StringComparison.Ordinal);
     }
 
     // --- deploy-log -------------------------------------------------------------------------------

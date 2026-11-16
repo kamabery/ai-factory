@@ -30,8 +30,8 @@
   </ItemGroup>
   <!--
     A tool install is one folder: the CLI, the runner and the server published side by side, and the factory root's
-    files under factory/ (the plugin, templates, dashboard, github-app.json, the sign-in smoke) with .env.example.
-    No deploy code: previews need a checkout until spec 16.
+    files under factory/ (the plugin, templates, dashboard, github-app.json, the sign-in smoke, and the preview setup's
+    Terraform in infra/previews, without its .terraform folder or local state) with .env.example.
   -->
   <PropertyGroup>
     <_FactoryRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../../../'))</_FactoryRoot>
@@ -46,6 +46,8 @@
       <_RootFile Include="$(_FactoryRoot)factory/plugin/**/*;$(_FactoryRoot)factory/templates/**/*;$(_FactoryRoot)factory/dashboard/**/*"
                  Base="$(_FactoryRoot)" />
       <_RootFile Include="$(_FactoryRoot)factory/github-app.json;$(_FactoryRoot)factory/scripts/signin-smoke.mjs" />
+      <_RootFile Include="$(_FactoryRoot)factory/infra/previews/**/*.tf;$(_FactoryRoot)factory/infra/previews/**/*.tftest.hcl;$(_FactoryRoot)factory/infra/previews/.terraform.lock.hcl"
+                 Exclude="$(_FactoryRoot)factory/infra/previews/.terraform/**" />
       <!-- The runner and server share most dependencies with the CLI (one central package set); the CLI's copy wins. -->
       <_HostFile Remove="@(_HostFile)" Condition="Exists('$(PublishDir)%(RecursiveDir)%(Filename)%(Extension)')" />
       <TfmSpecificPackageFile Include="@(_HostFile)" PackagePath="tools/$(TargetFramework)/any/%(RecursiveDir)%(Filename)%(Extension)" />

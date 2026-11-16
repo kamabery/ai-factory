@@ -26,12 +26,16 @@ public sealed partial class CanaryCheck(IFactoryPaths paths, IFileStore files, I
 
     public string Fingerprint()
     {
-        if (paths.IsToolInstall) throw new FactoryException($"canary refused: {NoPreviews}");
         var lines = new List<string>();
-        // factory/scripts -> factory -> the factory's own checkout, where the deploy code's sources are.
-        var root = Path.GetFullPath(Path.Combine(paths.ScriptsDir, "..", ".."));
-        foreach (var f in DeployCode)
-            lines.Add($"{f} {HashLf(Path.Combine(root, f))}");
+        // A tool install has no sources: the package version stands for its deploy code (contract, "Canary").
+        if (paths.IsToolInstall) lines.Add($"factory {PackageVersion}");
+        else
+        {
+            // factory/scripts -> factory -> the factory's own checkout, where the deploy code's sources are.
+            var root = Path.GetFullPath(Path.Combine(paths.ScriptsDir, "..", ".."));
+            foreach (var f in DeployCode)
+                lines.Add($"{f} {HashLf(Path.Combine(root, f))}");
+        }
         var t = paths.TemplatesRoot;
         var inputs = files.Files(Path.Combine(t, "IaC")).Where(f => !DotTerraform().IsMatch(f.Path)).Select(f => f.Path).ToList();
         if (files.Stat(Path.Combine(t, "base-project", ".github", "workflows", "deploy.yml")) is { } deployYml) inputs.Add(deployYml.Path);
@@ -45,8 +49,10 @@ public sealed partial class CanaryCheck(IFactoryPaths paths, IFileStore files, I
         return "sha256:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("\n", lines)))).ToLowerInvariant();
     }
 
-    /// <summary>A tool install's refusal of previews (contract, "Installs").</summary>
-    public const string NoPreviews = "previews need a checkout install of the factory until spec 16";
+    /// <summary>The package version this build carries, without the source revision after '+'.</summary>
+    public static string PackageVersion { get; } =
+        (typeof(CanaryCheck).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .Cast<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion ?? "0").Split('+')[0];
 
     /// <summary>The deploy path's .NET code (contract, "Canary"): a change to any of it invalidates the last canary.</summary>
     public static readonly IReadOnlyList<string> DeployCode =
@@ -84,7 +90,7 @@ public sealed partial class CanaryCheck(IFactoryPaths paths, IFileStore files, I
                 ["entra_external_user_flow_id"] = dotEnv.Get("FACTORY_ENTRA_USER_FLOW_ID"),
             };
             if (ids.Any(kv => kv.Value is null))
-                throw new FactoryException("canary refused: the canary scaffold has auth, and .env lacks FACTORY_ENTRA_TENANT_ID, FACTORY_ENTRA_SUBDOMAIN or FACTORY_ENTRA_USER_FLOW_ID (setup-azure.ps1 prints them)");
+                throw new FactoryException("canary refused: the canary scaffold has auth, and .env lacks FACTORY_ENTRA_TENANT_ID, FACTORY_ENTRA_SUBDOMAIN or FACTORY_ENTRA_USER_FLOW_ID (factory previews-env writes them)");
             sc["entra"] = ids;
         }
         return sc;

@@ -92,11 +92,19 @@ public class CanaryCheckTests
     }
 
     [Fact]
-    public void A_tool_install_has_no_deploy_code_to_fingerprint_and_says_so()
+    public void A_tool_install_has_no_sources_so_its_package_version_stands_for_the_deploy_code()
     {
         _paths.IsToolInstall.Returns(true);
+        foreach (var f in DeployCode) _files.Remove(Path.Combine(Root, "repo", f));
+        var version = typeof(CanaryCheck).Assembly
+            .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .Cast<System.Reflection.AssemblyInformationalVersionAttribute>().Single().InformationalVersion.Split('+')[0];
+        var lines = string.Join("\n", new[] { $"factory {version}",
+            $"artifacts/nupkg/T.1.0.0.nupkg {H("n")}", $"base-project/.github/workflows/deploy.yml {H("d")}",
+            $"IaC/envs/a.tfvars {H("a")}", $"IaC/main.tf {H("m")}",
+            "var env z ", "var terraform a <sensitive>", "var terraform b 2",
+            """canary me/factory-canary {"name":"canary","resource":"Item","db":"postgres","ui":"react","events":false,"auth":true,"entra":{"entra_external_tenant_id":"t","entra_external_subdomain":"s","entra_external_user_flow_id":"f"}}""" });
 
-        Assert.Equal("canary refused: previews need a checkout install of the factory until spec 16",
-            Assert.Throws<FactoryException>(() => _sut.Fingerprint()).Message);
+        Assert.Equal("sha256:" + H(lines).ToLowerInvariant(), _sut.Fingerprint());
     }
 }

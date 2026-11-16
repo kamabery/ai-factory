@@ -30,9 +30,7 @@ public sealed class DeployCommand(IDeployService deploy, IFactoryPaths paths, IF
             return CommandResult.Ok($"skipped: {Verdicts.BootstrapNoDeploy}");
         }
         var deploysOn = dotEnv.Get("HCP_ORG") is not null;
-        // Contract, "Installs": the package holds no deploy code, so previews need a checkout until spec 16.
         if (!deploysOn) throw new FactoryException("deploy refused: deploys are off (no HCP_ORG in .env)");
-        if (paths.IsToolInstall) throw new FactoryException($"deploy refused: {Factory.Store.CanaryCheck.NoPreviews}");
         var d = Preview.Record(j);
         // Still applying: the last attempt's process died before it recorded a result (J-019: the devops agent's shell
         // call ended at 20 minutes, against a run of up to an hour). This resumes that attempt, not a new one.
