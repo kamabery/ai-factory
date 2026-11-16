@@ -284,12 +284,13 @@ line is followed by `  fix: <what to do>`. It exits 1 if any check failed, else 
 
 | Check | Passes when |
 | --- | --- |
-| `tools` | `git`, `dotnet` and `claude` run; `az` too in cloud mode, and `terraform` while `HCP_ORG` is set; and `git config user.name` and `user.email` are set, since the builder commits (fix: `git config --global user.name "<name>"; git config --global user.email <email>`) |
+| `tools` | `git`, `dotnet` and `claude` run; `az` too in cloud mode, and `terraform` and `gh` while `HCP_ORG` is set; and `git config user.name` and `user.email` are set, since the builder commits (fix: `git config --global user.name "<name>"; git config --global user.email <email>`) |
 | `secret-store` | a probe secret can be written, read back and deleted |
 | `env-secrets` | `.env` holds none of the secrets above (`warn` otherwise; fix: `factory init --move-env-secrets`) |
 | `github` | with an App: a JWT reads `GET /app`; an installation exists for `GITHUB_OWNER` on all repositories, with every permission `github-app.json` asks for; it mints a token; the user token reads `GET /user`. With no `GITHUB_APP_ID`: `fail`, `no GitHub App is set up` (fix: `factory init`) |
 | `llm` | local: `claude auth status`, run with the local child environment, is logged in with a claude.ai subscription; cloud: `az` is signed in and a one-token request to each pinned deployment succeeds |
 | `hcp` | only while `HCP_ORG` or `HCP_TOKEN` is set: `HCP_TOKEN` reads `GET /api/v2/account/details` |
+| `previews` | only while `HCP_ORG` is set: `.env` has every [`previews-env`](#deploy) setting, and the variable set `HCP_AZURE_VARSET` holds `TFC_AZURE_PROVIDER_AUTH`, `TFC_AZURE_RUN_CLIENT_ID`, `ARM_SUBSCRIPTION_ID`, `ARM_TENANT_ID`, `deployer_object_id` and `platform`. `fail` names what is missing (fix: `terraform apply in factory/infra/previews, then factory previews-env (docs/DEPLOY.md)`) |
 | `templates` | the template workspace holds `.claude-plugin/plugin.json` (`warn` otherwise; fix: `factory init` in a tool install, else clone `FACTORY_TEMPLATES_REPO` to the template workspace) |
 
 **`factory init [--org <org>] [--foundry <resource>] [--move-env-secrets] [--no-open]`** is idempotent: each step is
@@ -1072,9 +1073,10 @@ Only a global install (`-g`) is a tool install; a local tool (a tool manifest) i
 `FACTORY_ENV_FILE` and `FACTORY_TEMPLATES` win over both columns, as `serve --state-dir --env-file` do. The package
 (`ai-factory`, its version from `src/factory/Directory.Build.props`) holds the CLI, the runner and the server built
 together (one set of dependencies), and under `factory/` the plugin, `templates`, `dashboard`, `github-app.json` and
-`scripts/signin-smoke.mjs`, with `.env.example` at its root. It holds no deploy code (`factory/infra`, the canary's
-inputs): until spec 16, previews and `canary` need a checkout install, and a tool install refuses them with
-`previews need a checkout install of the factory until spec 16`. **"Use this template"** on `kamabery/ai-factory` makes
+`scripts/signin-smoke.mjs`, and `factory/infra/previews` (the one-time preview setup, applied by hand; see
+[Deploy](#deploy)), with `.env.example` at its root. Previews and `canary` run from either install (spec 16); a tool
+install's canary fingerprint names the package version in place of the deploy code's sources ([Canary](#canary)).
+**"Use this template"** on `kamabery/ai-factory` makes
 a fork, whose own plugin and agents run from a checkout install.
 
 The CLI calls `gh`, `az`, `node` (the sign-in smoke) and the canary's scaffold commands (`dotnet`,
@@ -1084,8 +1086,8 @@ and `FACTORY_CLAUDE_CMD`) name a program and its leading arguments to run in pla
 one's arguments after them and no shell between: a JSON array of strings (`["dotnet", "<dir>/Factory.TestHost.dll",
 "tool"]`), or else a path or program name, which is the program alone. The tests' fakes are Factory.TestHost's
 `claude`, `tool` and `signin` modes. A real job needs no PowerShell: gates run with no shell, and `FACTORY_GATE_SHELL`
-only finishes jobs approved before that rule (see [Gate](#gate)). Until spec 16, `setup-azure.ps1` and
-`setup-platform.ps1` are PowerShell, and read `FACTORY_AZ_CMD` as a script of their own.
+only finishes jobs approved before that rule (see [Gate](#gate)). The one-time preview setup is Terraform
+(`factory/infra/previews`), so the factory has no PowerShell.
 
 **`factory runner`** starts the runner (`artifacts/bin/Factory.Runner/debug/Factory.Runner.dll` beside the
 CLI's build, or `FACTORY_RUNNER`) and returns its exit code. Its run mode is `FACTORY_MODE` from the
@@ -1136,6 +1138,7 @@ target is cloned with `clone-target` into `<work>\cli\<owner>-<name>` and passed
 | `redeploy <id>` (`blocked` from `deploy`, or `ready` from `deploy` before `blocked` existed: back to Approved with `resume: deploy` and a fresh attempt budget once the cause is fixed; the runner resumes it at deploy) | the server (**Retry deploy**), a human |
 | `resume <id>` (`ready` or `blocked` with flag `usage-limit`: back to Approved, to continue its claude session in the stage it stopped in) | the server (**Resume**), a human |
 | `canary [-Force]` (see [Canary](#canary)) | the runner (before a deployable job), the server (**Run canary**), a human |
+| `previews-env [--from <file>]` (see [Deploy](#deploy)) | a human, after the one-time preview setup |
 | `destroy <id>` (any stage; a no-op without a preview) · `qa-login <id>` (prints the preview's QA user and password) | the server (**Tear down**, **QA login**), and `merge`/`discard` |
 | `sweep` · `canary-destroy` (see [Deploy](#deploy) and [Canary](#canary)) | the server at startup and the runner when it drains; `canary` and `sweep` start `canary-destroy` |
 | `event <json \| -Job -Idea -Kind -Agent>`, or `event` alone: a `SubagentStart` / `SubagentStop` hook payload on stdin, which appends `agent-start` or `agent-stop` for `FACTORY_JOB` (else `FACTORY_IDEA`; neither set, nothing), the plugin's `factory:` prefix stripped and an empty `agent_type` (Claude Code's internal agents) skipped; `agent-start` adds `agentId` and `transcript` (`<transcript_path without .jsonl>/subagents/agent-<agent_id>.jsonl`). The hook form prints nothing and always exits 0, so a hook never breaks a session | the plugin's hooks |
@@ -1290,6 +1293,21 @@ anything but the one child process that needs it, never logged):
 | `AZURE_GH_CLIENT_ID` · `AZURE_TENANT_ID` · `AZURE_SUBSCRIPTION_ID` | the app registration GitHub Actions signs in as (OIDC), for image builds and schema steps |
 | `HCP_API_URL` | default `https://app.terraform.io`; tests point it at a stub |
 
+**One-time setup** is Terraform, applied by a human (`docs/DEPLOY.md`), never by `factory`: `factory/infra/previews`
+holds the Azure identities, their roles and federated credentials, the External tenant's user flow and app, the shared
+platform, the HCP variable set and the budget, with its state in the HCP workspace `factory-setup` (execution mode
+local, so it runs under the human's `az login`). It adopts what an earlier setup made through `import` blocks. The HCP
+organization, its team token and the External tenant itself are made by hand.
+
+**`factory previews-env [--from <file>]`** copies that setup's results into `.env`. It reads the `dotenv` output of
+`terraform -chdir=<factory root>/factory/infra/previews output -json` (or of the JSON in `<file>`, in the same shape):
+a map of setting to value. Each of `AZURE_GH_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`,
+`HCP_AZURE_VARSET`, `FACTORY_ENTRA_TENANT_ID`, `FACTORY_ENTRA_SUBDOMAIN` and `FACTORY_ENTRA_USER_FLOW_ID` in the map is
+written by init's rule (the live line, else a commented-out one, else appended) and printed `<NAME>: set` or
+`<NAME>: unchanged`; any other name is ignored. It never writes `HCP_ORG`, so it never turns deploys on. With no
+`dotenv` output, or output that is not JSON, it refuses with `previews-env refused: <why>; run terraform apply in
+factory/infra/previews first` and exits 1, changing nothing.
+
 **`factory deploy <id>`** (job in `deploy`), in order; any step's failure is a failed attempt:
 
 0. A bootstrap job never deploys: GitHub dispatches only workflows on the default branch, and the
@@ -1425,7 +1443,7 @@ and `FACTORY_CANARY_SCAFFOLD` (scaffold options as in [Targets](#targets); defau
 `{"name":"canary","resource":"Item","db":"postgres","ui":"react","events":false,"auth":true}`, so
 every canary runs the sign-in smoke, deploy step 7a, against a real Entra External ID sign-in).
 A scaffold with auth also needs `FACTORY_ENTRA_TENANT_ID`, `FACTORY_ENTRA_SUBDOMAIN` and
-`FACTORY_ENTRA_USER_FLOW_ID` in `.env` (as `setup-azure.ps1` prints them): the canary appends them to
+`FACTORY_ENTRA_USER_FLOW_ID` in `.env` (`factory previews-env` writes them): the canary appends them to
 its scaffold's `IaC/envs/ephemeral.tfvars` as the `entra_external_*` variables, which a target
 commits itself, and refuses before anything deploys when one is missing (canary 15 failed its
 apply, and then its destroy, without them).
@@ -1434,7 +1452,8 @@ apply, and then its destroy, without them).
 (`src/factory/Factory.Cli/DeployService.cs` and `CanaryService.cs`, `src/factory/Factory.Store/HcpClient.cs`,
 `GitHubClient.cs` and `ToolRunner.cs`, each hashed with its line endings as LF, so a checkout on Windows and one on Linux
 agree; before spec 12 these were `deploy.ps1`, `hcp.ps1` and `github.ps1`, so a canary recorded then no
-longer counts and the first deployable job after cutover waits for a fresh pass); the template workspace's `IaC/` and `base-project/.github/workflows/deploy.yml`; the
+longer counts and the first deployable job after cutover waits for a fresh pass; a tool install, which has no
+sources, has the one line `factory <package version>` in their place); the template workspace's `IaC/` and `base-project/.github/workflows/deploy.yml`; the
 template pack as built (`artifacts/nupkg/*.nupkg`, which is what gets installed); the canary's own
 settings; and
 the HCP variable set's variables (key, category, and the value unless it is sensitive). A changed
