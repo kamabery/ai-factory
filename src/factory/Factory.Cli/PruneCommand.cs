@@ -11,7 +11,7 @@ public sealed class PruneCommand(IStateSettings settings, IStateSync sync, TimeP
 
     public CommandResult Run(CommandArgs args, IBoardSession session)
     {
-        if (!settings.IsAzure) throw new FactoryException("prune refused: FACTORY_STATE is not azure");
+        if (!settings.SharesFiles) throw new FactoryException("prune refused: FACTORY_STATE shares no files (azure, or sql with FACTORY_BLOB_URL)");
         var r = sync.Prune(session.Board.Jobs());
         if (r.Deleted > 0) session.AddEvent(Events.Create(clock.GetUtcNow(), ("kind", "note"), ("detail", $"pruned {r.Deleted} blobs, {r.Freed} bytes freed")));
         return CommandResult.Ok($"{r.Used} of {r.Cap} bytes");

@@ -15,6 +15,7 @@ public sealed class StateSettings(IOptions<StateOptions> options, IFactoryPaths 
     public bool IsAzure => Resolve().Mode == "azure";
     public string? ContainerUrl => Resolve().Url;
     public long Cap => Resolve().Cap;
+    public bool SharesFiles => Resolve() is { Mode: "azure" } or { Mode: "sql", Url: not null };
     public bool IsDatabase => Resolve().Mode is "sqlite" or "sql";
     public bool IsSql => Resolve().Mode == "sql";
     public string? DbPath => Resolve().DbPath;

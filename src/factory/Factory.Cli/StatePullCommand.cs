@@ -11,7 +11,7 @@ public sealed class StatePullCommand(IStateSettings settings, IStateSync sync) :
 
     public CommandResult Run(CommandArgs args, IBoardSession session)
     {
-        if (!settings.IsAzure) throw new FactoryException("state-pull refused: FACTORY_STATE is not azure");
+        if (!settings.SharesFiles) throw new FactoryException("state-pull refused: FACTORY_STATE shares no files (azure, or sql with FACTORY_BLOB_URL)");
         var n = sync.Pull(args.Arg(1));
         sync.SyncEvents();
         return CommandResult.Ok($"pulled: {n}");

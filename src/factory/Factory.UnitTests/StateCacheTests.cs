@@ -30,9 +30,24 @@ public class StateCacheTests
     }
 
     [Fact]
+    public void A_database_that_shares_files_exports_and_pulls_an_opened_jobs_folder()
+    {
+        _settings.IsDatabase.Returns(true);
+        _settings.SharesFiles.Returns(true);
+        var c = Cache();
+
+        c.Board(); c.Job("J-001");
+
+        _export.Received(1).Export();
+        _sync.Received(1).Pull("jobs/J-001/");
+        _sync.DidNotReceive().SyncBoard();
+    }
+
+    [Fact]
     public void Azure_refreshes_from_the_container_at_most_once_per_poll_interval()
     {
         _settings.IsAzure.Returns(true);
+        _settings.SharesFiles.Returns(true);
         var c = Cache();
 
         c.Board(); c.Board(); c.Events(); c.Job("J-001");

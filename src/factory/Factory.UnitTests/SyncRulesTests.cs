@@ -12,6 +12,7 @@ public class SyncRulesTests
     [InlineData("BOARD.json", false)]
     [InlineData("events.jsonl", false)]
     [InlineData("headless-settings.json", false)]
+    [InlineData(".export.json", false)]
     [InlineData(".sync.json", false)]
     [InlineData("jobs/J-001/spec.md.123.tmp", false)]
     [InlineData("jobs/J-001/x.lock", false)]

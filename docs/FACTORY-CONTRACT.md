@@ -902,7 +902,7 @@ Factory.TestHost's blob stub.
 | `jobs/<id>/transcripts/agent-<agentId>.jsonl` | same | a subagent's transcript, copied in at its `agent-stop` |
 
 Never synced: `*.tmp`, `*.lock`, `headless-settings.json`, `.local/` (a machine's own files, such
-as a token cache that `FACTORY_LOCAL_DIR` put under the home), `.sync.json` (the cache's manifest:
+as a token cache that `FACTORY_LOCAL_DIR` put under the home), `.export.json` (a database's export record), `.sync.json` (the cache's manifest:
 each synced path's length, mtime and ETag).
 
 **Locks.** In `azure`, each lock is also a 60 s lease on its `locks/` blob, taken alongside the
@@ -1155,7 +1155,7 @@ target is cloned with `clone-target` into `<work>\cli\<owner>-<name>` and passed
 | `feedback <id> -File <path>` | the server (the human's feedback on an evaluation) |
 | `lesson <id> [-File <path>]` · `lesson-mark <id> <open\|proposed\|applied> [-Detail <session>]` | the runner, a human evaluation session, the server (see [Lessons](#lessons)) |
 | `status [-Json]` | anyone |
-| `state-migrate` (`azure` only: uploads everything in `FACTORY_HOME` that is not already in the container, then writes `.sync.json`; refuses when the container already has a `board.json` newer than the local one) · `state-pull [<prefix>]` (pulls the container, or one prefix such as `jobs/J-019/`) · `prune` (runs the cap now and prints `<used> of <cap> bytes`) | a human; the server (`state-pull jobs/<id>/` when a job is opened) |
+| `state-migrate` (`azure` only: uploads everything in `FACTORY_HOME` that is not already in the container, then writes `.sync.json`; refuses when the container already has a `board.json` newer than the local one) · `state-pull [<prefix>]` (pulls the container, or one prefix such as `jobs/J-019/`) · `prune` (runs the cap now and prints `<used> of <cap> bytes`); both run while files are shared (`azure`, or `sql` with `FACTORY_BLOB_URL`), and refuse otherwise with `FACTORY_STATE shares no files (azure, or sql with FACTORY_BLOB_URL)` | a human; the server (`state-pull jobs/<id>/` when a job is opened) |
 | `state-import [-Azure]` (`sqlite` or `sql` only: the one-time move of `board.json` and `events.jsonl`, or with `-Azure` the container's, into an empty database; see [Database](#database-sqlite-and-sql)) | a human |
 | `allow-ip` (`azure` only: adds this machine's public IP to `FACTORY_STORAGE_ACCOUNT`'s firewall through `az storage account network-rule add`, and removes the IP it added last time, recorded in `%LOCALAPPDATA%\ai-factory\allowed-ip.txt`) | a human, after the public IP changes |
 

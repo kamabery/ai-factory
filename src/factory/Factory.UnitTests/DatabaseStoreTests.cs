@@ -3,6 +3,8 @@ using Factory.Core;
 using Factory.Data.Abstractions;
 using Factory.Store;
 using Factory.Store.Abstractions;
+using System.Globalization;
+using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
 
 namespace Factory.UnitTests;
@@ -15,13 +17,16 @@ public class DatabaseStoreTests
     private readonly MemoryFiles _files = new();
     private readonly IBoardRows _rows = Substitute.For<IBoardRows>();
     private readonly IStateExport _export = Substitute.For<IStateExport>();
+    private readonly IStateSync _sync = Substitute.For<IStateSync>();
+    private readonly IStateSettings _settings = Substitute.For<IStateSettings>();
+    private readonly FakeTimeProvider _clock = new(DateTimeOffset.Parse("2026-11-16T10:00:00Z", CultureInfo.InvariantCulture));
 
     private DatabaseStore Store()
     {
         var paths = Substitute.For<IFactoryPaths>();
         paths.Home.Returns(Home);
         paths.BoardPath.Returns(BoardPath);
-        return new DatabaseStore(paths, _files, _rows, _export);
+        return new DatabaseStore(paths, _files, _rows, _export, _sync, _settings, _clock);
     }
 
     private static BoardRead Read(string stage) =>
@@ -109,5 +114,55 @@ public class DatabaseStoreTests
         Assert.Empty(s.Close());
 
         _export.Received(1).Export();
+    }
+    [Fact]
+    public void Without_shared_files_nothing_is_pulled_or_pushed()
+    {
+        using (var s = Store().Open()) s.Close();
+
+        _sync.DidNotReceiveWithAnyArgs().Pull(default!);
+        _sync.DidNotReceiveWithAnyArgs().Push(default);
+    }
+
+    [Fact]
+    public void With_shared_files_a_command_pulls_the_container_when_it_opens_and_pushes_when_it_closes_holding_back_live_run_logs()
+    {
+        _settings.SharesFiles.Returns(true);
+        _rows.Read().Returns(Read("build"));
+        Func<string, bool>? skip = null;
+        _sync.Push(Arg.Do<Func<string, bool>?>(f => skip = f)).Returns(0);
+
+        using var s = Store().Open();
+        _sync.Received(1).Pull("");
+
+        Assert.Empty(s.Close());
+        Assert.True(skip!("jobs/J-001/run-1.jsonl"));
+        Assert.False(skip("jobs/J-002/run-1.jsonl"));
+        Assert.False(skip("jobs/J-001/spec.md"));
+        _sync.DidNotReceiveWithAnyArgs().Prune(default!);
+    }
+
+    [Fact]
+    public void A_push_that_uploaded_runs_the_cap_and_notes_what_it_pruned()
+    {
+        _settings.SharesFiles.Returns(true);
+        _sync.Push(Arg.Any<Func<string, bool>?>()).Returns(2);
+        _sync.Prune(Arg.Any<IEnumerable<Job>>()).Returns(new PruneResult(10, 5, 3, 4096));
+        using var s = Store().Open();
+
+        Assert.Empty(s.Close());
+
+        _rows.Received(1).AddEvent("""{"ts":"2026-11-16T10:00:00.000Z","kind":"note","detail":"pruned 3 blobs, 4096 bytes freed"}""");
+    }
+
+    [Fact]
+    public void A_failed_push_is_reported_not_thrown_and_state_import_does_not_pull()
+    {
+        _settings.SharesFiles.Returns(true);
+        _sync.Push(Arg.Any<Func<string, bool>?>()).Returns(_ => throw new FactoryException("blob 403"));
+        using var s = Store().Open(refresh: false);
+
+        Assert.Equal(["factory: state push failed: blob 403"], s.Close());
+        _sync.DidNotReceiveWithAnyArgs().Pull(default!);
     }
 }

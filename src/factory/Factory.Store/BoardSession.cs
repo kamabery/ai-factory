@@ -46,21 +46,7 @@ internal sealed class BoardSession(
 
     public IReadOnlyList<string> Close()
     {
-        if (!azure) return [];
-        try
-        {
-            // A live job's run logs wait until it leaves the Building stages.
-            var live = Board.Jobs().Where(j => Stages.Building.Contains(j.Stage, StringComparer.OrdinalIgnoreCase)).Select(j => j.Id)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            if (sync.Push(rel => SyncRules.RunLogJob(rel) is { } id && live.Contains(id)) == 0) return [];
-            var r = sync.Prune(Board.Jobs());
-            if (r.Deleted > 0) AddEvent(Events.Create(clock.GetUtcNow(), ("kind", "note"), ("detail", $"pruned {r.Deleted} blobs, {r.Freed} bytes freed")));
-            return [];
-        }
-        catch (FactoryException e)
-        {
-            return [$"factory: state push failed: {e.Message}"];
-        }
+        return azure ? ArtifactPush.Run(sync, Board, AddEvent, clock) : [];
     }
 
     public void Dispose() => Release();

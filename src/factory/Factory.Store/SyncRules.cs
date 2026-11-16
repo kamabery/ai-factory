@@ -5,7 +5,7 @@ namespace Factory.Store;
 /// <summary>Which FACTORY_HOME paths the container mirrors (contract, "State backends", Layout). Paths are relative, with <c>/</c>.</summary>
 public static partial class SyncRules
 {
-    private static readonly string[] OwnSync = ["board.json", "events.jsonl", "headless-settings.json", ".sync.json"];
+    private static readonly string[] OwnSync = ["board.json", "events.jsonl", "headless-settings.json", ".sync.json", ".export.json"];
 
     /// <summary>
     /// Whether push and pull carry the path. board.json and events.jsonl have their own sync; temp and lock files,

@@ -20,7 +20,7 @@ public sealed class StoreHome
         var blobs = new BlobClient(new HttpClient(), settings, new StateToken(opts, files, new ProcessRunner(), new HttpClient(), TimeProvider.System), TimeProvider.System);
         var sync = new StateSync(paths, files, blobs, settings, TimeProvider.System);
         var rows = new EfBoardRows(new FactoryDbs(new StateDbConnection(settings)));
-        var database = new DatabaseStore(paths, files, rows, new StateExport(paths, files, rows, new ThreadPause()));
+        var database = new DatabaseStore(paths, files, rows, new StateExport(paths, files, rows, new ThreadPause()), sync, settings, TimeProvider.System);
         Store = new FactoryStore(paths, files, new BoardMutex(paths), settings, opts, blobs, sync, TimeProvider.System, database);
     }
 
