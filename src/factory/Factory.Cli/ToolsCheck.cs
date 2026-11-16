@@ -5,7 +5,7 @@ using Factory.Store.Abstractions;
 
 namespace Factory.Cli;
 
-/// <summary>git, dotnet and claude run; az too in cloud mode, terraform while HCP_ORG is set; git has a user.name and user.email.</summary>
+/// <summary>git, dotnet and claude run; az too in cloud mode, terraform and gh while HCP_ORG is set; git has a user.name and user.email.</summary>
 public sealed class ToolsCheck(IProcessRunner processes, ILlmProvider llm, IDotEnv dotEnv) : IDoctorCheck
 {
     public string Name => "tools";
@@ -15,7 +15,11 @@ public sealed class ToolsCheck(IProcessRunner processes, ILlmProvider llm, IDotE
     {
         List<(string, string, string[])> tools = [("git", "git", ["--version"]), ("dotnet", "dotnet", ["--version"]), ("claude", ClaudeCli.Executable(), ["--version"])];
         if (foundry) tools.Add(("az", StateToken.AzProgram, ["version", "--output", "none"]));
-        if (dotEnv.Get("HCP_ORG") is not null) tools.Add(("terraform", "terraform", ["version"]));
+        if (dotEnv.Get("HCP_ORG") is not null)
+        {
+            tools.Add(("terraform", "terraform", ["version"]));
+            tools.Add(("gh", "gh", ["--version"]));
+        }
         return tools;
     }
 
@@ -47,7 +51,7 @@ public sealed class ToolsCheck(IProcessRunner processes, ILlmProvider llm, IDotE
             var r = processes.Run(program, args, "");
             if (r.ExitCode != 0) return null;
             var line = r.StdOut.Split('\n').FirstOrDefault()?.Trim() ?? "";
-            return line.Replace("git version ", "", StringComparison.Ordinal).Replace(" (Claude Code)", "", StringComparison.Ordinal).Replace("Terraform v", "", StringComparison.Ordinal);
+            return line.Replace("git version ", "", StringComparison.Ordinal).Replace(" (Claude Code)", "", StringComparison.Ordinal).Replace("Terraform v", "", StringComparison.Ordinal).Replace("gh version ", "", StringComparison.Ordinal);
         }
         catch (System.ComponentModel.Win32Exception) { return null; }
     }

@@ -173,6 +173,7 @@ public static class Composition
         services.AddSingleton<IDoctorCheck, GitHubCheck>();
         services.AddSingleton<IDoctorCheck>(sp => sp.GetRequiredService<LlmCheck>());
         services.AddSingleton<IDoctorCheck, HcpCheck>();
+        services.AddSingleton<IDoctorCheck, PreviewsCheck>();
         services.AddSingleton<IDoctorCheck, TemplatesCheck>();
         services.AddSingleton<IDoctor, Doctor>();
         services.AddSingleton<IStandaloneCommand, DoctorCommand>();
@@ -191,6 +192,7 @@ public static class Composition
         services.AddSingleton<IStandaloneCommand, ServeCommand>();
         services.AddSingleton<IStandaloneCommand, IdeaCommand>();
         services.AddSingleton<IStandaloneCommand, CheckCommand>();
+        services.AddSingleton<IStandaloneCommand, PreviewsEnvCommand>();
         services.AddSingleton<CliApp>();
         return services;
     }
