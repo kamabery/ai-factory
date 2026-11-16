@@ -10,8 +10,10 @@ namespace Factory.Cli;
 /// <c>factory container serve|job</c> (contract, "Cloud mode (deployed)"): the image's entry point. az signs in as the
 /// managed identity, the template workspace is cloned when missing, then the dashboard behind sign-in, or one job.
 /// </summary>
-public sealed class ContainerCommand(IFactoryPaths paths, IProcessRunner processes, TemplateWorkspace templates, CliEnvironment host) : IStandaloneCommand
+public sealed class ContainerCommand(IFactoryPaths paths, IProcessRunner processes, IFileStore files, TemplateWorkspace templates, CliEnvironment host) : IStandaloneCommand
 {
+    private static readonly string[] Settings = ["GITHUB_", "HCP_", "AZURE_", "FACTORY_"];
+
     public string Name => "container";
 
     public int Run(IReadOnlyList<string> args, TextReader stdin, TextWriter stdout, TextWriter stderr)
@@ -25,6 +27,17 @@ public sealed class ContainerCommand(IFactoryPaths paths, IProcessRunner process
             : ["login", "--identity", "--output", "none"];
         var r = processes.Run(StateToken.AzProgram, login, "");
         if (r.ExitCode != 0) return Refuse(stderr, 1, $"az login --identity failed: {(r.StdErr + r.StdOut).Trim()}");
+
+        // The factory reads its settings from .env; a container has only its environment.
+        if (paths.EnvFile is { } envFile)
+        {
+            var lines = host.Variables
+                .Where(kv => kv.Value is { Length: > 0 } && Settings.Any(p => kv.Key.StartsWith(p, StringComparison.Ordinal))
+                    && !SecretNames.All.Contains(kv.Key, StringComparer.Ordinal))
+                .OrderBy(kv => kv.Key, StringComparer.Ordinal)
+                .Select(kv => $"{kv.Key}={kv.Value}\n");
+            files.WriteAtomic(envFile, System.Text.Encoding.UTF8.GetBytes(string.Concat(lines)));
+        }
 
         try { templates.Ensure(stdout); }
         catch (FactoryException e) { return Refuse(stderr, 1, e.Message); }

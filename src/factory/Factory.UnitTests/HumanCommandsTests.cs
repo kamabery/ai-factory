@@ -67,7 +67,7 @@ public class HumanCommandsTests
     }
 
     private ContainerCommand Container(Dictionary<string, string?> env) =>
-        new(_paths, _processes, new TemplateWorkspace(_paths, _files, Substitute.For<IGitClient>(), Substitute.For<IDotEnv>(),
+        new(_paths, _processes, _files, new TemplateWorkspace(_paths, _files, Substitute.For<IGitClient>(), Substitute.For<IDotEnv>(),
             Substitute.For<IGitHub>(), Substitute.For<IGitHubCredential>()), Host(env));
 
     private static Dictionary<string, string?> Identity(string? port = null) =>
@@ -96,6 +96,26 @@ public class HumanCommandsTests
         Assert.Equal("1", Attached[0].Env["FACTORY_CONTAINER"]);
         Assert.Equal((7, ""), Run(Container(Identity()), "serve"));
         Assert.Equal([_paths.ServerDll, "--port", "8080", "--require-signin"], Attached[1].Args);
+    }
+
+    [Fact]
+    public void Container_writes_the_profiles_env_from_its_environment_without_a_secret_before_it_starts()
+    {
+        var envFile = Path.Combine(Repo, "profile", ".env");
+        _paths.EnvFile.Returns(envFile);
+        _files.Put(envFile, "OLD=1\n");
+        _processes.Run(StateToken.AzProgram, Arg.Any<IReadOnlyList<string>>(), Arg.Any<string>()).Returns(new ProcessResult(0, "", ""));
+        var env = Identity();
+        env["GITHUB_OWNER"] = "kamabery";
+        env["HCP_ORG"] = "org";
+        env["FACTORY_MODE"] = "cloud";
+        env["HCP_TOKEN"] = "never-written";
+        env["GITHUB_APP_PRIVATE_KEY"] = "never-written";
+        env["PATH"] = "/usr/bin";
+
+        Assert.Equal((7, ""), Run(Container(env), "serve"));
+
+        Assert.Equal("AZURE_CLIENT_ID=cid\nFACTORY_MODE=cloud\nGITHUB_OWNER=kamabery\nHCP_ORG=org\n", _files.Text(envFile));
     }
 
     [Fact]

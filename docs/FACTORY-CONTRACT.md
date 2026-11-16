@@ -1680,8 +1680,9 @@ token back), and the right to start its own runner job. No key, connection secre
 Both set `FACTORY_MODE=cloud`, `FACTORY_FOUNDRY_RESOURCE`, `FACTORY_STATE=sql` with `FACTORY_SQL`
 (`Authentication=Active Directory Default`) and `FACTORY_BLOB_URL` (the artifacts, [Database](#database-sqlite-and-sql)),
 `FACTORY_SECRET_VAULT`, `AZURE_CLIENT_ID` (the identity), `FACTORY_RUNNER_JOB` (the runner job's resource id),
-`GITHUB_OWNER`, and the deploy settings (`HCP_ORG` and the `previews-env` settings) when previews are on. Nothing reads
-a `.env` in a container. The secrets (`GITHUB_APP_*`, `GITHUB_USER_*`, `HCP_TOKEN`, `HCP_TEAM_TOKEN`) are in the vault.
+`GITHUB_OWNER`, and the deploy settings (`HCP_ORG` and the `previews-env` settings) when previews are on. The factory
+reads its settings from `.env`, so `factory container` writes the container's (the profile's) from its environment
+before it starts anything. The secrets (`GITHUB_APP_*`, `GITHUB_USER_*`, `HCP_TOKEN`, `HCP_TEAM_TOKEN`) are in the vault.
 
 **The image** is `ghcr.io/<owner>/ai-factory:<package version>`, public, built from `factory/container/Dockerfile`:
 the package installed as a tool install, with `git`, `node`, `claude`, `az`, `gh` and `terraform` on `PATH`, running as
@@ -1692,8 +1693,11 @@ deployed factory runs exactly one release.
 1. With `IDENTITY_ENDPOINT` set (a managed identity), `az login --identity --client-id <AZURE_CLIENT_ID>`, so every
    `az` the factory runs (Foundry tokens for idea turns, `az rest`) acts as the identity. It refuses with
    `container refused: no managed identity (IDENTITY_ENDPOINT is unset)` otherwise.
-2. The template workspace as `init` step 4 clones it, when missing.
-3. `serve`: the server on `0.0.0.0:<PORT, else 8080>` with `--require-signin`. `job`: `factory runner --one`, whose
+2. It writes `.env` (the tool install's, `<profile>/.env`): one `NAME=value` line for each environment variable named
+   `GITHUB_*`, `HCP_*`, `AZURE_*` or `FACTORY_*` that is not one of the secrets above, sorted by name, replacing the
+   file.
+3. The template workspace as `init` step 4 clones it, when missing.
+4. `serve`: the server on `0.0.0.0:<PORT, else 8080>` with `--require-signin`. `job`: `factory runner --one`, whose
    exit code is the container's.
 It sets `FACTORY_CONTAINER=1`, under which each runner log line is also written to stdout (`runner <line>`). After
 `set-cost` the runner logs `cost <id> usd=<costUsd> ms=<ms> in=<input tokens> out=<output tokens>` from the result
