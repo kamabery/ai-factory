@@ -1,6 +1,6 @@
 # 16: Previews setup as Terraform
 
-**Status:** not started. **Branch:** `feature/16-init-previews`. **Depends on:** 09, 14. **Decision:** D4.
+**Status:** done (2026-11-16). Adopted live with no change to Azure (36 imported; second plan: No changes); `canary -Full` passed in 36 min and tore down; J-002 on todoapp-two reached `preview: up` from the .NET deploy (46 min, $1.75) and `destroy` left no resource group or workspace; the live check found and fixed an id collision across boards (checkout). Suites: unit 1070, integration 196 + 1 skipped (Windows), 193 + 4 skipped (WSL), coverage gates ok, `terraform test` 5, Playwright smoke 5. **Branch:** `feature/16-init-previews`. **Depends on:** 09, 14. **Decision:** D4.
 
 Reshaped 2026-11-16. The original spec was a guided, resumable `factory init previews` for a stranger with an empty
 subscription: HCP org and team token made through the API, preflights, a run against a new subscription. That is
