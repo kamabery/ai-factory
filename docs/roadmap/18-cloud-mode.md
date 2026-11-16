@@ -1,6 +1,6 @@
 # 18: Cloud mode on Container Apps
 
-**Status:** not started. **Branch:** `feature/18-cloud-mode`. **Depends on:** 13, 16, 17.
+**Status:** in progress (contract written 2026-11-16). **Branch:** `feature/18-cloud-mode`. **Depends on:** 13, 16, 17.
 
 ## Scope
 

@@ -251,7 +251,11 @@ with one; neither needs a hand edit of `.env`.
 **Secrets** live in the operating system's secret store, never in `.env` (which keeps the non-secret settings):
 - Windows: Credential Manager, generic credentials named `<prefix>/<NAME>`.
 - Linux: libsecret through `secret-tool`, attributes `service <prefix>` and `name <NAME>`.
-- macOS is out of scope; a deployed factory's store (Key Vault and a managed identity) comes with cloud mode (18).
+- macOS is out of scope.
+- A deployed factory ([Cloud mode](#cloud-mode-deployed)): Azure Key Vault, when `FACTORY_SECRET_VAULT` (the vault's
+  URI) is set, which wins over the two above. A secret is named `<NAME>` with each `_` as `-` (`GITHUB-APP-ID`); the
+  prefix is not used, since a vault holds one factory's secrets. Calls carry an Entra token for
+  `https://vault.azure.net`, from the same chain as the storage token ([State backends](#state-backends), Auth).
 
 `<prefix>` is `ai-factory`, or `FACTORY_SECRET_PREFIX`. Tests and the simulator set `FACTORY_SECRET_DIR` instead: a
 folder holding one file per secret, which nothing real uses. The secrets are `GITHUB_APP_ID`, `GITHUB_APP_SLUG`,
@@ -957,9 +961,13 @@ a SQL Server container's own login.
 - `sqlite` is one machine's: its file lives beside the state, in WAL mode. SQLite itself is the build EF Core
   ships (`e_sqlite3`), or, where that cannot load (it needs glibc 2.33 or later; Ubuntu 20.04 has 2.31), the
   operating system's `libsqlite3.so.0`.
-- `sql` is Azure SQL in cloud mode, shared by every machine pointed at it. The artifacts stay in each
-  machine's `FACTORY_HOME` until cloud mode (spec 18) decides how they are shared; until then, run one
-  machine per `sql` database.
+- `sql` is Azure SQL in cloud mode, shared by every machine pointed at it. With `FACTORY_BLOB_URL` also set,
+  the artifacts are shared through that Blob container exactly as `azure` shares them (Layout, Sync and Cap
+  above, the same token), except that `board.json` and `events.jsonl` are the database's exports and are
+  never synced, and no `board` lease is taken: every command pulls the container's changes when it starts
+  and pushes its own when it ends, the server pulls a job's folder when it is opened, and idea turns pull and
+  push their session. A deployed factory runs so ([Cloud mode](#cloud-mode-deployed)). Without
+  `FACTORY_BLOB_URL` the artifacts stay in each machine's `FACTORY_HOME`, so run one machine per database.
 
 **Schema.** Every table has `TenantId` (always `default`, never exported) in its key:
 
@@ -1093,10 +1101,12 @@ only finishes jobs approved before that rule (see [Gate](#gate)). The one-time p
 CLI's build, or `FACTORY_RUNNER`) and returns its exit code. Its run mode is `FACTORY_MODE` from the
 environment, else `.env`, else `Factory:Mode` from its configuration; `factory runner` passes
 `Factory:Mode=local`, this contract's default, and a runner started with no mode from any of them refuses
-to start rather than default to a subscription.
+to start rather than default to a subscription. `factory runner --one` takes at most one job (or one canary and
+then one job), then starts the runner again if `next` still returns a job, and exits (`exit one`): a deployed
+factory's job execution ([Cloud mode](#cloud-mode-deployed)).
 
 **`factory serve [--port <n>] [--state-dir <dir>] [--env-file <path>] [--watchdog-seconds <n>]
-[--pr-sync-seconds <n>]`** starts the dashboard server (`artifacts/bin/Factory.Server/debug/Factory.Server.dll`,
+[--pr-sync-seconds <n>] [--require-signin]`** starts the dashboard server (`artifacts/bin/Factory.Server/debug/Factory.Server.dll`,
 or `FACTORY_SERVER`) with those arguments and `--parent-pid` with its own PID; the server stops (releasing
 `serve.lock`) within about a second of that process ending, so stopping `factory serve` never leaves an
 orphaned server, and a reused PID with a different start time does not count as the parent. Started without
@@ -1510,7 +1520,7 @@ auth add-on's), or refuses when the preview has none. Only the dashboard calls i
 
 ## Dashboard API
 
-The server listens on localhost only. GETs serve the dashboard, a React SPA built into `factory/dashboard/`
+The server listens on localhost only, except under `--require-signin` ([Cloud mode](#cloud-mode-deployed)). GETs serve the dashboard, a React SPA built into `factory/dashboard/`
 (`index.html` at `/`, its bundle under `factory/dashboard/assets/` at `/assets/...`), and read-only files under the
 state dir: it rejects `..`, and serves `.md` as text/plain. The SPA's source is `src/factory/Factory.Dashboard`, and
 `npm run build` there writes `factory/dashboard/`, which is committed, so neither install needs Node. Every write is a thin
@@ -1648,3 +1658,70 @@ one interval, with no drag.
 The `/factory:idea` session doesn't use the runner or the lock. It writes only under `ideas/` and
 through `factory`, so it can run while a job builds. After it approves a spec, the dashboard's
 watchdog starts the runner; with no dashboard running, the session tells the human to run `factory runner`.
+
+## Cloud mode (deployed)
+
+A **deployed factory** is the same CLI, server and runner, as one container image on Azure Container Apps, with no
+machine of the human's in the loop. It is set up once by Terraform (`factory/infra/cloud`, applied by hand) and
+`factory init cloud`; the runbook is `docs/CLOUD.md`. Local development keeps the AppHost; `aspire publish` is not
+used, because its Bicep would sit outside the HCP Terraform state everything else is in.
+
+**What runs where.** One managed identity is the deployed factory's only credential to Azure. It has Foundry User on
+the Foundry account (`factory/infra/llm`'s `principal_ids`), a database user on the Azure SQL database, Storage Blob
+Data Owner on the artifacts container, Key Vault Secrets User on the factory's vault, and the right to start its own
+runner job. No key, connection secret or subscription login exists anywhere in it.
+
+| Part | Is | Environment |
+| --- | --- | --- |
+| The dashboard | a Container App, ingress on, scaling to zero, behind Easy Auth | `factory container serve` |
+| The runner | a Container Apps job, manual trigger, one execution at a time: each execution is one job, in its own container, deleted when it exits | `factory container job` |
+
+Both set `FACTORY_MODE=cloud`, `FACTORY_FOUNDRY_RESOURCE`, `FACTORY_STATE=sql` with `FACTORY_SQL`
+(`Authentication=Active Directory Default`) and `FACTORY_BLOB_URL` (the artifacts, [Database](#database-sqlite-and-sql)),
+`FACTORY_SECRET_VAULT`, `AZURE_CLIENT_ID` (the identity), `FACTORY_RUNNER_JOB` (the runner job's resource id),
+`GITHUB_OWNER`, and the deploy settings (`HCP_ORG` and the `previews-env` settings) when previews are on. Nothing reads
+a `.env` in a container. The secrets (`GITHUB_APP_*`, `GITHUB_USER_*`, `HCP_TOKEN`, `HCP_TEAM_TOKEN`) are in the vault.
+
+**The image** is `ghcr.io/<owner>/ai-factory:<package version>`, public, built from `factory/container/Dockerfile`:
+the package installed as a tool install, with `git`, `node`, `claude`, `az`, `gh` and `terraform` on `PATH`, running as
+a non-root user. It is built and pushed by hand (the repo has no workflows); the tag is the package version, so a
+deployed factory runs exactly one release.
+
+**`factory container serve|job`** is the image's entry point and does nothing outside a container:
+1. With `IDENTITY_ENDPOINT` set (a managed identity), `az login --identity --client-id <AZURE_CLIENT_ID>`, so every
+   `az` the factory runs (Foundry tokens for idea turns, `az rest`) acts as the identity. It refuses with
+   `container refused: no managed identity (IDENTITY_ENDPOINT is unset)` otherwise.
+2. The template workspace as `init` step 4 clones it, when missing.
+3. `serve`: the server on `0.0.0.0:<PORT, else 8080>` with `--require-signin`. `job`: `factory runner --one`, whose
+   exit code is the container's.
+Each runner log line is also written to stdout, and after `set-cost` the runner logs
+`cost <id> usd=<costUsd> ms=<ms> provider=<provider> in=<input tokens> out=<output tokens>` from the result line's
+`usage`, so the environment's Log Analytics workspace holds the runs and their token use beside the account's own
+metrics (`docs/CLOUD.md` has the query).
+
+**Starting the runner.** With `FACTORY_RUNNER_JOB` set, everything that starts the runner (an approval, **Retry
+deploy**, **Resume**, the watchdog, `runner --one` itself) starts one execution of that job instead,
+`az rest --method post --url https://management.azure.com<FACTORY_RUNNER_JOB>/start?api-version=2025-01-01`, and logs
+`started runner execution <name>`. The watchdog then counts the runner as alive while the `runner` lease is held (a
+row in `Leases`), or for 3 minutes after it started an execution (a container's start), not by `runner.lock`'s PID,
+which is in another container. A second execution that finds the lease held exits 0, as a second runner does.
+
+**Sign-in.** Easy Auth (Microsoft Entra, an app registration with assignment required) stands in front of the
+dashboard: only the users assigned to the app reach it, and Container Apps strips any `X-MS-CLIENT-PRINCIPAL*`
+header a request brings. `serve --require-signin` refuses (401, `{ "ok": false, "message": "sign-in required" }`)
+every request without `X-MS-CLIENT-PRINCIPAL-ID`, so the port is never open without Easy Auth in front. Without the
+flag the server keeps listening on localhost only.
+
+**Limits.** The dashboard scales to zero when no one has it open, and so do its watchdog, PR sync and any detached
+command it started: a PR merged on GitHub lands in Done the next time the dashboard is opened, and a preview destroy
+cut short is finished by the startup `sweep`. A job execution has no Docker, so a gate that needs Testcontainers fails
+in cloud mode. A deployed factory's board is its own: its job ids start at `J-001`, so on a target another board has
+used, checkout refuses that board's branches ([checkout](#factory-commands)).
+
+**`factory init cloud [--from <file>]`** connects this machine to a deployed factory after `terraform apply` in
+`factory/infra/cloud`. It reads that Terraform's outputs as `previews-env` reads its own, then:
+1. copies each secret above that this machine's store holds into the vault (`set` or `unchanged`, never printing a value);
+2. prints the dashboard's URL.
+It refuses (`init cloud refused: <why>; run terraform apply in factory/infra/cloud first`, exit 1) when the outputs
+lack the vault. It changes nothing in this machine's `.env` or board: the local factory and the deployed one are two
+boards.
