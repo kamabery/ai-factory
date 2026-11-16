@@ -16,4 +16,7 @@ public interface ICanaryService
 
     /// <summary><c>canary-destroy</c>: j000 down, pass or fail, and the outcome under <c>teardown</c>; prints its status.</summary>
     IReadOnlyList<string> Teardown(IBoardSession session);
+
+    /// <summary><c>canary -Retry</c>: a recorded failure marked <c>retry</c>, so the runner runs the canary again; runs nothing.</summary>
+    string Retry();
 }

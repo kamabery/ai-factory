@@ -68,6 +68,17 @@ public sealed partial class CanaryService(
         return $"canary: pass ({PsJsonReader.Text(rec["urls"]?["api"])})";
     }
 
+    public string Retry()
+    {
+        var path = Path.Combine(paths.Home, "canary.json");
+        if (files.ReadText(path) is not { } text || System.Text.Json.Nodes.JsonNode.Parse(text) is not System.Text.Json.Nodes.JsonObject c
+            || !PsJsonReader.Is(PsJsonReader.Str(c["status"]), "failed"))
+            return "canary: nothing to retry";
+        c["status"] = "retry";
+        files.WriteAtomic(path, System.Text.Encoding.UTF8.GetBytes(c.ToJsonString()));
+        return "canary: retry queued";
+    }
+
     public IReadOnlyList<string> Teardown(IBoardSession session)
     {
         var until = clock.GetUtcNow().AddSeconds(30);

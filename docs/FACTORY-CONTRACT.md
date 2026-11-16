@@ -1515,7 +1515,11 @@ current fingerprint. When it does not, the runner runs `canary` itself (logging 
 the runner takes only jobs that are not deployable (bootstraps); the dashboard shows a banner with
 the error and **Run canary**. A failed canary is not retried automatically, because each run costs
 real Azure time; the human fixes the cause and clicks **Run canary** (`canary -Force`), and the
-watchdog starts the runner once it passes.
+watchdog starts the runner once it passes. In a deployed factory ([Cloud mode](#cloud-mode-deployed)) **Run canary** runs
+`canary -Retry` instead, then starts the runner: the canary runs in a runner execution, which the runner's own
+step 1 starts, never in the dashboard's container. `canary -Retry` runs nothing: when `canary.json` records a
+failure it sets `status` to `retry` (so the canary is wanted again for that fingerprint) and prints
+`canary: retry queued`, else `canary: nothing to retry`.
 
 **`factory qa-login <id>`** prints `qa_user` and `qa_password` from the workspace's outputs (the
 auth add-on's), or refuses when the preview has none. Only the dashboard calls it, for the human.

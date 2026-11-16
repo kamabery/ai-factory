@@ -81,6 +81,12 @@ public sealed class JobsApi(
     {
         if (ServerFiles.LockHolder(files, Path.Combine(paths.Home, "canary.lock")) is { } pid && procs.IsAlive(pid))
             return Reply.Error(409, "a canary is already running");
+        // In the cloud the canary runs in a runner execution, never in the dashboard's container.
+        if (runner.StartsExecutions)
+        {
+            var retry = factory.Run("canary", "-Retry");
+            return retry.Ok ? Reply.Of(CallResult.Done($"{retry.Message.Trim()}; {runner.Start()}")) : Reply.Of(retry);
+        }
         launcher.StartDetached(["canary", "-Force"]);
         return Reply.Of(CallResult.Done("canary started"));
     }

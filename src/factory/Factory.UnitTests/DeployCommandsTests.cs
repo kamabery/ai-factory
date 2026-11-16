@@ -425,5 +425,9 @@ public class DeployCommandsTests : CommandTestBase
         Assert.Equal(["canary: pass (https://api)"], new CanaryCommand(canary).Run(Args("canary", "-Force", "-Full"), s).Out);
         Assert.Equal(["down"], new CanaryDestroyCommand(canary).Run(Args("canary-destroy"), s).Out);
         Assert.Equal(["canary", "canary-destroy"], [new CanaryCommand(canary).Name, new CanaryDestroyCommand(canary).Name]);
+
+        canary.Retry().Returns("canary: retry queued");
+        Assert.Equal(["canary: retry queued"], new CanaryCommand(canary).Run(Args("canary", "-Retry"), s).Out);
+        canary.DidNotReceive().Run(s, false, false);
     }
 }
