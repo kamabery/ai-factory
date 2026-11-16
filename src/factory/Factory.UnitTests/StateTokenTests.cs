@@ -92,4 +92,30 @@ public class StateTokenTests
 
         Assert.Equal("fresh", Token(new StateOptions()).Get());
     }
+    [Fact]
+    public void A_user_assigned_identity_is_named_by_its_client_id()
+    {
+        _http.Respond = r =>
+        {
+            Assert.Equal("http://id/token?resource=https://storage.azure.com&api-version=2019-08-01&client_id=cid", r.RequestUri!.ToString());
+            return """{"access_token":"mi","expires_on":"2000000"}""";
+        };
+
+        Assert.Equal("mi", Token(new StateOptions { IdentityEndpoint = "http://id/token", IdentityHeader = "h", ClientId = "cid" }).Get());
+    }
+
+    [Fact]
+    public void Another_resource_has_its_own_az_call_and_cache_and_FACTORY_STATE_TOKEN_is_storage_only()
+    {
+        Az(0, """{"accessToken":"kv","expires_on":1000600}""");
+        var t = Token(new StateOptions { Token = "storage-only" });
+
+        Assert.Equal("kv", t.Get("https://vault.azure.net"));
+        Assert.Equal("storage-only", t.Get());
+
+        _processes.Received(1).Run(StateToken.AzProgram,
+            Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "account", "get-access-token", "--resource", "https://vault.azure.net", "--output", "json" })), Arg.Any<string>());
+        Assert.Contains("\"kv\"", _files.Text(Path.Combine(Local, "vault-token.json")));
+        Assert.Null(_files.ReadText(Cache));
+    }
 }

@@ -41,6 +41,7 @@ public static class RunnerComposition
             o.AzCmd = Get("FACTORY_AZ_CMD");
             o.IdentityEndpoint = Get("IDENTITY_ENDPOINT");
             o.IdentityHeader = Get("IDENTITY_HEADER");
+            o.ClientId = Get("AZURE_CLIENT_ID");
             o.RenewSeconds = Get("FACTORY_STATE_RENEW_SECONDS");
             o.Db = Get("FACTORY_DB");
             o.Sql = Get("FACTORY_SQL");

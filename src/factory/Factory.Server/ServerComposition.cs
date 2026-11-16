@@ -45,6 +45,7 @@ public static class ServerComposition
             o.AzCmd = Get("FACTORY_AZ_CMD");
             o.IdentityEndpoint = Get("IDENTITY_ENDPOINT");
             o.IdentityHeader = Get("IDENTITY_HEADER");
+            o.ClientId = Get("AZURE_CLIENT_ID");
             o.Db = Get("FACTORY_DB");
             o.Sql = Get("FACTORY_SQL");
         });

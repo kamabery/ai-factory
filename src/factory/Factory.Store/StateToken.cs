@@ -10,13 +10,13 @@ using Microsoft.Extensions.Options;
 namespace Factory.Store;
 
 /// <summary>
-/// state.ps1's Get-StateToken: FACTORY_STATE_TOKEN (tests), else the managed identity, else
+/// state.ps1's Get-StateToken: FACTORY_STATE_TOKEN (tests), else the managed identity (AZURE_CLIENT_ID names a user-assigned one), else
 /// <c>az account get-access-token</c> (or FACTORY_AZ_CMD), cached until five minutes before expiry in
 /// &lt;local dir&gt;/storage-token.json, never under FACTORY_HOME, so the next process need not ask az again.
 /// </summary>
 public sealed class StateToken(IOptions<StateOptions> options, IFileStore files, IProcessRunner processes, HttpClient http, TimeProvider clock) : IStateToken
 {
-    private const string Resource = "https://storage.azure.com";
+    private const string Storage = "https://storage.azure.com";
 
     /// <summary>
     /// az's launcher: a batch file on Windows, which runs only by its full name (started as plain az.cmd it prints
@@ -24,28 +24,34 @@ public sealed class StateToken(IOptions<StateOptions> options, IFileStore files,
     /// </summary>
     public static readonly string AzProgram = OperatingSystem.IsWindows() ? ToolPath.Find("az.cmd", Environment.GetEnvironmentVariable("PATH")) : "az";
 
-    private (string Token, long ExpiresOn)? _token;
+    private readonly Dictionary<string, (string Token, long ExpiresOn)> _tokens = [];
 
     private StateOptions O => options.Value;
 
-    public string Get()
+    public string Get() => !string.IsNullOrEmpty(O.Token) ? O.Token : Get(Storage);
+
+    /// <summary>
+    /// A token for another resource (Key Vault's), from the same chain but FACTORY_STATE_TOKEN, cached in
+    /// &lt;local dir&gt;/&lt;the resource host's first label&gt;-token.json (storage-token.json for storage).
+    /// </summary>
+    public string Get(string resource)
     {
-        if (!string.IsNullOrEmpty(O.Token)) return O.Token;
         var now = clock.GetUtcNow().ToUnixTimeSeconds();
-        if (_token is { } t && t.ExpiresOn > now + 300) return t.Token;
-        if (!string.IsNullOrEmpty(O.IdentityEndpoint) && !string.IsNullOrEmpty(O.IdentityHeader)) return Remember(ManagedIdentity());
-        var cache = Path.Combine(O.LocalDir ?? "", "storage-token.json");
-        if (Cached(cache) is { } c && c.ExpiresOn > now + 300) return Remember(c);
-        var fresh = Az();
+        if (_tokens.TryGetValue(resource, out var t) && t.ExpiresOn > now + 300) return t.Token;
+        if (!string.IsNullOrEmpty(O.IdentityEndpoint) && !string.IsNullOrEmpty(O.IdentityHeader)) return Remember(resource, ManagedIdentity(resource));
+        var cache = Path.Combine(O.LocalDir ?? "", $"{new Uri(resource).Host.Split('.')[0]}-token.json");
+        if (Cached(cache) is { } c && c.ExpiresOn > now + 300) return Remember(resource, c);
+        var fresh = Az(resource);
         files.WriteAtomic(cache, Encoding.UTF8.GetBytes(new JsonObject { ["token"] = fresh.Token, ["expiresOn"] = fresh.ExpiresOn }.ToJsonString()));
-        return Remember(fresh);
+        return Remember(resource, fresh);
     }
 
-    private string Remember((string Token, long ExpiresOn) t) { _token = t; return t.Token; }
+    private string Remember(string resource, (string Token, long ExpiresOn) t) { _tokens[resource] = t; return t.Token; }
 
-    private (string Token, long ExpiresOn) ManagedIdentity()
+    private (string Token, long ExpiresOn) ManagedIdentity(string resource)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"{O.IdentityEndpoint}?resource={Resource}&api-version=2019-08-01");
+        var client = string.IsNullOrEmpty(O.ClientId) ? "" : $"&client_id={O.ClientId}";
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"{O.IdentityEndpoint}?resource={resource}&api-version=2019-08-01{client}");
         req.Headers.TryAddWithoutValidation("X-IDENTITY-HEADER", O.IdentityHeader);
         using var res = http.Send(req);
         var j = JsonNode.Parse(res.Content.ReadAsStream())!;
@@ -62,9 +68,9 @@ public sealed class StateToken(IOptions<StateOptions> options, IFileStore files,
         catch (Exception e) when (e is JsonException or FormatException or InvalidOperationException or NullReferenceException) { return null; }
     }
 
-    private (string Token, long ExpiresOn) Az()
+    private (string Token, long ExpiresOn) Az(string resource)
     {
-        string[] args = ["account", "get-access-token", "--resource", Resource, "--output", "json"];
+        string[] args = ["account", "get-access-token", "--resource", resource, "--output", "json"];
         var r = string.IsNullOrEmpty(O.AzCmd)
             ? processes.Run(AzProgram, args, "")
             : processes.Run(CommandOverride.Parse("FACTORY_AZ_CMD", O.AzCmd)[0], [.. CommandOverride.Parse("FACTORY_AZ_CMD", O.AzCmd).Skip(1), .. args], "");

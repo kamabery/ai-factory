@@ -1668,8 +1668,8 @@ used, because its Bicep would sit outside the HCP Terraform state everything els
 
 **What runs where.** One managed identity is the deployed factory's only credential to Azure. It has Foundry User on
 the Foundry account (`factory/infra/llm`'s `principal_ids`), a database user on the Azure SQL database, Storage Blob
-Data Owner on the artifacts container, Key Vault Secrets User on the factory's vault, and the right to start its own
-runner job. No key, connection secret or subscription login exists anywhere in it.
+Data Owner on the artifacts container, Key Vault Secrets Officer on the factory's vault (it writes the refreshed user
+token back), and the right to start its own runner job. No key, connection secret or subscription login exists anywhere in it.
 
 | Part | Is | Environment |
 | --- | --- | --- |
