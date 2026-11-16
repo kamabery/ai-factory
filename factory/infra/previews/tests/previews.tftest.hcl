@@ -84,6 +84,15 @@ variables {
   tenant_id       = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
   hcp_org         = "test-org"
   contact_email   = "someone@example.com"
+
+  # terraform test also loads *.auto.tfvars: a machine's own setup (local.auto.tfvars) must not reach the mocks.
+  external_tenant_id       = null
+  adopt                    = {}
+  postgres_azure_rule_name = "AllowAllAzureServicesAndResourcesWithinAzureIps"
+  keyvault_admin_object_id = null
+  location                 = "centralus"
+  platform_resource_group  = "rg-factory-platform"
+  monthly_budget           = 50
 }
 
 run "identities_and_their_roles" {

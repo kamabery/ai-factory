@@ -25,6 +25,11 @@ resource "azurerm_log_analytics_workspace" "platform" {
   retention_in_days   = 30
   # Near the free 5 GB a month, because one noisy preview spends for all of them.
   daily_quota_gb = 0.2
+
+  lifecycle {
+    # Azure's default (on) whichever way it was made; azurerm 4.x carries two names for it.
+    ignore_changes = [local_authentication_enabled, local_authentication_disabled]
+  }
 }
 
 resource "azurerm_container_app_environment" "platform" {
@@ -82,7 +87,8 @@ resource "azurerm_key_vault_secret" "postgres" {
   depends_on = [azurerm_role_assignment.vault["admin"]]
 
   lifecycle {
-    ignore_changes = [value]
+    # az tags a secret it writes with file-encoding.
+    ignore_changes = [value, tags]
   }
 }
 

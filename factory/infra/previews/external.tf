@@ -74,7 +74,7 @@ resource "azuread_application" "external_hcp" {
   display_name = "factory-hcp-terraform"
 
   lifecycle {
-    ignore_changes = [owners, tags, notes, description]
+    ignore_changes = [owners, tags, notes, description, api]
   }
 }
 

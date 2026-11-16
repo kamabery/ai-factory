@@ -16,8 +16,8 @@ resource "azuread_application" "github" {
   display_name = "factory-github-actions"
 
   lifecycle {
-    # The per-target federated credentials and anything set in the portal stay as they are.
-    ignore_changes = [owners, tags, notes, description]
+    # The per-target federated credentials, and what az or the portal set (an api block, owners), stay as they are.
+    ignore_changes = [owners, tags, notes, description, api]
   }
 }
 
@@ -37,7 +37,7 @@ resource "azuread_application" "hcp" {
   display_name = "factory-hcp-terraform"
 
   lifecycle {
-    ignore_changes = [owners, tags, notes, description]
+    ignore_changes = [owners, tags, notes, description, api]
   }
 }
 

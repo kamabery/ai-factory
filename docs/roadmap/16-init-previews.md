@@ -39,11 +39,12 @@ spec 12. After 16 and 20, the repo has no PowerShell.
   `factory/infra/previews`, or `--from <json>`), by init's settings rule, and prints what changed. It never writes
   `HCP_ORG`: turning deploys on stays a human choice.
 - **`factory doctor`** gains a `previews` check while `HCP_ORG` is set: the variable set exists with its required
-  variables, the `AZURE_*` / `FACTORY_ENTRA_*` settings are present, and `terraform` and `gh` run. HCP and `.env` only,
-  no `az`.
+  variables and the `AZURE_*` / `FACTORY_ENTRA_*` settings are present; HCP and `.env` only, no `az`. The `tools` check
+  adds `gh` beside `terraform` while `HCP_ORG` is set.
 - **Tool install:** the package ships the deploy code (`factory/infra`, the canary's inputs) and the
-  `previews need a checkout install` refusal goes; a tool-install integration test against the local `.nupkg`. The
-  version is bumped and packed; publishing to NuGet waits for Kurt.
+  `previews need a checkout install` refusal goes; a tool install's canary fingerprint names the package version in place
+  of the deploy code's sources. The package is packed and installed by hand into a temp tool path (no test: packing
+  publishes the runner and server, minutes per run); publishing to NuGet waits for Kurt.
 - **Tests:** `cd factory/infra/previews; terraform test` with mock providers, its own row in TESTING.md's "Before a PR"
   (as `factory/infra/llm`), seen red before green. `previews-env` and the doctor check are unit-first .NET.
 

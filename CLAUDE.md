@@ -44,8 +44,8 @@ and `...\build-your-own-ai-software-factory-with-claude-code.md`. How to build t
 - **Previews are never production.** The deploy stage applies only `j<NNN>` previews; dev and
   staging are ready to deploy by hand, and nothing in the factory deploys prod.
 - **Tests are seen red before green**, and follow `docs/TESTING.md`: unit-first .NET (DI, NSubstitute,
-  AutoFixture, coverage gates) and Playwright as a smoke set with the whole suite on demand. Pester is
-  left only for the PowerShell kept until spec 16 (`setup-azure.ps1`, `setup-platform.ps1`). Gate lines run with
+  AutoFixture, coverage gates), Playwright as a smoke set with the whole suite on demand, and `terraform test` for
+  `factory/infra`. The repo has no PowerShell (specs 12, 20 and 16). Gate lines run with
   no shell: a program and its arguments, with `factory check file` for file checks (contract, "Gate").
   **Tests run locally before a PR, never in CI**: the repo has no test workflows (Actions cost), and the
   PR description carries the local counts.
@@ -64,10 +64,9 @@ cd src/factory/Factory.Dashboard; npm test; npm run build   # the SPA's Vitest g
 cd factory/tests/dashboard; npx playwright test --grep @smoke   # the dashboard smoke set; drop --grep for the whole suite
 bash factory/tests/linux/run.sh test         # in WSL: the same .NET suite on Linux, no pwsh (setup.sh once first)
 factory state-migrate | allow-ip | prune     # FACTORY_STATE=azure: state in Blob storage (docs/STATE.md)
-pwsh factory/scripts/setup-platform.ps1                # the shared platform previews run on, ~$18/month (docs/DEPLOY.md)
 factory canary -Full                         # after template IaC changes: the whole stack, off the platform
 cd factory/infra/llm; terraform test; terraform apply  # the Foundry account cloud mode runs on (docs/FOUNDRY.md)
-pwsh factory/scripts/setup-azure.ps1 -SubscriptionId <id> -HcpOrg <org> [-CreateExternalTenant <sub> -ExternalResourceGroup <rg> | -ExternalTenantId <id>]  # one-time preview identities (docs/DEPLOY.md)
+cd factory/infra/previews; terraform test; terraform apply  # one-time preview setup: identities, platform ~$18/month, varset (docs/DEPLOY.md)
+factory previews-env                         # then: the setup's outputs into .env
 dotnet run --project src/factory/Factory.Simulator -- --reset --speed 0.5   # fake jobs for the dashboard, no tokens
-Invoke-Pester factory/tests                  # the Pester left until spec 16: setup-azure and setup-platform
 ```

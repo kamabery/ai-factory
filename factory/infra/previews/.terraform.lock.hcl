@@ -6,6 +6,8 @@ provider "registry.terraform.io/hashicorp/azuread" {
   constraints = "~> 3.10"
   hashes = [
     "h1:EpQO5p0pkCpJF4mjzYOCKdReCa91Wysre9hv06oyPlM=",
+    "h1:h1Jm3oaq4HPOS+iJ+X7sEDPRZnuMTFsVWWlcP7CLk0Q=",
+    "h1:u8ce8V5PpE9ge+DJXrdbgDs/h3uPGNilMzgA1PTiDM4=",
     "zh:0305d94e8cdba6c9fa868a0e6b63b59f5e85cd9745915542ac90d0411a1fcb41",
     "zh:0e434655f525cc85a3f7aca969e394553305fee6d9d0ac5b57fba087d86c221f",
     "zh:1c3e89cf19118fc07d7b04257251fc9897e722c16e0a0df7b07fcd261f8c12e7",
@@ -26,6 +28,8 @@ provider "registry.terraform.io/hashicorp/azurerm" {
   constraints = "~> 4.17"
   hashes = [
     "h1:4BEgtU/crlkbMduT7tm8Sp3+C+1RBfrpUIlTBM/wtMc=",
+    "h1:XhToZua4gtih1Kv8RdStcfND83G4Tmb6GZFT4jEUhDU=",
+    "h1:olVprUWhmFTARlydw/r7VIx4fata2gy3zsAWfPGRrhg=",
     "zh:0732e7b74264ddfa2b90ba69d01c283d3cbae9f72ed3e506c6ac92529fed7fd3",
     "zh:12afb524e232fe4e3d6161927724af5dfa4831d71edd9c174917ca9b7377bfae",
     "zh:169d619ae202c4145e02fb706fb7c3679445ab3e3ff722edbf89597517a8c92e",
@@ -46,6 +50,8 @@ provider "registry.terraform.io/hashicorp/random" {
   constraints = "~> 3.6"
   hashes = [
     "h1:7uiStw0Rl9KOdX5UNMG/sp9nyadoD4LZekQTiYlYPhE=",
+    "h1:PlW+UZ4EElQF3NQwf41KQwavFujab3Czc51zu9dyVM8=",
+    "h1:g40qr7yDmIpaur4SsK5BcOda3HSo1RJ6zHVMqN4EJ+0=",
     "zh:05f4734c1f0be840b711b3eff259ebc5fca436784c728955b1678078466f48d7",
     "zh:0b91bf19371d012434eba1deeb6aab77158def9b39601dcbd94450b3974a2a26",
     "zh:0ee6eacd47ec00183d55d726a4b6c4ce951a199f944bf22f1aa58392ebdfa7a2",
@@ -67,6 +73,8 @@ provider "registry.terraform.io/hashicorp/tfe" {
   constraints = "~> 0.84"
   hashes = [
     "h1:8WR/+W9UhZp88DV+dbilEnHLr+TMyPpXBXSODczOyg4=",
+    "h1:SWQujJbS+q2hNhUsRyzX46QsUhHbKjNqobumduUfEH0=",
+    "h1:aYa8/Z8rPUSyw3qdqn/5oaTmTDY0+HhqAkjdS+z8ydE=",
     "zh:23b63166847cc78945fba3bf539a26717fdfdcc2ead1b534d1a7e7eede573b72",
     "zh:27115e128d4f59df758ff2acc332122d0723d2fa3ec3ede1e0464537fdd7c3bf",
     "zh:2f36fa5012b0877ad8987b07149615ef72602595bc97915e8717c130ddf0e806",
@@ -88,6 +96,8 @@ provider "registry.terraform.io/microsoft/msgraph" {
   constraints = "~> 0.6"
   hashes = [
     "h1:4Aj2nC458tnheteWhot9p5slrEC5UDHNenCMVSTy484=",
+    "h1:Ms3h/lnltS+okrULgL/RR0PypjfRFHDS7ZQyoquw+kE=",
+    "h1:VhBqm5+NXmOehaLtZMm+lCEV6bEgmxsgejY1d10vahI=",
     "zh:2a25a1746390cbff51b26ac61cb9445c5e2d9e6a6ccecad827c40dda8181e049",
     "zh:3439e30c9d111fb08fddfd98546fbe4adcfa557e6159772d7d9729b15844aab7",
     "zh:370116fb9b500ad7c8b56e3a013ce48f5c52ed0bedde11a4d907b334e57282e8",
