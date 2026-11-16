@@ -184,6 +184,9 @@ public static class Composition
         services.AddSingleton<DashboardStarter>();
         services.AddSingleton<TemplateWorkspace>();
         services.AddSingleton<InitService>();
+        services.AddSingleton<InitCloud>();
+        services.AddSingleton<Func<string, ISecretStore>>(sp => vault =>
+            new KeyVaultSecretStore(sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(KeyVaultSecretStore)), sp.GetRequiredService<IStateToken>(), vault));
         services.AddSingleton<IStandaloneCommand, InitCommand>();
         services.AddSingleton<IdeaFiles>();
         services.AddSingleton<IIdeaClaude, IdeaClaude>();
