@@ -192,6 +192,7 @@ public static class Composition
         services.AddSingleton<IStandaloneCommand, HookEventCommand>();
         services.AddSingleton<IStandaloneCommand, RunnerCommand>();
         services.AddSingleton<IStandaloneCommand, ServeCommand>();
+        services.AddSingleton<IStandaloneCommand, ContainerCommand>();
         services.AddSingleton<IStandaloneCommand, IdeaCommand>();
         services.AddSingleton<IStandaloneCommand, CheckCommand>();
         services.AddSingleton<IStandaloneCommand, PreviewsEnvCommand>();

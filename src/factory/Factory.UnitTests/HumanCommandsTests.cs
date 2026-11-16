@@ -66,6 +66,48 @@ public class HumanCommandsTests
         Assert.Equal([_paths.ServerDll, "--port", "4317", "--parent-pid", "42"], Attached[0].Args);
     }
 
+    private ContainerCommand Container(Dictionary<string, string?> env) =>
+        new(_paths, _processes, new TemplateWorkspace(_paths, _files, Substitute.For<IGitClient>(), Substitute.For<IDotEnv>(),
+            Substitute.For<IGitHub>(), Substitute.For<IGitHubCredential>()), Host(env));
+
+    private static Dictionary<string, string?> Identity(string? port = null) =>
+        new() { ["IDENTITY_ENDPOINT"] = "http://id", ["IDENTITY_HEADER"] = "h", ["AZURE_CLIENT_ID"] = "cid", ["PORT"] = port };
+
+    [Fact]
+    public void Container_serve_signs_az_in_as_the_identity_then_serves_on_every_interface_behind_sign_in()
+    {
+        _processes.Run(StateToken.AzProgram, Arg.Any<IReadOnlyList<string>>(), Arg.Any<string>()).Returns(new ProcessResult(0, "[]", ""));
+
+        Assert.Equal((7, ""), Run(Container(Identity("8443")), "serve"));
+
+        _processes.Received(1).Run(StateToken.AzProgram, Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "login", "--identity", "--client-id", "cid", "--output", "none" })), "");
+        Assert.Equal([_paths.ServerDll, "--port", "8443", "--require-signin"], Attached[0].Args);
+        Assert.Equal("1", Attached[0].Env["FACTORY_CONTAINER"]);
+    }
+
+    [Fact]
+    public void Container_job_runs_one_job_and_its_exit_code_is_the_containers()
+    {
+        _processes.Run(StateToken.AzProgram, Arg.Any<IReadOnlyList<string>>(), Arg.Any<string>()).Returns(new ProcessResult(0, "", ""));
+
+        Assert.Equal((7, ""), Run(Container(Identity()), "job"));
+
+        Assert.Equal([_paths.RunnerDll, "--one"], Attached[0].Args);
+        Assert.Equal("1", Attached[0].Env["FACTORY_CONTAINER"]);
+        Assert.Equal((7, ""), Run(Container(Identity()), "serve"));
+        Assert.Equal([_paths.ServerDll, "--port", "8080", "--require-signin"], Attached[1].Args);
+    }
+
+    [Fact]
+    public void Container_refuses_outside_a_managed_identity_a_failed_az_login_and_a_bad_argument()
+    {
+        Assert.Equal((1, "factory: container refused: no managed identity (IDENTITY_ENDPOINT is unset)"), Run(Container(new()), "serve"));
+        Assert.Equal((2, "factory: container refused: usage: factory container serve|job"), Run(Container(Identity()), "both"));
+        _processes.Run(StateToken.AzProgram, Arg.Any<IReadOnlyList<string>>(), Arg.Any<string>()).Returns(new ProcessResult(1, "", "ERROR: no identity\n"));
+        Assert.Equal((1, "factory: container refused: az login --identity failed: ERROR: no identity"), Run(Container(Identity()), "job"));
+        Assert.Empty(Attached);
+    }
+
     [Fact]
     public void Runner_and_serve_refuse_when_not_built()
     {

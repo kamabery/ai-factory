@@ -12,8 +12,9 @@ public static class DashboardRoutes
     // that order; static reads (the board poll, run logs) are served alongside.
     private static readonly SemaphoreSlim ApiGate = new(1, 1);
 
-    public static WebApplication MapDashboard(this WebApplication app)
+    public static WebApplication MapDashboard(this WebApplication app, bool requireSignin = false)
     {
+        if (requireSignin) app.UseMiddleware<SigninGate>();
         app.Use(async (ctx, next) =>
         {
             if (Uri.UnescapeDataString(ctx.Request.Path.Value ?? "").Contains("..", StringComparison.Ordinal))
