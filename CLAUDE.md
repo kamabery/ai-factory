@@ -68,5 +68,7 @@ factory canary -Full                         # after template IaC changes: the w
 cd factory/infra/llm; terraform test; terraform apply  # the Foundry account cloud mode runs on (docs/FOUNDRY.md)
 cd factory/infra/previews; terraform test; terraform apply  # one-time preview setup: identities, platform ~$18/month, varset (docs/DEPLOY.md)
 factory previews-env                         # then: the setup's outputs into .env
+cd factory/infra/cloud; terraform test; terraform apply  # a deployed factory on Container Apps (docs/CLOUD.md)
+factory init cloud                           # then: this machine's secrets into its vault
 dotnet run --project src/factory/Factory.Simulator -- --reset --speed 0.5   # fake jobs for the dashboard, no tokens
 ```

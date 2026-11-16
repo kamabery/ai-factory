@@ -1081,7 +1081,8 @@ Only a global install (`-g`) is a tool install; a local tool (a tool manifest) i
 `FACTORY_ENV_FILE` and `FACTORY_TEMPLATES` win over both columns, as `serve --state-dir --env-file` do. The package
 (`ai-factory`, its version from `src/factory/Directory.Build.props`) holds the CLI, the runner and the server built
 together (one set of dependencies), and under `factory/` the plugin, `templates`, `dashboard`, `github-app.json` and
-`scripts/signin-smoke.mjs`, and `factory/infra/previews` (the one-time preview setup, applied by hand; see
+`scripts/signin-smoke.mjs`, `factory/infra/cloud` (a deployed factory, applied by hand; see
+[Cloud mode](#cloud-mode-deployed)), and `factory/infra/previews` (the one-time preview setup, applied by hand; see
 [Deploy](#deploy)), with `.env.example` at its root. Previews and `canary` run from either install (spec 16); a tool
 install's canary fingerprint names the package version in place of the deploy code's sources ([Canary](#canary)).
 **"Use this template"** on `kamabery/ai-factory` makes
@@ -1667,8 +1668,8 @@ machine of the human's in the loop. It is set up once by Terraform (`factory/inf
 used, because its Bicep would sit outside the HCP Terraform state everything else is in.
 
 **What runs where.** One managed identity is the deployed factory's only credential to Azure. It has Foundry User on
-the Foundry account (`factory/infra/llm`'s `principal_ids`), a database user on the Azure SQL database, Storage Blob
-Data Owner on the artifacts container, Key Vault Secrets Officer on the factory's vault (it writes the refreshed user
+the Foundry account (assigned by `factory/infra/cloud`, not `factory/infra/llm`), is the Entra admin of its own Azure SQL
+server (Entra-only, so no database user is made by hand), and has Storage Blob Data Owner on the artifacts container, Key Vault Secrets Officer on the factory's vault (it writes the refreshed user
 token back), and the right to start its own runner job. No key, connection secret or subscription login exists anywhere in it.
 
 | Part | Is | Environment |
