@@ -62,7 +62,15 @@ module "vault" {
 }
 
 # The artifacts (specs, rounds, run logs, transcripts, sessions): FACTORY_BLOB_URL. No shared keys; the identity is
-# Storage Blob Data Owner on the container only (prune deletes blob versions).
+# Storage Blob Data Owner on the container only (prune deletes blob versions). Whoever signs in to the dashboard may
+# read the same files from the CLI (az storage blob ... --auth-mode login), to see why a job blocked.
+locals {
+  blob_roles = merge(
+    { factory = { role_definition_id_or_name = "Storage Blob Data Owner", principal_id = azurerm_user_assigned_identity.factory.principal_id, principal_type = "ServicePrincipal" } },
+    { for id in var.signin_user_object_ids : "reader-${id}" => { role_definition_id_or_name = "Storage Blob Data Reader", principal_id = id, principal_type = "User" } }
+  )
+}
+
 module "storage" {
   source  = "Azure/avm-res-storage-storageaccount/azurerm"
   version = "0.11.0"
@@ -80,10 +88,8 @@ module "storage" {
 
   containers = {
     factory = {
-      name = "factory"
-      role_assignments = {
-        factory = { role_definition_id_or_name = "Storage Blob Data Owner", principal_id = azurerm_user_assigned_identity.factory.principal_id, principal_type = "ServicePrincipal" }
-      }
+      name             = "factory"
+      role_assignments = local.blob_roles
     }
   }
 }

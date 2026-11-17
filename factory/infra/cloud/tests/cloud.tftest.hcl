@@ -218,3 +218,16 @@ run "without_previews_the_identity_gets_no_graph_role" {
     error_message = "no deploy app, no Graph role"
   }
 }
+
+run "whoever_signs_in_may_read_the_run_files_and_only_the_identity_writes_them" {
+  command = apply
+
+  assert {
+    condition     = toset([for k, a in local.blob_roles : a.principal_id if a.role_definition_id_or_name == "Storage Blob Data Reader"]) == toset(var.signin_user_object_ids)
+    error_message = "each sign-in user reads the run files from the CLI, as the dashboard shows them"
+  }
+  assert {
+    condition     = [for k, a in local.blob_roles : a.principal_id if a.role_definition_id_or_name != "Storage Blob Data Reader"] == [azurerm_user_assigned_identity.factory.principal_id]
+    error_message = "the identity is the only writer (Storage Blob Data Owner)"
+  }
+}
