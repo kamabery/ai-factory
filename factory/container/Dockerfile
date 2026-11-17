@@ -32,6 +32,16 @@ RUN apt-get update \
  && npm cache clean --force \
  && rm -rf /var/lib/apt/lists/*
 
+# The sign-in smoke (factory/scripts/signin-smoke.mjs): Playwright at the dashboard tests' version, with Chromium and
+# its system libraries. A tool install has no factory/tests/dashboard/node_modules, so require finds it on NODE_PATH.
+ENV NODE_PATH=/usr/lib/node_modules \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN npm install -g playwright@1.64.0 \
+ && playwright install --with-deps chromium \
+ && chmod -R a+rX /ms-playwright \
+ && npm cache clean --force \
+ && rm -rf /var/lib/apt/lists/*
+
 RUN useradd --create-home --shell /bin/bash factory
 USER factory
 WORKDIR /home/factory

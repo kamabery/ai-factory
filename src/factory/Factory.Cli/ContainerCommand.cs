@@ -10,7 +10,7 @@ namespace Factory.Cli;
 /// <c>factory container serve|job</c> (contract, "Cloud mode (deployed)"): the image's entry point. az signs in as the
 /// managed identity, the template workspace is cloned when missing, then the dashboard behind sign-in, or one job.
 /// </summary>
-public sealed class ContainerCommand(IFactoryPaths paths, IProcessRunner processes, IFileStore files, IPause pause, TemplateWorkspace templates, CliEnvironment host) : IStandaloneCommand
+public sealed class ContainerCommand(IFactoryPaths paths, IProcessRunner processes, IFileStore files, IPause pause, IDetachedCommands detached, TemplateWorkspace templates, CliEnvironment host) : IStandaloneCommand
 {
     private static readonly string[] Settings = ["GITHUB_", "HCP_", "AZURE_", "FACTORY_"];
 
@@ -52,7 +52,12 @@ public sealed class ContainerCommand(IFactoryPaths paths, IProcessRunner process
         string[] command = what == "serve"
             ? [paths.ServerDll, "--port", host.Get("PORT") ?? "8080", "--require-signin"]
             : [paths.RunnerDll, "--one"];
-        return processes.RunAttached("dotnet", command, host.WorkingDirectory, env);
+        var code = processes.RunAttached("dotnet", command, host.WorkingDirectory, env);
+        // A container's exit ends every process in it: a job's lives until its detached commands (canary-destroy,
+        // sweep's destroys) are done, for up to 2 hours.
+        if (what == "job")
+            for (var waited = 0; waited < 480 && detached.AnyRunning(); waited++) pause.Sleep(TimeSpan.FromSeconds(15));
+        return code;
     }
 
     private static int Refuse(TextWriter stderr, int code, string why)

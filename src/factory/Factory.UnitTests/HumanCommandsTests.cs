@@ -15,6 +15,7 @@ public class HumanCommandsTests
     private readonly MemoryFiles _files = new();
     private readonly IProcessRunner _processes = Substitute.For<IProcessRunner>();
     private readonly IPause _pause = Substitute.For<IPause>();
+    private readonly IDetachedCommands _detached = Substitute.For<IDetachedCommands>();
     private List<(string File, string[] Args, string Dir, Dictionary<string, string?> Env)> Attached { get; } = [];
 
     public HumanCommandsTests()
@@ -68,7 +69,7 @@ public class HumanCommandsTests
     }
 
     private ContainerCommand Container(Dictionary<string, string?> env) =>
-        new(_paths, _processes, _files, _pause, new TemplateWorkspace(_paths, _files, Substitute.For<IGitClient>(), Substitute.For<IDotEnv>(),
+        new(_paths, _processes, _files, _pause, _detached, new TemplateWorkspace(_paths, _files, Substitute.For<IGitClient>(), Substitute.For<IDotEnv>(),
             Substitute.For<IGitHub>(), Substitute.For<IGitHubCredential>()), Host(env));
 
     private static Dictionary<string, string?> Identity(string? port = null) =>
@@ -117,6 +118,28 @@ public class HumanCommandsTests
         Assert.Equal((7, ""), Run(Container(env), "serve"));
 
         Assert.Equal("AZURE_CLIENT_ID=cid\nFACTORY_MODE=cloud\nGITHUB_OWNER=kamabery\nHCP_ORG=org\n", _files.Text(envFile));
+    }
+
+    [Fact]
+    public void Container_job_lives_until_the_commands_its_runner_started_detached_have_finished()
+    {
+        _processes.Run(StateToken.AzProgram, Arg.Any<IReadOnlyList<string>>(), Arg.Any<string>()).Returns(new ProcessResult(0, "", ""));
+        _detached.AnyRunning().Returns(true, true, false);
+
+        Assert.Equal((7, ""), Run(Container(Identity()), "job"));
+
+        _detached.Received(3).AnyRunning();
+        _pause.Received(2).Sleep(TimeSpan.FromSeconds(15));
+    }
+
+    [Fact]
+    public void Container_serve_does_not_wait_on_detached_commands()
+    {
+        _processes.Run(StateToken.AzProgram, Arg.Any<IReadOnlyList<string>>(), Arg.Any<string>()).Returns(new ProcessResult(0, "", ""));
+
+        Run(Container(Identity()), "serve");
+
+        _detached.DidNotReceive().AnyRunning();
     }
 
     [Fact]

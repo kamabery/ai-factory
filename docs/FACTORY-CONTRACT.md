@@ -1693,7 +1693,8 @@ before it starts anything. The secrets (`GITHUB_APP_*`, `GITHUB_USER_*`, `HCP_TO
 **The image** is `ghcr.io/<owner>/ai-factory:<package version>`, public, built from `factory/container/Dockerfile`:
 the package installed as a tool install, with `git`, `node`, `claude`, `az`, `gh` and `terraform` on `PATH`, and the
 template workspace's pack (`AspireStarter.Templates`, so `dotnet new aspire-base`), its `aspire-addon` tool and the
-`aspire` CLI installed, which scaffolds and the canary run; running as
+`aspire` CLI installed, which scaffolds and the canary run, and Playwright with Chromium for the sign-in smoke
+(global, found through `NODE_PATH`, since a tool install has no `factory/tests/dashboard/node_modules`); running as
 a non-root user. It is built and pushed by hand (the repo has no workflows); the tag is the package version, so a
 deployed factory runs exactly one release.
 
@@ -1707,7 +1708,9 @@ deployed factory runs exactly one release.
    file.
 3. The template workspace as `init` step 4 clones it, when missing.
 4. `serve`: the server on `0.0.0.0:<PORT, else 8080>` with `--require-signin`. `job`: `factory runner --one`, whose
-   exit code is the container's.
+   exit code is the container's. The container then lives until no `factory` command the runner started detached
+   (`canary-destroy`, `sweep`'s destroys) still runs, checked every 15 s for up to 2 hours, since a container's exit
+   ends every process in it.
 It sets `FACTORY_CONTAINER=1`, under which each runner log line is also written to stdout (`runner <line>`). After
 `set-cost` the runner logs `cost <id> usd=<costUsd> ms=<ms> in=<input tokens> out=<output tokens>` from the result
 line's `usage` (0 when it has none), so the environment's Log Analytics workspace holds the runs and their token use beside the account's own
