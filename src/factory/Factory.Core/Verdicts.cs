@@ -13,6 +13,8 @@ public static partial class Verdicts
     public const string BootstrapNoDeploy =
         "deploy skipped: bootstrap (deploy.yml reaches main only when this merges; the first feature job gets the first preview)";
 
+    public const string NothingToDeploy = "deploy skipped: the target has no IaC/ and no .aspirestarter.json (nothing to preview)";
+
     public static string? Review(string? firstLine) => firstLine switch
     {
         "Verdict: PASS" => "PASS",
@@ -28,7 +30,8 @@ public static partial class Verdicts
     /// all PASS to deploy (deployable) or approve, CHANGES at round 1 to a new build round, CHANGES at round 2
     /// to ready or blocked with <c>max-rounds</c>. A missing verdict exits 2 and keeps the verdicts it read.
     /// </summary>
-    public static IReadOnlyList<JsonObject> ReadReviews(Job job, Func<string, string?> firstLineOfReview, bool deploysOn, DateTimeOffset now)
+    public static IReadOnlyList<JsonObject> ReadReviews(Job job, Func<string, string?> firstLineOfReview, bool deploysOn, DateTimeOffset now,
+        bool targetHasInfra = true)
     {
         Transitions.RequireStage(job, [Stages.Review], "read-reviews");
         if (job.Node["reviews"] is not JsonObject reviews) job.Node["reviews"] = reviews = [];
@@ -45,6 +48,8 @@ public static partial class Verdicts
         {
             if (job.IsBootstrap)
                 return [Transitions.Move(job, Stages.Approve, "orchestrator", null, null, null, now), Note(job, BootstrapNoDeploy, now)];
+            if (deploysOn && !targetHasInfra)
+                return [Transitions.Move(job, Stages.Approve, "orchestrator", null, null, null, now), Note(job, NothingToDeploy, now)];
             if (deploysOn) return [Transitions.Move(job, Stages.Deploy, "orchestrator", null, null, null, now)];
             return [Transitions.Move(job, Stages.Approve, "orchestrator", null, null, null, now), Note(job, "deploy skipped: no HCP_ORG in .env", now)];
         }

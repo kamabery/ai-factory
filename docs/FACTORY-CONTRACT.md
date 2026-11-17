@@ -1291,6 +1291,12 @@ straight to `approve` and appends a `note` event "deploy skipped: no HCP_ORG in 
 deploys; a target without HCP-ready infrastructure gets it from the devops agent's author pass. A
 job is **deployable** when deploys are on and it is not a bootstrap.
 
+**Nothing to preview.** A target whose job clone has neither `IaC/` nor `.aspirestarter.json` (a plain
+console app or library) has nothing the author pass can deploy. With deploys on, `read-reviews` moves
+its all-PASS job straight to `approve` and appends a `note` event "deploy skipped: the target has no
+IaC/ and no .aspirestarter.json (nothing to preview)". The queue still holds it for a canary, as it
+decides before any clone exists.
+
 **Settings** (`.env`, read like a secret: into a local variable, never into the environment of
 anything but the one child process that needs it, never logged):
 

@@ -45,14 +45,32 @@ public class ReviewCommandsTests : CommandTestBase
         Assert.Equal(["stage", "note"], s.Kinds);
     }
 
-    [Fact]
-    public void Read_reviews_with_deploys_on_goes_to_deploy()
+    [Theory]
+    [InlineData("IaC/main.tf")]
+    [InlineData(".aspirestarter.json")]
+    public void Read_reviews_with_deploys_on_goes_to_deploy_when_the_clone_has_infra(string infra)
     {
         DotEnv.Get("HCP_ORG").Returns("org");
+        Files.Put(Path.Combine([Work, "jobs", "J-001", .. infra.Split('/')]), "x");
         var s = FakeSession.With(Jobs.New("J-001", "review"));
         Reviews("Verdict: PASS");
 
         Assert.Equal(["deploy"], new ReadReviewsCommand(Paths, Files, DotEnv, Clock).Run(Args("read-reviews", "J-001"), s).Out);
+    }
+
+    [Fact]
+    public void Read_reviews_with_deploys_on_skips_deploy_for_a_clone_with_nothing_to_deploy()
+    {
+        DotEnv.Get("HCP_ORG").Returns("org");
+        Files.Put(Path.Combine(Work, "jobs", "J-001", ".git", "HEAD"), "ref: refs/heads/factory/J-001");
+        Files.Put(Path.Combine(Work, "jobs", "J-001", "src", "Hello", "Program.cs"), "x");
+        var s = FakeSession.With(Jobs.New("J-001", "review"));
+        Reviews("Verdict: PASS");
+
+        var r = new ReadReviewsCommand(Paths, Files, DotEnv, Clock).Run(Args("read-reviews", "J-001"), s);
+
+        Assert.Equal(["approve"], r.Out);
+        Assert.Equal(["stage", "note"], s.Kinds);
     }
 
     [Fact]

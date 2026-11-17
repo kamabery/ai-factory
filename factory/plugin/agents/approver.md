@@ -26,6 +26,8 @@ Write `<job>/decision.md`, following the `decision.md` template (absolute path f
 - A bootstrap job (`kind: bootstrap`) has no preview by design, whatever its `deploy` record says:
   GitHub runs `deploy.yml` only from `main`, which this job is creating. A `deploy skipped:
   bootstrap` note says so. Judge it on its gate and reviews; a missing preview is not a reason to escalate.
+  The same holds for a target with nothing to preview (no `IaC/`, no `.aspirestarter.json`: a console app or a
+  library), which a `deploy skipped: the target has no IaC/` note marks.
 - When the job has a preview (`deploy.status` is `up`), smoke it yourself before APPROVE: `curl -sf --retry 6 --retry-delay 10 --retry-all-errors
   <front end>/api/openapi/v1.json` returns 200 and the front end URL returns 200. With no front end, use
   `<api>/openapi/v1.json`. The API's own address answers 401 behind a Static Web App, so a 401 there

@@ -89,6 +89,17 @@ public class VerdictTests
     }
 
     [Fact]
+    public void All_pass_with_deploys_on_but_nothing_to_deploy_goes_to_approve_with_a_note()
+    {
+        var j = InReview();
+
+        var events = Verdicts.ReadReviews(j, Verdicts_(), deploysOn: true, Now, targetHasInfra: false);
+
+        Assert.Equal("approve", j.Stage);
+        Assert.Equal(Verdicts.NothingToDeploy, (string?)events[1]["detail"]);
+    }
+
+    [Fact]
     public void All_pass_on_a_bootstrap_goes_to_approve_whatever_the_deploys()
     {
         var j = InReview(kind: "bootstrap");

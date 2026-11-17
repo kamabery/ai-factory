@@ -172,6 +172,22 @@ public class DeployCommandsTests : CommandTestBase
     }
 
     [Fact]
+    public void A_clone_with_nothing_to_deploy_skips_the_deploy_and_shows_no_stale_failure()
+    {
+        // Cloud J-001 on ai-factory-hello: a console app, blocked environment on GitHub's 404 for a deploy.yml it never had.
+        var s = InDeploy(new JsonObject { ["attempts"] = 0, ["status"] = "failed" });
+        Files.Put(Path.Combine(Work, "jobs", "J-001", ".git", "HEAD"), "ref: refs/heads/factory/J-001");
+        Files.Put(Path.Combine(Work, "jobs", "J-001", "src", "Hello", "Program.cs"), "x");
+
+        var r = Deploy.Run(Args("deploy", "J-001"), s);
+
+        Assert.Equal([$"skipped: {Verdicts.NothingToDeploy}"], r.Out);
+        Assert.Equal(("approve", "down"), ((string?)s.Job("J-001")["stage"], (string?)s.Job("J-001")["deploy"]!["status"]));
+        Assert.Equal(["stage", "note"], s.Kinds);
+        _deploy.DidNotReceiveWithAnyArgs().Attempt(default!, default!, default, default);
+    }
+
+    [Fact]
     public void Deploy_refuses_outside_deploy_and_with_deploys_off()
     {
         Assert.Equal("deploy refused: J-001 is in 'approved', needs deploy",

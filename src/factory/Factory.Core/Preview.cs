@@ -15,6 +15,15 @@ public static partial class Preview
     /// <summary>Preview-Env: <c>j</c> and the job id's digits (J-012 is j012; the canary is j000).</summary>
     public static string Env(string id) => "j" + NonDigits().Replace(id, "");
 
+    /// <summary>
+    /// Contract, "Nothing to preview": a clone with neither <c>IaC/</c> nor <c>.aspirestarter.json</c> has nothing the
+    /// devops agent's author pass can deploy. False for a missing clone, so only a clone seen without them skips.
+    /// </summary>
+    public static bool NothingToDeploy(Abstractions.IFileStore files, string workDir) =>
+        (files.DirectoryExists(Path.Combine(workDir, ".git")) || files.Stat(Path.Combine(workDir, ".git")) is not null)
+        && !files.DirectoryExists(Path.Combine(workDir, "IaC"))
+        && files.Stat(Path.Combine(workDir, ".aspirestarter.json")) is null;
+
     /// <summary>Repo-Name: the target's name, after the owner.</summary>
     public static string RepoName(string target) => target.Split('/', 2) is [_, var n] ? n : "";
 
