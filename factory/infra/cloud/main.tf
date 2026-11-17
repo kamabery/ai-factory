@@ -8,6 +8,16 @@ locals {
   # The runner job's id, known before it exists: the job starts itself again (runner --one), so it cannot wait on its own output.
   job_id = "/subscriptions/${var.subscription_id}/resourceGroups/${var.resource_group_name}/providers/Microsoft.App/jobs/${local.job_name}"
   tags   = { managed_by = "factory" }
+
+  board_database = {
+    name                        = "factory"
+    sku_name                    = "GP_S_Gen5_1"
+    min_capacity                = 0.5
+    auto_pause_delay_in_minutes = 15
+    max_size_gb                 = 2
+    storage_account_type        = "Local"
+    zone_redundant              = false
+  }
 }
 
 data "azurerm_client_config" "current" {}
@@ -105,15 +115,7 @@ module "sql" {
   }
 
   databases = {
-    factory = {
-      name                        = "factory"
-      sku_name                    = "GP_S_Gen5_1"
-      min_capacity                = 0.5
-      auto_pause_delay_in_minutes = 60
-      max_size_gb                 = 2
-      storage_account_type        = "Local"
-      zone_redundant              = false
-    }
+    factory = local.board_database
   }
 }
 

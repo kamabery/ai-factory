@@ -174,6 +174,15 @@ run "the_resource_group_has_its_budget" {
   }
 }
 
+run "the_board_database_pauses_after_fifteen_idle_minutes" {
+  command = apply
+
+  assert {
+    condition     = local.board_database.auto_pause_delay_in_minutes == 15
+    error_message = "serverless SQL pauses at its 15-minute minimum, not 60: the dashboard kept it awake a day for $2.58"
+  }
+}
+
 run "no_one_to_sign_in_is_refused" {
   command = plan
 
