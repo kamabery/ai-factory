@@ -18,7 +18,7 @@ nothing said a canary was due either: the canary is lazy, and **Run canary** onl
 | Where it shows | **The existing top banner**, made to work in cloud mode. | A note on the waiting job's card; the job's modal; spec 21's session stepper |
 | Detail | **Phase and link**: `Deploy canary (0.3.8) · deploying 2/3 · 7 of ~15 min · Actions run ↗`, and a line naming the jobs waiting for it. Phases: scaffold → deploying 1/3, 2/3, 3/3 → smoke → sign-in → tearing down. The ~15 min comes from recent passes. | Running and elapsed time only; a live log panel |
 | Plumbing | **The canary writes `canary.json` at start and at each phase change, and pushes it** (blob-backed state), not only at the end. Every board reads the same file, local or cloud. | The server reading GitHub Actions directly (it sees only the deploy, not smoke, sign-in or teardown) |
-| Due | **A quiet "canary due" chip** once the fingerprint has no pass: "canary due: the next deployable job runs it first (~15 min)". | Saying nothing until it runs; running it eagerly after every release |
+| Due | **A quiet "canary due" chip** once the fingerprint has no pass: "canary due: the next deployable job runs it beside its build (~15 min)". | Saying nothing until it runs; running it eagerly after every release |
 | The gate (added 2026-11-20) | **The canary runs in parallel with the build.** A deployable job no longer waits in Approved: the runner moves it to Build and starts the agent build and the canary together. The job's card shows `canary running 7/~15m` under its build status. Only the **deploy step** waits for the pass. If the canary fails, the job blocks at deploy with the canary's error; **Run canary**, then **Retry deploy**, carries on. Saves about 15 min per release, at the risk of a paid build whose deploy then waits. | Canary first inside Build (the build waits for the pass); today's wait in Approved |
 
 ## Scope
@@ -42,7 +42,7 @@ Contract first (`docs/FACTORY-CONTRACT.md`, "Canary" and "Dashboard API"):
 - **Card indicator:** a job whose deploy waits on a running or due canary shows a chip under its status:
   `canary running N/~M min`, or `canary failed: deploy waits` with a link to the banner.
 - **SPA:** `CanaryBanner` renders the running state from the new fields, and the jobs waiting for it are the
-  deployable jobs in Approved. A `CanaryDueChip` sits by the run-mode chip.
+  deployable jobs whose deploy waits on it. A `CanaryDueChip` sits by the run-mode chip.
 
 ## Tests
 
