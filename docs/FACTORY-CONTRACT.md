@@ -1573,7 +1573,7 @@ and a refused move snaps the card back and shows the message.
 | `POST /api/sessions/<S>/write-specs` | (session write) | after the bootstrap merge (the idea is `drafting`): starts the spec turn |
 | `POST /api/sessions/<S>/specs/<k>` `{ decision }` | `add-spec` (+ `approve`) | `approved` starts the runner; `rejected` calls nothing |
 | `PUT /api/sessions/<S>/specs/<k>` (text/markdown) | (session write) | the human's direct edit of `spec-<k>.md` |
-| `POST /api/sessions/<S>/close` `{ failed, reason? }` or `{ abandon: true }` | `idea-done [-Failed -Reason]`, or `idea-abandon` (only once there is an idea, and not when the idea is already `done` or `abandoned`: then the session only closes) | the session becomes `closed`; the default reason is "every spec rejected in session". `abandon` is the session card's **Abandon**, refused while a turn is running |
+| `POST /api/sessions/<S>/close` `{ failed, reason? }` or `{ abandon: true }` | `idea-done [-Failed -Reason]`, or `idea-abandon` (only once there is an idea, and not when the idea is already `done` or `abandoned`: then any close only closes the session) | the session becomes `closed`; the default reason is "every spec rejected in session". `abandon` is the session card's **Abandon**, refused while a turn is running |
 | `POST /api/ideas/<I>/abandon` | `idea-abandon` | **Abandon** on an idea card |
 
 Session reads use `/state/sessions/<S>/...`. An idea card opens its brief. A card for an open

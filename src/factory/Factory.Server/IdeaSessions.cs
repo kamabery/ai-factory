@@ -228,9 +228,9 @@ public sealed partial class IdeaSessions(
     {
         var id = BoardFile.Str(s, "id")!;
         var r = CallResult.Done("closed");
-        // Contract: abandoning a session whose idea is already done or abandoned only closes it.
+        // Contract: any close of a session whose idea is already done or abandoned only closes it.
         if (BoardFile.Str(s, "idea") is { } idea
-            && !(Truthy(req["abandon"]) && board.Ideas().FirstOrDefault(i => BoardFile.Str(i, "id") == idea) is { } finished
+            && !(board.Ideas().FirstOrDefault(i => BoardFile.Str(i, "id") == idea) is { } finished
                  && BoardFile.Str(finished, "status") is "done" or "abandoned"))
         {
             r = Truthy(req["abandon"]) ? factory.Run("idea-abandon", idea)

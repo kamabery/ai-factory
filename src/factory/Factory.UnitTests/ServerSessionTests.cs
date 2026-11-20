@@ -296,14 +296,18 @@ public class ServerSessionTests : ServerTestBase
     [Theory]
     [InlineData("done")]
     [InlineData("abandoned")]
-    public void Abandoning_a_session_whose_idea_is_already_finished_only_closes_it(string status)
+    public void Any_close_of_a_session_whose_idea_is_already_finished_only_closes_it(string status)
     {
         Files.Put(Path.Combine(Home, "board.json"), $$"""{"jobs":[],"ideas":[{"id":"I-003","status":"{{status}}"}]}""");
         PutSession("""{"id":"S-001","status":"idle","idea":"I-003"}""");
 
         Assert.Equal("""{"ok":true,"message":"closed"}""", Ideas.Handle("POST", "S-001", "close", null, """{"abandon":true}""").Body);
-        Factory.DidNotReceive().Run(Arg.Any<string[]>());
         Assert.Equal("closed", (string?)Session()["status"]);
+        PutSession("""{"id":"S-001","status":"idle","idea":"I-003"}""");
+        Assert.Equal("""{"ok":true,"message":"closed"}""", Ideas.Handle("POST", "S-001", "close", null, """{"failed":true}""").Body);
+        PutSession("""{"id":"S-001","status":"idle","idea":"I-003"}""");
+        Assert.Equal("""{"ok":true,"message":"closed"}""", Ideas.Handle("POST", "S-001", "close", null, "{}").Body);
+        Factory.DidNotReceive().Run(Arg.Any<string[]>());
     }
 
     [Fact]
