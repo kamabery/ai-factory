@@ -16,6 +16,8 @@ public abstract class ServerTestBase : CommandTestBase
     protected readonly IStateCache Cache = Substitute.For<IStateCache>();
     protected readonly IServerSettings Settings = Substitute.For<IServerSettings>();
     protected readonly IStateLeases Leases = Substitute.For<IStateLeases>();
+    protected readonly IStateSync Sync = Substitute.For<IStateSync>();
+    protected readonly IStateSettings State = Substitute.For<IStateSettings>();
     protected IRunnerStarter Runner;
     protected readonly ServerOptions Options = new() { EnvFile = Path.Combine(Home, ".env"), WorkRoot = Work, WatchdogSeconds = 10, PrSyncSeconds = 30 };
 
@@ -40,7 +42,7 @@ public abstract class ServerTestBase : CommandTestBase
 
     protected SessionFiles Sessions => new(Paths, Files, Procs, Opts, Clock);
 
-    protected IdeaSessions Ideas => new(Factory, Launcher, Paths, Files, Settings, Board, Sessions, Jobs, Opts, Clock);
+    protected IdeaSessions Ideas => new(Factory, Launcher, Paths, Files, Settings, Board, Sessions, Jobs, Sync, State, Opts, Clock);
 
     protected ReadsApi Reads => new(Factory, Paths, Files, Settings, Procs);
 

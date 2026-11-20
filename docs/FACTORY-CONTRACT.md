@@ -931,6 +931,12 @@ A crashed holder's lease lapses within 60 s.
   open). It pulls a job's folder when the job's files are listed. A transcript whose path is not on
   this machine is served from `jobs/<id>/transcripts/`.
 - **Idea turns:** `factory idea-turn` pulls `sessions/<S>/` before the turn and pushes at its end.
+- **Session endpoints:** a session endpoint that writes the session's files without starting a turn (a
+  spec's save or decision, a bootstrap's brief, close) pushes `sessions/<S>/` and `ideas/<I>/` when it is done.
+  The `factory` calls it makes push before the endpoint's own writes, and a dashboard that scales to zero
+  would otherwise lose them.
+- **Manifest:** each push and pull reads `.sync.json` again first, so a long-lived process (the server) never
+  writes back a manifest older than a command's.
 
 **Cap.** After a push that uploaded anything, `factory` lists the container with versions. While
 the total exceeds `FACTORY_STATE_CAP`, it deletes in this order:
@@ -1567,7 +1573,7 @@ and a refused move snaps the card back and shows the message.
 | `POST /api/sessions/<S>/write-specs` | (session write) | after the bootstrap merge (the idea is `drafting`): starts the spec turn |
 | `POST /api/sessions/<S>/specs/<k>` `{ decision }` | `add-spec` (+ `approve`) | `approved` starts the runner; `rejected` calls nothing |
 | `PUT /api/sessions/<S>/specs/<k>` (text/markdown) | (session write) | the human's direct edit of `spec-<k>.md` |
-| `POST /api/sessions/<S>/close` `{ failed, reason? }` or `{ abandon: true }` | `idea-done [-Failed -Reason]`, or `idea-abandon` (only once there is an idea) | the session becomes `closed`; the default reason is "every spec rejected in session". `abandon` is the session card's **Abandon**, refused while a turn is running |
+| `POST /api/sessions/<S>/close` `{ failed, reason? }` or `{ abandon: true }` | `idea-done [-Failed -Reason]`, or `idea-abandon` (only once there is an idea, and not when the idea is already `done` or `abandoned`: then the session only closes) | the session becomes `closed`; the default reason is "every spec rejected in session". `abandon` is the session card's **Abandon**, refused while a turn is running |
 | `POST /api/ideas/<I>/abandon` | `idea-abandon` | **Abandon** on an idea card |
 
 Session reads use `/state/sessions/<S>/...`. An idea card opens its brief. A card for an open
