@@ -174,7 +174,10 @@ was written for to finish this job, or discard it and approve a rewritten spec`)
 (`cannot start the gate shell '<shell>': <reason>`).
 
 The spec's `## Scope` `- In:` line is followed by one sub-bullet per path the builder may touch,
-each starting with a backticked glob, repo-relative, with `/` separators, then optional prose:
+each starting with a backticked glob, repo-relative, with `/` separators, then optional prose. A sub-bullet may
+name several globs: its leading backticked spans joined only by commas, once anything in parentheses is set aside
+(`` `CLAUDE.md`, `README.md` `` gives both). A span inside parentheses, or after other words, is prose. Cloud J-003
+(2026-11-20) was flagged `out-of-scope` for the second path on such a line:
 
 ```
 ## Scope
@@ -183,6 +186,7 @@ each starting with a backticked glob, repo-relative, with `/` separators, then o
   - `.aspire/keycloak/**`
   - `IaC/auth.*.tf`
   - `src/ui/react/package-lock.json` (generated)
+  - `src/ui/react/vite.config.ts` (the `test` block), `src/ui/react/vitest.config.ts` (if used)
 - Out: any change to the API's controllers
 ```
 
