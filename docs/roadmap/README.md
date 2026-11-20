@@ -42,6 +42,7 @@ are merged.
 | 16 | [`factory init previews`](16-init-previews.md) | 3 | 09, 14 | 2 sessions |
 | 18 | [Cloud mode on Container Apps](18-cloud-mode.md) | 5 | 13, 16, 17 | 2–3 sessions |
 | 21 | [New-repo idea sessions, one flow](21-new-repo-session-flow.md) | 5 | 17, 18 | 1–2 sessions |
+| 22 | [Show the canary while it runs, and when it is due](22-canary-visibility.md) | 5 | 17, 18 | 1 session |
 
 Phase 6 (hosted) is out of scope. The `TenantId` seam (03, 13) and per-job containers (18) are
 what it needs from these specs.
