@@ -100,6 +100,8 @@ public sealed partial class RunnerLoop(
             Escalate(id, $"provider: {e.Message}");
             return null;
         }
+        // Contract, "Run mode": every subagent in the foreground, so the pass ends only when they have (cloud J-003).
+        childEnv = new Dictionary<string, string?>(childEnv) { ["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"] = "1" };
 
         var co = factory.Run("checkout", id);
         if (co.Code != 0)

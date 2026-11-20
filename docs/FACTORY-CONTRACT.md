@@ -215,7 +215,10 @@ every `claude` pass and every dashboard idea turn talks to. Nothing chooses a pr
   neither sets it, so every launch on a workstation is local. A deployed factory sets
   `FACTORY_MODE=cloud` in its environment. Any other value is refused by every script that reads it.
 - A job's builder, reviewers and approver are subagents of its one `claude` pass, so they share the
-  provider. The runner resolves it when it takes a job; a `provider` field left on a job by an older
+  provider. For that child the runner also sets `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`, whatever the mode, so
+  every subagent runs in the foreground and the pass ends only when they have. (Cloud J-003, 2026-11-20: the
+  headless CLI backgrounded the builder, the orchestrator ended its turn, the builder was stopped mid-build, and
+  the pass ended as a success with nothing committed.) The runner resolves it when it takes a job; a `provider` field left on a job by an older
   factory is ignored.
 - **local.** For the `claude` child the runner (and an idea turn) sets empty `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
   `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_USE_FOUNDRY`, `ANTHROPIC_FOUNDRY_RESOURCE`,

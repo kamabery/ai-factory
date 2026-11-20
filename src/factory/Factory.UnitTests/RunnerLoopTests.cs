@@ -103,7 +103,21 @@ public class RunnerLoopTests : CommandTestBase
         Assert.Equal([$"start pid={Environment.ProcessId}", "take J-001", "claude J-001 exit=0 result=yes", "cost J-001 usd=0.5 ms=2000 in=0 out=0", "stage J-001 ready",
             "take J-002", "claude J-002 exit=0 result=yes", "cost J-002 usd=0.5 ms=2000 in=0 out=0", "stage J-002 ready", "exit drained"], _log);
         _claude.Received(1).Run("J-001", Arg.Is<string>(p => p == $"/factory:factory run J-001 {Paths.Home.Replace('\\', '/')} {Path.Combine(Path.GetTempPath(), "fac", "factory", "templates").Replace('\\', '/')}"),
-            Path.Combine(Path.GetTempPath(), "wt", "J-001"), JobFile("J-001", "run-1.jsonl"), _childEnv, "");
+            Path.Combine(Path.GetTempPath(), "wt", "J-001"), JobFile("J-001", "run-1.jsonl"), Arg.Any<IReadOnlyDictionary<string, string?>>(), "");
+    }
+
+    [Fact]
+    public void A_job_s_claude_runs_on_the_provider_with_background_tasks_off()
+    {
+        _factory.Add("J-001");
+        Claude(Stages.Ready);
+        IReadOnlyDictionary<string, string?>? env = null;
+        _claude.WhenForAnyArgs(c => c.Run(default!, default!, default!, default!, default!, default!)).Do(c => env = c.ArgAt<IReadOnlyDictionary<string, string?>>(4));
+
+        Sut.Run();
+
+        Assert.Equal("1", env!["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"]);
+        Assert.True(env.ContainsKey("ANTHROPIC_API_KEY") && env["ANTHROPIC_API_KEY"] is null);
     }
 
     [Fact]
