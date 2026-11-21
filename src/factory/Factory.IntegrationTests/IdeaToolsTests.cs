@@ -90,6 +90,10 @@ public sealed class IdeaToolsTests : IDisposable
         Session("""{"id":"S-001","target":"a/b","checkout":"CHECKOUT","idea":"I-001","specs":[]}""");
         Assert.Equal(new ToolAnswer("submit 1 to 5 specs", true), Call("submit_specs", """{"specs":[]}"""));
         Assert.Equal(new ToolAnswer("spec 1 has no '# Spec: <title>' line", true), Call("submit_specs", """{"specs":[{"k":1,"markdown":"no title"}]}"""));
+        // Cloud J-005: a path after other words is refused here, so the model rewrites the line before anything is built.
+        var vague = Json("# Spec: Pantry\n## Scope\n- In:\n  - `a/vite.config.ts` and `a/vitest.config.ts`\n");
+        Assert.Equal(new ToolAnswer("Pantry's Scope line names `a/vitest.config.ts` after other words, so the scope check would miss it: give it its own sub-bullet, or comma-join it at the start of the line", true),
+            Call("submit_specs", $$"""{"specs":[{"k":1,"markdown":{{vague}}}]}"""));
 
         Assert.Equal(new ToolAnswer("wrote 2 spec(s); the human now decides each one in the panel"),
             Call("submit_specs", $$"""{"specs":[{"k":1,"markdown":{{spec}}},{"k":2,"markdown":{{Json("# Spec: Check off\n")}}}]}"""));
@@ -107,6 +111,8 @@ public sealed class IdeaToolsTests : IDisposable
         Assert.Equal(new ToolAnswer("spec 1 is already decided (approved)", true), Call("revise_spec", """{"k":1,"markdown":"# Spec: x"}"""));
         Assert.Equal(new ToolAnswer("there is no spec 3", true), Call("revise_spec", """{"k":3,"markdown":"# Spec: x"}"""));
         Assert.Equal(new ToolAnswer("the new markdown has no '# Spec: <title>' line", true), Call("revise_spec", """{"k":2,"markdown":"x"}"""));
+        Assert.Equal(new ToolAnswer("B's Scope line names `README.md` after other words, so the scope check would miss it: give it its own sub-bullet, or comma-join it at the start of the line", true),
+            Call("revise_spec", $$"""{"k":2,"markdown":{{Json("# Spec: B\n## Scope\n- In:\n  - `a.cs` and `README.md`\n")}}}"""));
         Assert.Equal(new ToolAnswer("spec 2 revised"), Call("revise_spec", """{"k":2,"markdown":"# Spec: Better b"}"""));
         Assert.Equal("Better b", (string?)_files.Session("S-001")!["specs"]![1]!["title"]);
         Assert.StartsWith("# Spec: Better b", File.ReadAllText(_dir[Path.Combine("state", "ideas", "I-001", "spec-2.md")]));

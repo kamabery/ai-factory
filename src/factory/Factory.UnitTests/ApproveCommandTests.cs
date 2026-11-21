@@ -54,6 +54,17 @@ public class ApproveCommandTests : CommandTestBase
     }
 
     [Fact]
+    public void Refuses_an_ambiguous_scope_line_and_changes_nothing()
+    {
+        var s = FakeSession.With(Jobs.New("J-001", "backlog"));
+        Files.Put(JobFile("J-001", "spec.md"), "# Spec: Pantry\n## Target\n- Repo: o/r\n## Scope\n- In:\n  - `a/vite.config.ts` and `a/vitest.config.ts`\n## Gate\n- build: `dotnet build`\n");
+
+        Assert.Equal("approve refused: Pantry's Scope line names `a/vitest.config.ts` after other words, so the scope check would miss it: give it its own sub-bullet, or comma-join it at the start of the line",
+            Assert.Throws<FactoryException>(() => Sut.Run(Args("approve", "J-001"), s)).Message);
+        Assert.Equal((0, "backlog"), (s.Saves, (string?)s.Job("J-001")["stage"]));
+    }
+
+    [Fact]
     public void Refuses_a_job_not_in_backlog_or_without_a_spec()
     {
         Assert.Equal("approve refused: J-001 is in 'build', needs backlog",

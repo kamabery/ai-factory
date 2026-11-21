@@ -23,6 +23,7 @@ public sealed class ApproveCommand(IFactoryPaths paths, IFileStore files, TimePr
             .Select(g => $"{g.Name}: {g.Problem!.Reason}, so {g.Problem.Hint}").ToList();
         if (shellLines.Count > 0)
             throw new FactoryException($"approve refused: {j.Id}'s gate runs with no shell (contract, \"Gate\"): {string.Join("; ", shellLines)}");
+        if (SpecText.AmbiguousScope(PsText.Lines(text)) is [var vague, ..] ) throw new FactoryException($"approve refused: {vague}");
         var now = clock.GetUtcNow();
         j.Node["target"] = meta.Repo;
         j.Node["approvedAt"] = Iso.Format(now);

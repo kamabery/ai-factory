@@ -177,7 +177,14 @@ The spec's `## Scope` `- In:` line is followed by one sub-bullet per path the bu
 each starting with a backticked glob, repo-relative, with `/` separators, then optional prose. A sub-bullet may
 name several globs: its leading backticked spans joined only by commas, once anything in parentheses is set aside
 (`` `CLAUDE.md`, `README.md` `` gives both). A span inside parentheses, or after other words, is prose. Cloud J-003
-(2026-11-20) was flagged `out-of-scope` for the second path on such a line:
+(2026-11-20) was flagged `out-of-scope` for the second path on such a line, and cloud J-005 (2026-11-21) for
+`` `a/vite.config.ts` and `a/vitest.config.ts` ``, whose second path came after "and". So a path written as prose is
+refused before anything is built: a sub-bullet with a backticked span outside its leading run and outside
+parentheses, when the span looks like a path (it has a `/`, a `*`, or ends in a `.<extension>`), is an **ambiguous
+scope line**. `submit_specs` and `revise_spec` answer it as a tool error, and `approve` refuses it, with
+`` <spec>'s Scope line names `<span>` after other words, so the scope check would miss it: give it its own
+sub-bullet, or comma-join it at the start of the line `` for each (`approve` prefixes `approve refused: `). A
+span that is not a path (`` `BookSeeder` ``, `` `test` ``) stays prose:
 
 ```
 ## Scope

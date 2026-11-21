@@ -74,6 +74,30 @@ public class SpecTextTests
         Assert.Equal(["CLAUDE.md", "README.md", "a/vite.config.ts", "a/vitest.config.ts"], s.Globs);
     }
 
+    // Cloud J-005 (2026-11-21): "`vite.config.ts` and `vitest.config.ts`" lost its second path to the scope check, and
+    // the job blocked after a paid build. Such a line is now refused when the spec is written or approved.
+    [Theory]
+    [InlineData("  - `a/vite.config.ts` and `a/vitest.config.ts` (test environment)", "a/vitest.config.ts")]
+    [InlineData("  - `a/x.cs`, then `src/**` too", "src/**")]
+    [InlineData("  - `a/x.cs` plus `README.md`", "README.md")]
+    public void A_path_after_other_words_is_an_ambiguous_scope_line(string bullet, string span)
+    {
+        var lines = Lines($"# Spec: S\n## Scope\n- In:\n{bullet}\n- Out: `lib/auth` and `x/y.cs`");
+
+        Assert.Equal([$"S's Scope line names `{span}` after other words, so the scope check would miss it: give it its own sub-bullet, or comma-join it at the start of the line"],
+            SpecText.AmbiguousScope(lines));
+    }
+
+    [Theory]
+    [InlineData("  - `CLAUDE.md`, `README.md` (only to drop `BookSeeder`)")]
+    [InlineData("  - `a/vite.config.ts` (the `test` block), `a/vitest.config.ts` (if used)")]
+    [InlineData("  - `src/x.cs` keep the `Seed` method and `config` key")]
+    [InlineData("  - `src/x.cs` (rename `a/old.ts` to `a/new.ts`)")]
+    public void Comma_runs_parentheses_and_words_that_are_not_paths_are_fine(string bullet)
+    {
+        Assert.Empty(SpecText.AmbiguousScope(Lines($"# Spec: S\n## Scope\n- In:\n{bullet}\n")));
+    }
+
     [Fact]
     public void A_spec_with_no_in_line_has_no_globs_and_no_insertion_point()
     {
