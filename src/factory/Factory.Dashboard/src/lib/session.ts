@@ -1,5 +1,69 @@
 // Idea sessions: the log and the replies the panel sends (contract, "Idea sessions (dashboard)").
+import { leaf } from './board'
 import { resultText } from './stream'
+import type { Phase, SessionSummary } from './types'
+
+export type { Phase }
+
+const STEPS = ['brief', 'scaffold', 'specs', 'build'] as const
+export type Step = { key: (typeof STEPS)[number]; label: string; state: 'done' | 'now' | 'todo' }
+
+/** The new-repo stepper: Brief → Scaffold (J-NNN) → Specs → Build, the current phase lit. */
+export function phaseSteps(phase: Phase, bootstrap?: string | null): Step[] {
+  const at = STEPS.indexOf(phase.name)
+  return STEPS.map((key, i) => ({
+    key,
+    label: key === 'scaffold' && bootstrap ? `Scaffold (${bootstrap})` : key[0].toUpperCase() + key.slice(1),
+    state: i < at ? 'done' : i === at ? 'now' : 'todo',
+  }))
+}
+
+/** A stage as a phrase: "J-2 is scaffolding shelf (in review)". */
+export const stageText = (stage?: string) => ({
+  backlog: 'in Backlog', approved: 'approved', build: 'building', review: 'in review', deploy: 'deploying', approve: 'with the approver',
+  gate: 'at the gate', blocked: 'blocked', ready: 'ready for review', done: 'merged', discarded: 'discarded',
+} as Record<string, string>)[stage ?? ''] ?? stage ?? 'not on the board'
+
+type Waiting = { status: string; target?: string; pending?: { name: string } | null; specs?: unknown[] }
+
+/** What the current phase waits on, in plain text (never only a tooltip). */
+export function waitingText(phase: Phase, s: Waiting): string {
+  const repo = leaf(s.target ?? '')
+  switch (phase.name) {
+    case 'brief':
+      if (s.pending?.name === 'submit_brief') return 'Confirm the brief below. Confirming it also approves the bootstrap job that creates the repo.'
+      return s.status === 'running' ? 'Claude is working.' : 'Answer Claude below: it grills you, then proposes a brief.'
+    case 'scaffold':
+      if (phase.stage === 'ready') return `${phase.job} is ready for review: merge the ${repo} scaffold. Claude then writes the specs, with no click.`
+      if (phase.stage === 'backlog') return `${phase.job} is in Backlog: its approval was refused. Approve it on the board once that is fixed.`
+      if (phase.stage === 'blocked') return `${phase.job} is blocked: open it on the board to see why.`
+      if (phase.stage === 'discarded') return `${phase.job} was discarded: this repo has no scaffold.`
+      return `${phase.job} is scaffolding ${repo} (${stageText(phase.stage)}). Nothing to do until it is ready for review.`
+    case 'specs':
+      if (s.status === 'running') return 'Claude is reading the new repo and writing the specs.'
+      if (s.specs?.length) return 'Decide each spec below.'
+      if (s.status === 'error') return 'Writing the specs failed: Retry below.'
+      return 'Starting the specs…'
+    case 'build':
+      return 'The approved specs are building: follow them here or on the board.'
+  }
+}
+
+/** The session card's one line: where the session is, or whose turn it is. */
+export function cardState(x: Pick<SessionSummary, 'status' | 'phase' | 'notices' | 'bootstrap'>): string {
+  const p = x.phase
+  if (p?.name === 'scaffold') return p.stage === 'ready' ? 'Ready: merge the scaffold' : `waiting for bootstrap ${p.job} (${stageText(p.stage)})`
+  if (x.status === 'running') return p?.name === 'specs' && x.bootstrap ? 'writing specs' : 'Claude is working'
+  if (p?.name === 'specs' && x.notices?.['specs-ready']) return 'specs ready to approve'
+  return 'your turn'
+}
+
+/** The two moments a new-repo session tells the human about (contract, "Advancing and notices"). */
+export function noticeText(kind: string, x: Pick<SessionSummary, 'phase' | 'bootstrap' | 'target' | 'idea'>): string {
+  return kind === 'scaffold-ready'
+    ? `${x.bootstrap ?? x.phase?.job} is ready for review: merge the ${leaf(x.target ?? '')} scaffold`
+    : `Specs for ${x.idea} are ready to approve`
+}
 
 /** The tools whose answer is the human's, shown as the human's message. */
 const UI_TOOLS = ['ask_questions', 'propose_scaffold', 'submit_brief']

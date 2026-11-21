@@ -1,5 +1,6 @@
 import { useUi } from '@/app/ui'
 import { leaf } from '@/lib/board'
+import { cardState } from '@/lib/session'
 import { cn } from '@/lib/cn'
 import type { Idea, SessionSummary } from '@/lib/types'
 
@@ -45,9 +46,9 @@ export function SessionCard({ x }: { x: SessionSummary }) {
       <div className="title !font-medium">{x.text}</div>
       {x.target && <div className="repo" title={x.target}>→ {leaf(x.target)}</div>}
       <div className="meta">
-        {x.status === 'running' ? <span className="chip running">Claude is working</span>
-          : x.status === 'error' ? <span className="flag">error</span> : <span className="chip">your turn</span>}
-        {x.bootstrap && <span className="chip kind">bootstrap {x.bootstrap}</span>}
+        {x.status === 'error' ? <span className="flag">error</span>
+          : <span data-session-state className={cn('chip', x.status === 'running' && 'running',
+              (x.phase?.name === 'scaffold' && x.phase.stage === 'ready') || cardState(x) === 'specs ready to approve' ? 'border-brand font-semibold text-brand' : '')}>{cardState(x)}</span>}
         {x.status !== 'running' && <AbandonButton id={x.id} />}
       </div>
     </div>

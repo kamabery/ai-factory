@@ -87,6 +87,15 @@ export type Canary = {
   teardown?: { status?: string; error?: string; failures?: number } | null
 }
 
+/** A session's phase, worked out by the server (contract, "Idea sessions (dashboard)", "The phase"). */
+export type Phase = {
+  name: 'brief' | 'scaffold' | 'specs' | 'build'
+  job?: string
+  stage?: string
+  pr?: { number: number; url: string } | null
+  jobs?: { id: string; title?: string; stage: string; pr?: { number: number; url: string } | null; deploy?: Deploy | null }[]
+}
+
 export type SessionSummary = {
   id: string
   target?: string
@@ -96,6 +105,8 @@ export type SessionSummary = {
   bootstrap?: string | null
   costUsd?: number
   newTarget?: boolean
+  notices?: Partial<Record<'scaffold-ready' | 'specs-ready', string>> | null
+  phase?: Phase
 }
 
 /** Every write's answer (contract, "Dashboard API"). */

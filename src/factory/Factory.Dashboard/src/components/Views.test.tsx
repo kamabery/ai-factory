@@ -11,6 +11,22 @@ const evals = [
   { job: 'J-2', title: 'Sort', rating: 'mixed', stage: 'ready', round: 3, flag: 'max-rounds', human: { rating: 'poor' } },
 ]
 
+describe('the toast', () => {
+  it('a refusal is large and stays until dismissed; an ordinary message fades', async () => {
+    fakeServer({ 'POST /api/jobs/J-5/move': { ok: false, message: 'move refused: not a human move' } }, { jobs: [job('J-5', 'backlog')], ideas: [] })
+    const { $ } = renderApp()
+    fireEvent.click(await find('[data-card="J-5"]'))
+    fireEvent.click(await find('#approve-btn'))
+    await waitFor(() => expect($('#toast')).toHaveTextContent('move refused: not a human move'))
+    expect($('#toast')).toHaveAttribute('data-sticky', '1')
+    expect($('#toast')).toHaveClass('text-base')
+    await new Promise((r) => setTimeout(r, 4300))
+    expect($('#toast')).toHaveTextContent('move refused')
+    fireEvent.click($('#toast-close')!)
+    expect($('#toast')).not.toHaveTextContent('move refused')
+  }, 10_000)
+})
+
 describe('the Evaluations tab', () => {
   it('lists every evaluation and every finished job not yet evaluated, newest first, and opens one', async () => {
     fakeServer({

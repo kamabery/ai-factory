@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { simDir, factoryEnv, stubPort, cli, simulator } from './playwright.config';
@@ -57,6 +57,44 @@ test.describe.serial('factory dashboard', () => {
 
     await expect(card(page, 'J-001').locator('[data-review="security"]')).toHaveText(/PASS/);
     await expect(card(page, 'J-001').locator('[data-cost]')).toBeVisible();
+  });
+
+  test('a new-repo session: Scaffold is lit, Merge in the session, and the specs arrive with no click', { tag: '@smoke' }, async ({ page }) => {
+    // The simulator's S-001: a confirmed brief for sim/shelf, whose bootstrap waits in Ready for review.
+    const s1 = JSON.parse(readFileSync(path.join(simDir, 'sessions/S-001/session.json'), 'utf8'));
+    const boot: string = s1.bootstrap;
+    expect(job(boot).stage).toBe('ready');
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'ideate-'));
+    const spec = `# Spec: Shelve a book\n\n## Target\n- Repo: sim/shelf\n\n## Gate\n- build: \`git --version\`\n\n## Acceptance criteria\n- [ ] AC1: a book is shelved`;
+    [
+      { content: [{ type: 'tool_use', id: 's1', name: 'submit_specs', input: { specs: [{ k: 1, markdown: spec }] } }], stop_reason: 'tool_use' },
+      { content: [{ type: 'text', text: 'One spec is ready for you.' }], stop_reason: 'end_turn' },
+    ].forEach((r, i) => writeFileSync(path.join(dir, `${String(i + 1).padStart(3, '0')}.json`), JSON.stringify(r)));
+    await fetch(`http://localhost:${stubPort}/__reset`, { method: 'POST', body: JSON.stringify({ dir }) });
+
+    await page.goto('/');
+    const sessionCard = column(page, 'ideas').locator('[data-session="S-001"]');
+    await expect(sessionCard.locator('[data-session-state]')).toHaveText('Ready: merge the scaffold');
+    await sessionCard.click();
+    await expect(modal(page).locator('[data-step="scaffold"]')).toHaveAttribute('data-state', 'now');
+    await expect(modal(page).locator('[data-waiting]')).toContainText(`${boot} is ready for review: merge the shelf scaffold`);
+    await expect(modal(page).locator('#s-boot-pr')).toHaveAttribute('href', job(boot).pr!.url);
+    await modal(page).locator('#s-merge-boot').click();
+
+    await expect.poll(() => job(boot).stage).toBe('done');
+    // No Write specs click: the merge starts the spec turn.
+    await expect(modal(page).locator('[data-step="specs"]')).toHaveAttribute('data-state', 'now');
+    await expect(modal(page).locator('[data-spec="1"]')).toContainText('Shelve a book', { timeout: 30_000 });
+    await expect(sessionCard.locator('[data-session-state]')).toHaveText('specs ready to approve');
+    await modal(page).locator('[data-spec="1"] [data-decide="backlog"]').click();
+
+    // A new-repo session stays open on Build, following the job its spec made.
+    await expect(modal(page).locator('[data-step="build"]')).toHaveAttribute('data-state', 'now');
+    const made: string = JSON.parse(readFileSync(path.join(simDir, 'sessions/S-001/session.json'), 'utf8')).specs[0].job;
+    await expect(modal(page).locator(`[data-build-job="${made}"]`)).toContainText('in Backlog');
+    expect(job(made).stage).toBe('backlog');
+    await modal(page).locator('button[aria-label="Close"]').first().click();
+    await expect(modal(page)).toBeHidden();
   });
 
   test('the modal shows the timeline, artifacts rendered as markdown, and the gate result', { tag: '@smoke' }, async ({ page }) => {
@@ -346,6 +384,44 @@ test.describe.serial('factory dashboard', () => {
 
     await modal(page).locator('#s-close').click();
     await expect(modal(page)).toBeHidden();
+  });
+
+  // The stuck-modal repro (2026-11-20, cloud 0.3.8): Approve bootstrap moved the job on but left the modal saying
+  // "Approve it here or leave it in Backlog", with nothing left to do. Confirming the brief is now the approval.
+  test('confirming a new repo\'s brief approves its bootstrap, and the session moves on to Scaffold', async ({ page }) => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'ideate-'));
+    [
+      { content: [{ type: 'tool_use', id: 'p1', name: 'propose_scaffold', input: { repo: 'pantry', name: 'pantry', resource: 'Item', db: 'sqlite', ui: 'react', events: false } }], stop_reason: 'tool_use' },
+      { content: [{ type: 'tool_use', id: 'b1', name: 'submit_brief', input: { markdown: '# Brief: Pantry\n\n## Target\n- Repo: sim/pantry' } }], stop_reason: 'tool_use' },
+    ].forEach((r, i) => writeFileSync(path.join(dir, `${String(i + 1).padStart(3, '0')}.json`), JSON.stringify(r)));
+    await fetch(`http://localhost:${stubPort}/__reset`, { method: 'POST', body: JSON.stringify({ dir }) });
+
+    await page.goto('/');
+    await column(page, 'ideas').locator('#new-idea-btn').click();
+    await modal(page).locator('#s-target').selectOption('+new');
+    await expect(modal(page).locator('#s-new-note')).toContainText('A new repo is set up first by a bootstrap job.');
+    await modal(page).locator('#s-text').fill('A pantry list');
+    await modal(page).locator('#s-start').click();
+    await modal(page).locator('#s-confirm-scaffold').click({ timeout: 20_000 });
+    await expect(modal(page).locator('[data-step="brief"]')).toHaveAttribute('data-state', 'now');
+    await expect(modal(page).locator('[data-waiting]')).toContainText('Confirming it also approves the bootstrap job');
+    await modal(page).locator('#s-confirm-brief').click();
+
+    await expect(modal(page).locator('[data-step="scaffold"]')).toHaveAttribute('data-state', 'now');
+    const idea = board().ideas.find((i: { text: string }) => i.text === 'Pantry');
+    const boot: string = idea.jobs[0];
+    expect(job(boot).approvedAt).toBeTruthy();
+    await expect(modal(page).locator('[data-waiting]')).toContainText(`${boot} is scaffolding pantry`);
+    await expect(modal(page).locator('#s-approve-boot')).toHaveCount(0);
+    await expect(modal(page).locator('#s-write-specs')).toHaveCount(0);
+    // Not stuck: the modal closes, and the card says what the session waits on.
+    await modal(page).locator('button[aria-label="Close"]').first().click();
+    await expect(modal(page)).toBeHidden();
+    await expect(column(page, 'ideas').locator('[data-session] [data-session-state]', { hasText: `waiting for bootstrap ${boot}` })).toHaveCount(1);
+    // Leave the board as it was: the bootstrap is discarded, and the session and its idea abandoned.
+    await page.request.post(`/api/jobs/${boot}/move`, { data: { to: 'discarded' } });
+    const sid = readdirSync(path.join(simDir, 'sessions')).find((d) => JSON.parse(readFileSync(path.join(simDir, 'sessions', d, 'session.json'), 'utf8')).idea === idea.id)!;
+    await page.request.post(`/api/sessions/${sid}/close`, { data: { abandon: true } });
   });
 
   test('Clear in Done purges evaluated finished cards, their folders and finished ideas, and keeps unevaluated ones', async ({ page }) => {

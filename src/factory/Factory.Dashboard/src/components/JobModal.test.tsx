@@ -88,9 +88,13 @@ describe('a ready card', () => {
     expect($('[data-flagbox] strong')).toHaveTextContent('Verify first')
     expect($('.actions > :first-child')).toHaveAttribute('id', 'preview-btn')
     expect($('#pr-btn')).toHaveAttribute('href', 'https://gh/3')
-    fireEvent.click($('#rework-btn')!)
-    expect($('#toast')).toHaveTextContent('A rework needs a note')
+    // Rework is disabled until the note has text, so an empty rework cannot be sent and missed.
+    expect($('#rework-btn')).toBeDisabled()
+    fireEvent.change($('#rework-note')!, { target: { value: '   ' } })
+    expect($('#rework-btn')).toBeDisabled()
+    expect($('#rework-btn')).toHaveAttribute('title', 'Write what should change first')
     fireEvent.change($('#rework-note')!, { target: { value: ' use the Input ' } })
+    expect($('#rework-btn')).not.toBeDisabled()
     fireEvent.click($('#rework-btn')!)
     await waitFor(() => expect($('#backdrop')).not.toHaveClass('open'))
     expect(writes(calls)).toEqual([{ method: 'POST', url: '/api/jobs/J-2/move', body: { to: 'approved', note: 'use the Input' } }])
@@ -220,6 +224,21 @@ describe('the Output tab', () => {
     expect($('[data-output] .thinking')).toBeInTheDocument()
     expect($('[data-output] [data-agent="builder"]')).toBeInTheDocument()
     fireEvent.scroll(out)
+  })
+
+  it('Copy puts the whole output, as text, on the clipboard', async () => {
+    const writeText = vi.fn(async () => {})
+    Object.assign(navigator, { clipboard: { writeText } })
+    fakeServer({
+      'GET /api/jobs/J-1/files': ['run-1.jsonl'],
+      'GET /state/jobs/J-1/run-1.jsonl': '{"type":"assistant","message":{"content":[{"type":"text","text":"Starting J-1"}]}}',
+    }, { jobs: [job('J-1', 'build')], ideas: [] })
+    const { $ } = renderApp()
+    await open('J-1')
+    await waitFor(async () => expect(await find('[data-output]')).toHaveTextContent('Starting J-1'))
+    fireEvent.click($('#copy-output')!)
+    await waitFor(() => expect($('#toast')).toHaveTextContent('Output copied'))
+    expect(writeText).toHaveBeenCalledWith('── run-1 ──\n[orchestrator] Starting J-1')
   })
 
   it('says so when there is no output yet', async () => {

@@ -132,7 +132,8 @@ function JobHead({ j, focusRework }: { j: Job; focusRework: boolean }) {
           <textarea id="rework-note" ref={noteRef} rows={2} value={note} onChange={(e) => setNote(e.target.value)}
             placeholder="Rework: what should change? The note goes to the builder."
             className={cn(control, 'font-mono text-[12.5px]')} />
-          <Actions><Button id="rework-btn" variant="secondary" disabled={busy === 'rework'} onClick={rework}>{busy === 'rework' ? 'Reworking…' : 'Rework'}</Button></Actions>
+          <Actions><Button id="rework-btn" variant="secondary" disabled={busy === 'rework' || !note.trim()} title={note.trim() ? undefined : 'Write what should change first'}
+            onClick={rework}>{busy === 'rework' ? 'Reworking…' : 'Rework'}</Button></Actions>
         </div>
       )}
     </Head>

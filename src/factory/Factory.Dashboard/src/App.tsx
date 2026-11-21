@@ -6,6 +6,7 @@ import { Header } from '@/components/Header'
 import { Lessons } from '@/components/Lessons'
 import { Modal } from '@/components/Modal'
 import { Pipeline } from '@/components/Pipeline'
+import { SessionNotices } from '@/components/SessionNotices'
 import { Toast } from '@/components/Toast'
 
 export function App() {
@@ -19,6 +20,7 @@ export function App() {
       {view === 'lessons' && <Lessons />}
       <Modal />
       <Toast />
+      <SessionNotices />
     </>
   )
 }

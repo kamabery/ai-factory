@@ -1,15 +1,16 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { keys, POLL_MS, useConfig, useData } from '@/app/data'
+import { keys, POLL_MS, useConfig } from '@/app/data'
 import { useUi } from '@/app/ui'
 import { Button } from '@/components/ui/button'
 import { control } from '@/components/ui/control'
-import { api, getText } from '@/lib/api'
+import { api, getJson, getText } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { md } from '@/lib/markdown'
 import { answersText, money, parseStream, scaffoldText, sessionLog, type ChatMessage, type Scaffold, type StreamEvent } from '@/lib/session'
-import type { Result } from '@/lib/types'
+import type { Result, SessionSummary } from '@/lib/types'
 import { Actions, Body, CloseButton, FlagBox, Head, Md, SubMeta, Title } from './Modal'
+import { SessionStepper } from './SessionStepper'
 
 type Question = { question: string; header?: string; multiSelect?: boolean; options?: { label: string; description?: string }[] }
 type SpecEntry = { k: number; title: string; decision?: string; job?: string }
@@ -24,6 +25,17 @@ type Sess = { s: SessionFile; chat: ChatMessage[]; stream: StreamEvent[] }
 const RUNNING_POLL_MS = 400   // while a turn runs, follow its stream more closely than the board poll does
 
 const sessionKey = (id: string) => ['session', id]
+const summaryKey = (id: string) => ['session-summary', id]
+
+/** GET /api/sessions/<S>: the session with its phase, which the server works out from the board (closed or not). */
+function useSummary(id: string, running: boolean) {
+  return useQuery({
+    queryKey: summaryKey(id),
+    queryFn: () => getJson<SessionSummary>(`/api/sessions/${id}`),
+    refetchInterval: running ? RUNNING_POLL_MS : POLL_MS,
+    retry: false,
+  }).data
+}
 
 /** session.json, chat.json and stream.jsonl under /state/sessions/<S>/. An unreadable session.json keeps the last read. */
 function useSession(id: string) {
@@ -48,7 +60,7 @@ function useSessApi(id: string) {
   return async (action: string, body?: unknown, method = 'POST', type = 'application/json'): Promise<{ r: Result; s?: SessionFile }> => {
     const r = await api(method, `/api/sessions/${id}/${action}`, body, type)
     if (!r.ok) toast(r.message || 'refused', true)
-    await Promise.all([qc.invalidateQueries({ queryKey: sessionKey(id) }), qc.invalidateQueries({ queryKey: keys.sessions })])
+    await Promise.all([sessionKey(id), summaryKey(id), keys.sessions].map((queryKey) => qc.invalidateQueries({ queryKey })))
     return { r, s: qc.getQueryData<Sess>(sessionKey(id))?.s }
   }
 }
@@ -56,6 +68,7 @@ function useSessApi(id: string) {
 export function SessionModal({ id }: { id: string }) {
   const sess = useSession(id)
   const s = sess?.s
+  const phase = useSummary(id, s?.status === 'running')?.phase
   const { abandon, closeModal, toast, refresh } = useUi()
   const sessApi = useSessApi(id)
   const [busy, setBusy] = useState(false)
@@ -85,6 +98,7 @@ export function SessionModal({ id }: { id: string }) {
         <div className="flex h-full min-h-0 flex-col gap-2.5">
           <Log sess={sess} />
           <div className="max-h-[60%] overflow-auto border-t border-border-subtle pt-2.5" data-act>
+            {s?.newTarget && phase && <SessionStepper s={s} phase={phase} />}
             {s && <SessionActions id={id} s={s} sessApi={sessApi} />}
           </div>
         </div>
@@ -115,7 +129,7 @@ type SessApi = ReturnType<typeof useSessApi>
 function SessionActions({ id, s, sessApi }: { id: string; s: SessionFile; sessApi: SessApi }) {
   const [msg, setMsg] = useState('')
   const p = s.pending
-  if (s.status === 'closed') return <p>This session is closed.</p>
+  if (s.status === 'closed') return <p>This session is closed.{s.newTarget && s.specs?.some((x) => x.job) && ' Its specs are on the board.'}</p>
   if (s.status === 'running') return <div className="working text-intent-running">Claude is working…</div>
   const specs = s.specs ?? []
   return (
@@ -124,8 +138,7 @@ function SessionActions({ id, s, sessApi }: { id: string; s: SessionFile; sessAp
       {p?.name === 'ask_questions' ? <QuestionsForm key={p.id} questions={p.input?.questions ?? []} sessApi={sessApi} />
         : p?.name === 'propose_scaffold' ? <ScaffoldForm key={p.id} proposal={p.input ?? {}} hasTarget={!!s.target} sessApi={sessApi} />
         : p?.name === 'submit_brief' ? <BriefForm key={p.id} markdown={p.input?.markdown ?? ''} sessApi={sessApi} />
-        : specs.length ? <SpecsForm id={id} s={s} sessApi={sessApi} />
-        : s.bootstrap ? <BootstrapForm s={s} sessApi={sessApi} /> : null}
+        : specs.length ? <SpecsForm id={id} s={s} sessApi={sessApi} /> : null}
       {!p && (
         <Actions className="items-end">
           <textarea id="s-msg" rows={2} value={msg} onChange={(e) => setMsg(e.target.value)}
@@ -232,28 +245,6 @@ function useText(url: string | null, key: unknown[]) {
   return useQuery({ queryKey: ['text', url, ...key], queryFn: () => getText(url!), enabled: !!url }).data
 }
 
-function BootstrapForm({ s, sessApi }: { s: SessionFile; sessApi: SessApi }) {
-  const { board } = useData()
-  const { move } = useUi()
-  const job = board.jobs.find((j) => j.id === s.bootstrap)
-  const idea = board.ideas.find((i) => i.id === s.idea)
-  const spec = useText(`/state/jobs/${s.bootstrap}/spec.md`, [job?.stage])
-  return (
-    <>
-      <p>
-        The brief is saved as <b>{s.idea}</b>. The new target is scaffolded first, by bootstrap job <b>{s.bootstrap}</b> ({job?.stage ?? 'not on the board'}).
-        Approve it here or leave it in Backlog. Once it is merged, Claude writes the specs.
-      </p>
-      <details open={job?.stage === 'backlog'}><summary className="cursor-pointer font-semibold">Bootstrap spec</summary><Md html={spec === undefined ? '…' : md(spec)} data-boot-spec /></details>
-      <Actions>
-        {job?.stage === 'backlog' && <Button id="s-approve-boot" onClick={() => move(s.bootstrap!, 'approved')}>Approve bootstrap</Button>}
-        <Button id="s-write-specs" variant="secondary" disabled={idea?.status !== 'drafting'} title={idea?.status === 'drafting' ? undefined : 'after the bootstrap job is merged'}
-          onClick={() => sessApi('write-specs')}>Write specs</Button>
-      </Actions>
-    </>
-  )
-}
-
 function SpecsForm({ id, s, sessApi }: { id: string; s: SessionFile; sessApi: SessApi }) {
   const { toast, closeModal, refresh } = useUi()
   const specs = s.specs ?? []
@@ -266,7 +257,8 @@ function SpecsForm({ id, s, sessApi }: { id: string; s: SessionFile; sessApi: Se
     const { r: c } = await sessApi('close', { failed: !kept.length })
     if (!c.ok) return
     toast(kept.length ? `${fresh?.idea} done: ${kept.map((x) => `${x.job} ${x.decision === 'approved' ? 'approved' : 'in Backlog'}`).join(', ')}` : `${fresh?.idea} closed: every spec rejected`)
-    closeModal(true)
+    // A new-repo session stays open on its Build phase: the stepper follows the jobs it made.
+    if (!(s.newTarget && kept.length)) closeModal(true)
     await refresh()
   }
   return (
