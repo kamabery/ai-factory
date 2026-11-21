@@ -69,7 +69,8 @@ public sealed class RunnerTests : IDisposable
             var log = Path.Combine(_dir["state"], "jobs", "J-001", "run-1.jsonl");
             var wt = Directory.CreateDirectory(_dir["wt"]).FullName;
 
-            var paths = new FactoryPaths(Options.Create(new FactoryOptions { Home = _dir["state"], Scripts = _dir["scripts"], Templates = _dir["tp"], Cli = _dir["cli/factory.dll"] }), new GitClient(new ProcessRunner()));
+            var paths = new FactoryPaths(Options.Create(new FactoryOptions { Home = _dir["state"], Scripts = _dir["scripts"], Templates = _dir["tp"], Cli = _dir["cli/factory.dll"],
+                EnvFile = _dir["repo/.env"] }), new GitClient(new ProcessRunner()));
             var run = new ClaudeRunner(paths, new FileStore(), options)
                 .Run("J-001", "/factory:factory run J-001", wt, log, new Dictionary<string, string?> { ["ANTHROPIC_API_KEY"] = null }, "sess-9");
 
@@ -84,6 +85,9 @@ public sealed class RunnerTests : IDisposable
             // The CLI's folder first, so `factory` is this build's; DOTNET_ROOT only where it was unset.
             var root = Environment.GetEnvironmentVariable("DOTNET_ROOT") is { Length: > 0 } r ? r : "dotnet-root";
             Assert.Contains($"path=[{Path.GetFullPath(_dir["cli"])}] root=[{root}]", lines);
+            // The agents run `factory` in the target's clone, where no .env is found by walking up: the runner hands
+            // its own .env and checkout down, or read-reviews takes deploys for off (local J-037, 2026-11-21).
+            Assert.Contains($"env-file=[{_dir["repo/.env"]}] repo=[{Path.GetFullPath(Path.Combine(_dir["scripts"], "..", ".."))}]", lines);
             var settings = JsonNode.Parse(File.ReadAllText(Path.Combine(_dir["state"], "headless-settings.json")))!;
             Assert.Equal("5400000", (string?)settings["env"]!["BASH_MAX_TIMEOUT_MS"]);
         }

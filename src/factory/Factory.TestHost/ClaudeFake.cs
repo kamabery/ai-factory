@@ -51,6 +51,7 @@ public static class ClaudeFake
         var path = (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
         Console.WriteLine($"key=[{Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")}] resume=[{Environment.GetEnvironmentVariable("FACTORY_CLAUDE_RESUME")}] cwd={Environment.CurrentDirectory}");
         Console.WriteLine($"path=[{path}] root=[{Environment.GetEnvironmentVariable("DOTNET_ROOT")}]");
+        Console.WriteLine($"env-file=[{Environment.GetEnvironmentVariable("FACTORY_ENV_FILE")}] repo=[{Environment.GetEnvironmentVariable("FACTORY_REPO")}]");
         Console.WriteLine("""{"type":"result","total_cost_usd":0.25,"duration_ms":7}""");
     }
 

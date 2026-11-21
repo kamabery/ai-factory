@@ -1685,7 +1685,9 @@ longer running. Otherwise it loops:
    an unmerged base job's branch), and records the branch head as `roundStart`. The builder's first step is `git merge --no-edit factory/base`,
    resolving any conflicts and noting them in build.md, so a branch cut before other work merged
    is reviewed, previewed and gated with that work in it (J-022).
-3. It sets `FACTORY_JOB=<id>`, `FACTORY_HOME=<this repo>\.factory-runs` and `FACTORY_REPO=<this repo>`,
+3. It sets `FACTORY_JOB=<id>`, `FACTORY_HOME=<this repo>\.factory-runs`, `FACTORY_REPO=<this repo>` and
+   `FACTORY_ENV_FILE=<its .env>` (agents run `factory` in the target's clone, where no `.env` is found by walking up;
+   without it `read-reviews` took deploys for off, local J-037),
    writes `<stateDir>/headless-settings.json`, and runs this in the job's work directory:
    `claude -p "/factory:factory run <id> <stateDir> <this repo>/factory/templates" --plugin-dir <this repo>/factory/plugin --plugin-dir <template workspace> --settings <stateDir>/headless-settings.json --add-dir <stateDir> --output-format stream-json --verbose --permission-mode acceptEdits`
    with the CLI's folder first on `PATH` (see [Implementations](#implementations)).
