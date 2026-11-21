@@ -57,6 +57,24 @@ Contract first (`docs/FACTORY-CONTRACT.md`, "Canary" and "Dashboard API"):
   approval (spec 21's bootstrap left in Backlog) shows its message; whether **Not yet** keeps a spec on the idea
   card or the idea closes; and where a job dragged back out of Approved goes (today, to Backlog).
 
+- **Documentation** (Kurt, 2026-11-21), part of the spec, not a follow-up. Updated in the same PR as the code:
+  - **README.md:** how a spec is approved from Ideas, where "not yet" leaves it (today line 58 sends it to
+    Backlog), and the Canary column in the board's walk-through.
+  - **docs/TERMINOLOGY.md:** the idea-to-job diagram and the card's path (Backlog → Approved → Building ...) lose
+    the Backlog column; **Canary** gains the stage and column, and a plain account of what the canary is and why
+    deployable jobs wait for it: it deploys a fresh scaffold of the current templates through the same path a job's
+    preview takes, so a broken template or deploy change fails one throwaway run, not a real job after its tokens
+    are spent (J-019's three attempts went on three platform bugs). Its limits too: one scaffold (Postgres + React
+    + sign-in, so a SQLite-only bug like template-projects PR #10's gets past it), the shared platform (only
+    `-Full` proves a from-scratch stack).
+  - **docs/DEPLOY.md:** a short "The canary" section for the operator: when it runs (the fingerprint, once per
+    change, not per job), what the Canary column and banner show, what a red Canary card means, and **Run canary**
+    / `canary -Retry` in the cloud.
+  - **docs/CLOUD.md:** the release step says a new image forces a canary, and that the first deployable job then
+    waits in Canary.
+  - **docs/BUILD-GUIDE.md:** its backlog wording, where it describes the board rather than the `backlog` stage.
+  - The contract changes come first, as for every spec.
+
 ## Tests
 
 Seen red before green, per `docs/TESTING.md`:
@@ -75,4 +93,5 @@ Seen red before green, per `docs/TESTING.md`:
 Approving the first deployable job after a release puts it in the Canary column within a minute, and shows the canary's phase, elapsed time and Actions link in the
 banner within a minute of the canary starting, in both local and cloud modes. The "canary due" chip is visible
 before anything is approved. The board has no Backlog column: a new idea's specs are approved from the Ideas column
-and go straight to Approved or Canary, on a local board and the cloud board.
+and go straight to Approved or Canary, on a local board and the cloud board. The README, TERMINOLOGY, DEPLOY,
+CLOUD and BUILD-GUIDE docs describe the board as it now is, and say what the canary is and why jobs wait for it.
