@@ -177,7 +177,14 @@ The spec's `## Scope` `- In:` line is followed by one sub-bullet per path the bu
 each starting with a backticked glob, repo-relative, with `/` separators, then optional prose. A sub-bullet may
 name several globs: its leading backticked spans joined only by commas, once anything in parentheses is set aside
 (`` `CLAUDE.md`, `README.md` `` gives both). A span inside parentheses, or after other words, is prose. Cloud J-003
-(2026-11-20) was flagged `out-of-scope` for the second path on such a line:
+(2026-11-20) was flagged `out-of-scope` for the second path on such a line, and cloud J-005 (2026-11-21) for
+`` `a/vite.config.ts` and `a/vitest.config.ts` ``, whose second path came after "and". So a path written as prose is
+refused before anything is built: a sub-bullet with a backticked span outside its leading run and outside
+parentheses, when the span looks like a path (it has a `/`, a `*`, or ends in a `.<extension>`), is an **ambiguous
+scope line**. `submit_specs` and `revise_spec` answer it as a tool error, and `approve` refuses it, with
+`` <spec>'s Scope line names `<span>` after other words, so the scope check would miss it: give it its own
+sub-bullet, or comma-join it at the start of the line `` for each (`approve` prefixes `approve refused: `). A
+span that is not a path (`` `BookSeeder` ``, `` `test` ``) stays prose:
 
 ```
 ## Scope
@@ -352,8 +359,9 @@ An idea is not a job. The session:
 1. Takes the target, and for a new target the scaffold options.
 2. Grills the human (the plugin's `grill` skill) until nothing in the idea is assumed, and has them
    confirm the resulting **brief**, which follows `factory/templates/brief.md`.
-3. Runs `new-idea` and writes the brief to `ideas/I-NNN/brief.md`. For a new target it shows the
-   bootstrap spec, approves it on the human's yes, and stops: the idea waits for the bootstrap merge.
+3. Runs `new-idea` and writes the brief to `ideas/I-NNN/brief.md`. For a new target it approves the
+   bootstrap job (in the dashboard, confirming the brief is that approval; the CLI session shows the bootstrap
+   spec and approves it on the human's yes) and stops: the idea waits for the bootstrap merge.
 4. Runs the spec-writer, which turns the brief into 1..N specs (N ≤ 5), each small and buildable on
    its own. It shows each spec; the human approves it, asks for changes (made to `spec-<k>.md`
    before it reaches the board), defers it, or rejects it.
@@ -447,6 +455,8 @@ sessions/<S>/session.json = { "id": "S-001", "target": "owner/name" | null, "tex
   "pending": { "id": "toolu_...", "name": "ask_questions", "input": { } } | null,
   "pendingResults": [ ],
   "specs": [ { "k": 1, "title": "...", "decision": null | "approved" | "backlog" | "rejected", "job": "J-007" } ],
+  "specsStarted": "<ts>" | null,
+  "notices": { "scaffold-ready": "<ts>", "specs-ready": "<ts>" },
   "createdAt": "..." }
 stream.jsonl lines: { "type": "text", "text" } · { "type": "tool", "name", "summary" } · { "type": "end" } · { "type": "error", "message" }
 human.jsonl lines: { "ts", "kind": "idea", "text", "target", "newTarget" }
@@ -481,13 +491,50 @@ has merged), and closing the session deletes the clone.
 3. Confirm runs `new-idea` (with `-Scaffold` for a new target, `-Base` for a session with a base)
    and writes `ideas/<I>/brief.md`.
    - **Existing target:** the turn continues to the specs.
-   - **New target:** the panel shows the bootstrap job's spec with Approve (the usual move
-     endpoint) or leave it in Backlog. After the bootstrap merge, the idea is `drafting` and
-     **Write specs** continues the session.
+   - **New target:** confirming the brief is the bootstrap's approval: Confirm also runs
+     `approve <bootstrap>` and starts the runner. If `approve` refuses, the bootstrap stays in Backlog
+     and the answer carries the refusal, as a refused spec approval does. The human still merges the
+     scaffold: once the bootstrap is Ready for review, the session shows its PR and a **Merge** button,
+     the usual move to `done` (a drag to Done works too). When the merge is recorded (the session's
+     Merge, a drag, or `sync-prs` after a merge on GitHub) and the idea is `drafting`, the server
+     starts the spec turn itself, as `write-specs` does. While the dashboard is closed, a merge on
+     GitHub waits for the next PR sync, and the session says so.
 4. The model calls `submit_specs`. Each spec card offers **Approve** (`add-spec` + `approve`, then
    the runner starts), **Change** (ask the model, which calls `revise_spec`, or edit the markdown
    directly), **Not yet** (`add-spec`), or **Reject**. Once every spec is decided, the panel closes
    the session: `idea-done`, or `idea-done -Failed -Reason "every spec rejected in session"`.
+
+**The phase.** The server works out a session's phase from `session.json` and the board on every read; it is
+never stored. A new-target session's panel shows it as a stepper (Brief → Scaffold → Specs → Build) with the
+current phase lit and what it waits on in plain text; its card says the same in a line.
+
+```
+"phase": { "name": "brief" } · { "name": "scaffold", "job": "J-NNN", "stage": "<its stage>", "pr": { "number", "url" } | null }
+       · { "name": "specs" } · { "name": "build", "jobs": [ { "id", "title", "stage", "pr", "deploy" } ] }
+```
+
+- `brief`: the session has no idea yet.
+- `scaffold`: it has a bootstrap job that is not `done`.
+- `specs`: not every spec in the session is decided (none written yet included).
+- `build`: every spec is decided and at least one reached the board; `jobs` are those jobs as the board has them.
+  An existing-target session goes brief → specs → build.
+
+**Advancing and notices.** After every move, and on every watchdog tick (see [Runner](#runner)), the server sweeps
+the sessions that are not `closed` and have no turn running:
+
+- A session with a bootstrap that is `done`, an idea that is `drafting`, no specs and no `specsStarted` gets the
+  spec turn, exactly as `write-specs` (which sets `specsStarted`). So the turn starts once: a session that has
+  specs, has started them, or is running a turn is left alone.
+- Two moments are recorded once each in `notices`, with the time: `scaffold-ready` when the bootstrap is first
+  `ready` ("J-NNN is ready for review: merge the *repo* scaffold"), and `specs-ready` when the session first has
+  specs and no turn running ("Specs for I-NNN are ready to approve"). The page shows a notice recorded after it
+  loaded as a toast and, when the human has granted it, a browser `Notification`, so a reload never repeats one.
+  The page asks for that permission once, when **+ Add new** is picked in New idea, never on load.
+- Beside **Abandon**, the session card's state says whose move it is. While the factory has it (the bootstrap short
+  of `ready`, the spec turn, any turn running) the state carries a moving marker (`data-wait="factory"`); when the
+  human has it (`ready` to merge, specs to decide, a question to answer) it is marked as theirs (`data-wait="you"`).
+  An idea card `waiting` on its bootstrap says the same beside its **Abandon**: `waiting for bootstrap J-NNN
+  (<stage>)` with the moving marker.
 
 ## Job transitions
 
@@ -1559,7 +1606,7 @@ and a refused move snaps the card back and shows the message.
 | `PUT /api/jobs/<id>/spec` (text/markdown) | `edit-spec` | |
 | `POST /api/jobs/<id>/move` `{ "to": "approved" }` from backlog | `approve` | starts the runner |
 | `POST /api/jobs/<id>/move` `{ "to": "approved", "note" }` from ready or blocked | `rework` | starts the runner. The rework dialog has the factory-fault hint (see [Blocked](#blocked)) |
-| `POST /api/jobs/<id>/move` `{ "to": "done" }` | `merge` | |
+| `POST /api/jobs/<id>/move` `{ "to": "done" }` | `merge` | sweeps the sessions: a merged bootstrap starts its spec turn (see [Idea sessions](#idea-sessions-dashboard), "Advancing and notices") |
 | `POST /api/jobs/<id>/move` `{ "to": "discarded" }` | `discard` | |
 | `POST /api/jobs/<id>/redeploy` | `redeploy` | **Retry deploy** on a blocked card; starts the runner |
 | `POST /api/jobs/<id>/resume` | `resume` | **Resume** on a card flagged `usage-limit`; starts the runner |
@@ -1572,12 +1619,13 @@ and a refused move snaps the card back and shows the message.
 | `GET /api/evals` | (read-only) | every `evals/<id>.json`, newest job first; the markdown is at `/state/evals/<id>.md` |
 | `PUT /api/evals/<id>/feedback` (text/markdown) | `feedback` | the feedback is at `/state/evals/<id>.feedback.md` |
 | `GET /api/ideate/config` | (read-only) | `{ enabled, model, owner, templatesRepo, deploys, mode, provider }`; `enabled` means the mode can run idea turns (always locally; cloud mode needs `FACTORY_FOUNDRY_RESOURCE`) (see [Idea sessions](#idea-sessions-dashboard)); `mode` and `provider` are the [run mode](#run-mode-and-providers) and its provider, shown in the dashboard header; `owner` is `GITHUB_OWNER`; `templatesRepo` is `FACTORY_TEMPLATES_REPO`; `deploys` means `.env` has `HCP_ORG` (Approved cards' wait reasons); no key is ever returned |
-| `GET /api/sessions` | (read-only) | every session that is not `closed`: `{ id, target, text, status, idea, bootstrap, costUsd, newTarget }` |
+| `GET /api/sessions` | (read-only) | every session that is not `closed`: `{ id, target, text, status, idea, bootstrap, costUsd, newTarget, notices, phase }` |
+| `GET /api/sessions/<S>` | (read-only) | that session's summary, the same shape, `closed` or not: the panel's stepper reads it |
 | `GET /api/repos` | `list-repos` | the JSON array, for the New idea picker |
 | `POST /api/sessions` `{ target, text, base? }` or `{ new: true, text }` | `check-target` (not for `new`, which needs `GITHUB_OWNER`), then `clone-target [-Base]` | allocates `S-NNN`, writes `session.json` (with `base`) and the first message, which tells the model the clone is the base's unmerged branch, and starts a turn. The panel's **Base** list is `main` plus every job on the target that is not `done` or `discarded` and has a PR |
 | `POST /api/sessions/<S>/reply` `{ text, scaffold? }` | (session write); `check-target` when the session has no target | answers `pending` (or adds user text), stores `scaffold`, starts a turn; with no target, `scaffold.repo` sets it and must name a new repo; empty text with no pending retries a failed turn |
-| `POST /api/sessions/<S>/brief` | `new-idea`, then writes `brief.md` | existing target: answers `submit_brief` and starts the spec turn; new target: records the bootstrap job |
-| `POST /api/sessions/<S>/write-specs` | (session write) | after the bootstrap merge (the idea is `drafting`): starts the spec turn |
+| `POST /api/sessions/<S>/brief` | `new-idea`, then writes `brief.md`; new target: then `approve <bootstrap>` | existing target: answers `submit_brief` and starts the spec turn; new target: records the bootstrap job and starts the runner, or, when `approve` refuses, leaves it in Backlog and answers the refusal |
+| `POST /api/sessions/<S>/write-specs` | (session write) | after the bootstrap merge (the idea is `drafting`): starts the spec turn and sets `specsStarted`. The server's sweep does the same by itself; the panel has no button for it |
 | `POST /api/sessions/<S>/specs/<k>` `{ decision }` | `add-spec` (+ `approve`) | `approved` starts the runner; `rejected` calls nothing |
 | `PUT /api/sessions/<S>/specs/<k>` (text/markdown) | (session write) | the human's direct edit of `spec-<k>.md` |
 | `POST /api/sessions/<S>/close` `{ failed, reason? }` or `{ abandon: true }` | `idea-done [-Failed -Reason]`, or `idea-abandon` (only once there is an idea, and not when the idea is already `done` or `abandoned`: then any close only closes the session) | the session becomes `closed`; the default reason is "every spec rejected in session". `abandon` is the session card's **Abandon**, refused while a turn is running |
@@ -1675,6 +1723,8 @@ longer running. Otherwise it loops:
 `approved` and `runner.lock` is missing or names a PID that is no longer running, it starts
 `factory runner` detached and logs `watchdog: started runner`. A runner that died, or one that was
 never started (an approval made outside the dashboard), costs one interval, not a stalled queue.
+Each check also sweeps the idea sessions (see [Idea sessions](#idea-sessions-dashboard), "Advancing and notices"),
+so a bootstrap that PR sync recorded as merged starts its spec turn within one interval.
 
 **PR sync.** Every 30 seconds (`--pr-sync-seconds`), if a `ready` job has a PR, the server starts
 `factory sync-prs` detached. A PR the human merged on GitHub then lands its job in Done within

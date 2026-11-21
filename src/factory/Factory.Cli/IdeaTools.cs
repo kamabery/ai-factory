@@ -224,7 +224,10 @@ public sealed partial class IdeaTools(IdeaFiles files, string session)
         var specs = input["specs"] as JsonArray ?? [];
         if (specs.Count is < 1 or > 5) throw new FactoryException("submit 1 to 5 specs");
         foreach (var sp in specs)
+        {
             if (Title(Text(sp?["markdown"])) is null) throw new FactoryException($"spec {Text(sp?["k"])} has no '# Spec: <title>' line");
+            RequireClearScope(Text(sp?["markdown"])!);
+        }
         var list = new JsonArray();
         foreach (var sp in specs)
         {
@@ -246,10 +249,17 @@ public sealed partial class IdeaTools(IdeaFiles files, string session)
         if (Text(entry["decision"]) is { Length: > 0 } d) throw new FactoryException($"spec {Text(input["k"])} is already decided ({d})");
         var md = Text(input["markdown"]);
         if (Title(md) is not { } title) throw new FactoryException("the new markdown has no '# Spec: <title>' line");
+        RequireClearScope(md!);
         files.WriteText(Path.Combine(Home, "ideas", Text(s["idea"]) ?? "", $"spec-{(int)k}.md"), md + Environment.NewLine);
         entry["title"] = title;
         files.SaveSession(session, s);
         return $"spec {Text(input["k"])} revised";
+    }
+
+    /// <summary>A path written after other words on a Scope line is refused, so the model rewrites it (contract, "Targets").</summary>
+    private static void RequireClearScope(string md)
+    {
+        if (SpecText.AmbiguousScope(PsText.Lines(md)) is { Count: > 0 } vague) throw new FactoryException(string.Join("; ", vague));
     }
 
     /// <summary>The state dir: sessions/&lt;S&gt;/ sits two folders below it.</summary>

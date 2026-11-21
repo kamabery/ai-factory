@@ -11,6 +11,16 @@ import { Actions, Body, CloseButton, Head, SubMeta, Title } from './Modal'
 const NEW = '+new'
 const OTHER = '+other'
 
+/**
+ * A new repo tells the human twice when it needs them (contract, "Advancing and notices"), so picking Add new asks
+ * once for browser notifications: from a click, never on load, and only while the browser has not been answered.
+ */
+function askToNotify() {
+  try {
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') void Notification.requestPermission()
+  } catch { /* no Notification API: the toasts still say it */ }
+}
+
 /** New idea (contract, "Idea sessions (dashboard)"): a target (an existing repo, or a new one), a base, the idea. */
 export function NewSession() {
   const { config } = useConfig()
@@ -32,7 +42,12 @@ export function NewSession() {
   const bases = board.jobs.filter((j) => j.target === t && !['done', 'discarded'].includes(j.stage) && j.pr)
   const chosen = bases.some((j) => j.id === base) ? base : ''   // a base that is not on this target is main
 
+  const pick = (value: string) => {
+    setTarget(value)
+    if (value === NEW) askToNotify()
+  }
   const start = async () => {
+    if (target === NEW) askToNotify()
     setBusy(true)
     const r = await api('POST', '/api/sessions', target === NEW ? { new: true, text: text.trim() } : { target: t, text: text.trim(), base: chosen || undefined })
     if (!r.ok) { toast(r.message || 'refused', true); setBusy(false); return }
@@ -50,7 +65,7 @@ export function NewSession() {
         <div className="grid max-w-[640px] grid-cols-[140px_1fr] items-center gap-x-3 gap-y-2">
           <label htmlFor="s-target">Target repo</label>
           <div>
-            <select id="s-target" value={target} onChange={(e) => setTarget(e.target.value)} className={control}>
+            <select id="s-target" value={target} onChange={(e) => pick(e.target.value)} className={control}>
               <option value={NEW}>+ Add new (Claude grills you and names the repo)</option>
               {options.map((o) => <option key={o} value={o}>{o}</option>)}
               <option value={OTHER}>Other owner/name…</option>
@@ -73,7 +88,9 @@ export function NewSession() {
           <span />
           <Actions className="mt-0">
             <Button id="s-start" disabled={busy} onClick={start}>Start</Button>
-            <span className="text-xs text-content-muted">An existing repo, or a new one that a bootstrap job creates and scaffolds.</span>
+            {target === NEW
+              ? <span id="s-new-note" className="text-sm">A new repo is set up first by a bootstrap job. Its feature specs are written after you merge it.</span>
+              : <span className="text-xs text-content-muted">An existing repo, or a new one that a bootstrap job creates and scaffolds.</span>}
           </Actions>
         </div>
       </Body>

@@ -1,6 +1,8 @@
 import { useLayoutEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { POLL_MS, useData } from '@/app/data'
+import { useUi } from '@/app/ui'
+import { Button } from '@/components/ui/button'
 import { enc, getText } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { streamLines } from '@/lib/stream'
@@ -23,6 +25,7 @@ function outputSources(kind: 'job' | 'idea', id: string, files: string[], events
 /** The Output tab: a terminal that follows its end while you are at it. */
 export function OutputPane({ kind, id, files }: { kind: 'job' | 'idea'; id: string; files: string[] }) {
   const { events } = useData()
+  const { toast } = useUi()
   const sources = outputSources(kind, id, files, events)
   const texts = useQuery({
     queryKey: ['output', kind, id, sources.map((s) => s.url)],
@@ -36,7 +39,16 @@ export function OutputPane({ kind, id, files }: { kind: 'job' | 'idea'; id: stri
 
   const agents: Record<string, string> = {}
   const blocks = texts ? sources.map((s, k) => ({ s, lines: (texts[k] ?? '').split('\n').flatMap((l) => streamLines(l, s.who, agents)) })) : []
+  // The whole output as the pane shows it, for pasting into a note or an issue.
+  const copy = async () => {
+    const text = blocks.map(({ s, lines }) => [`── ${s.title} ──`, ...lines.map((l) => `[${l.who}] ${l.text}`)].join('\n')).join('\n')
+    try { await navigator.clipboard.writeText(text); toast('Output copied') } catch { toast('Copy failed', true) }
+  }
   return (
+    <div className="relative flex min-h-0 flex-1 flex-col">
+    {blocks.length > 0 && (
+      <Button id="copy-output" variant="secondary" size="sm" className="absolute top-2 right-4 z-10" onClick={copy}>Copy</Button>
+    )}
     <div className="term" data-output ref={pane}
       onScroll={(e) => { const p = e.currentTarget; atBottom.current = p.scrollHeight - p.scrollTop - p.clientHeight < 40 }}>
       {blocks.length === 0 && <div className="ln dim">No output yet.</div>}
@@ -48,6 +60,7 @@ export function OutputPane({ kind, id, files }: { kind: 'job' | 'idea'; id: stri
           ))}
         </div>
       ))}
+    </div>
     </div>
   )
 }

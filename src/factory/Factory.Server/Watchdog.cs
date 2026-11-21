@@ -12,7 +12,7 @@ namespace Factory.Server;
 /// </summary>
 public sealed class Watchdog(
     BoardFile board, IFactoryPaths paths, IFileStore files, IFactoryLauncher launcher, IRunnerStarter runner, IStateLeases leases, IFactoryCalls factory, IProcessProbe procs,
-    IOptions<ServerOptions> options, TimeProvider clock, ILogger<Watchdog> log) : BackgroundService
+    IdeaSessions ideas, IOptions<ServerOptions> options, TimeProvider clock, ILogger<Watchdog> log) : BackgroundService
 {
     /// <summary>How long a started runner execution may take to start and take the runner lease.</summary>
     private static readonly TimeSpan ExecutionStart = TimeSpan.FromMinutes(3);
@@ -38,6 +38,13 @@ public sealed class Watchdog(
         {
             _nextWatch = now.AddSeconds(options.Value.WatchdogSeconds);
             try { Watch(now); } catch (Exception e) { log.LogWarning("watchdog: {Message}", e.Message); }
+            // Session writes keep the API's order: skip this tick's sweep while a request holds the gate.
+            if (DashboardRoutes.ApiGate.Wait(0))
+            {
+                try { ideas.Sweep(); }
+                catch (Exception e) { log.LogWarning("session sweep: {Message}", e.Message); }
+                finally { DashboardRoutes.ApiGate.Release(); }
+            }
         }
         if (now >= _nextSync)
         {

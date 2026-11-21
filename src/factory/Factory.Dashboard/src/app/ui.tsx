@@ -10,7 +10,7 @@ import { keys } from './data'
 export type OpenKind = 'job' | 'idea' | 'session' | 'new-session'
 export type Open = { kind: OpenKind; id: string | null; focusRework?: boolean; n: number }
 export type View = 'board' | 'evals' | 'lessons'
-export type ToastState = { text: string; error: boolean; n: number } | null
+export type ToastState = { text: string; error: boolean; sticky: boolean; n: number } | null
 
 type Ui = {
   view: View
@@ -23,7 +23,9 @@ type Ui = {
   isDirty: () => boolean
   setDirty: (on: boolean) => void
   toastState: ToastState
-  toast: (text: string, error?: boolean) => void
+  /** An error (a refusal) stays until dismissed; so does a `sticky` message. Anything else fades after 4 s. */
+  toast: (text: string, error?: boolean, opts?: { sticky?: boolean }) => void
+  dismissToast: () => void
   moving: ReadonlySet<string>
   move: (id: string, to: string, note?: string) => Promise<boolean>
   refresh: () => Promise<void>
@@ -57,11 +59,14 @@ export function UiProvider({ children }: { children: ReactNode }) {
   const openRef = useRef<Open | null>(null)
   useEffect(() => { openRef.current = open }, [open])
 
-  const toast = useCallback((text: string, error = false) => {
-    setToast({ text, error, n: ++opened })
+  const toast = useCallback((text: string, error = false, opts: { sticky?: boolean } = {}) => {
+    const sticky = error || !!opts.sticky
+    setToast({ text, error, sticky, n: ++opened })
     clearTimeout(toastTimer.current)
-    toastTimer.current = setTimeout(() => setToast(null), TOAST_MS)
+    if (!sticky) toastTimer.current = setTimeout(() => setToast(null), TOAST_MS)
   }, [])
+
+  const dismissToast = useCallback(() => { clearTimeout(toastTimer.current); setToast(null) }, [])
 
   const refresh = useCallback(async () => {
     await Promise.all([keys.board, keys.events, keys.sessions, keys.canary].map((queryKey) => qc.invalidateQueries({ queryKey })))
@@ -123,8 +128,8 @@ export function UiProvider({ children }: { children: ReactNode }) {
   const setDirty = useCallback((on: boolean) => { dirty.current = on }, [])
 
   const value = useMemo<Ui>(() => ({
-    view, setView, open, openModal, closeModal, isDirty, setDirty, toastState, toast, moving, move, refresh, armed, abandon,
-  }), [view, open, openModal, closeModal, isDirty, setDirty, toastState, toast, moving, move, refresh, armed, abandon])
+    view, setView, open, openModal, closeModal, isDirty, setDirty, toastState, toast, dismissToast, moving, move, refresh, armed, abandon,
+  }), [view, open, openModal, closeModal, isDirty, setDirty, toastState, toast, dismissToast, moving, move, refresh, armed, abandon])
 
   return <UiContext.Provider value={value}>{children}</UiContext.Provider>
 }

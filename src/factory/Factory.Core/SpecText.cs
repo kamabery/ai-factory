@@ -53,6 +53,28 @@ public static partial class SpecText
         return new ScopeIn(globs, at);
     }
 
+    /// <summary>The ambiguous scope lines of a spec (contract, "Targets"): one message per path written after other words.</summary>
+    public static IReadOnlyList<string> AmbiguousScope(IReadOnlyList<string> lines)
+    {
+        var name = lines.Select(l => SpecName().Match(l)).FirstOrDefault(m => m.Success)?.Groups[1].Value.Trim() ?? "the spec";
+        var found = new List<string>();
+        bool inScope = false, inIn = false;
+        foreach (var line in lines)
+        {
+            if (AnyHeading().Match(line) is { Success: true } h) { inScope = string.Equals(h.Groups[1].Value, "Scope", StringComparison.OrdinalIgnoreCase); inIn = false; continue; }
+            if (!inScope) continue;
+            if (InLine().IsMatch(line)) { inIn = true; continue; }
+            if (Unindented().IsMatch(line)) { inIn = false; continue; }
+            if (!inIn || !GlobBullet().IsMatch(line)) continue;
+            var bare = Parenthetical().Replace(line, "");
+            var run = LeadingGlobs().Match(bare);
+            foreach (Match m in Backticked().Matches(bare[(run.Index + run.Length)..]))
+                if (LooksLikePath().IsMatch(m.Groups[1].Value))
+                    found.Add($"{name}'s Scope line names `{m.Groups[1].Value}` after other words, so the scope check would miss it: give it its own sub-bullet, or comma-join it at the start of the line");
+        }
+        return found;
+    }
+
     /// <summary>
     /// The body of a markdown file's <c>## heading</c> section, trimmed; null when the file or the section is
     /// absent, or the body is empty or <c>N/A</c>.
@@ -92,6 +114,8 @@ public static partial class SpecText
     [GeneratedRegex(@"`([^`]+)`")] private static partial Regex Backticked();
     [GeneratedRegex(@"^\s+[-*]\s+(`[^`]+`(?:\s*,\s*`[^`]+`)*)", I)] private static partial Regex LeadingGlobs();
     [GeneratedRegex(@"\([^()]*\)")] private static partial Regex Parenthetical();
+    [GeneratedRegex(@"[/*]|\.[a-z0-9]+$", I)] private static partial Regex LooksLikePath();
+    [GeneratedRegex(@"^#\s*Spec:\s*(.+)$", I)] private static partial Regex SpecName();
     [GeneratedRegex(@"^\s+\S", I)] private static partial Regex Indented();
     [GeneratedRegex(@"^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$", I)] private static partial Regex TargetPattern();
 }

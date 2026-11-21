@@ -9,8 +9,8 @@ public static class DashboardRoutes
     private const string Session = "{sid:regex(^S-\\d+$)}";
 
     // serve.ps1 answered one request at a time. Session writes read, change and write session.json, so the API keeps
-    // that order; static reads (the board poll, run logs) are served alongside.
-    private static readonly SemaphoreSlim ApiGate = new(1, 1);
+    // that order; static reads (the board poll, run logs) are served alongside. The watchdog's session sweep takes it too.
+    internal static readonly SemaphoreSlim ApiGate = new(1, 1);
 
     public static WebApplication MapDashboard(this WebApplication app, bool requireSignin = false)
     {
@@ -41,7 +41,7 @@ public static class DashboardRoutes
         Get(app, "/api/agents/{agentId:regex(^[A-Za-z0-9_-]+$)}/transcript", (JobsApi j, string agentId) => j.Transcript(agentId));
         Get(app, $"/api/jobs/{Job}/files", (JobsApi j, string id) => j.Files(id));
         Map(app, "PUT", $"/api/jobs/{Job}/spec", (JobsApi j, string id, string body) => j.EditSpec(id, body));
-        Map(app, "POST", $"/api/jobs/{Job}/move", (JobsApi j, string id, string body) => j.Move(id, body));
+        Map(app, "POST", $"/api/jobs/{Job}/move", (IdeaSessions s, string id, string body) => s.Move(id, body));
         Map(app, "POST", $"/api/jobs/{Job}/resume", (JobsApi j, string id, string _) => j.Resume(id));
         Map(app, "POST", $"/api/jobs/{Job}/redeploy", (JobsApi j, string id, string _) => j.Redeploy(id));
         Map(app, "POST", $"/api/jobs/{Job}/destroy", (JobsApi j, string id, string _) => j.Destroy(id));
@@ -55,6 +55,7 @@ public static class DashboardRoutes
         Get(app, "/api/ideate/config", (ReadsApi r) => r.IdeateConfig());
         Get(app, "/api/repos", (ReadsApi r) => r.Repos());
         Get(app, "/api/sessions", (ReadsApi r) => r.Sessions());
+        Get(app, $"/api/sessions/{Session}", (ReadsApi r, string sid) => r.Session(sid));
         app.MapPost("/api/purge", (HttpContext ctx, ReadsApi r) => ReplyWriter.WriteAsync(ctx, r.Purge()));
         Map(app, "POST", "/api/ideas/{id:regex(^I-\\d+$)}/abandon", (ReadsApi r, string id, string _) => r.AbandonIdea(id));
 

@@ -11,7 +11,7 @@ namespace Factory.Server;
 /// The contract's read-only dashboard endpoints (lessons, evaluations, idea config, sessions, repos) and the one-call
 /// writes beside them (lesson-mark, feedback, purge, idea-abandon).
 /// </summary>
-public sealed partial class ReadsApi(IFactoryCalls factory, IFactoryPaths paths, IFileStore files, IServerSettings settings, IProcessProbe procs)
+public sealed partial class ReadsApi(IFactoryCalls factory, IFactoryPaths paths, IFileStore files, IServerSettings settings, IProcessProbe procs, BoardFile board)
 {
     /// <summary>Every lessons/&lt;id&gt;.json, newest job first.</summary>
     public Reply Lessons() => Reply.Data(NewestFirst(Path.Combine(paths.Home, "lessons")));
@@ -60,16 +60,29 @@ public sealed partial class ReadsApi(IFactoryCalls factory, IFactoryPaths paths,
         var root = Path.Combine(paths.Home, "sessions");
         var list = new JsonArray();
         var found = files.Files(root).Where(f => Path.GetFileName(f.Path) == "session.json" && Parent(Parent(f.Path)) == Path.GetFullPath(root));
+        var jobs = board.Jobs().ToList();
         foreach (var file in found.OrderBy(f => Path.GetFileName(Parent(f.Path)), StringComparer.InvariantCultureIgnoreCase))
         {
             if (files.ReadText(file.Path) is not { } text || JsonNode.Parse(text) is not JsonObject s) continue;
             if (BoardFile.Str(s, "status") == "closed") continue;
-            var item = new JsonObject();
-            foreach (var k in (string[])["id", "target", "text", "status", "idea", "bootstrap", "costUsd", "newTarget"])
-                item[k] = s[k]?.DeepClone();
-            list.Add(item);
+            list.Add(Summary(s, jobs));
         }
         return Reply.Data(list);
+    }
+
+    /// <summary>One session's summary, closed or not: the panel's stepper.</summary>
+    public Reply Session(string id) =>
+        files.ReadText(Path.Combine(paths.Home, "sessions", id, "session.json")) is { } text && JsonNode.Parse(text) is JsonObject s
+            ? Reply.Data(Summary(s, board.Jobs()))
+            : Reply.NotFound("no such session");
+
+    private static JsonObject Summary(JsonObject s, IEnumerable<JsonObject> jobs)
+    {
+        var item = new JsonObject();
+        foreach (var k in (string[])["id", "target", "text", "status", "idea", "bootstrap", "costUsd", "newTarget", "notices"])
+            item[k] = s[k]?.DeepClone();
+        item["phase"] = SessionPhase.Of(s, jobs);
+        return item;
     }
 
     public Reply Purge() => Reply.Of(factory.Run("purge"));

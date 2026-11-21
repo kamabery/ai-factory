@@ -190,8 +190,10 @@ describe('Ideas cards', () => {
   it('Abandon asks once, then abandons; a session card the same', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     const calls = fakeServer({
-      'GET /api/sessions': [{ id: 'S-1', text: 'radar', status: 'idle', target: 'sim/sandbox', costUsd: 0.5, bootstrap: 'J-9' }, { id: 'S-2', text: 'busy', status: 'running' }, { id: 'S-3', text: 'broken', status: 'error', idea: 'I-1' }],
-    }, { jobs: [], ideas: [{ id: 'I-1', text: 'in a session', status: 'drafting' }, { id: 'I-2', text: 'waits', status: 'waiting', jobs: ['J-9'] }, { id: 'I-3', text: 'failed', status: 'failed', reason: 'too vague' }] })
+      'GET /api/sessions': [{ id: 'S-1', text: 'radar', status: 'idle', target: 'sim/sandbox', costUsd: 0.5, bootstrap: 'J-9' }, { id: 'S-2', text: 'busy', status: 'running' }, { id: 'S-3', text: 'broken', status: 'error', idea: 'I-1' },
+        { id: 'S-4', text: 'new repo', status: 'idle', bootstrap: 'J-8', idea: 'I-4', phase: { name: 'scaffold', job: 'J-8', stage: 'review', pr: null } },
+        { id: 'S-5', text: 'new repo', status: 'idle', bootstrap: 'J-7', idea: 'I-5', phase: { name: 'scaffold', job: 'J-7', stage: 'ready', pr: null } }],
+    }, { jobs: [{ id: 'J-9', title: 'boot', stage: 'build', target: 'sim/x', round: 1 }], ideas: [{ id: 'I-1', text: 'in a session', status: 'drafting' }, { id: 'I-2', text: 'waits', status: 'waiting', jobs: ['J-9'] }, { id: 'I-3', text: 'failed', status: 'failed', reason: 'too vague' }] })
     const { $ } = renderApp()
     const btn = await find('[data-idea="I-2"] [data-abandon]')
     expect($('[data-idea="I-1"]')).toBeNull()   // its session's card stands for it
@@ -201,6 +203,15 @@ describe('Ideas cards', () => {
     expect($('[data-session="S-2"]')).toHaveTextContent('Claude is working')
     expect($('[data-session="S-2"] [data-abandon]')).toBeNull()
     expect($('[data-session="S-3"] .flag')).toHaveTextContent('error')
+    // Beside Abandon: whose move it is, with a moving marker while the factory has it.
+    expect($('[data-idea="I-2"] .meta [data-wait="factory"]')).toHaveTextContent('waiting for bootstrap J-9 (building)')
+    expect($('[data-idea="I-2"] .meta [data-wait] [data-spinner]')).not.toBeNull()
+    expect($('[data-session="S-1"] [data-wait="you"]')).toHaveTextContent('your turn')
+    expect($('[data-session="S-1"] [data-spinner]')).toBeNull()
+    expect($('[data-session="S-2"] [data-wait="factory"] [data-spinner]')).not.toBeNull()
+    expect($('[data-session="S-4"] [data-wait="factory"]')).toHaveTextContent('waiting for bootstrap J-8 (in review)')
+    expect($('[data-session="S-4"] [data-wait] + [data-abandon]')).not.toBeNull()
+    expect($('[data-session="S-5"] [data-wait="you"]')).toHaveTextContent('Ready: merge the scaffold')
     fireEvent.click(btn)
     expect(btn).toHaveTextContent('Abandon?')
     await act(async () => { vi.advanceTimersByTime(4100) })

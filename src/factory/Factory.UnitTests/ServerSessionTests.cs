@@ -200,7 +200,7 @@ public class ServerSessionTests : ServerTestBase
 
         Assert.Equal(200, Ideas.Handle("POST", "S-001", "brief", null, "").Status);
         Assert.Equal(("I-004", "J-010", "idle"), ((string?)Session()["idea"], (string?)Session()["bootstrap"], (string?)Session()["status"]));
-        Launcher.DidNotReceive().StartDetached(Arg.Is<IReadOnlyList<string>>(a => a[0] == "runner" || a[0] == "idea-turn"));
+        Launcher.DidNotReceive().StartDetached(Arg.Is<IReadOnlyList<string>>(a => a[0] == "idea-turn"));
     }
 
     [Fact]
