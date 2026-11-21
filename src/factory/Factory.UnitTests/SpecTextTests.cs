@@ -176,4 +176,25 @@ public class SpecTextTests
     {
         Assert.Equal(refusal, SpecText.TargetError(target));
     }
+
+    // Spec 23: a new app's spec decides Home in its own section, as one of three words and a detail.
+    [Theory]
+    [InlineData("## Home\n- Home: redirect: /books", "redirect: /books")]
+    [InlineData("## home\n- home: Replace: a dashboard of shelves", "Replace: a dashboard of shelves")]
+    [InlineData("## Home\n<!-- note -->\n- Home: keep: the scaffold's dashboard already shows the books", "keep: the scaffold's dashboard already shows the books")]
+    public void A_home_line_under_home_is_the_decision(string body, string decision)
+    {
+        Assert.Equal(decision, SpecText.HomeDecision(Lines($"# Spec: S\n{body}\n## Risks\n- none")));
+    }
+
+    [Theory]
+    [InlineData("## Scope\n- In:\n  - `a`")]                                // no Home section
+    [InlineData("## Home\n- Home: <replace | redirect | keep>: <detail>")]   // the template's placeholder
+    [InlineData("## Home\n- Home: maybe later")]                             // not one of the three words
+    [InlineData("## Home\n- Home: redirect:")]                               // no detail
+    [InlineData("## Scope\n- Home: redirect: /books")]                       // outside the Home section
+    public void Anything_else_is_no_decision(string body)
+    {
+        Assert.Null(SpecText.HomeDecision(Lines($"# Spec: S\n{body}\n")));
+    }
 }

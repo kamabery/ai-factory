@@ -118,6 +118,36 @@ public sealed class IdeaToolsTests : IDisposable
         Assert.StartsWith("# Spec: Better b", File.ReadAllText(_dir[Path.Combine("state", "ideas", "I-001", "spec-2.md")]));
     }
 
+    // Spec 23: booklist and pantry shipped the starter Home because no spec decided it. A new app's spec set
+    // (the session scaffolded its target) needs one spec with a Home decision; an existing repo's does not.
+    private const string NoHome = "this idea scaffolded a new app, so one spec must decide Home: add '## Home' with '- Home: replace|redirect|keep: <detail>', from the brief's Home";
+
+    [Fact]
+    public void A_new_apps_spec_set_with_no_home_decision_is_refused()
+    {
+        Session("""{"id":"S-001","target":"a/b","checkout":"CHECKOUT","idea":"I-001","scaffold":{"name":"b","resource":"Book"},"specs":[]}""");
+        var books = Json("# Spec: Books\n## Scope\n- In:\n  - `src/**`\n");
+        var home = Json("# Spec: Front door\n## Home\n- Home: redirect: /books\n");
+
+        Assert.Equal(new ToolAnswer(NoHome, true), Call("submit_specs", $$"""{"specs":[{"k":1,"markdown":{{books}}}]}"""));
+        Assert.Equal(new ToolAnswer(NoHome, true), Call("submit_specs", $$"""{"specs":[{"k":1,"markdown":{{Json("# Spec: Books\n## Home\n- Home: tbd\n")}}}]}"""));
+        Assert.Equal(new ToolAnswer("wrote 2 spec(s); the human now decides each one in the panel"),
+            Call("submit_specs", $$"""{"specs":[{"k":1,"markdown":{{books}}},{"k":2,"markdown":{{home}}}]}"""));
+
+        // Revising away the only Home decision is refused too; revising the other spec is not.
+        Assert.Equal(new ToolAnswer(NoHome, true), Call("revise_spec", $$"""{"k":2,"markdown":{{Json("# Spec: Front door\n")}}}"""));
+        Assert.Equal(new ToolAnswer("spec 1 revised"), Call("revise_spec", $$"""{"k":1,"markdown":{{Json("# Spec: More books\n")}}}"""));
+    }
+
+    [Fact]
+    public void An_existing_repos_specs_need_no_home_decision()
+    {
+        Session("""{"id":"S-001","target":"a/b","checkout":"CHECKOUT","idea":"I-001","scaffold":null,"specs":[]}""");
+
+        Assert.Equal(new ToolAnswer("wrote 1 spec(s); the human now decides each one in the panel"),
+            Call("submit_specs", $$"""{"specs":[{"k":1,"markdown":{{Json("# Spec: Books\n")}}}]}"""));
+    }
+
     [Fact]
     public void With_no_clone_yet_only_the_templates_can_be_read()
     {

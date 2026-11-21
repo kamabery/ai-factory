@@ -20,6 +20,13 @@
 - [ ] AC1: <behaviour> — proven by `<test name or command>`
 - [ ] AC2: ...
 
+## Home
+<!-- New app only (its idea scaffolded the repo), in the one spec that owns the front door: the brief's Home,
+     as one line. replace: what `/` shows instead; redirect: the route `/` sends to (`/books`); keep: the
+     scaffold's dashboard, and why. Scope must cover the files it touches. Delete this section in an
+     existing repo's spec and in a new app's other specs. -->
+- Home: <replace | redirect | keep>: <detail>
+
 ## Scope
 <!-- One sub-bullet per path the builder may touch: a backticked repo-relative glob first, prose after.
      `*` stays within one folder, `**` crosses folders. The factory compares the build's diff with these

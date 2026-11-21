@@ -228,6 +228,7 @@ public sealed partial class IdeaTools(IdeaFiles files, string session)
             if (Title(Text(sp?["markdown"])) is null) throw new FactoryException($"spec {Text(sp?["k"])} has no '# Spec: <title>' line");
             RequireClearScope(Text(sp?["markdown"])!);
         }
+        RequireHome(s, specs.Select(sp => Text(sp?["markdown"])!));
         var list = new JsonArray();
         foreach (var sp in specs)
         {
@@ -250,10 +251,21 @@ public sealed partial class IdeaTools(IdeaFiles files, string session)
         var md = Text(input["markdown"]);
         if (Title(md) is not { } title) throw new FactoryException("the new markdown has no '# Spec: <title>' line");
         RequireClearScope(md!);
+        var idea = Path.Combine(Home, "ideas", Text(s["idea"]) ?? "");
+        RequireHome(s, (s["specs"] as JsonArray ?? []).OfType<JsonObject>()
+            .Select(e => Number(e["k"]) == k ? md! : files.Text(Path.Combine(idea, $"spec-{(int)Number(e["k"])}.md")) ?? ""));
         files.WriteText(Path.Combine(Home, "ideas", Text(s["idea"]) ?? "", $"spec-{(int)k}.md"), md + Environment.NewLine);
         entry["title"] = title;
         files.SaveSession(session, s);
         return $"spec {Text(input["k"])} revised";
+    }
+
+    /// <summary>A new app's spec set (the session scaffolded its target) must decide Home in one spec (contract, "Ideas").</summary>
+    private static void RequireHome(JsonObject s, IEnumerable<string> specs)
+    {
+        if (s["scaffold"] is not JsonObject) return;
+        if (!specs.Any(md => SpecText.HomeDecision(PsText.Lines(md)) is not null))
+            throw new FactoryException("this idea scaffolded a new app, so one spec must decide Home: add '## Home' with '- Home: replace|redirect|keep: <detail>', from the brief's Home");
     }
 
     /// <summary>A path written after other words on a Scope line is refused, so the model rewrites it (contract, "Targets").</summary>
