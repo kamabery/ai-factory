@@ -1,6 +1,6 @@
-# 22: A Canary column, and the canary shown while it runs
+# 22: A Canary column, the canary shown while it runs, and no Backlog column
 
-**Status:** planned (2026-11-20), after 18. **Branch:** `feature/22-canary-visibility`. **Depends on:** 17, 18.
+**Status:** planned (2026-11-20; Backlog removal added 2026-11-21), after 21. **Branch:** `feature/22-canary-visibility`. **Depends on:** 17, 18.
 
 ## Why
 
@@ -20,6 +20,7 @@ nothing said a canary was due either: the canary is lazy, and **Run canary** onl
 | Plumbing | **The canary writes `canary.json` at start and at each phase change, and pushes it** (blob-backed state), not only at the end. Every board reads the same file, local or cloud. | The server reading GitHub Actions directly (it sees only the deploy, not smoke, sign-in or teardown) |
 | Due | **A quiet "canary due" chip** once the fingerprint has no pass: "canary due: the next deployable job waits in Canary for it (~15 min)". | Saying nothing until it runs; running it eagerly after every release |
 | The gate (revised 2026-11-20) | **A real `canary` stage and a Canary column** between Approved and Build. Only a deployable job taken while the current version has no canary pass enters it: approved → canary → build. Bootstraps, targets with nothing to preview, and jobs after a pass go straight to Build. **Canary first**: the build starts only after the pass. On a failure, the job **stays in Canary, shown red**, with the error and **Run canary** on its card (and in the banner); a pass moves it to Build. | Building beside the canary (decided, then dropped the same day); a dashboard-only column derived from `canary.json`; sending a failed job back to Approved; every deployable job crossing the column |
+| No Backlog column (Kurt, 2026-11-21) | **The board loses its Backlog column. Specs are approved from the Ideas column**, on the idea's (or its session's) card or in its opened card, and go straight to **Approved**, or to **Canary** when the runner takes them while a canary is due. A spec that is not approved yet stays with its idea in Ideas. | Keeping Backlog as a holding column; approving only by drag |
 
 ## Scope
 
@@ -47,6 +48,15 @@ Contract first (`docs/FACTORY-CONTRACT.md`, "Canary" and "Dashboard API"):
 - **SPA:** `CanaryBanner` renders the running state from the new fields, and the jobs waiting for it are the
   jobs in the `canary` stage. A `CanaryDueChip` sits by the run-mode chip.
 
+- **No Backlog column** (to grill at the start of 22, recommendation first): the `backlog` stage stays in the
+  contract and the CLI, as where an unapproved spec lives, but the board has no column for it. Each idea card in
+  Ideas (and the session card, and spec 21's Specs and Build phases) lists its specs still in `backlog`, each with
+  **Approve** (the same `approve` the drag runs) and **Edit** (today's backlog editing), so a spec is edited and
+  approved where it was decided. Approving moves it to Approved, and the runner takes it on to Canary or Build as
+  above. To settle: where a spec with no idea (a `new-job` or the CLI's `/factory:idea`) shows; where a refused
+  approval (spec 21's bootstrap left in Backlog) shows its message; whether **Not yet** keeps a spec on the idea
+  card or the idea closes; and where a job dragged back out of Approved goes (today, to Backlog).
+
 ## Tests
 
 Seen red before green, per `docs/TESTING.md`:
@@ -55,10 +65,14 @@ Seen red before green, per `docs/TESTING.md`:
   pass/failed/running/none against the fingerprint; the typical-duration rule.
 - Vitest: the banner for each phase (text, elapsed time, link, waiting jobs) and the due chip.
 - Playwright `@smoke`: the Simulator puts a job in the `canary` stage with a running canary; the Canary column and the banner show it, then a pass moves it to Build. A failed-canary card shows red with Run canary.
+- No Backlog column: Vitest, the board has no Backlog column and an idea card lists its `backlog` specs with
+  Approve and Edit; Playwright `@smoke`, a spec is approved from its idea card and lands in Approved (or Canary
+  when one is due), with no drag; unit, whatever the grill settles for specs with no idea.
 - Live: after the next image release, the cloud banner shows the phases while the canary runs.
 
 ## Done when
 
 Approving the first deployable job after a release puts it in the Canary column within a minute, and shows the canary's phase, elapsed time and Actions link in the
 banner within a minute of the canary starting, in both local and cloud modes. The "canary due" chip is visible
-before anything is approved.
+before anything is approved. The board has no Backlog column: a new idea's specs are approved from the Ideas column
+and go straight to Approved or Canary, on a local board and the cloud board.
