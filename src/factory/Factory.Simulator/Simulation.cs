@@ -314,7 +314,7 @@ public sealed class Simulation(string repoRoot, string stateDir, double speed, T
             foreach (var k in new[] { "FACTORY_GH_CMD", "FACTORY_AZ_CMD", "FACTORY_SIGNIN_CMD", "FACTORY_DEPLOY_POLL_SECONDS" }) _f.Env[k] = null;
         }
 
-        // S-001 / I-007 / J-009: a new repo through a dashboard session (spec 21). The human confirmed the brief, which
+        // S-001: a new repo (sim/shelf) through a dashboard session (spec 21). The human confirmed the brief, which
         // approved the bootstrap; it has built and waits in Ready for review. The session's Merge starts its specs.
         SimSessionScaffold();
 

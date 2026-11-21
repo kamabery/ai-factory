@@ -45,7 +45,9 @@ export function waitingText(phase: Phase, s: Waiting): string {
       if (s.status === 'error') return 'Writing the specs failed: Retry below.'
       return 'Starting the specs…'
     case 'build':
-      return 'The approved specs are building: follow them here or on the board.'
+      return phase.jobs?.length && phase.jobs.every((j) => j.stage === 'backlog')
+        ? 'The specs wait in Backlog: approve them on the board when you are ready.'
+        : 'The approved specs are building: follow them here or on the board.'
   }
 }
 

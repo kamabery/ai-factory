@@ -28,7 +28,8 @@ describe('the session stepper', () => {
     expect(waitingText({ name: 'specs' }, { ...s, specs: [{ k: 1 }] })).toBe('Decide each spec below.')
     expect(waitingText({ name: 'specs' }, { ...s, status: 'error' })).toBe('Writing the specs failed: Retry below.')
     expect(waitingText({ name: 'specs' }, s)).toBe('Starting the specs…')
-    expect(waitingText({ name: 'build', jobs: [] }, s)).toBe('The approved specs are building: follow them here or on the board.')
+    expect(waitingText({ name: 'build', jobs: [{ id: 'J-3', stage: 'build' }, { id: 'J-4', stage: 'backlog' }] }, s)).toBe('The approved specs are building: follow them here or on the board.')
+    expect(waitingText({ name: 'build', jobs: [{ id: 'J-4', stage: 'backlog' }] }, s)).toBe('The specs wait in Backlog: approve them on the board when you are ready.')
   })
 })
 
