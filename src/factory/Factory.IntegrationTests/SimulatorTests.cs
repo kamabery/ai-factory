@@ -40,7 +40,11 @@ public sealed class SimulatorTests : IDisposable
         Assert.Contains("simulation complete", output);
         Assert.False(File.Exists(Path.Combine(state, "busy.txt")));
         var jobs = JsonNode.Parse(File.ReadAllText(Path.Combine(state, "board.json")))!["jobs"]!.AsArray();
-        Assert.Equal(["done", "ready", "ready", "discarded", "backlog", "ready", "ready", "ready"], jobs.Select(j => (string?)j!["stage"]));
+        Assert.Equal(["done", "ready", "ready", "discarded", "backlog", "ready", "ready", "ready", "ready"], jobs.Select(j => (string?)j!["stage"]));
         Assert.Equal("up", (string?)jobs[7]!["deploy"]!["status"]);
+        // J-009: the new-repo session's bootstrap (spec 21), waiting for its merge, with the session that made it.
+        Assert.Equal("bootstrap", (string?)jobs[8]!["kind"]);
+        var session = JsonNode.Parse(File.ReadAllText(Path.Combine(state, "sessions", "S-001", "session.json")))!;
+        Assert.Equal(("J-009", true, "idle"), ((string?)session["bootstrap"], (bool)session["newTarget"]!, (string?)session["status"]));
     }
 }
