@@ -51,4 +51,6 @@ Seen red before green:
 ## Done when
 
 A new scaffold's production build has no style guide. We know, and have written down, where the starter Home comes
-from. Every new-app spec decides Home. booklist's preview opens on its Books page.
+from. Every new-app spec decides Home, on the local board and the cloud board. booklist's preview opens on its Books
+page. The repo's README offers both boards, local and Azure, and says how to choose (roadmap README, "Both boards at
+the end").

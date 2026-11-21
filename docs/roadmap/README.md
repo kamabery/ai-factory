@@ -64,6 +64,13 @@ plane and Pester; 20 retires the rest (the gate's shell, the simulator, `test.ps
 the setup scripts, the last of it. **Decided 2026-11-15: 15 is split around 20.** 15's packaging, contract and history review run first; then 20; then
 15's acceptance runs and the repo going public, so the timings are taken once, on an install with no PowerShell.
 
+**Both boards at the end (Kurt, 2026-11-21).** When the roadmap is complete, the factory runs either on this machine
+(`factory serve`, a local board) or in Azure (`factory init cloud`, the deployed board of 18), whichever the user
+prefers, and every feature works on both. Each is a whole factory with its own board; nothing makes a user pick one
+for good. So every spec from 21 on is proven on a local board first and then in the cloud, and its Done when says
+"in both modes". The last spec's close-out (23) also makes the repo's README offer both, with how to choose: today it
+says only "a local dashboard is where you work it".
+
 **Previews last.** A deployable job spends about 30 minutes in its preview deploy, and a template
 change costs a `canary -Full`, so the port and the core product are proven without previews and the
 devops work comes as one block at the end (16, then 18). The deploy port (09) is slow only because
@@ -95,6 +102,8 @@ calls `lesson`. Spec numbers are names, not the order; sessions are one at a tim
 - **A command counts as ported** when its Pester tests pass with `FACTORY_IMPL=dotnet`, its xUnit
   tests exist (seen red, then green), and `factory.ps1` forwards it. PowerShell code is deleted
   only at cutover (12), so the oracle can still run both ways.
+- **Both modes:** a feature that changes the dashboard, the runner or the board is proven on a local board and on
+  the cloud board before its spec is done (from 21 on; see "Both boards at the end").
 - Cross-platform from the first line: no named mutex, no `-WindowStyle Hidden`, `Path.Combine`,
   `git`/`claude`/`az`/`terraform` resolved from PATH.
 - A human session changes the factory, never `/factory`. Commit per step, with the suite counts in
