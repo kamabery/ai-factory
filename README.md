@@ -99,12 +99,13 @@ A red badge on a card says why the factory gave up or refused:
 
 `factory status` prints the board as text.
 
-## Previews (an add-on, still being proven)
+## Previews (an add-on)
 
 With HCP Terraform and an Azure subscription, each job's branch can be deployed to an ephemeral Azure preview before the
-approver, for you to QA from Ready for review. Previews are off until `.env` has `HCP_ORG`, need a checkout install (below)
-and PowerShell 7 for their one-time setup scripts, and are still being proven: `factory init previews` replaces that
-setup in a later release. See [docs/DEPLOY.md](docs/DEPLOY.md).
+approver, for you to QA from Ready for review. Previews are off until `.env` has `HCP_ORG`. Their one-time setup is
+Terraform (`factory/infra/previews`, applied by you under `az login`), then `factory previews-env` copies its outputs
+into `.env` and `factory doctor` checks them; the HCP organization and, for sign-in, the Entra External tenant are made
+by hand. See [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Changing the factory itself
 
