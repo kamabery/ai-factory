@@ -11,6 +11,6 @@
     <ArtifactsPath>$(MSBuildThisFileDirectory)../../artifacts</ArtifactsPath>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <!-- The ai-factory package's version (contract, "Installs"). -->
-    <Version>0.4.0</Version>
+    <Version>0.4.1</Version>
   </PropertyGroup>
 </Project>
