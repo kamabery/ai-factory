@@ -47,6 +47,7 @@ public static class Composition
             o.AzCmd = host.Get("FACTORY_AZ_CMD");
             o.IdentityEndpoint = host.Get("IDENTITY_ENDPOINT");
             o.IdentityHeader = host.Get("IDENTITY_HEADER");
+            o.ClientId = host.Get("AZURE_CLIENT_ID");
             o.StorageAccount = host.Get("FACTORY_STORAGE_ACCOUNT");
             o.StateGroup = host.Get("FACTORY_STATE_RG");
             o.IpUrl = host.Get("FACTORY_IP_URL");
@@ -71,6 +72,7 @@ public static class Composition
         {
             o.Prefix = host.Get("FACTORY_SECRET_PREFIX") ?? "ai-factory";
             o.Dir = host.Get("FACTORY_SECRET_DIR");
+            o.Vault = host.Get("FACTORY_SECRET_VAULT");
             o.Environment = SecretNames.All.ToDictionary(n => n, host.Get);
         });
         services.Configure<CliOptions>(o => o.NewLine = host.NewLine);
@@ -83,7 +85,7 @@ public static class Composition
         services.AddSingleton<IGitClient, GitClient>();
         services.AddSingleton<IFactoryPaths, FactoryPaths>();
         services.AddSingleton<IDotEnv, DotEnv>();
-        services.AddSingleton<ISecretStore, SecretStore>();
+        services.AddHttpClient<ISecretStore, SecretStore>();
         services.AddSingleton<ISecrets, Secrets>();
         services.AddSingleton<IStateSettings, StateSettings>();
         services.AddHttpClient<IStateToken, StateToken>();
@@ -182,6 +184,9 @@ public static class Composition
         services.AddSingleton<DashboardStarter>();
         services.AddSingleton<TemplateWorkspace>();
         services.AddSingleton<InitService>();
+        services.AddSingleton<InitCloud>();
+        services.AddSingleton<Func<string, ISecretStore>>(sp => vault =>
+            new KeyVaultSecretStore(sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(KeyVaultSecretStore)), sp.GetRequiredService<IStateToken>(), vault));
         services.AddSingleton<IStandaloneCommand, InitCommand>();
         services.AddSingleton<IdeaFiles>();
         services.AddSingleton<IIdeaClaude, IdeaClaude>();
@@ -190,6 +195,8 @@ public static class Composition
         services.AddSingleton<IStandaloneCommand, HookEventCommand>();
         services.AddSingleton<IStandaloneCommand, RunnerCommand>();
         services.AddSingleton<IStandaloneCommand, ServeCommand>();
+        services.AddSingleton<IStandaloneCommand, ContainerCommand>();
+        services.AddSingleton<IDetachedCommands, DetachedCommands>();
         services.AddSingleton<IStandaloneCommand, IdeaCommand>();
         services.AddSingleton<IStandaloneCommand, CheckCommand>();
         services.AddSingleton<IStandaloneCommand, PreviewsEnvCommand>();

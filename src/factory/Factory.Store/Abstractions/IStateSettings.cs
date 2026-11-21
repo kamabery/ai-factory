@@ -5,6 +5,12 @@ public interface IStateSettings
 {
     bool IsAzure { get; }
 
+    /// <summary>
+    /// The artifacts are shared through FACTORY_BLOB_URL's container: azure, or sql with a blob URL (a deployed factory;
+    /// contract, "State backends", Database).
+    /// </summary>
+    bool SharesFiles { get; }
+
     /// <summary>sqlite or sql: the board and events live in a database, and board.json and events.jsonl are its exports.</summary>
     bool IsDatabase { get; }
 

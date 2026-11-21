@@ -174,7 +174,10 @@ was written for to finish this job, or discard it and approve a rewritten spec`)
 (`cannot start the gate shell '<shell>': <reason>`).
 
 The spec's `## Scope` `- In:` line is followed by one sub-bullet per path the builder may touch,
-each starting with a backticked glob, repo-relative, with `/` separators, then optional prose:
+each starting with a backticked glob, repo-relative, with `/` separators, then optional prose. A sub-bullet may
+name several globs: its leading backticked spans joined only by commas, once anything in parentheses is set aside
+(`` `CLAUDE.md`, `README.md` `` gives both). A span inside parentheses, or after other words, is prose. Cloud J-003
+(2026-11-20) was flagged `out-of-scope` for the second path on such a line:
 
 ```
 ## Scope
@@ -183,6 +186,7 @@ each starting with a backticked glob, repo-relative, with `/` separators, then o
   - `.aspire/keycloak/**`
   - `IaC/auth.*.tf`
   - `src/ui/react/package-lock.json` (generated)
+  - `src/ui/react/vite.config.ts` (the `test` block), `src/ui/react/vitest.config.ts` (if used)
 - Out: any change to the API's controllers
 ```
 
@@ -215,7 +219,10 @@ every `claude` pass and every dashboard idea turn talks to. Nothing chooses a pr
   neither sets it, so every launch on a workstation is local. A deployed factory sets
   `FACTORY_MODE=cloud` in its environment. Any other value is refused by every script that reads it.
 - A job's builder, reviewers and approver are subagents of its one `claude` pass, so they share the
-  provider. The runner resolves it when it takes a job; a `provider` field left on a job by an older
+  provider. For that child the runner also sets `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`, whatever the mode, so
+  every subagent runs in the foreground and the pass ends only when they have. (Cloud J-003, 2026-11-20: the
+  headless CLI backgrounded the builder, the orchestrator ended its turn, the builder was stopped mid-build, and
+  the pass ended as a success with nothing committed.) The runner resolves it when it takes a job; a `provider` field left on a job by an older
   factory is ignored.
 - **local.** For the `claude` child the runner (and an idea turn) sets empty `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
   `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_USE_FOUNDRY`, `ANTHROPIC_FOUNDRY_RESOURCE`,
@@ -251,7 +258,11 @@ with one; neither needs a hand edit of `.env`.
 **Secrets** live in the operating system's secret store, never in `.env` (which keeps the non-secret settings):
 - Windows: Credential Manager, generic credentials named `<prefix>/<NAME>`.
 - Linux: libsecret through `secret-tool`, attributes `service <prefix>` and `name <NAME>`.
-- macOS is out of scope; a deployed factory's store (Key Vault and a managed identity) comes with cloud mode (18).
+- macOS is out of scope.
+- A deployed factory ([Cloud mode](#cloud-mode-deployed)): Azure Key Vault, when `FACTORY_SECRET_VAULT` (the vault's
+  URI) is set, which wins over the two above. A secret is named `<NAME>` with each `_` as `-` (`GITHUB-APP-ID`); the
+  prefix is not used, since a vault holds one factory's secrets. Calls carry an Entra token for
+  `https://vault.azure.net`, from the same chain as the storage token ([State backends](#state-backends), Auth).
 
 `<prefix>` is `ai-factory`, or `FACTORY_SECRET_PREFIX`. Tests and the simulator set `FACTORY_SECRET_DIR` instead: a
 folder holding one file per secret, which nothing real uses. The secrets are `GITHUB_APP_ID`, `GITHUB_APP_SLUG`,
@@ -898,7 +909,7 @@ Factory.TestHost's blob stub.
 | `jobs/<id>/transcripts/agent-<agentId>.jsonl` | same | a subagent's transcript, copied in at its `agent-stop` |
 
 Never synced: `*.tmp`, `*.lock`, `headless-settings.json`, `.local/` (a machine's own files, such
-as a token cache that `FACTORY_LOCAL_DIR` put under the home), `.sync.json` (the cache's manifest:
+as a token cache that `FACTORY_LOCAL_DIR` put under the home), `.export.json` (a database's export record), `.sync.json` (the cache's manifest:
 each synced path's length, mtime and ETag).
 
 **Locks.** In `azure`, each lock is also a 60 s lease on its `locks/` blob, taken alongside the
@@ -927,6 +938,12 @@ A crashed holder's lease lapses within 60 s.
   open). It pulls a job's folder when the job's files are listed. A transcript whose path is not on
   this machine is served from `jobs/<id>/transcripts/`.
 - **Idea turns:** `factory idea-turn` pulls `sessions/<S>/` before the turn and pushes at its end.
+- **Session endpoints:** a session endpoint that writes the session's files without starting a turn (a
+  spec's save or decision, a bootstrap's brief, close) pushes `sessions/<S>/` and `ideas/<I>/` when it is done.
+  The `factory` calls it makes push before the endpoint's own writes, and a dashboard that scales to zero
+  would otherwise lose them.
+- **Manifest:** each push and pull reads `.sync.json` again first, so a long-lived process (the server) never
+  writes back a manifest older than a command's.
 
 **Cap.** After a push that uploaded anything, `factory` lists the container with versions. While
 the total exceeds `FACTORY_STATE_CAP`, it deletes in this order:
@@ -957,9 +974,13 @@ a SQL Server container's own login.
 - `sqlite` is one machine's: its file lives beside the state, in WAL mode. SQLite itself is the build EF Core
   ships (`e_sqlite3`), or, where that cannot load (it needs glibc 2.33 or later; Ubuntu 20.04 has 2.31), the
   operating system's `libsqlite3.so.0`.
-- `sql` is Azure SQL in cloud mode, shared by every machine pointed at it. The artifacts stay in each
-  machine's `FACTORY_HOME` until cloud mode (spec 18) decides how they are shared; until then, run one
-  machine per `sql` database.
+- `sql` is Azure SQL in cloud mode, shared by every machine pointed at it. With `FACTORY_BLOB_URL` also set,
+  the artifacts are shared through that Blob container exactly as `azure` shares them (Layout, Sync and Cap
+  above, the same token), except that `board.json` and `events.jsonl` are the database's exports and are
+  never synced, and no `board` lease is taken: every command pulls the container's changes when it starts
+  and pushes its own when it ends, the server pulls a job's folder when it is opened, and idea turns pull and
+  push their session. A deployed factory runs so ([Cloud mode](#cloud-mode-deployed)). Without
+  `FACTORY_BLOB_URL` the artifacts stay in each machine's `FACTORY_HOME`, so run one machine per database.
 
 **Schema.** Every table has `TenantId` (always `default`, never exported) in its key:
 
@@ -1073,7 +1094,8 @@ Only a global install (`-g`) is a tool install; a local tool (a tool manifest) i
 `FACTORY_ENV_FILE` and `FACTORY_TEMPLATES` win over both columns, as `serve --state-dir --env-file` do. The package
 (`ai-factory`, its version from `src/factory/Directory.Build.props`) holds the CLI, the runner and the server built
 together (one set of dependencies), and under `factory/` the plugin, `templates`, `dashboard`, `github-app.json` and
-`scripts/signin-smoke.mjs`, and `factory/infra/previews` (the one-time preview setup, applied by hand; see
+`scripts/signin-smoke.mjs`, `factory/infra/cloud` (a deployed factory, applied by hand; see
+[Cloud mode](#cloud-mode-deployed)), and `factory/infra/previews` (the one-time preview setup, applied by hand; see
 [Deploy](#deploy)), with `.env.example` at its root. Previews and `canary` run from either install (spec 16); a tool
 install's canary fingerprint names the package version in place of the deploy code's sources ([Canary](#canary)).
 **"Use this template"** on `kamabery/ai-factory` makes
@@ -1093,10 +1115,12 @@ only finishes jobs approved before that rule (see [Gate](#gate)). The one-time p
 CLI's build, or `FACTORY_RUNNER`) and returns its exit code. Its run mode is `FACTORY_MODE` from the
 environment, else `.env`, else `Factory:Mode` from its configuration; `factory runner` passes
 `Factory:Mode=local`, this contract's default, and a runner started with no mode from any of them refuses
-to start rather than default to a subscription.
+to start rather than default to a subscription. `factory runner --one` takes at most one job (or one canary and
+then one job), then starts the runner again if `next` still returns a job, and exits (`exit one`): a deployed
+factory's job execution ([Cloud mode](#cloud-mode-deployed)).
 
 **`factory serve [--port <n>] [--state-dir <dir>] [--env-file <path>] [--watchdog-seconds <n>]
-[--pr-sync-seconds <n>]`** starts the dashboard server (`artifacts/bin/Factory.Server/debug/Factory.Server.dll`,
+[--pr-sync-seconds <n>] [--require-signin]`** starts the dashboard server (`artifacts/bin/Factory.Server/debug/Factory.Server.dll`,
 or `FACTORY_SERVER`) with those arguments and `--parent-pid` with its own PID; the server stops (releasing
 `serve.lock`) within about a second of that process ending, so stopping `factory serve` never leaves an
 orphaned server, and a reused PID with a different start time does not count as the parent. Started without
@@ -1145,7 +1169,7 @@ target is cloned with `clone-target` into `<work>\cli\<owner>-<name>` and passed
 | `feedback <id> -File <path>` | the server (the human's feedback on an evaluation) |
 | `lesson <id> [-File <path>]` · `lesson-mark <id> <open\|proposed\|applied> [-Detail <session>]` | the runner, a human evaluation session, the server (see [Lessons](#lessons)) |
 | `status [-Json]` | anyone |
-| `state-migrate` (`azure` only: uploads everything in `FACTORY_HOME` that is not already in the container, then writes `.sync.json`; refuses when the container already has a `board.json` newer than the local one) · `state-pull [<prefix>]` (pulls the container, or one prefix such as `jobs/J-019/`) · `prune` (runs the cap now and prints `<used> of <cap> bytes`) | a human; the server (`state-pull jobs/<id>/` when a job is opened) |
+| `state-migrate` (`azure` only: uploads everything in `FACTORY_HOME` that is not already in the container, then writes `.sync.json`; refuses when the container already has a `board.json` newer than the local one) · `state-pull [<prefix>]` (pulls the container, or one prefix such as `jobs/J-019/`) · `prune` (runs the cap now and prints `<used> of <cap> bytes`); both run while files are shared (`azure`, or `sql` with `FACTORY_BLOB_URL`), and refuse otherwise with `FACTORY_STATE shares no files (azure, or sql with FACTORY_BLOB_URL)` | a human; the server (`state-pull jobs/<id>/` when a job is opened) |
 | `state-import [-Azure]` (`sqlite` or `sql` only: the one-time move of `board.json` and `events.jsonl`, or with `-Azure` the container's, into an empty database; see [Database](#database-sqlite-and-sql)) | a human |
 | `allow-ip` (`azure` only: adds this machine's public IP to `FACTORY_STORAGE_ACCOUNT`'s firewall through `az storage account network-rule add`, and removes the IP it added last time, recorded in `%LOCALAPPDATA%\ai-factory\allowed-ip.txt`) | a human, after the public IP changes |
 
@@ -1280,6 +1304,12 @@ straight to `approve` and appends a `note` event "deploy skipped: no HCP_ORG in 
 deploys; a target without HCP-ready infrastructure gets it from the devops agent's author pass. A
 job is **deployable** when deploys are on and it is not a bootstrap.
 
+**Nothing to preview.** A target whose job clone has neither `IaC/` nor `.aspirestarter.json` (a plain
+console app or library) has nothing the author pass can deploy. With deploys on, `read-reviews` moves
+its all-PASS job straight to `approve` and appends a `note` event "deploy skipped: the target has no
+IaC/ and no .aspirestarter.json (nothing to preview)". The queue still holds it for a canary, as it
+decides before any clone exists.
+
 **Settings** (`.env`, read like a secret: into a local variable, never into the environment of
 anything but the one child process that needs it, never logged):
 
@@ -1326,7 +1356,8 @@ factory/infra/previews first` and exits 1, changing nothing.
    `AZURE_SUBSCRIPTION_ID`, the repo variable `TF_CLOUD_ORGANIZATION`, and the secret
    `TF_API_TOKEN` (`gh secret set`, the App's installation token in `gh`'s environment only, the value on stdin).
    Azure: ensures the federated credential `preview-<owner>-<name>` on `AZURE_GH_CLIENT_ID`
-   (`az ad app federated-credential`, under the human's own `az login`) for the subject GitHub
+   (`az ad app federated-credential`, under the human's own `az login`; in a deployed factory, the managed identity's,
+which owns that app and holds Graph's `Application.ReadWrite.OwnedBy`, so it can change that app and no other) for the subject GitHub
    presents: `<prefix>:environment:preview`, where `<prefix>` is the repo's `sub_claim_prefix` from
    `GET /repos/<t>/actions/oidc/customization/sub` when it has `use_immutable_subject` (the
    default for new repos: `repo:<owner>@<id>/<name>@<id>`), else `repo:<owner>/<name>`. A
@@ -1503,14 +1534,18 @@ current fingerprint. When it does not, the runner runs `canary` itself (logging 
 the runner takes only jobs that are not deployable (bootstraps); the dashboard shows a banner with
 the error and **Run canary**. A failed canary is not retried automatically, because each run costs
 real Azure time; the human fixes the cause and clicks **Run canary** (`canary -Force`), and the
-watchdog starts the runner once it passes.
+watchdog starts the runner once it passes. In a deployed factory ([Cloud mode](#cloud-mode-deployed)) **Run canary** runs
+`canary -Retry` instead, then starts the runner: the canary runs in a runner execution, which the runner's own
+step 1 starts, never in the dashboard's container. `canary -Retry` runs nothing: when `canary.json` records a
+failure it sets `status` to `retry` (so the canary is wanted again for that fingerprint) and prints
+`canary: retry queued`, else `canary: nothing to retry`.
 
 **`factory qa-login <id>`** prints `qa_user` and `qa_password` from the workspace's outputs (the
 auth add-on's), or refuses when the preview has none. Only the dashboard calls it, for the human.
 
 ## Dashboard API
 
-The server listens on localhost only. GETs serve the dashboard, a React SPA built into `factory/dashboard/`
+The server listens on localhost only, except under `--require-signin` ([Cloud mode](#cloud-mode-deployed)). GETs serve the dashboard, a React SPA built into `factory/dashboard/`
 (`index.html` at `/`, its bundle under `factory/dashboard/assets/` at `/assets/...`), and read-only files under the
 state dir: it rejects `..`, and serves `.md` as text/plain. The SPA's source is `src/factory/Factory.Dashboard`, and
 `npm run build` there writes `factory/dashboard/`, which is committed, so neither install needs Node. Every write is a thin
@@ -1545,7 +1580,7 @@ and a refused move snaps the card back and shows the message.
 | `POST /api/sessions/<S>/write-specs` | (session write) | after the bootstrap merge (the idea is `drafting`): starts the spec turn |
 | `POST /api/sessions/<S>/specs/<k>` `{ decision }` | `add-spec` (+ `approve`) | `approved` starts the runner; `rejected` calls nothing |
 | `PUT /api/sessions/<S>/specs/<k>` (text/markdown) | (session write) | the human's direct edit of `spec-<k>.md` |
-| `POST /api/sessions/<S>/close` `{ failed, reason? }` or `{ abandon: true }` | `idea-done [-Failed -Reason]`, or `idea-abandon` (only once there is an idea) | the session becomes `closed`; the default reason is "every spec rejected in session". `abandon` is the session card's **Abandon**, refused while a turn is running |
+| `POST /api/sessions/<S>/close` `{ failed, reason? }` or `{ abandon: true }` | `idea-done [-Failed -Reason]`, or `idea-abandon` (only once there is an idea, and not when the idea is already `done` or `abandoned`: then any close only closes the session) | the session becomes `closed`; the default reason is "every spec rejected in session". `abandon` is the session card's **Abandon**, refused while a turn is running |
 | `POST /api/ideas/<I>/abandon` | `idea-abandon` | **Abandon** on an idea card |
 
 Session reads use `/state/sessions/<S>/...`. An idea card opens its brief. A card for an open
@@ -1632,9 +1667,9 @@ longer running. Otherwise it loops:
    goes back to step 1.
 6. It appends to `<stateDir>/runner.log`, one timestamped line each: `start pid=<pid>`,
    `take <id>`, `checkout <id> failed: <message>` (the job is then escalated with detail
-   `work dir: <message>`), `claude <id> exit=<code> result=<yes|no>`, `stage <id> <stage>`,
+   `work dir: <message>`), `claude <id> exit=<code> result=<yes|no>`, `cost <id> usd=<usd> ms=<ms> in=<tokens> out=<tokens>`, `stage <id> <stage>`,
    `error <id>: <message>` followed by the stack, and how it ended: `exit drained`, `exit usage-limit`, `exit fatal: <message>`,
-   or `exit stopped` (interrupted, e.g. its console closed, before the loop finished).
+   `exit one` (`runner --one`), or `exit stopped` (interrupted, e.g. its console closed, before the loop finished).
 
 **Watchdog.** The server checks the board every 10 seconds (`--watchdog-seconds`). If a job is in
 `approved` and `runner.lock` is missing or names a PID that is no longer running, it starts
@@ -1648,3 +1683,83 @@ one interval, with no drag.
 The `/factory:idea` session doesn't use the runner or the lock. It writes only under `ideas/` and
 through `factory`, so it can run while a job builds. After it approves a spec, the dashboard's
 watchdog starts the runner; with no dashboard running, the session tells the human to run `factory runner`.
+
+## Cloud mode (deployed)
+
+A **deployed factory** is the same CLI, server and runner, as one container image on Azure Container Apps, with no
+machine of the human's in the loop. It is set up once by Terraform (`factory/infra/cloud`, applied by hand) and
+`factory init cloud`; the runbook is `docs/CLOUD.md`. Local development keeps the AppHost; `aspire publish` is not
+used, because its Bicep would sit outside the HCP Terraform state everything else is in.
+
+**What runs where.** One managed identity is the deployed factory's only credential to Azure. It has Foundry User on
+the Foundry account (assigned by `factory/infra/cloud`, not `factory/infra/llm`), is the Entra admin of its own Azure SQL
+server (Entra-only, so no database user is made by hand), owns the previews' GitHub deploy app (`AZURE_GH_CLIENT_ID`) with Graph's `Application.ReadWrite.OwnedBy` (for the
+deploy step's federated credentials), and has Storage Blob Data Owner on the artifacts container, Key Vault Secrets Officer on the factory's vault (it writes the refreshed user
+token back), and the right to start its own runner job. No key, connection secret or subscription login exists anywhere in it.
+
+| Part | Is | Environment |
+| --- | --- | --- |
+| The dashboard | a Container App, ingress on, scaling to zero, behind Easy Auth | `factory container serve` |
+| The runner | a Container Apps job, manual trigger, one execution at a time: each execution is one job, in its own container, deleted when it exits | `factory container job` |
+
+Both set `FACTORY_MODE=cloud`, `FACTORY_FOUNDRY_RESOURCE`, `FACTORY_STATE=sql` with `FACTORY_SQL`
+(`Authentication=Active Directory Default`) and `FACTORY_BLOB_URL` (the artifacts, [Database](#database-sqlite-and-sql)),
+`FACTORY_SECRET_VAULT`, `AZURE_CLIENT_ID` (the identity), `FACTORY_RUNNER_JOB` (the runner job's resource id),
+`GITHUB_OWNER`, and the deploy settings (`HCP_ORG` and the `previews-env` settings) when previews are on. The factory
+reads its settings from `.env`, so `factory container` writes the container's (the profile's) from its environment
+before it starts anything. The secrets (`GITHUB_APP_*`, `GITHUB_USER_*`, `HCP_TOKEN`, `HCP_TEAM_TOKEN`) are in the vault.
+
+**The image** is `ghcr.io/<owner>/ai-factory:<package version>`, public, built from `factory/container/Dockerfile`:
+the package installed as a tool install, with `git`, `node`, `claude`, `az`, `gh` and `terraform` on `PATH`, and the
+template workspace's pack (`AspireStarter.Templates`, so `dotnet new aspire-base`), its `aspire-addon` tool and the
+`aspire` CLI installed, which scaffolds and the canary run, and Playwright with Chromium for the sign-in smoke
+(global, found through `NODE_PATH`, since a tool install has no `factory/tests/dashboard/node_modules`); running as
+a non-root user. It is built and pushed by hand (the repo has no workflows); the tag is the package version, so a
+deployed factory runs exactly one release.
+
+**`factory container serve|job`** is the image's entry point and does nothing outside a container:
+1. With `IDENTITY_ENDPOINT` set (a managed identity), `az login --identity --client-id <AZURE_CLIENT_ID>`, so every
+   `az` the factory runs (Foundry tokens for idea turns, `az rest`) acts as the identity. The identity endpoint can
+   answer empty while a container starts, so a failed login is tried again, up to 3 times in all, 10 s apart. It refuses with
+   `container refused: no managed identity (IDENTITY_ENDPOINT is unset)` otherwise.
+2. It writes `.env` (the tool install's, `<profile>/.env`): one `NAME=value` line for each environment variable named
+   `GITHUB_*`, `HCP_*`, `AZURE_*` or `FACTORY_*` that is not one of the secrets above, sorted by name, replacing the
+   file.
+3. The template workspace as `init` step 4 clones it, when missing.
+4. `serve`: the server on `0.0.0.0:<PORT, else 8080>` with `--require-signin`. `job`: `factory runner --one`, whose
+   exit code is the container's. The container then lives until no `factory` command the runner started detached
+   (`canary-destroy`, `sweep`'s destroys) still runs, checked every 15 s for up to 2 hours, since a container's exit
+   ends every process in it.
+It sets `FACTORY_CONTAINER=1`, under which each runner log line is also written to stdout (`runner <line>`). After
+`set-cost` the runner logs `cost <id> usd=<costUsd> ms=<ms> in=<input tokens> out=<output tokens>` from the result
+line's `usage` (0 when it has none), so the environment's Log Analytics workspace holds the runs and their token use beside the account's own
+metrics (`docs/CLOUD.md` has the query).
+
+**Starting the runner.** With `FACTORY_RUNNER_JOB` set, everything that starts the runner (an approval, **Retry
+deploy**, **Resume**, the watchdog, `runner --one` itself) starts one execution of that job instead,
+`az rest --method post --url https://management.azure.com<FACTORY_RUNNER_JOB>/start?api-version=2025-01-01`, and logs
+`started runner execution <name>`. The watchdog then counts the runner as alive while the `runner` lease is held (a
+row in `Leases`), or for 3 minutes after it started an execution (a container's start), not by `runner.lock`'s PID,
+which is in another container. Nor does it start one while `next -NeedsCanary` prints nothing (a job held by a
+failed canary, say): an execution would only drain and exit, each one billed. A second execution that finds the lease
+held exits 0, as a second runner does.
+
+**Sign-in.** Easy Auth (Microsoft Entra, an app registration with assignment required) stands in front of the
+dashboard: only the users assigned to the app reach it, and Container Apps strips any `X-MS-CLIENT-PRINCIPAL*`
+header a request brings. `serve --require-signin` refuses (401, `{ "ok": false, "message": "sign-in required" }`)
+every request without `X-MS-CLIENT-PRINCIPAL-ID`, so the port is never open without Easy Auth in front. Without the
+flag the server keeps listening on localhost only.
+
+**Limits.** The dashboard scales to zero when no one has it open, and so do its watchdog, PR sync and any detached
+command it started: a PR merged on GitHub lands in Done the next time the dashboard is opened, and a preview destroy
+cut short is finished by the startup `sweep`. A job execution has no Docker, so a gate that needs Testcontainers fails
+in cloud mode. A deployed factory's board is its own: its job ids start at `J-001`, so on a target another board has
+used, checkout refuses that board's branches ([checkout](#factory-commands)).
+
+**`factory init cloud [--from <file>]`** connects this machine to a deployed factory after `terraform apply` in
+`factory/infra/cloud`. It reads that Terraform's outputs as `previews-env` reads its own, then:
+1. copies each secret above that this machine's store holds into the vault (`set` or `unchanged`, never printing a value);
+2. prints the dashboard's URL.
+It refuses (`init cloud refused: <why>; run terraform apply in factory/infra/cloud first`, exit 1) when the outputs
+lack the vault. It changes nothing in this machine's `.env` or board: the local factory and the deployed one are two
+boards.

@@ -321,4 +321,19 @@ public class CanaryServiceTests : CommandTestBase
         Assert.Equal("canary-destroy refused: another canary is running on another machine (locks/canary)", Assert.Throws<FactoryException>(() => Sut.Teardown(_session)).Message);
         Assert.Empty(_pause.Sleeps);
     }
+    [Fact]
+    public void Retry_marks_a_recorded_failure_retry_so_the_canary_is_wanted_again_and_runs_nothing()
+    {
+        var path = Path.Combine(Home, "canary.json");
+        Files.Put(path, """{"fingerprint":"sha256:f","status":"failed","error":"boom","n":2}""");
+
+        Assert.Equal("canary: retry queued", Sut.Retry());
+        Assert.Equal("retry", (string?)System.Text.Json.Nodes.JsonNode.Parse(Files.Text(path)!)!["status"]);
+        Assert.Equal("boom", (string?)System.Text.Json.Nodes.JsonNode.Parse(Files.Text(path)!)!["error"]);
+        Assert.Equal("canary: nothing to retry", Sut.Retry());
+
+        Files.Put(path, """{"fingerprint":"sha256:f","status":"pass"}""");
+        Assert.Equal("canary: nothing to retry", Sut.Retry());
+        _launcher.DidNotReceiveWithAnyArgs().StartDetached(default!);
+    }
 }

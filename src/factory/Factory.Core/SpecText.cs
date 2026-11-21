@@ -25,7 +25,11 @@ public static partial class SpecText
         return new SpecMeta(repo, gate);
     }
 
-    /// <summary>The first backticked span of each sub-bullet under <c>## Scope</c> <c>- In:</c> (contract, "Targets").</summary>
+    /// <summary>
+    /// The globs of each sub-bullet under <c>## Scope</c> <c>- In:</c>: its leading backticked spans joined only by commas,
+    /// once parentheses are dropped. <c>`CLAUDE.md`, `README.md` (prose)</c> gives both; <c>`a`, and `b` is prose</c> gives
+    /// <c>a</c> (contract, "Targets").
+    /// </summary>
     public static ScopeIn ScopeIn(IReadOnlyList<string> lines)
     {
         var globs = new List<string>();
@@ -38,7 +42,12 @@ public static partial class SpecText
             if (!inScope) continue;
             if (InLine().IsMatch(line)) { inIn = true; at = i; continue; }
             if (Unindented().IsMatch(line)) { inIn = false; continue; }
-            if (inIn && GlobBullet().Match(line) is { Success: true } g) { globs.Add(g.Groups[1].Value.Trim()); at = i; }
+            if (inIn && GlobBullet().IsMatch(line))
+            {
+                var run = LeadingGlobs().Match(Parenthetical().Replace(line, "")).Groups[1].Value;
+                globs.AddRange(Backticked().Matches(run).Select(m => m.Groups[1].Value.Trim()));
+                at = i;
+            }
             else if (inIn && Indented().IsMatch(line)) at = i;
         }
         return new ScopeIn(globs, at);
@@ -80,6 +89,9 @@ public static partial class SpecText
     [GeneratedRegex(@"^[-*]\s*In:", I)] private static partial Regex InLine();
     [GeneratedRegex(@"^\S", I)] private static partial Regex Unindented();
     [GeneratedRegex(@"^\s+[-*]\s+`([^`]+)`", I)] private static partial Regex GlobBullet();
+    [GeneratedRegex(@"`([^`]+)`")] private static partial Regex Backticked();
+    [GeneratedRegex(@"^\s+[-*]\s+(`[^`]+`(?:\s*,\s*`[^`]+`)*)", I)] private static partial Regex LeadingGlobs();
+    [GeneratedRegex(@"\([^()]*\)")] private static partial Regex Parenthetical();
     [GeneratedRegex(@"^\s+\S", I)] private static partial Regex Indented();
     [GeneratedRegex(@"^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$", I)] private static partial Regex TargetPattern();
 }

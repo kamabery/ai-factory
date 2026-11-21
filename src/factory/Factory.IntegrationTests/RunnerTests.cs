@@ -19,6 +19,7 @@ public sealed class RunnerTests : IDisposable
     private sealed class LocalState : IStateSettings
     {
         public bool IsAzure => false;
+        public bool SharesFiles => false;
         public string? ContainerUrl => null;
         public long Cap => 0;
         public string? Account => null;

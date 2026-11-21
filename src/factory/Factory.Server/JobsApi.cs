@@ -10,7 +10,7 @@ namespace Factory.Server;
 /// transition logic of its own. "Starts the runner" means runner.ps1, detached; the runner itself refuses a second copy.
 /// </summary>
 public sealed class JobsApi(
-    IFactoryCalls factory, IFactoryLauncher launcher, IFactoryPaths paths, IFileStore files, BoardFile board, IStateCache cache, IProcessProbe procs)
+    IFactoryCalls factory, IFactoryLauncher launcher, IRunnerStarter runner, IFactoryPaths paths, IFileStore files, BoardFile board, IStateCache cache, IProcessProbe procs)
 {
     public Reply Files(string id)
     {
@@ -81,13 +81,19 @@ public sealed class JobsApi(
     {
         if (ServerFiles.LockHolder(files, Path.Combine(paths.Home, "canary.lock")) is { } pid && procs.IsAlive(pid))
             return Reply.Error(409, "a canary is already running");
+        // In the cloud the canary runs in a runner execution, never in the dashboard's container.
+        if (runner.StartsExecutions)
+        {
+            var retry = factory.Run("canary", "-Retry");
+            return retry.Ok ? Reply.Of(CallResult.Done($"{retry.Message.Trim()}; {runner.Start()}")) : Reply.Of(retry);
+        }
         launcher.StartDetached(["canary", "-Force"]);
         return Reply.Of(CallResult.Done("canary started"));
     }
 
     public Reply QaLogin(string id) => Reply.Of(factory.Run("qa-login", id));
 
-    public void StartRunner() => launcher.StartDetached(["runner"]);
+    public void StartRunner() => runner.Start();
 
     private Reply RunThenStartRunner(string command, string id)
     {

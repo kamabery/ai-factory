@@ -27,7 +27,7 @@ public sealed class IdeaTurnCommand(
     {
         var id = args.Count > 0 ? args[0] : "";
         // In azure the session may have been started on another machine.
-        if (state.IsAzure) Try(() => sync.Pull($"sessions/{id}/"), stderr, "state pull");
+        if (state.SharesFiles) Try(() => sync.Pull($"sessions/{id}/"), stderr, "state pull");
         if (id.Length == 0 || files.Session(id) is null)
         {
             stderr.WriteLine($"idea-turn: no session {id}");
@@ -89,7 +89,7 @@ public sealed class IdeaTurnCommand(
         files.SaveSession(id, latest);
         if (error is not null) files.Stream(id, new JsonObject { ["type"] = "error", ["message"] = error });
         files.Stream(id, new JsonObject { ["type"] = "end" });
-        if (state.IsAzure) Try(() => sync.Push(), stderr, "state push");
+        if (state.SharesFiles) Try(() => sync.Push(), stderr, "state push");
         return 0;
     }
 

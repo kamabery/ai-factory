@@ -21,13 +21,15 @@ public sealed class DeployCommand(IDeployService deploy, IFactoryPaths paths, IF
         var id = args.Arg(1);
         var j = session.Board.Job(id);
         Transitions.RequireStage(j, [Stages.Deploy], "deploy");
-        if (j.IsBootstrap)
+        var skip = j.IsBootstrap ? Verdicts.BootstrapNoDeploy
+            : Preview.NothingToDeploy(files, paths.WorkDir(j.Id)) ? Verdicts.NothingToDeploy : null;
+        if (skip is not null)
         {
             // Earlier attempts' record would otherwise keep showing a failed preview.
             if (j.Node["deploy"] is JsonObject old) old["status"] = "down";
             BoardMoves.Move(session, j, Stages.Approve, "orchestrator", clock);
-            session.AddEvent(Events.Create(clock.GetUtcNow(), ("job", j.Id), ("kind", "note"), ("detail", Verdicts.BootstrapNoDeploy)));
-            return CommandResult.Ok($"skipped: {Verdicts.BootstrapNoDeploy}");
+            session.AddEvent(Events.Create(clock.GetUtcNow(), ("job", j.Id), ("kind", "note"), ("detail", skip)));
+            return CommandResult.Ok($"skipped: {skip}");
         }
         var deploysOn = dotEnv.Get("HCP_ORG") is not null;
         if (!deploysOn) throw new FactoryException("deploy refused: deploys are off (no HCP_ORG in .env)");

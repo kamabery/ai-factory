@@ -219,7 +219,8 @@ public class EvalLessonCommandsTests : CommandTestBase
             ("prune", () => new PruneCommand(_settings, _sync, Clock).Run(Args("prune"), FakeSession.With())),
             ("allow-ip", () => new AllowIpCommand(_settings, _firewall).Run(Args("allow-ip"), FakeSession.With())),
         })
-            Assert.Equal($"{cmd} refused: FACTORY_STATE is not azure", Assert.Throws<FactoryException>(run).Message);
+            Assert.Equal(cmd is "state-pull" or "prune" ? $"{cmd} refused: FACTORY_STATE shares no files (azure, or sql with FACTORY_BLOB_URL)" : $"{cmd} refused: FACTORY_STATE is not azure",
+                Assert.Throws<FactoryException>(run).Message);
         Assert.Empty(_sync.ReceivedCalls());
     }
 
@@ -238,7 +239,7 @@ public class EvalLessonCommandsTests : CommandTestBase
     [Fact]
     public void State_pull_pulls_under_the_prefix_then_rebuilds_events()
     {
-        _settings.IsAzure.Returns(true);
+        _settings.SharesFiles.Returns(true);
         _sync.Pull("jobs/").Returns(3);
 
         Assert.Equal(["pulled: 3"], new StatePullCommand(_settings, _sync).Run(Args("state-pull", "jobs/"), FakeSession.With()).Out);
@@ -248,7 +249,7 @@ public class EvalLessonCommandsTests : CommandTestBase
     [Fact]
     public void Prune_prints_the_size_against_the_cap_and_notes_what_it_deleted()
     {
-        _settings.IsAzure.Returns(true);
+        _settings.SharesFiles.Returns(true);
         _sync.Prune(default!).ReturnsForAnyArgs(new PruneResult(900, 1000, 2, 300), new PruneResult(900, 1000, 0, 0));
         var s = FakeSession.With(Jobs.New("J-001", "done"));
         var sut = new PruneCommand(_settings, _sync, Clock);

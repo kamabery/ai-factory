@@ -54,9 +54,9 @@ public class EventCommandTests : CommandTestBase
     }
 
     [Fact]
-    public void In_azure_an_agent_stop_copies_the_subagents_transcript_into_the_job()
+    public void While_files_are_shared_an_agent_stop_copies_the_subagents_transcript_into_the_job()
     {
-        _settings.IsAzure.Returns(true);
+        _settings.SharesFiles.Returns(true);
         var transcript = Path.Combine(Path.GetTempPath(), "claude", "t.jsonl");
         Files.Put(transcript, "{\"type\":\"user\"}");
         Files.Put(Path.Combine(Home, "events.jsonl"),

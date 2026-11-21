@@ -14,6 +14,8 @@ public class HumanCommandsTests
     private readonly IFactoryPaths _paths = Substitute.For<IFactoryPaths>();
     private readonly MemoryFiles _files = new();
     private readonly IProcessRunner _processes = Substitute.For<IProcessRunner>();
+    private readonly IPause _pause = Substitute.For<IPause>();
+    private readonly IDetachedCommands _detached = Substitute.For<IDetachedCommands>();
     private List<(string File, string[] Args, string Dir, Dictionary<string, string?> Env)> Attached { get; } = [];
 
     public HumanCommandsTests()
@@ -64,6 +66,103 @@ public class HumanCommandsTests
 
         Assert.Equal("dotnet", Attached[0].File);
         Assert.Equal([_paths.ServerDll, "--port", "4317", "--parent-pid", "42"], Attached[0].Args);
+    }
+
+    private ContainerCommand Container(Dictionary<string, string?> env) =>
+        new(_paths, _processes, _files, _pause, _detached, new TemplateWorkspace(_paths, _files, Substitute.For<IGitClient>(), Substitute.For<IDotEnv>(),
+            Substitute.For<IGitHub>(), Substitute.For<IGitHubCredential>()), Host(env));
+
+    private static Dictionary<string, string?> Identity(string? port = null) =>
+        new() { ["IDENTITY_ENDPOINT"] = "http://id", ["IDENTITY_HEADER"] = "h", ["AZURE_CLIENT_ID"] = "cid", ["PORT"] = port };
+
+    [Fact]
+    public void Container_serve_signs_az_in_as_the_identity_then_serves_on_every_interface_behind_sign_in()
+    {
+        _processes.Run(StateToken.AzProgram, Arg.Any<IReadOnlyList<string>>(), Arg.Any<string>()).Returns(new ProcessResult(0, "[]", ""));
+
+        Assert.Equal((7, ""), Run(Container(Identity("8443")), "serve"));
+
+        _processes.Received(1).Run(StateToken.AzProgram, Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "login", "--identity", "--client-id", "cid", "--output", "none" })), "");
+        Assert.Equal([_paths.ServerDll, "--port", "8443", "--require-signin"], Attached[0].Args);
+        Assert.Equal("1", Attached[0].Env["FACTORY_CONTAINER"]);
+    }
+
+    [Fact]
+    public void Container_job_runs_one_job_and_its_exit_code_is_the_containers()
+    {
+        _processes.Run(StateToken.AzProgram, Arg.Any<IReadOnlyList<string>>(), Arg.Any<string>()).Returns(new ProcessResult(0, "", ""));
+
+        Assert.Equal((7, ""), Run(Container(Identity()), "job"));
+
+        Assert.Equal([_paths.RunnerDll, "--one"], Attached[0].Args);
+        Assert.Equal("1", Attached[0].Env["FACTORY_CONTAINER"]);
+        Assert.Equal((7, ""), Run(Container(Identity()), "serve"));
+        Assert.Equal([_paths.ServerDll, "--port", "8080", "--require-signin"], Attached[1].Args);
+    }
+
+    [Fact]
+    public void Container_writes_the_profiles_env_from_its_environment_without_a_secret_before_it_starts()
+    {
+        var envFile = Path.Combine(Repo, "profile", ".env");
+        _paths.EnvFile.Returns(envFile);
+        _files.Put(envFile, "OLD=1\n");
+        _processes.Run(StateToken.AzProgram, Arg.Any<IReadOnlyList<string>>(), Arg.Any<string>()).Returns(new ProcessResult(0, "", ""));
+        var env = Identity();
+        env["GITHUB_OWNER"] = "kamabery";
+        env["HCP_ORG"] = "org";
+        env["FACTORY_MODE"] = "cloud";
+        env["HCP_TOKEN"] = "never-written";
+        env["GITHUB_APP_PRIVATE_KEY"] = "never-written";
+        env["PATH"] = "/usr/bin";
+
+        Assert.Equal((7, ""), Run(Container(env), "serve"));
+
+        Assert.Equal("AZURE_CLIENT_ID=cid\nFACTORY_MODE=cloud\nGITHUB_OWNER=kamabery\nHCP_ORG=org\n", _files.Text(envFile));
+    }
+
+    [Fact]
+    public void Container_job_lives_until_the_commands_its_runner_started_detached_have_finished()
+    {
+        _processes.Run(StateToken.AzProgram, Arg.Any<IReadOnlyList<string>>(), Arg.Any<string>()).Returns(new ProcessResult(0, "", ""));
+        _detached.AnyRunning().Returns(true, true, false);
+
+        Assert.Equal((7, ""), Run(Container(Identity()), "job"));
+
+        _detached.Received(3).AnyRunning();
+        _pause.Received(2).Sleep(TimeSpan.FromSeconds(15));
+    }
+
+    [Fact]
+    public void Container_serve_does_not_wait_on_detached_commands()
+    {
+        _processes.Run(StateToken.AzProgram, Arg.Any<IReadOnlyList<string>>(), Arg.Any<string>()).Returns(new ProcessResult(0, "", ""));
+
+        Run(Container(Identity()), "serve");
+
+        _detached.DidNotReceive().AnyRunning();
+    }
+
+    [Fact]
+    public void Container_tries_az_login_again_while_the_identity_endpoint_starts_up()
+    {
+        _processes.Run(StateToken.AzProgram, Arg.Any<IReadOnlyList<string>>(), Arg.Any<string>())
+            .Returns(new ProcessResult(1, "", "ERROR: JSON is invalid"), new ProcessResult(0, "", ""));
+
+        Assert.Equal((7, ""), Run(Container(Identity()), "job"));
+
+        _processes.Received(2).Run(StateToken.AzProgram, Arg.Any<IReadOnlyList<string>>(), "");
+        _pause.Received(1).Sleep(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public void Container_refuses_outside_a_managed_identity_a_failed_az_login_and_a_bad_argument()
+    {
+        Assert.Equal((1, "factory: container refused: no managed identity (IDENTITY_ENDPOINT is unset)"), Run(Container(new()), "serve"));
+        Assert.Equal((2, "factory: container refused: usage: factory container serve|job"), Run(Container(Identity()), "both"));
+        _processes.Run(StateToken.AzProgram, Arg.Any<IReadOnlyList<string>>(), Arg.Any<string>()).Returns(new ProcessResult(1, "", "ERROR: no identity\n"));
+        Assert.Equal((1, "factory: container refused: az login --identity failed: ERROR: no identity"), Run(Container(Identity()), "job"));
+        _processes.Received(3).Run(StateToken.AzProgram, Arg.Any<IReadOnlyList<string>>(), "");
+        Assert.Empty(Attached);
     }
 
     [Fact]

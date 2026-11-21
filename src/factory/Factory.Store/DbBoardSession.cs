@@ -7,9 +7,10 @@ namespace Factory.Store;
 
 /// <summary>
 /// One command's hold on a database board: no lock, each <see cref="Save"/> a version-checked transaction, each event an
-/// insert, and the exports brought up to date after each and at the end (contract, "State backends", Database).
+/// insert, and the exports brought up to date after each and at the end (contract, "State backends", Database). With
+/// <paramref name="shared"/>, the artifacts are pushed at the end.
 /// </summary>
-internal sealed class DbBoardSession(IBoardRows rows, IStateExport export, BoardRead read) : IBoardSession
+internal sealed class DbBoardSession(IBoardRows rows, IStateExport export, BoardRead read, IStateSync? shared, TimeProvider clock) : IBoardSession
 {
     private BoardRead _read = read;
 
@@ -36,8 +37,9 @@ internal sealed class DbBoardSession(IBoardRows rows, IStateExport export, Board
 
     public IReadOnlyList<string> Close()
     {
+        var warnings = shared is null ? [] : ArtifactPush.Run(shared, Board, AddEvent, clock);
         export.Export();
-        return [];
+        return warnings;
     }
 
     public void Dispose() { }

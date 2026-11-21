@@ -108,7 +108,7 @@ public class ServerSessionTests : ServerTestBase
         PutSession("""{"id":"S-001","status":"running"}""");
         var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(
             new DateTimeOffset(Files.Stat(SessionFile("S-001", "session.json"))!.LastWriteTicks, TimeSpan.Zero).AddSeconds(10));
-        var ideas = new Factory.Server.IdeaSessions(Factory, Launcher, Paths, Files, Settings, Board, new Factory.Server.SessionFiles(Paths, Files, Procs, Opts, clock), Jobs, Opts, clock);
+        var ideas = new Factory.Server.IdeaSessions(Factory, Launcher, Paths, Files, Settings, Board, new Factory.Server.SessionFiles(Paths, Files, Procs, Opts, clock), Jobs, Sync, State, Opts, clock);
 
         Assert.Equal(409, ideas.Handle("POST", "S-001", "reply", null, """{"text":"x"}""").Status);
 
@@ -291,6 +291,60 @@ public class ServerSessionTests : ServerTestBase
         Factory.Run("idea-abandon", "I-003").Returns(CallResult.Refuse("I-003 is done"));
         Assert.Equal(409, Ideas.Handle("POST", "S-001", "close", null, """{"abandon":true}""").Status);
         Assert.Equal("idle", (string?)Session()["status"]);
+    }
+
+    [Theory]
+    [InlineData("done")]
+    [InlineData("abandoned")]
+    public void Any_close_of_a_session_whose_idea_is_already_finished_only_closes_it(string status)
+    {
+        Files.Put(Path.Combine(Home, "board.json"), $$"""{"jobs":[],"ideas":[{"id":"I-003","status":"{{status}}"}]}""");
+        PutSession("""{"id":"S-001","status":"idle","idea":"I-003"}""");
+
+        Assert.Equal("""{"ok":true,"message":"closed"}""", Ideas.Handle("POST", "S-001", "close", null, """{"abandon":true}""").Body);
+        Assert.Equal("closed", (string?)Session()["status"]);
+        PutSession("""{"id":"S-001","status":"idle","idea":"I-003"}""");
+        Assert.Equal("""{"ok":true,"message":"closed"}""", Ideas.Handle("POST", "S-001", "close", null, """{"failed":true}""").Body);
+        PutSession("""{"id":"S-001","status":"idle","idea":"I-003"}""");
+        Assert.Equal("""{"ok":true,"message":"closed"}""", Ideas.Handle("POST", "S-001", "close", null, "{}").Body);
+        Factory.DidNotReceive().Run(Arg.Any<string[]>());
+    }
+
+    [Fact]
+    public void With_shared_files_a_close_a_decision_a_spec_save_and_a_bootstrap_brief_push_the_session_and_its_idea()
+    {
+        State.SharesFiles.Returns(true);
+        Func<string, bool>? skip = null;
+        Sync.Push(Arg.Do<Func<string, bool>?>(s => skip = s));
+        Factory.Run("add-spec", Arg.Any<string>(), Arg.Any<string>()).Returns(CallResult.Done("J-013"));
+
+        PutSession("""{"id":"S-001","status":"idle","idea":"I-003","specs":[{"k":1},{"k":2}]}""");
+        Ideas.Handle("PUT", "S-001", "specs", "1", "# Spec: One\n\nbody");
+        Ideas.Handle("POST", "S-001", "specs", "2", """{"decision":"backlog"}""");
+        Ideas.Handle("POST", "S-001", "close", null, "{}");
+        PutSession("""{"id":"S-001","status":"idle","text":"the idea","target":"me/fresh","newTarget":true,"scaffold":{"ui":"react"},"pending":{"id":"tu_3","name":"submit_brief","input":{"markdown":"no title"}}}""");
+        Factory.Run("new-idea", "the idea", "-Target", "me/fresh", "-Scaffold", """{"ui":"react"}""").Returns(CallResult.Done("I-004 J-010"));
+        Ideas.Handle("POST", "S-001", "brief", null, "");
+
+        Sync.ReceivedWithAnyArgs(4).Push(default);
+        Assert.False(skip!("sessions/S-001/session.json"));
+        Assert.False(skip("ideas/I-004/brief.md"));
+        Assert.True(skip("sessions/S-002/session.json"));
+        Assert.True(skip("ideas/I-003/spec-1.md"));
+        Assert.True(skip("jobs/J-010/spec.md"));
+    }
+
+    [Fact]
+    public void Without_shared_files_or_when_a_turn_starts_nothing_is_pushed()
+    {
+        PutSession("""{"id":"S-001","status":"idle","idea":"I-003"}""");
+        Ideas.Handle("POST", "S-001", "close", null, "{}");
+
+        State.SharesFiles.Returns(true);
+        PutSession("""{"id":"S-001","status":"idle"}""");
+        Ideas.Handle("POST", "S-001", "reply", null, """{"text":"more"}""");
+
+        Sync.DidNotReceiveWithAnyArgs().Push(default);
     }
 
     [Fact]

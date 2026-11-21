@@ -194,11 +194,11 @@ public class IdeaTurnTests : CommandTestBase, IDisposable
     }
 
     [Fact]
-    public void In_azure_the_session_is_pulled_first_and_pushed_after()
+    public void While_files_are_shared_the_session_is_pulled_first_and_pushed_after()
     {
         PutSession();
         _out = Ok;
-        _state.IsAzure.Returns(true);
+        _state.SharesFiles.Returns(true);
         var blobs = Substitute.For<IStateLeases>();
         blobs.Shared.Returns(true);
         blobs.Acquire("turn-S-001", 0).Returns("lease-1");

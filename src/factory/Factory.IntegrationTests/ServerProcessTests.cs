@@ -62,6 +62,22 @@ public sealed partial class ServerProcessTests : IDisposable
     }
 
     [Fact]
+    public async Task Requiring_sign_in_it_refuses_a_request_without_Easy_Auths_principal_and_serves_one_with_it()
+    {
+        var url = await Url(Server("--require-signin"));
+        using var http = new HttpClient();
+
+        var bare = await http.GetAsync(url, TestContext.Current.CancellationToken);
+        using var signed = new HttpRequestMessage(HttpMethod.Get, url);
+        signed.Headers.Add("X-MS-CLIENT-PRINCIPAL-ID", "00000000-0000-0000-0000-000000000001");
+        var ok = await http.SendAsync(signed, TestContext.Current.CancellationToken);
+
+        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, bare.StatusCode);
+        Assert.Equal("""{"ok":false,"message":"sign-in required"}""", await bare.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        Assert.True(ok.IsSuccessStatusCode);
+    }
+
+    [Fact]
     public async Task A_second_dashboard_on_the_same_state_is_refused_naming_the_first()
     {
         var first = Server();

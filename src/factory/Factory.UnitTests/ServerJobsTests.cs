@@ -1,6 +1,7 @@
 using Factory.Core.Abstractions;
 using Factory.Server;
 using Factory.Server.Abstractions;
+using Factory.Store.Abstractions;
 using NSubstitute;
 
 namespace Factory.UnitTests;
@@ -111,6 +112,19 @@ public class ServerJobsTests : ServerTestBase
 
         Launcher.Received().StartDetached(Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "destroy", "J-006" })));
         Launcher.Received().StartDetached(Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "canary", "-Force" })));
+    }
+
+    [Fact]
+    public void In_the_cloud_run_canary_queues_a_retry_and_starts_a_runner_execution_never_a_canary_here()
+    {
+        Runner = Substitute.For<IRunnerStarter>();
+        Runner.StartsExecutions.Returns(true);
+        Runner.Start().Returns("started runner execution r-3");
+        Factory.Run("canary", "-Retry").Returns(CallResult.Done("canary: retry queued"));
+
+        Assert.Equal("""{"ok":true,"message":"canary: retry queued; started runner execution r-3"}""", Jobs.Canary().Body);
+
+        Launcher.DidNotReceiveWithAnyArgs().StartDetached(default!);
     }
 
     [Fact]

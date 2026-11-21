@@ -1,5 +1,7 @@
 using Factory.Server;
+using Factory.Server.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
+using Factory.Store.Abstractions;
 using NSubstitute;
 
 namespace Factory.UnitTests;
@@ -72,7 +74,7 @@ public class ServerWatchdogTests : ServerTestBase
         var written = new DateTimeOffset(Files.Stat(RunnerLock)!.LastWriteTicks, TimeSpan.Zero);
         var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(written.AddSeconds(2));
 
-        new Factory.Server.Watchdog(Board, Paths, Files, Launcher, Procs, Opts, clock, Microsoft.Extensions.Logging.Abstractions.NullLogger<Factory.Server.Watchdog>.Instance).Tick();
+        new Factory.Server.Watchdog(Board, Paths, Files, Launcher, Runner, Leases, Factory, Procs, Opts, clock, Microsoft.Extensions.Logging.Abstractions.NullLogger<Factory.Server.Watchdog>.Instance).Tick();
 
         Launcher.DidNotReceive().StartDetached(Arg.Is<IReadOnlyList<string>>(a => a[0] == "runner" || a[0] == "idea-turn"));
     }
@@ -114,5 +116,63 @@ public class ServerWatchdogTests : ServerTestBase
         Dog.Tick();
 
         Launcher.DidNotReceive().StartDetached(Arg.Is<IReadOnlyList<string>>(a => a[0] == "runner" || a[0] == "idea-turn"));
+    }
+    private void Cloud()
+    {
+        Runner = Substitute.For<IRunnerStarter>();
+        Runner.StartsExecutions.Returns(true);
+        Runner.Start().Returns("started runner execution r-1");
+        Factory.Run("next", "-NeedsCanary").Returns(CallResult.Done("J-001"));
+    }
+
+    [Fact]
+    public void In_the_cloud_it_starts_nothing_while_next_has_nothing_to_run()
+    {
+        Cloud();
+        SetBoard(("J-001", "approved", false));
+        Factory.Run("next", "-NeedsCanary").Returns(CallResult.Done(""));
+
+        Dog.Tick();
+
+        Runner.DidNotReceive().Start();
+    }
+
+    [Fact]
+    public void In_the_cloud_it_starts_an_execution_when_no_runner_holds_the_lease_and_logs_its_name()
+    {
+        Cloud();
+        SetBoard(("J-001", "approved", false));
+        Files.Put(RunnerLock, "555");   // another container's lock means nothing here
+
+        Dog.Tick();
+
+        Runner.Received(1).Start();
+        Assert.Equal($"2026-11-10T12:00:00.0000000Z watchdog: started runner execution r-1{Environment.NewLine}", Files.Text(Path.Combine(Home, "runner.log")));
+        Launcher.DidNotReceiveWithAnyArgs().StartDetached(default!);
+    }
+
+    [Fact]
+    public void In_the_cloud_a_held_runner_lease_or_an_execution_started_under_3_minutes_ago_counts_as_alive()
+    {
+        Cloud();
+        SetBoard(("J-001", "approved", false));
+        Leases.Held("runner").Returns(true);
+        var dog = Dog;
+
+        dog.Tick();
+        Runner.DidNotReceive().Start();
+
+        Leases.Held("runner").Returns(false);
+        Clock.Advance(TimeSpan.FromSeconds(10));
+        dog.Tick();
+        Runner.Received(1).Start();
+
+        Clock.Advance(TimeSpan.FromSeconds(170));   // still starting
+        dog.Tick();
+        Runner.Received(1).Start();
+
+        Clock.Advance(TimeSpan.FromSeconds(10));    // 3 minutes on, and no lease: it died
+        dog.Tick();
+        Runner.Received(2).Start();
     }
 }

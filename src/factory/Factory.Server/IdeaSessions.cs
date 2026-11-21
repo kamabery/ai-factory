@@ -16,7 +16,7 @@ namespace Factory.Server;
 /// </summary>
 public sealed partial class IdeaSessions(
     IFactoryCalls factory, IFactoryLauncher launcher, IFactoryPaths paths, IFileStore files, IServerSettings settings, BoardFile board,
-    SessionFiles sessions, JobsApi jobs, IOptions<ServerOptions> options, TimeProvider clock)
+    SessionFiles sessions, JobsApi jobs, IStateSync sync, IStateSettings state, IOptions<ServerOptions> options, TimeProvider clock)
 {
     public Reply New(string body)
     {
@@ -158,6 +158,7 @@ public sealed partial class IdeaSessions(
             AddAnswer(s, messages, $"The human confirmed the brief; it is saved as idea {ids[0]}. The target is being scaffolded by bootstrap job {bootstrap}. You will be told when it has merged; until then there is nothing to do.");
             sessions.SaveChat(id, messages);
             sessions.Save(s);
+            Share(s);
         }
         else
         {
@@ -199,6 +200,7 @@ public sealed partial class IdeaSessions(
             entry["title"] = m.Groups[1].Value;
             files.WriteAtomic(file, Encoding.UTF8.GetBytes(body));
             sessions.Save(s);
+            Share(s);
             return Reply.Of(CallResult.Done("spec saved"));
         }
         var decision = BoardFile.Str(req, "decision");
@@ -218,6 +220,7 @@ public sealed partial class IdeaSessions(
             else { entry["decision"] = "backlog"; r = CallResult.Refuse($"{r.Message} is in Backlog: {a.Message}"); }
         }
         sessions.Save(s);
+        Share(s);
         return Reply.Of(r);
     }
 
@@ -225,7 +228,10 @@ public sealed partial class IdeaSessions(
     {
         var id = BoardFile.Str(s, "id")!;
         var r = CallResult.Done("closed");
-        if (BoardFile.Str(s, "idea") is { } idea)
+        // Contract: any close of a session whose idea is already done or abandoned only closes it.
+        if (BoardFile.Str(s, "idea") is { } idea
+            && !(board.Ideas().FirstOrDefault(i => BoardFile.Str(i, "id") == idea) is { } finished
+                 && BoardFile.Str(finished, "status") is "done" or "abandoned"))
         {
             r = Truthy(req["abandon"]) ? factory.Run("idea-abandon", idea)
                 : Truthy(req["failed"]) ? factory.Run("idea-done", idea, "-Failed", "-Reason", BoardFile.Str(req, "reason") ?? "every spec rejected in session")
@@ -234,8 +240,20 @@ public sealed partial class IdeaSessions(
         }
         s["status"] = "closed";
         sessions.Save(s);
+        Share(s);
         try { files.DeleteDirectory(sessions.Clone(id)); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         return Reply.Of(r);
+    }
+
+    /// <summary>
+    /// Contract, "Session endpoints": the factory calls pushed before these writes, so push the session and its idea,
+    /// or a dashboard that scales to zero loses them.
+    /// </summary>
+    private void Share(JsonObject s)
+    {
+        if (!state.SharesFiles) return;
+        string[] mine = [$"sessions/{BoardFile.Str(s, "id")}/", .. BoardFile.Str(s, "idea") is { } idea ? [$"ideas/{idea}/"] : Array.Empty<string>()];
+        sync.Push(rel => !mine.Any(p => rel.StartsWith(p, StringComparison.OrdinalIgnoreCase)));
     }
 
     private void StartTurn(JsonObject s)

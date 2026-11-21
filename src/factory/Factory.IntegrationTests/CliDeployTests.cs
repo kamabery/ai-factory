@@ -45,8 +45,11 @@ public sealed class CliDeployTests(GitHubStub gh) : IDisposable
 
     private static string Git(string dir, params string[] args) => new Factory.Store.GitClient(new Factory.Store.ProcessRunner()).Run(dir, args).Out;
 
-    /// <summary>A job in deploy, its work dir cloned by checkout with one commit on the branch (plus <paramref name="file"/>).</summary>
-    private void InDeploy(string? file = null)
+    /// <summary>
+    /// A job in deploy, its work dir cloned by checkout with one commit on the branch (plus <paramref name="file"/>), and
+    /// with <paramref name="infra"/> an <c>IaC/</c> folder: something to preview (contract, "Nothing to preview").
+    /// </summary>
+    private void InDeploy(string? file = null, bool infra = true)
     {
         gh.NewRemote(_repo, _dir);
         Directory.CreateDirectory(Path.Combine(Home, "jobs", "J-001"));
@@ -62,8 +65,26 @@ public sealed class CliDeployTests(GitHubStub gh) : IDisposable
         }.ToJsonString());
         Assert.Equal(0, Run("checkout", "J-001").Code);
         File.WriteAllText(Path.Combine(Wt, file ?? "feature.txt"), "work\n");
+        if (infra)
+        {
+            Directory.CreateDirectory(Path.Combine(Wt, "IaC"));
+            File.WriteAllText(Path.Combine(Wt, "IaC", "main.tf"), "# preview\n");
+        }
         Git(Wt, "add", "-A");
         Git(Wt, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "work");
+    }
+
+    [Fact]
+    public void A_clone_with_nothing_to_deploy_moves_to_approve_without_pushing_or_dispatching()
+    {
+        InDeploy(infra: false);
+
+        var (code, output, err) = Run("deploy", "J-001");
+
+        Assert.True(code == 0, err);
+        Assert.Equal($"skipped: {Factory.Core.Verdicts.NothingToDeploy}\n", output);
+        Assert.Equal("approve", (string?)Job["stage"]);
+        Assert.Equal("", Git(Wt, "ls-remote", "origin", "factory/J-001"));
     }
 
     [Fact]

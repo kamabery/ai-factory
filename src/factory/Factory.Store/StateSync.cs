@@ -21,6 +21,8 @@ public sealed partial class StateSync(IFactoryPaths paths, IFileStore files, IBl
 
     public int Push(Func<string, bool>? skip = null)
     {
+        // Read .sync.json again: a long-lived process (the server) must not write back a manifest older than a command's.
+        _manifest = null;
         var m = Manifest;
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var n = 0;
@@ -50,6 +52,7 @@ public sealed partial class StateSync(IFactoryPaths paths, IFileStore files, IBl
 
     public int Pull(string prefix = "")
     {
+        _manifest = null;
         var m = Manifest;
         var n = 0;
         foreach (var b in blobs.List(prefix))
@@ -167,6 +170,7 @@ public sealed partial class StateSync(IFactoryPaths paths, IFileStore files, IBl
                 n++;
             }
             m.Set("events/", new JsonObject { ["etag"] = "listed" });
+            m.Save();   // Push reads .sync.json again
         }
         n += Push();
         if (files.ReadText(paths.BoardPath) is { } board) { SaveBoard(Encoding.UTF8.GetBytes(board)); n++; }

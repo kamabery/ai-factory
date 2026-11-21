@@ -7,7 +7,9 @@ using Factory.Store.Abstractions;
 
 // The dashboard server (contract, "Dashboard API"), started by `factory serve` or the AppHost. Arguments: --port,
 // --state-dir, --env-file, --watchdog-seconds, --pr-sync-seconds, and --parent-pid from factory serve, so the server
-// stops with it (ParentWatch).
+// stops with it (ParentWatch). --require-signin (a deployed factory) listens on every interface behind Easy Auth.
+var requireSignin = args.Contains("--require-signin");
+args = [.. args.Where(a => a != "--require-signin")];
 var env = Environment.GetEnvironmentVariables().Cast<DictionaryEntry>()
     .ToDictionary(e => (string)e.Key, e => (string?)e.Value, StringComparer.OrdinalIgnoreCase);
 var cli = new ConfigurationBuilder().AddCommandLine(args).Build();
@@ -38,7 +40,7 @@ for (var attempt = 1; ; attempt++)
     builder.AddServiceDefaults();
     builder.Logging.SetMinimumLevel(LogLevel.Warning);
     builder.Host.UseDefaultServiceProvider(o => { o.ValidateOnBuild = true; o.ValidateScopes = true; });
-    builder.WebHost.ConfigureKestrel(k => k.ListenLocalhost(bind));
+    builder.WebHost.ConfigureKestrel(k => { if (requireSignin) k.ListenAnyIP(bind); else k.ListenLocalhost(bind); });
     Compose(builder.Services);
     var candidate = builder.Build();
     if (serveLock is null)
@@ -62,7 +64,7 @@ for (var attempt = 1; ; attempt++)
         }
         serveLock.Write(null);
     }
-    candidate.MapDashboard();
+    candidate.MapDashboard(requireSignin);
     try
     {
         await candidate.StartAsync();

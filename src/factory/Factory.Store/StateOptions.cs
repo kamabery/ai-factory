@@ -42,6 +42,9 @@ public sealed class StateOptions
 
     public string? IdentityHeader { get; set; }
 
+    /// <summary>AZURE_CLIENT_ID: the user-assigned managed identity every token request names.</summary>
+    public string? ClientId { get; set; }
+
     /// <summary>FACTORY_STORAGE_ACCOUNT: the state storage account allow-ip opens, else the container URL's host.</summary>
     public string? StorageAccount { get; set; }
 

@@ -61,6 +61,16 @@ public class StateSettingsTests
     }
 
     [Fact]
+    public void Files_are_shared_through_the_container_in_azure_and_in_sql_with_a_blob_url_only()
+    {
+        Assert.True(Settings(new StateOptions { State = "azure", BlobUrl = "https://a/c" }).SharesFiles);
+        Assert.True(Settings(new StateOptions { State = "sql", Sql = "s", BlobUrl = "https://a/c" }).SharesFiles);
+        Assert.False(Settings(new StateOptions { State = "sql", Sql = "s" }).SharesFiles);
+        Assert.False(Settings(new StateOptions { State = "sqlite", BlobUrl = "https://a/c" }).SharesFiles);
+        Assert.False(Settings(new StateOptions { BlobUrl = "https://a/c" }).SharesFiles);
+    }
+
+    [Fact]
     public void Sqlite_is_a_database_in_the_home_unless_FACTORY_DB_names_one()
     {
         var s = Settings(new StateOptions { State = "SQLite" });

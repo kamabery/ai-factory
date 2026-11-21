@@ -59,6 +59,7 @@ public class RunnerLoopTests : CommandTestBase
     private readonly IRunnerLock _lock = Substitute.For<IRunnerLock>();
     private readonly IClaudeRunner _claude = Substitute.For<IClaudeRunner>();
     private readonly ILlmProvider _provider = Substitute.For<ILlmProvider>();
+    private readonly IRunnerStarter _starter = Substitute.For<IRunnerStarter>();
     private readonly List<string> _log = [];
     private readonly IReadOnlyDictionary<string, string?> _childEnv = new Dictionary<string, string?> { ["ANTHROPIC_API_KEY"] = null };
 
@@ -69,7 +70,7 @@ public class RunnerLoopTests : CommandTestBase
         Paths.ScriptsDir.Returns(Path.Combine(Path.GetTempPath(), "fac", "factory", "scripts"));
         var log = Substitute.For<IRunnerLog>();
         log.When(l => l.Write(Arg.Any<string>())).Do(c => _log.Add(c.Arg<string>()));
-        Sut = new RunnerLoop(_lock, _factory, _claude, _provider, log, Paths, Files);
+        Sut = new RunnerLoop(_lock, _factory, _claude, _provider, log, Paths, Files, _starter, Microsoft.Extensions.Options.Options.Create(new RunnerOptions()));
     }
 
     private RunnerLoop Sut { get; }
@@ -99,10 +100,24 @@ public class RunnerLoopTests : CommandTestBase
         Assert.Contains("publish J-001", _factory.Calls);
         Assert.Contains("lesson J-002", _factory.Calls);
         Assert.Equal("sweep", _factory.Calls[^1]);
-        Assert.Equal([$"start pid={Environment.ProcessId}", "take J-001", "claude J-001 exit=0 result=yes", "stage J-001 ready",
-            "take J-002", "claude J-002 exit=0 result=yes", "stage J-002 ready", "exit drained"], _log);
+        Assert.Equal([$"start pid={Environment.ProcessId}", "take J-001", "claude J-001 exit=0 result=yes", "cost J-001 usd=0.5 ms=2000 in=0 out=0", "stage J-001 ready",
+            "take J-002", "claude J-002 exit=0 result=yes", "cost J-002 usd=0.5 ms=2000 in=0 out=0", "stage J-002 ready", "exit drained"], _log);
         _claude.Received(1).Run("J-001", Arg.Is<string>(p => p == $"/factory:factory run J-001 {Paths.Home.Replace('\\', '/')} {Path.Combine(Path.GetTempPath(), "fac", "factory", "templates").Replace('\\', '/')}"),
-            Path.Combine(Path.GetTempPath(), "wt", "J-001"), JobFile("J-001", "run-1.jsonl"), _childEnv, "");
+            Path.Combine(Path.GetTempPath(), "wt", "J-001"), JobFile("J-001", "run-1.jsonl"), Arg.Any<IReadOnlyDictionary<string, string?>>(), "");
+    }
+
+    [Fact]
+    public void A_job_s_claude_runs_on_the_provider_with_background_tasks_off()
+    {
+        _factory.Add("J-001");
+        Claude(Stages.Ready);
+        IReadOnlyDictionary<string, string?>? env = null;
+        _claude.WhenForAnyArgs(c => c.Run(default!, default!, default!, default!, default!, default!)).Do(c => env = c.ArgAt<IReadOnlyDictionary<string, string?>>(4));
+
+        Sut.Run();
+
+        Assert.Equal("1", env!["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"]);
+        Assert.True(env.ContainsKey("ANTHROPIC_API_KEY") && env["ANTHROPIC_API_KEY"] is null);
     }
 
     [Fact]
@@ -144,7 +159,7 @@ public class RunnerLoopTests : CommandTestBase
         _log.Clear();
         _factory.Calls.Clear();
         _factory.Canary = "Error: boom";
-        new RunnerLoop(_lock, _factory, _claude, _provider, LogTo(_log), Paths, Files).Run();
+        new RunnerLoop(_lock, _factory, _claude, _provider, LogTo(_log), Paths, Files, _starter, Microsoft.Extensions.Options.Options.Create(new RunnerOptions())).Run();
         Assert.Equal("canary failed: Error: boom", _log[1]);
         Assert.Single(_factory.Calls, c => c == "canary");
     }
@@ -312,7 +327,7 @@ public class RunnerLoopTests : CommandTestBase
         var broken = Substitute.For<IFactoryCommands>();
         broken.Run(Arg.Any<string[]>()).Returns(_ => throw new InvalidOperationException("the CLI is gone"));
         var lines = new List<string>();
-        Assert.Equal("fatal: the CLI is gone", new RunnerLoop(_lock, broken, _claude, _provider, LogTo(lines), Paths, Files).Run());
+        Assert.Equal("fatal: the CLI is gone", new RunnerLoop(_lock, broken, _claude, _provider, LogTo(lines), Paths, Files, _starter, Microsoft.Extensions.Options.Options.Create(new RunnerOptions())).Run());
         Assert.Equal("exit fatal: the CLI is gone", lines[^1]);
     }
 
@@ -326,5 +341,48 @@ public class RunnerLoopTests : CommandTestBase
         Sut.Run();
 
         Assert.Contains("stage J-001 ", _log);
+    }
+    private RunnerLoop One() =>
+        new(_lock, _factory, _claude, _provider, LogTo(_log), Paths, Files, _starter, Microsoft.Extensions.Options.Options.Create(new RunnerOptions { One = true }));
+
+    [Fact]
+    public void One_takes_a_single_job_starts_the_runner_again_while_the_queue_is_not_empty_and_exits()
+    {
+        _factory.Add("J-001");
+        _factory.Add("J-002");
+        Claude(Stages.Ready);
+        _starter.Start().Returns("started runner execution r-2");
+
+        Assert.Equal("one", One().Run());
+
+        Assert.Contains("publish J-001", _factory.Calls);
+        Assert.DoesNotContain("checkout J-002", _factory.Calls);
+        Assert.DoesNotContain("sweep", _factory.Calls);
+        _starter.Received(1).Start();
+        Assert.Equal(["stage J-001 ready", "started runner execution r-2", "exit one"], _log.TakeLast(3));
+    }
+
+    [Fact]
+    public void One_with_nothing_left_starts_nothing_and_an_empty_queue_still_drains_and_sweeps()
+    {
+        _factory.Add("J-001");
+        Claude(Stages.Ready);
+
+        Assert.Equal("one", One().Run());
+        _starter.DidNotReceive().Start();
+
+        Assert.Equal("drained", One().Run());
+        Assert.Equal("sweep", _factory.Calls[^1]);
+    }
+
+    [Fact]
+    public void The_cost_line_carries_the_result_lines_token_usage()
+    {
+        _factory.Add("J-001");
+        Claude(Stages.Ready, """{"type":"result","total_cost_usd":1.25,"duration_ms":90000,"usage":{"input_tokens":1200,"output_tokens":340}}""");
+
+        Sut.Run();
+
+        Assert.Contains("cost J-001 usd=1.25 ms=90000 in=1200 out=340", _log);
     }
 }

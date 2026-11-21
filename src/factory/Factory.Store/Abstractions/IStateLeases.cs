@@ -16,4 +16,7 @@ public interface IStateLeases
     bool Renew(string name, string id);
 
     void Release(string name, string id);
+
+    /// <summary>sql: whether anyone holds the lease now, without taking it (the cloud watchdog). False elsewhere.</summary>
+    bool Held(string name);
 }

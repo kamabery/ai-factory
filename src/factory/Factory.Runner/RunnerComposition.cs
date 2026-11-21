@@ -12,7 +12,7 @@ namespace Factory.Runner;
 public static class RunnerComposition
 {
     public static IServiceCollection AddFactoryRunner(this IServiceCollection services, IReadOnlyDictionary<string, string?> env,
-        string workingDirectory, string tempPath, string localAppData, string? configuredMode)
+        string workingDirectory, string tempPath, string localAppData, string? configuredMode, bool one = false)
     {
         string? Get(string name) => env.GetValueOrDefault(name) is { Length: > 0 } v ? v : null;
         services.Configure<FactoryOptions>(o =>
@@ -31,6 +31,7 @@ public static class RunnerComposition
             o.TempPath = tempPath;
             o.WorkingDirectory = workingDirectory;
         });
+        services.Configure<CloudOptions>(o => o.RunnerJob = Get("FACTORY_RUNNER_JOB"));
         services.Configure<StateOptions>(o =>
         {
             o.State = Get("FACTORY_STATE");
@@ -41,6 +42,7 @@ public static class RunnerComposition
             o.AzCmd = Get("FACTORY_AZ_CMD");
             o.IdentityEndpoint = Get("IDENTITY_ENDPOINT");
             o.IdentityHeader = Get("IDENTITY_HEADER");
+            o.ClientId = Get("AZURE_CLIENT_ID");
             o.RenewSeconds = Get("FACTORY_STATE_RENEW_SECONDS");
             o.Db = Get("FACTORY_DB");
             o.Sql = Get("FACTORY_SQL");
@@ -48,6 +50,8 @@ public static class RunnerComposition
         services.Configure<RunnerOptions>(o =>
         {
             o.ClaudeCmd = Get("FACTORY_CLAUDE_CMD");
+            o.One = one;
+            o.Echo = Get("FACTORY_CONTAINER") is not null;
             // <root>/shared/Microsoft.NETCore.App/<version>/ is where this runtime lives.
             if (!OperatingSystem.IsWindows() && Get("DOTNET_ROOT") is null)
                 o.DotnetRoot = Path.GetFullPath(Path.Combine(System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory(), "..", "..", ".."));
@@ -72,6 +76,8 @@ public static class RunnerComposition
         services.AddSingleton<ILeaseRows, EfLeaseRows>();
         services.AddSingleton<IStateLeases, StateLeases>();
         services.AddSingleton<IRunnerLock, RunnerLock>();
+        services.AddSingleton<IFactoryLauncher, FactoryLauncher>();
+        services.AddSingleton<IRunnerStarter, RunnerStarter>();
         services.AddSingleton<IFactoryCommands, FactoryScript>();
         services.AddSingleton<IClaudeRunner, ClaudeRunner>();
         services.AddSingleton<LlmProvider>();

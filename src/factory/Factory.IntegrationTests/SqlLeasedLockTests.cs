@@ -17,6 +17,27 @@ public sealed class SqlLeasedLockTests(SqlServer server) : IDisposable
 
     public void Dispose() => _dir.Dispose();
 
+    private StateLeases Leases(string home)
+    {
+        var paths = new FactoryPaths(Options.Create(new FactoryOptions { Home = _dir[home], EnvFile = _dir["none.env"] }), new GitClient(new ProcessRunner()));
+        var settings = new StateSettings(Options.Create(new StateOptions { State = "sql", Sql = _sql }), paths, new DotEnv(paths, new FileStore()));
+        return new StateLeases(settings, null!, new EfLeaseRows(new FactoryDbs(new StateDbConnection(settings)), TimeProvider.System));
+    }
+
+    [Fact]
+    public void Another_machine_sees_a_lease_as_held_until_it_is_released()
+    {
+        var a = Leases("a");
+        var b = Leases("b");
+        Assert.False(b.Held("runner"));
+
+        var id = a.Acquire("runner", 0)!;
+        Assert.True(b.Held("runner"));
+
+        a.Release("runner", id);
+        Assert.False(b.Held("runner"));
+    }
+
     private (LeasedLock Lock, string File) Lock(string home, string renewSeconds = "20")
     {
         var paths = new FactoryPaths(Options.Create(new FactoryOptions { Home = _dir[home], EnvFile = _dir["none.env"] }), new GitClient(new ProcessRunner()));

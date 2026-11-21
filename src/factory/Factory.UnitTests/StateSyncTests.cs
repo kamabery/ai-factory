@@ -41,6 +41,19 @@ public class StateSyncTests
     private static byte[] B(string s) => Encoding.UTF8.GetBytes(s);
 
     [Fact]
+    public void A_long_lived_sync_reads_the_manifest_again_so_it_neither_repushes_nor_forgets_another_process_s_files()
+    {
+        _sut.Push();                                    // the server's sync, with the manifest already in memory
+        _files.Put(P("jobs/J-001/build.md"), "built");  // a factory command in the same home pushes a file
+        NewSync().Push();
+        _blobs.ClearReceivedCalls();
+
+        Assert.Equal(0, _sut.Push());
+        _blobs.DidNotReceiveWithAnyArgs().Write(default!, default!);
+        Assert.NotNull(Manifest()["jobs/J-001/build.md"]);
+    }
+
+    [Fact]
     public void Push_uploads_changed_files_only_and_records_them_in_the_manifest()
     {
         _files.Put(P("ideas/I-001/idea.md"), "idea");

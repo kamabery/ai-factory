@@ -18,11 +18,12 @@ public sealed class ReadReviewsCommand(IFactoryPaths paths, IFileStore files, ID
         var j = session.Board.Job(args.Arg(1));
         Transitions.RequireStage(j, [Stages.Review], "read-reviews");
         var dir = Path.Combine(paths.JobDir(j.Id), $"round-{j.Round}");
+        var hasInfra = !Preview.NothingToDeploy(files, paths.WorkDir(j.Id));
         IReadOnlyList<System.Text.Json.Nodes.JsonObject> events;
         try
         {
             events = Verdicts.ReadReviews(j, role => SpecText.FirstLine(files.ReadText(Path.Combine(dir, $"review-{role}.md"))),
-                dotEnv.Get("HCP_ORG") is not null, clock.GetUtcNow());
+                dotEnv.Get("HCP_ORG") is not null, clock.GetUtcNow(), hasInfra);
         }
         catch (FactoryException e) when (e.KeepChanges)
         {

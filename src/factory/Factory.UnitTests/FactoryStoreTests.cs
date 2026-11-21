@@ -38,7 +38,7 @@ public class FactoryStoreTests
         paths.Home.Returns(Home);
         paths.BoardPath.Returns(Path.Combine(Home, "board.json"));
         paths.EventsPath.Returns(Path.Combine(Home, "events.jsonl"));
-        var db = new DatabaseStore(paths, _files, _rows, Substitute.For<IStateExport>());
+        var db = new DatabaseStore(paths, _files, _rows, Substitute.For<IStateExport>(), Substitute.For<IStateSync>(), Substitute.For<IStateSettings>(), TimeProvider.System);
         return new FactoryStore(paths, _files, _mutex, _settings, Options.Create(_options), _blobs, _sync, _clock, db);
     }
 

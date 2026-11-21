@@ -127,6 +127,7 @@ cd factory/tests/dashboard; npx playwright test --grep @smoke   # the smoke set
 cd factory/tests/dashboard; npx playwright test                 # the whole e2e suite
 dotnet run --project src/factory/Factory.TestGates               # .NET unit + integration, tier counts, coverage gates
 cd factory/infra/previews; terraform test                        # the preview setup's Terraform, offline
+cd factory/infra/cloud; terraform test                           # the deployed factory's Terraform, offline (AVM modules overridden)
 bash factory/tests/linux/run.sh test                             # in WSL: Factory.TestGates on Linux, no pwsh
 ```
 

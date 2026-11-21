@@ -38,7 +38,7 @@ public sealed class EventCommand(IFactoryPaths paths, IFileStore files, IStateSe
         var line = Events.Create(clock.GetUtcNow());
         foreach (var (k, v) in e) line[k] = v?.DeepClone();
         session.AddEvent(line);
-        if (settings.IsAzure) CopyTranscript(e);
+        if (settings.SharesFiles) CopyTranscript(e);
         return CommandResult.Ok();
     }
 

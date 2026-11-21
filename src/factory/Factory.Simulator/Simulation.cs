@@ -282,7 +282,13 @@ public sealed class Simulation(string repoRoot, string stateDir, double speed, T
         _f.Env["FACTORY_DEPLOY_POLL_SECONDS"] = "0";
         try
         {
-            SimStart(p[0]); SimBuild(p[0]); SimReview(p[0]);
+            SimStart(p[0]); SimBuild(p[0]);
+            // An Aspire target's clone carries IaC/; without it the reviews skip the deploy (contract, "Nothing to preview").
+            var pwt = _f.Must("checkout", p[0]);
+            Put(Path.Combine(Directory.CreateDirectory(Path.Combine(pwt, "IaC")).FullName, "main.tf"), "# the preview's infrastructure");
+            _f.Git(pwt, "add", "-A");
+            _f.Git(pwt, "-c", "user.email=sim@factory", "-c", "user.name=simulator", "commit", "-q", "-m", $"{p[0]}: IaC");
+            SimReview(p[0]);
             Ev(p[0], "agent-start", "devops");
             _f.Must("deploy", p[0]);
             Put(Path.Combine(stateDir, "jobs", p[0], "round-1", "deploy.md"), $"""

@@ -35,6 +35,7 @@ public static class ServerComposition
             o.TempPath = tempPath;
             o.WorkingDirectory = workingDirectory;
         });
+        services.Configure<CloudOptions>(o => o.RunnerJob = Get("FACTORY_RUNNER_JOB"));
         services.Configure<StateOptions>(o =>
         {
             o.State = Get("FACTORY_STATE");
@@ -45,6 +46,7 @@ public static class ServerComposition
             o.AzCmd = Get("FACTORY_AZ_CMD");
             o.IdentityEndpoint = Get("IDENTITY_ENDPOINT");
             o.IdentityHeader = Get("IDENTITY_HEADER");
+            o.ClientId = Get("AZURE_CLIENT_ID");
             o.Db = Get("FACTORY_DB");
             o.Sql = Get("FACTORY_SQL");
         });
@@ -77,6 +79,9 @@ public static class ServerComposition
         services.AddSingleton<IPause, ThreadPause>();
         services.AddSingleton<IStateExport, StateExport>();
         services.AddSingleton<IFactoryLauncher, FactoryLauncher>();
+        services.AddSingleton<ILeaseRows, EfLeaseRows>();
+        services.AddSingleton<IStateLeases, StateLeases>();
+        services.AddSingleton<IRunnerStarter, RunnerStarter>();
 
         services.AddSingleton<IFactoryCalls, FactoryCalls>();
         services.AddSingleton<IProcessProbe, ProcessProbe>();
