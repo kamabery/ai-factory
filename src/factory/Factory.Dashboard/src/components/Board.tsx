@@ -74,7 +74,7 @@ export function Board() {
       {COLUMNS.map((c) => {
         const items = c.key === 'ideas'
           ? [...sessions.map((x) => <SessionCard key={x.id} x={x} />),
-            ...board.ideas.filter((i) => i.status !== 'done' && i.status !== 'abandoned' && !inSession.has(i.id)).map((i) => <IdeaCard key={i.id} i={i} />)]
+            ...board.ideas.filter((i) => i.status !== 'done' && i.status !== 'abandoned' && !inSession.has(i.id)).map((i) => <IdeaCard key={i.id} i={i} stage={board.jobs.find((j) => j.id === i.jobs?.[0])?.stage} />)]
           : board.jobs.filter((j) => c.stages!.includes(j.stage)).map((j) => (
             <JobCard key={j.id} j={j} now={now} onDragStart={onDragStart} onDragEnd={() => setDragging(null)} />
           ))

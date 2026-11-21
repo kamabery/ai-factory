@@ -523,6 +523,11 @@ the sessions that are not `closed` and have no turn running:
   specs and no turn running ("Specs for I-NNN are ready to approve"). The page shows a notice recorded after it
   loaded as a toast and, when the human has granted it, a browser `Notification`, so a reload never repeats one.
   The page asks for that permission once, when **+ Add new** is picked in New idea, never on load.
+- Beside **Abandon**, the session card's state says whose move it is. While the factory has it (the bootstrap short
+  of `ready`, the spec turn, any turn running) the state carries a moving marker (`data-wait="factory"`); when the
+  human has it (`ready` to merge, specs to decide, a question to answer) it is marked as theirs (`data-wait="you"`).
+  An idea card `waiting` on its bootstrap says the same beside its **Abandon**: `waiting for bootstrap J-NNN
+  (<stage>)` with the moving marker.
 
 ## Job transitions
 
