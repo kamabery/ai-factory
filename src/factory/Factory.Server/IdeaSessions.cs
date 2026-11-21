@@ -76,6 +76,52 @@ public sealed partial class IdeaSessions(
         return Reply.Of(CallResult.Done(id));
     }
 
+    /// <summary>A job move (the board's drag, a modal's buttons, the session's Merge), then a sweep of the sessions.</summary>
+    public Reply Move(string jobId, string body)
+    {
+        var r = jobs.Move(jobId, body);
+        Sweep();
+        return r;
+    }
+
+    /// <summary>
+    /// Contract, "Advancing and notices": every session that is not closed and has no turn running gets its spec turn
+    /// once its bootstrap has merged (once: never again after <c>specsStarted</c>), and the two notices are recorded once.
+    /// </summary>
+    public void Sweep()
+    {
+        var ids = files.Files(sessions.Root)
+            .Where(f => Path.GetFileName(f.Path) == "session.json")
+            .Select(f => Path.GetFileName(Path.GetDirectoryName(f.Path)) ?? "")
+            .Where(d => SessionId().IsMatch(d))
+            .Order(StringComparer.InvariantCultureIgnoreCase)
+            .ToList();
+        if (ids.Count == 0) return;
+        var ideas = board.Ideas().ToList();
+        foreach (var id in ids)
+        {
+            var s = sessions.Read(id);
+            if (BoardFile.Str(s, "status") == "closed" || sessions.Busy(s)) continue;
+            var boot = BoardFile.Str(s, "bootstrap") is { } b ? board.Job(b) : null;
+            var hasSpecs = (s["specs"] as JsonArray ?? []).Count > 0;
+            var notices = s["notices"] as JsonObject ?? [];
+            var noted = false;
+            if (BoardFile.Str(boot, "stage") == "ready" && notices["scaffold-ready"] is null) { notices["scaffold-ready"] = Now(); noted = true; }
+            if (hasSpecs && BoardFile.Str(s, "status") != "running" && notices["specs-ready"] is null) { notices["specs-ready"] = Now(); noted = true; }
+            if (noted)
+            {
+                s["notices"] = notices;
+                sessions.Save(s);
+                Share(s);
+            }
+            var idea = ideas.FirstOrDefault(i => BoardFile.Str(i, "id") == BoardFile.Str(s, "idea"));
+            if (BoardFile.Str(boot, "stage") == "done" && BoardFile.Str(idea, "status") == "drafting" && !hasSpecs && s["specsStarted"] is null)
+                WriteSpecs(s, sessions.ReadChat(id));
+        }
+    }
+
+    private string Now() => clock.GetUtcNow().UtcDateTime.ToString("o");
+
     /// <summary>A session action: reply, brief, write-specs, specs (POST a decision or PUT an edit of spec <paramref name="k"/>), close.</summary>
     public Reply Handle(string method, string id, string action, string? k, string body)
     {
@@ -159,6 +205,10 @@ public sealed partial class IdeaSessions(
             sessions.SaveChat(id, messages);
             sessions.Save(s);
             Share(s);
+            // Confirming the brief is the bootstrap's approval (spec 21); the human still merges the scaffold.
+            var a = factory.Run("approve", bootstrap);
+            if (!a.Ok) return Reply.Of(CallResult.Refuse($"{bootstrap} is in Backlog: {a.Message}"));
+            jobs.StartRunner();
         }
         else
         {
@@ -180,6 +230,7 @@ public sealed partial class IdeaSessions(
         var r = factory.Run("clone-target", BoardFile.Str(s, "target")!, sessions.Clone(id));
         if (!r.Ok) return Reply.Of(r);
         s["checkout"] = sessions.Clone(id);
+        s["specsStarted"] = Now();
         sessions.Save(s);
         AddUser(messages, [TextBlock($"The bootstrap job {BoardFile.Str(s, "bootstrap")} has merged, so {BoardFile.Str(s, "target")} now exists. Read it, then call submit_specs.")]);
         sessions.SaveChat(id, messages);

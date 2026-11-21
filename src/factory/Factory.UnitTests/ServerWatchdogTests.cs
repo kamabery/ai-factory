@@ -74,7 +74,7 @@ public class ServerWatchdogTests : ServerTestBase
         var written = new DateTimeOffset(Files.Stat(RunnerLock)!.LastWriteTicks, TimeSpan.Zero);
         var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(written.AddSeconds(2));
 
-        new Factory.Server.Watchdog(Board, Paths, Files, Launcher, Runner, Leases, Factory, Procs, Opts, clock, Microsoft.Extensions.Logging.Abstractions.NullLogger<Factory.Server.Watchdog>.Instance).Tick();
+        new Factory.Server.Watchdog(Board, Paths, Files, Launcher, Runner, Leases, Factory, Procs, Ideas, Opts, clock, Microsoft.Extensions.Logging.Abstractions.NullLogger<Factory.Server.Watchdog>.Instance).Tick();
 
         Launcher.DidNotReceive().StartDetached(Arg.Is<IReadOnlyList<string>>(a => a[0] == "runner" || a[0] == "idea-turn"));
     }

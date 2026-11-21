@@ -84,7 +84,7 @@ public class ServerReadsTests : ServerTestBase
 
         Assert.Equal("""[{"id":"J-010"},{"id":"J-002"}]""", Reads.Evals().Body);
         Assert.Equal("""[{"id":"J-001"}]""", Reads.Lessons().Body);
-        Assert.Equal("[]", new ReadsApi(Factory, Paths, new MemoryFiles(), Settings, Procs).Evals().Body);
+        Assert.Equal("[]", new ReadsApi(Factory, Paths, new MemoryFiles(), Settings, Procs, Board).Evals().Body);
     }
 
     [Fact]
@@ -126,7 +126,7 @@ public class ServerReadsTests : ServerTestBase
         Files.Put(Path.Combine(Home, "sessions", "S-001", "session.json"), """{"id":"S-001","status":"closed"}""");
         Files.Put(Path.Combine(Home, "sessions", "S-003", "chat.json"), "{}");
 
-        Assert.Equal("""[{"id":"S-002","target":"a/b","text":"x","status":"idle","idea":null,"bootstrap":null,"costUsd":null,"newTarget":null}]""", Reads.Sessions().Body);
+        Assert.Equal("""[{"id":"S-002","target":"a/b","text":"x","status":"idle","idea":null,"bootstrap":null,"costUsd":null,"newTarget":null,"notices":null,"phase":{"name":"brief"}}]""", Reads.Sessions().Body);
     }
 
     [Fact]
