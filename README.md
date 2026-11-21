@@ -3,7 +3,7 @@
 A software factory built on Claude Code, with a human at both ends. You approve the spec and accept the result; agents
 do everything in between. Claude grills an idea into small specs, then each job is built, checked by four reviewers in
 parallel (security, code, UX, UI) and an approver, and gated by commands you approved with the spec. What lands is a
-pull request on your GitHub repo, and a local dashboard is where you work it.
+pull request on your GitHub repo, and a dashboard, on your machine or in Azure, is where you work it.
 
 A deterministic .NET control plane (the `factory` CLI) owns state, the gate and the merge, so an agent never moves a
 card, edits what judges it, or pushes. Only you accept a job: a drag to Done merges its PR.
@@ -49,6 +49,23 @@ Then, in the dashboard:
 
 `factory doctor` says what is wrong with a machine, and how to fix it. `dotnet tool update -g ai-factory` updates the
 factory.
+
+## Two boards: on your machine, or in Azure
+
+The factory runs either way, and every feature works on both. Each is a whole factory with its own board, so pick by
+where you want jobs to run, and run both if you like: nothing makes the choice for good.
+
+| | **Local board** (`factory serve`) | **Azure board** (`factory init cloud`) |
+| --- | --- | --- |
+| Runs on | this machine: the dashboard and one runner, while it is on | Azure Container Apps: the dashboard scales to zero, one runner job execution per job |
+| LLM | your Claude subscription (or Foundry, with `--foundry`) | Claude in Microsoft Foundry, keyless through a managed identity |
+| Board state | files in the factory's home (or SQLite, or Blob storage: [docs/STATE.md](docs/STATE.md)) | Azure SQL serverless |
+| Cost | nothing beyond your subscription | about $1–6 a month idle, plus about $0.20 of container time and the Foundry tokens per job |
+| Needs | the core tier above | an Azure subscription, previews set up first, Terraform |
+| Choose it when | you are trying it out, or you work at this machine | jobs should run with your machine off, or a subscription must not power unattended work |
+
+Start local: everything above is the local board. [docs/CLOUD.md](docs/CLOUD.md) deploys the Azure board, and the
+dashboard's header says which one you are on (`local · subscription` or `cloud · foundry`).
 
 ## Working the board
 
