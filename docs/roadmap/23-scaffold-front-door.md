@@ -18,6 +18,10 @@ What is known so far:
 - `routes/index.tsx` is the template's starter page, never replaced. J-003's spec listed "the Home and Style guide
   pages" under **Scope: Out**. The brief said "just me, on one page", and the spec-writer took that to mean Books
   alone, so no spec decided what the app's front door should be.
+- **It happened again on 2026-11-21** (cloud J-005, kamabery/pantry, spec 21's proof). Its preview still opens on
+  the starter Home and still shows **Style guide** in the nav. J-005's spec again put "the home page at `/` and
+  `/styleguide`" under Scope: Out, so two new apps in two days have shipped a front door nobody asked for. Kurt
+  (2026-11-21): "Home is still useless and Styleguide is still showing."
 
 ## Scope
 
@@ -51,6 +55,6 @@ Seen red before green:
 ## Done when
 
 A new scaffold's production build has no style guide. We know, and have written down, where the starter Home comes
-from. Every new-app spec decides Home, on the local board and the cloud board. booklist's preview opens on its Books
-page. The repo's README offers both boards, local and Azure, and says how to choose (roadmap README, "Both boards at
+from. Every new-app spec decides Home, on the local board and the cloud board. booklist's and pantry's previews open on their own pages
+(Books, Pantry). The repo's README offers both boards, local and Azure, and says how to choose (roadmap README, "Both boards at
 the end").
