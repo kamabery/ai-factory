@@ -79,7 +79,7 @@ public sealed partial class ReadsApi(IFactoryCalls factory, IFactoryPaths paths,
     private static JsonObject Summary(JsonObject s, IEnumerable<JsonObject> jobs)
     {
         var item = new JsonObject();
-        foreach (var k in (string[])["id", "target", "text", "status", "idea", "bootstrap", "costUsd", "newTarget", "notices"])
+        foreach (var k in (string[])["id", "target", "text", "status", "idea", "bootstrap", "costUsd", "newTarget", "notices", "kind", "from", "feature"])
             item[k] = s[k]?.DeepClone();
         item["phase"] = SessionPhase.Of(s, jobs);
         return item;

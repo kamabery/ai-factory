@@ -10,6 +10,17 @@ public static class SessionPhase
         var board = jobs.ToList();
         JsonObject? Job(string? id) => id is null ? null : board.FirstOrDefault(j => BoardFile.Str(j, "id") == id);
 
+        // A New repo session (spec 22): grill → scaffold → review → merged; it writes no specs.
+        if (BoardFile.Str(session, "kind") == "repo")
+        {
+            if (BoardFile.Str(session, "idea") is null) return new() { ["name"] = "grill" };
+            if (Job(BoardFile.Str(session, "bootstrap")) is not { } j || BoardFile.Str(j, "stage") == "done") return new() { ["name"] = "merged" };
+            return new()
+            {
+                ["name"] = BoardFile.Str(j, "stage") == "ready" ? "review" : "scaffold",
+                ["job"] = BoardFile.Str(j, "id"), ["stage"] = BoardFile.Str(j, "stage"), ["pr"] = j["pr"]?.DeepClone(),
+            };
+        }
         if (BoardFile.Str(session, "idea") is null) return new() { ["name"] = "brief" };
         // A bootstrap purged off the board was done or discarded: either way the scaffold is behind the session.
         if (Job(BoardFile.Str(session, "bootstrap")) is { } boot && BoardFile.Str(boot, "stage") != "done")

@@ -56,7 +56,7 @@ public class IdeaPromptTests
         var system = IdeaPrompt.System(root);
 
         Assert.StartsWith("# The factory's idea session, in the dashboard", system);
-        foreach (var part in new[] { "# The grill skill", "# The spec-writer's rules", "# The brief template (factory/templates/brief.md)", "# The spec template (factory/templates/spec.md)" })
+        foreach (var part in new[] { "# The grill skill", "# The spec-writer's rules", "# The brief template (factory/templates/brief.md)", "# The spec template (factory/templates/spec.md)", "# The product template (factory/templates/product.md)" })
             Assert.Contains(part, system);
         Assert.DoesNotContain("\nname: grill", system);
     }

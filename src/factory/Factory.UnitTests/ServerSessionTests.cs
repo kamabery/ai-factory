@@ -108,7 +108,7 @@ public class ServerSessionTests : ServerTestBase
         PutSession("""{"id":"S-001","status":"running"}""");
         var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(
             new DateTimeOffset(Files.Stat(SessionFile("S-001", "session.json"))!.LastWriteTicks, TimeSpan.Zero).AddSeconds(10));
-        var ideas = new Factory.Server.IdeaSessions(Factory, Launcher, Paths, Files, Settings, Board, new Factory.Server.SessionFiles(Paths, Files, Procs, Opts, clock), Jobs, Sync, State, Opts, clock);
+        var ideas = new Factory.Server.IdeaSessions(Factory, Launcher, Paths, Files, Settings, Board, new Factory.Server.SessionFiles(Paths, Files, Procs, Opts, clock), Jobs, Sync, State, Opts, clock, new Factory.Server.ProductReads(Factory, clock));
 
         Assert.Equal(409, ideas.Handle("POST", "S-001", "reply", null, """{"text":"x"}""").Status);
 
