@@ -78,6 +78,57 @@ public class CanaryServiceTests : CommandTestBase
         Assert.Equal(1, _session.Unlocks);
     }
 
+    private static readonly Dictionary<string, string> Inputs = new() { ["deploy"] = "d", ["templates"] = "t", ["varset"] = "v", ["settings"] = "s" };
+
+    private void Record(string status, int n, int passes)
+    {
+        var list = new JsonArray();
+        for (var i = 0; i < passes; i++)
+            list.Add(new JsonObject { ["n"] = n - i, ["version"] = "0.4.1", ["inputs"] = new JsonObject { ["deploy"] = "old", ["templates"] = "t", ["varset"] = "v", ["settings"] = "s" }, ["startedAt"] = "a", ["finishedAt"] = "b" });
+        Files.Put(CanaryJson, new JsonObject { ["fingerprint"] = "sha256:old", ["status"] = status, ["n"] = n, ["passes"] = list }.ToJsonString());
+    }
+
+    [Fact]
+    public void A_run_records_its_version_and_inputs_and_a_pass_is_prepended_to_the_last_five_passes()
+    {
+        _canary.Inputs().Returns(Inputs);
+        _canary.Version.Returns("0.4.2");
+        Record("pass", 6, 5);
+
+        Sut.Run(_session, force: false, full: false);
+
+        var c = Canary;
+        Assert.Equal(("0.4.2", """{"deploy":"d","templates":"t","varset":"v","settings":"s"}"""), ((string?)c["version"], c["inputs"]!.ToJsonString()));
+        var passes = c["passes"]!.AsArray();
+        Assert.Equal([7, 6, 5, 4, 3], passes.Select(p => (int)p!["n"]!));
+        Assert.Equal("""{"n":7,"version":"0.4.2","inputs":{"deploy":"d","templates":"t","varset":"v","settings":"s"},"startedAt":"2026-11-10T12:00:00.000Z","finishedAt":"2026-11-10T12:00:00.000Z"}""", passes[0]!.ToJsonString());
+    }
+
+    [Fact]
+    public void A_failed_run_carries_the_passes_over_unchanged()
+    {
+        _canary.Inputs().Returns(Inputs);
+        Record("pass", 2, 2);
+        _deploy.DeployRun("me/factory-canary", "j000", "main").Returns(new JsonObject { ["id"] = 1, ["conclusion"] = "failure" });
+
+        Assert.Throws<FactoryException>(() => Sut.Run(_session, false, false));
+
+        Assert.Equal([2, 1], Canary["passes"]!.AsArray().Select(p => (int)p!["n"]!));
+    }
+
+    [Fact]
+    public void Due_reports_whether_a_canary_is_due_why_and_how_long_one_takes()
+    {
+        _canary.Inputs().Returns(Inputs);
+        _canary.Version.Returns("0.4.2");
+        Record("pass", 3, 1);
+
+        Assert.Equal("""{"due":true,"reasons":["factory 0.4.1 → 0.4.2"],"typicalMinutes":15}""", Sut.Due().ToJsonString(new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
+
+        DotEnv.Get("HCP_ORG").Returns((string?)null);
+        Assert.Equal("""{"due":false,"reasons":[],"typicalMinutes":15}""", Sut.Due().ToJsonString());
+    }
+
     [Fact]
     public void The_scaffold_is_the_bootstrap_commands_with_the_External_ID_ids_in_its_tfvars_and_force_pushed_to_main()
     {

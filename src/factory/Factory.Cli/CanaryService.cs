@@ -48,6 +48,9 @@ public sealed partial class CanaryService(
             {
                 ["fingerprint"] = fp, ["status"] = "running", ["error"] = null, ["repo"] = repo, ["sha"] = null, ["urls"] = null,
                 ["log"] = $"canary-{n}.log", ["startedAt"] = Now, ["finishedAt"] = null, ["n"] = n, ["full"] = full,
+                ["version"] = canary.Version, ["inputs"] = Inputs(canary.Inputs()),
+                // Carried over from the last record, so the reasons and the typical duration survive a failure.
+                ["passes"] = last?["passes"] is JsonArray kept ? kept.DeepClone() : new JsonArray(),
             };
             Save(rec);
             var log = new List<string>();
@@ -59,6 +62,7 @@ public sealed partial class CanaryService(
             rec["error"] = err;
             rec["finishedAt"] = Now;
             rec["teardown"] = new JsonObject { ["status"] = "destroying", ["error"] = null, ["startedAt"] = Now, ["failures"] = 0 };
+            if (err is null) AddPass(rec);
             Save(rec);
             session.AddEvent(Events.Create(clock.GetUtcNow(), ("kind", "canary"), ("detail", err is null ? "pass" : $"failed: {err}")));
         }
@@ -77,6 +81,35 @@ public sealed partial class CanaryService(
         c["status"] = "retry";
         files.WriteAtomic(path, System.Text.Encoding.UTF8.GetBytes(c.ToJsonString()));
         return "canary: retry queued";
+    }
+
+    public JsonObject Due()
+    {
+        var rec = Read();
+        var on = dotEnv.Get("HCP_ORG") is not null;
+        var due = Core.Canary.Due(rec, canary.Fingerprint, on);
+        var reasons = due ? Core.Canary.Reasons(rec, canary.Inputs(), canary.Version) : [];
+        return new JsonObject
+        {
+            ["due"] = due, ["reasons"] = new JsonArray([.. reasons.Select(r => (JsonNode?)r)]), ["typicalMinutes"] = Core.Canary.TypicalMinutes(rec),
+        };
+    }
+
+    private static JsonObject Inputs(IReadOnlyDictionary<string, string>? inputs) =>
+        new([.. (inputs ?? new Dictionary<string, string>()).Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)kv.Value))]);
+
+    /// <summary>A pass goes first in <c>passes</c>, which keeps the last five (contract, "Why it is due").</summary>
+    private static void AddPass(JsonObject rec)
+    {
+        var passes = rec["passes"] as JsonArray ?? [];
+        var entry = new JsonObject
+        {
+            ["n"] = rec["n"]?.DeepClone(), ["version"] = rec["version"]?.DeepClone(), ["inputs"] = rec["inputs"]?.DeepClone(),
+            ["startedAt"] = rec["startedAt"]?.DeepClone(), ["finishedAt"] = rec["finishedAt"]?.DeepClone(),
+        };
+        var kept = new JsonArray(entry);
+        foreach (var p in passes.Take(4)) kept.Add(p?.DeepClone());
+        rec["passes"] = kept;
     }
 
     public IReadOnlyList<string> Teardown(IBoardSession session)

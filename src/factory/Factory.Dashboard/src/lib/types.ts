@@ -79,6 +79,9 @@ export type Config = {
   provider?: string | null
 }
 
+/** GET /api/canary (contract, "Canary", "Why it is due"): the due chip. */
+export type CanaryDue = { due?: boolean; reasons?: string[]; typicalMinutes?: number }
+
 export type Canary = {
   status?: string
   error?: string | null

@@ -19,4 +19,7 @@ public interface ICanaryService
 
     /// <summary><c>canary -Retry</c>: a recorded failure marked <c>retry</c>, so the runner runs the canary again; runs nothing.</summary>
     string Retry();
+
+    /// <summary><c>canary -Due</c>: <c>{ due, reasons, typicalMinutes }</c> for the due chip; runs nothing and takes no lock.</summary>
+    System.Text.Json.Nodes.JsonObject Due();
 }

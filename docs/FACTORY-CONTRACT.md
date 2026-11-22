@@ -1226,7 +1226,7 @@ target is cloned with `clone-target` into `<work>\cli\<owner>-<name>` and passed
 | `deploy <id>` (deploy only) · `deploy-log <id>` (prints the last failed attempt's log) · `deploy-fix <id> -File <diagnosis>` · `block <id> -Detail <line>` (both deploy only, after a failed attempt) | `/factory run`, the devops agent (`deploy-log` also the approver) |
 | `redeploy <id>` (`blocked` from `deploy`, or `ready` from `deploy` before `blocked` existed: back to Approved with `resume: deploy` and a fresh attempt budget once the cause is fixed; the runner resumes it at deploy) | the server (**Retry deploy**), a human |
 | `resume <id>` (`ready` or `blocked` with flag `usage-limit`: back to Approved, to continue its claude session in the stage it stopped in) | the server (**Resume**), a human |
-| `canary [-Force]` (see [Canary](#canary)) | the runner (before a deployable job), the server (**Run canary**), a human |
+| `canary [-Force] [-Full] [-Retry] [-Due]` (see [Canary](#canary)) | the runner (before a deployable job), the server (**Run canary**; `-Due` for the due chip), a human |
 | `destroy <id>` (any stage; a no-op without a preview) · `qa-login <id>` (prints the preview's QA user and password) | the server (**Tear down**, **QA login**), and `merge`/`discard` |
 | `sweep` · `canary-destroy` (see [Deploy](#deploy) and [Canary](#canary)) | the server at startup and the runner when it drains; `canary` and `sweep` start `canary-destroy` |
 | `event <json \| -Job -Idea -Kind -Agent>`, or `event` alone: a `SubagentStart` / `SubagentStop` hook payload on stdin, which appends `agent-start` or `agent-stop` for `FACTORY_JOB` (else `FACTORY_IDEA`; neither set, nothing), the plugin's `factory:` prefix stripped and an empty `agent_type` (Claude Code's internal agents) skipped; `agent-start` adds `agentId` and `transcript` (`<transcript_path without .jsonl>/subagents/agent-<agent_id>.jsonl`). The hook form prints nothing and always exits 0, so a hook never breaks a session | the plugin's hooks |
@@ -1560,6 +1560,9 @@ stack. That is the only thing that still proves a from-scratch create, which dev
 Run it by hand after changing template IaC. It takes about 61 minutes (31 before its result), runs
 even when up to date, and records `full: true`. If it fails, deployable jobs wait as for any canary.
 
+**`factory canary -Due`** runs nothing and takes no lock: it prints `{ due, reasons, typicalMinutes }` as JSON (see "Why
+it is due" above) and exits 0.
+
 **`factory canary [-Force] [-Full]`** - one run at a time (`canary.lock`, as `runner.lock`):
 
 1. Computes the fingerprint. Without `-Force`, when `canary.json` already records a pass for it,
@@ -1590,8 +1593,30 @@ retries it.
 { "fingerprint": "sha256:...", "status": "running" | "pass" | "failed", "error": null | "<first error line>",
   "repo": "kamabery/factory-canary", "sha": "<scaffold commit>", "urls": { "frontend": "...", "api": "...", "health": "..." },
   "log": "canary-3.log", "startedAt": "...", "finishedAt": "...", "n": 3, "full": false,
-  "teardown": { "status": "destroying" | "down" | "failed", "error": null | "<first error line>", "startedAt": "...", "failures": 0 } }
+  "teardown": { "status": "destroying" | "down" | "failed", "error": null | "<first error line>", "startedAt": "...", "failures": 0 },
+  "version": "0.4.2",
+  "inputs": { "deploy": "<sha256>", "templates": "<sha256>", "varset": "<sha256>", "settings": "<sha256>" },
+  "passes": [ { "n": 3, "version": "0.4.2", "inputs": { ... }, "startedAt": "...", "finishedAt": "..." } ] }
 ```
+
+**Why it is due (spec 22).** The fingerprint's lines come in four groups, in this order: `deploy` (the deploy code's
+lines, or a tool install's `factory <version>` line), `templates` (the `IaC/`, `deploy.yml` and `.nupkg` lines),
+`varset` (the `var` lines) and `settings` (the `canary` line). `inputs` holds a SHA-256 of each group's lines, joined
+by `\n` as in the fingerprint, which is unchanged: a pass recorded before spec 22 still counts. `version` is the
+factory package version that ran. `passes` is the last five passes, newest first, carried over from the last record
+by each run and prepended on a pass.
+
+`reasons` says why a canary is due, against the newest entry in `passes`:
+- no `passes` and no pass recorded: `no pass on record`;
+- no `passes`, but a pass recorded before spec 22: `inputs changed since pass #<n>`;
+- otherwise, in group order, one line per group whose hash differs: `deploy code changed since pass #<n>`
+  (`factory <old> → <new>` when both versions are known and differ, which is how a tool install's deploy group
+  changes), `templates changed since pass #<n>`, `variable set changed since pass #<n>`,
+  `canary settings changed since pass #<n>`.
+
+A canary is **due** when deploys are on, no canary is running (`status` is not `running`), and `canary.json` records
+no pass for the current fingerprint. A failed or `retry` record for it is due too. The **typical duration** is the
+median of `finishedAt - startedAt` over `passes`, in whole minutes, or 15 with fewer than three passes.
 
 **The gate.** `next` does not return a deployable job unless `canary.json` records a pass for the
 current fingerprint. When it does not, the runner runs `canary` itself (logging `canary pass` or
@@ -1629,6 +1654,7 @@ and a refused move snaps the card back and shows the message.
 | `POST /api/jobs/<id>/redeploy` | `redeploy` | **Retry deploy** on a blocked card; starts the runner |
 | `POST /api/jobs/<id>/resume` | `resume` | **Resume** on a card flagged `usage-limit`; starts the runner |
 | `POST /api/canary` | `canary -Force`, started detached | **Run canary** on the canary banner; 409 while `canary.lock` is held. The banner reads `/state/canary.json` and shows the error and the log link |
+| `GET /api/canary` | `canary -Due` | `{ due, reasons, typicalMinutes }` (see [Canary](#canary), "Why it is due"): the due chip. The fingerprint needs the HCP variable set, so the server caches the answer for 60 s; with deploys off `canary -Due` prints `{ due: false, reasons: [], typicalMinutes }` without computing one |
 | `POST /api/purge` | `purge` | |
 | `POST /api/jobs/<id>/destroy` | `destroy`, started detached | **Tear down** on a card with a live preview; answers at once, the card shows `destroying` until the board says `down` |
 | `GET /api/jobs/<id>/qa-login` | `qa-login` | `{ ok, message }` with the user and password; the card's **QA login** shows it, never stores it |

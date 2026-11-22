@@ -1,4 +1,5 @@
 import { useConfig } from '@/app/data'
+import { CanaryDueChip } from '@/components/CanaryDueChip'
 import { useUi, type View } from '@/app/ui'
 import { cn } from '@/lib/cn'
 import { modeChip, toggleTheme } from '@/lib/theme'
@@ -25,6 +26,7 @@ export function Header() {
         New idea: <code>factory idea &lt;owner/name&gt;</code> opens a Claude session that grills you, writes the specs and
         puts the ones you approve on the board.
       </span>
+      <CanaryDueChip />
       <span id="mode" data-mode={chip?.mode} title={chip?.title ?? 'Run mode and the provider it decides (FACTORY_MODE)'}
         className={cn('mt-1.5 text-xs whitespace-nowrap',
           chip?.mode === 'cloud' ? 'mt-0.5 rounded-pill bg-intent-running-subtle px-2.5 py-1 font-semibold text-intent-running'

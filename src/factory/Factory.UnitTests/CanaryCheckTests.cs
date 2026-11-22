@@ -63,6 +63,29 @@ public class CanaryCheckTests
     }
 
     [Fact]
+    public void Inputs_hash_each_of_the_fingerprints_four_groups_of_lines()
+    {
+        var deploy = string.Join("\n", DeployCode.Select(f => $"{f} {H(f + "\nline 2\n")}"));
+        var templates = string.Join("\n", $"artifacts/nupkg/T.1.0.0.nupkg {H("n")}", $"base-project/.github/workflows/deploy.yml {H("d")}",
+            $"IaC/envs/a.tfvars {H("a")}", $"IaC/main.tf {H("m")}");
+        var varset = string.Join("\n", "var env z ", "var terraform a <sensitive>", "var terraform b 2");
+        var settings = """canary me/factory-canary {"name":"canary","resource":"Item","db":"postgres","ui":"react","events":false,"auth":true,"entra":{"entra_external_tenant_id":"t","entra_external_subdomain":"s","entra_external_user_flow_id":"f"}}""";
+
+        var inputs = _sut.Inputs();
+
+        Assert.Equal(["deploy", "templates", "varset", "settings"], inputs.Keys);
+        Assert.Equal([H(deploy), H(templates), H(varset), H(settings)], inputs.Values.Select(v => v.ToUpperInvariant()));
+    }
+
+    [Fact]
+    public void A_tool_installs_deploy_group_is_its_version_line()
+    {
+        _paths.IsToolInstall.Returns(true);
+        Assert.Equal(H($"factory {CanaryCheck.PackageVersion}"), _sut.Inputs()["deploy"].ToUpperInvariant());
+        Assert.Equal(CanaryCheck.PackageVersion, _sut.Version);
+    }
+
+    [Fact]
     public void State_reads_canary_json_and_computes_the_fingerprint_only_when_there_is_one()
     {
         Assert.Equal(CanaryState.None, _sut.State());

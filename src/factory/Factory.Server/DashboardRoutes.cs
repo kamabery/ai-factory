@@ -47,6 +47,7 @@ public static class DashboardRoutes
         Map(app, "POST", $"/api/jobs/{Job}/destroy", (JobsApi j, string id, string _) => j.Destroy(id));
         Get(app, $"/api/jobs/{Job}/qa-login", (JobsApi j, string id) => j.QaLogin(id));
         app.MapPost("/api/canary", (HttpContext ctx, JobsApi j) => ReplyWriter.WriteAsync(ctx, j.Canary()));
+        Get(app, "/api/canary", (CanaryDue d) => d.Read());
 
         Get(app, "/api/lessons", (ReadsApi r) => r.Lessons());
         Map(app, "POST", $"/api/lessons/{Job}/mark", (ReadsApi r, string id, string body) => r.MarkLesson(id, body));

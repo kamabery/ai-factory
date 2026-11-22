@@ -264,3 +264,28 @@ describe('the canary banner', () => {
     expect($('#canary')).toBeNull()
   })
 })
+
+describe('the canary due chip', () => {
+  it('says why a canary is due and how long it takes, and is quiet when none is', async () => {
+    fakeServer({ 'GET /api/canary': { due: true, reasons: ['templates changed since pass #32', 'factory 0.4.1 → 0.4.2'], typicalMinutes: 17 } })
+    const { unmount } = renderApp()
+    const chip = await find('#canary-due')
+    expect(chip).toHaveTextContent('canary due: templates changed since pass #32; factory 0.4.1 → 0.4.2')
+    expect(chip).toHaveTextContent('the next deployable job waits for it (~17 min)')
+    unmount()
+    fakeServer({ 'GET /api/canary': { due: false, reasons: [], typicalMinutes: 15 } }, { jobs: [job('J-1', 'backlog')], ideas: [] })
+    const r = renderApp()
+    await find('[data-card="J-1"]')
+    expect(r.$('#canary-due')).toBeNull()
+  })
+
+  it('is not asked for while deploys are off', async () => {
+    const calls = fakeServer({ 'GET /api/ideate/config': { ...config, deploys: false }, 'GET /api/canary': { due: true, reasons: ['no pass on record'], typicalMinutes: 15 } },
+      { jobs: [job('J-1', 'backlog')], ideas: [] })
+    const { $ } = renderApp()
+    await find('[data-card="J-1"]')
+    await new Promise((r) => setTimeout(r, 50))
+    expect($('#canary-due')).toBeNull()
+    expect(calls.some((c) => c.url === '/api/canary' && c.method === 'GET')).toBe(false)
+  })
+})
