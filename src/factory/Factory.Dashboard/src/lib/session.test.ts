@@ -33,6 +33,22 @@ describe('the session stepper', () => {
   })
 })
 
+describe('a New repo session (spec 22)', () => {
+  const s = { status: 'idle', target: 'sim/todo', newTarget: true }
+  it('steps Grill → Scaffold → Review → Merged', () => {
+    expect(phaseSteps({ name: 'review', job: 'J-2', stage: 'ready' }, 'J-2', true).map((x) => `${x.label}:${x.state}`))
+      .toEqual(['Grill:done', 'Scaffold (J-2):done', 'Review:now', 'Merged:todo'])
+  })
+  it('says what each step waits on, and whose move it is', () => {
+    expect(waitingText({ name: 'grill' }, { ...s, pending: { name: 'submit_product' } })).toBe('Confirm the product below. Confirming it also approves the bootstrap job that creates the repo, with it as docs/PRODUCT.md.')
+    expect(waitingText({ name: 'review', job: 'J-2', stage: 'ready' }, s)).toBe('J-2 is ready for review: merge the todo scaffold. Then start its features one at a time, from its card.')
+    expect(waitingText({ name: 'merged' }, s)).toBe('The todo scaffold is merged. Start its features one at a time with Implement, on its card in Ideas.')
+    const x = { id: 'S-1', text: 't', status: 'idle', bootstrap: 'J-2' }
+    expect(cardState({ ...x, phase: { name: 'review', job: 'J-2', stage: 'ready' } })).toBe('Ready: merge the scaffold')
+    expect(cardState({ ...x, phase: { name: 'merged' } })).toBe('start a feature')
+  })
+})
+
 describe('the session card', () => {
   const x = { id: 'S-1', text: 't', status: 'idle', bootstrap: 'J-2', target: 'sim/shelf', newTarget: true }
   it('says where a new-repo session is, in one line', () => {

@@ -62,16 +62,18 @@ test.describe.serial('factory dashboard', () => {
     await expect(card(page, 'J-001').locator('[data-cost]')).toBeVisible();
   });
 
-  test('a new-repo session: Scaffold is lit, Merge in the session, and the specs arrive with no click, deciding Home', { tag: '@smoke' }, async ({ page }) => {
-    // The simulator's S-001: a confirmed brief for sim/shelf, whose bootstrap waits in Ready for review.
+  test('a New repo: Review is lit, Merge in the session, then Implement first feature opens a session seeded with it, whose specs decide Home', { tag: '@smoke' }, async ({ page }) => {
+    // The simulator's S-001: a confirmed product for sim/shelf, whose bootstrap waits in Ready for review.
     const s1 = JSON.parse(readFileSync(path.join(simDir, 'sessions/S-001/session.json'), 'utf8'));
     const boot: string = s1.bootstrap;
+    const repoIdea: string = s1.idea;
     expect(job(boot).stage).toBe('ready');
     const dir = mkdtempSync(path.join(os.tmpdir(), 'ideate-'));
     const spec = `# Spec: Shelve a book\n\n## Target\n- Repo: sim/shelf\n\n## Gate\n- build: \`git --version\`\n\n## Acceptance criteria\n- [ ] AC1: a book is shelved`;
-    // Spec 23: a new app's set must decide Home, so the first submit (no Home) is refused and the second lands.
+    // The repo's first feature must decide Home, as PRODUCT.md says: the first submit (no Home) is refused, the second lands.
     const withHome = `${spec}\n\n## Home\n- Home: redirect: /books`;
     [
+      { content: [{ type: 'tool_use', id: 'b1', name: 'submit_brief', input: { markdown: '# Brief: Shelve a book\n\n## Target\n- Repo: sim/shelf' } }], stop_reason: 'tool_use' },
       { content: [{ type: 'tool_use', id: 's1', name: 'submit_specs', input: { specs: [{ k: 1, markdown: spec }] } }], stop_reason: 'tool_use' },
       { content: [{ type: 'tool_use', id: 's2', name: 'submit_specs', input: { specs: [{ k: 1, markdown: withHome }] } }], stop_reason: 'tool_use' },
       { content: [{ type: 'text', text: 'One spec is ready for you.' }], stop_reason: 'end_turn' },
@@ -79,29 +81,41 @@ test.describe.serial('factory dashboard', () => {
     await fetch(`http://localhost:${stubPort}/__reset`, { method: 'POST', body: JSON.stringify({ dir }) });
 
     await page.goto('/');
-    const sessionCard = column(page, 'ideas').locator('[data-session="S-001"]');
-    await expect(sessionCard.locator('[data-session-state]')).toHaveText('Ready: merge the scaffold');
-    await sessionCard.click();
-    await expect(modal(page).locator('[data-step="scaffold"]')).toHaveAttribute('data-state', 'now');
+    const repoCard = column(page, 'ideas').locator('[data-session="S-001"]');
+    await expect(repoCard.locator('[data-repo-chip]')).toHaveText('New repo');
+    await expect(repoCard.locator('[data-session-state]')).toHaveText('Ready: merge the scaffold');
+    await repoCard.click();
+    await expect(modal(page).locator('[data-step="review"]')).toHaveAttribute('data-state', 'now');
     await expect(modal(page).locator('[data-waiting]')).toContainText(`${boot} is ready for review: merge the shelf scaffold`);
     await expect(modal(page).locator('#s-boot-pr')).toHaveAttribute('href', job(boot).pr!.url);
     await modal(page).locator('#s-merge-boot').click();
 
+    // The merge starts no spec turn: the repo is Merged, and offers its first feature, read from docs/PRODUCT.md on main.
     await expect.poll(() => job(boot).stage).toBe('done');
-    // No Write specs click: the merge starts the spec turn.
-    await expect(modal(page).locator('[data-step="specs"]')).toHaveAttribute('data-state', 'now');
-    await expect(modal(page).locator('[data-spec="1"]')).toContainText('Shelve a book', { timeout: 30_000 });
-    await expect(modal(page).locator('[data-spec="1"]')).toContainText('Home: redirect: /books');
-    await expect(sessionCard.locator('[data-session-state]')).toHaveText('specs ready to approve');
-    await modal(page).locator('[data-spec="1"] [data-decide="backlog"]').click();
+    await expect(modal(page).locator('[data-step="merged"]')).toHaveAttribute('data-state', 'now');
+    const implement = modal(page).locator('[data-implement]');
+    await expect(implement).toHaveText('Implement first feature');
+    await expect(modal(page).locator('[data-next-feature]')).toHaveText('Shelve a book');
+    await implement.click();
 
-    // A new-repo session stays open on Build, following the job its spec made.
-    await expect(modal(page).locator('[data-step="build"]')).toHaveAttribute('data-state', 'now');
-    const made: string = JSON.parse(readFileSync(path.join(simDir, 'sessions/S-001/session.json'), 'utf8')).specs[0].job;
-    await expect(modal(page).locator(`[data-build-job="${made}"]`)).toContainText('waiting for approval');
-    expect(job(made).stage).toBe('backlog');
-    await modal(page).locator('button[aria-label="Close"]').first().click();
+    // A feature session on the repo, seeded with the feature's text and PRODUCT.md's Home line.
+    await expect(modal(page).locator('[data-brief]')).toContainText('Shelve a book', { timeout: 30_000 });
+    const sid = readdirSync(path.join(simDir, 'sessions')).find((d) => JSON.parse(readFileSync(path.join(simDir, 'sessions', d, 'session.json'), 'utf8')).from === repoIdea)!;
+    const feature = JSON.parse(readFileSync(path.join(simDir, 'sessions', sid, 'session.json'), 'utf8'));
+    expect([feature.target, feature.feature, feature.home]).toEqual(['sim/shelf', 'Shelve a book', '- Home: redirect: /books']);
+    expect(readFileSync(path.join(simDir, 'sessions', sid, 'chat.json'), 'utf8')).toContain('Put a book on a shelf, and see the shelf.');
+    await modal(page).locator('#s-confirm-brief').click();
+    await expect(modal(page).locator('[data-spec="1"]')).toContainText('Home: redirect: /books', { timeout: 30_000 });
+    const featureIdea: string = JSON.parse(readFileSync(path.join(simDir, 'sessions', sid, 'session.json'), 'utf8')).idea;
+    expect(board().ideas.find((i: { id: string }) => i.id === repoIdea).features).toEqual([{ heading: 'Shelve a book', idea: featureIdea }]);
+    await modal(page).locator('[data-spec="1"] [data-decide="backlog"]').click();
     await expect(modal(page)).toBeHidden();
+
+    // Back on the board, the repo card offers the next feature; Dismiss closes the repo idea and its card.
+    await expect(repoCard.locator('[data-implement]')).toHaveText('Implement Lend a book');
+    await repoCard.locator('[data-dismiss]').click();
+    await expect(repoCard).toHaveCount(0);
+    expect(board().ideas.find((i: { id: string }) => i.id === repoIdea).status).toBe('done');
   });
 
   test('the modal shows the timeline, artifacts rendered as markdown, and the gate result', { tag: '@smoke' }, async ({ page }) => {
@@ -367,13 +381,13 @@ test.describe.serial('factory dashboard', () => {
     await expect(column(page, 'ideas').locator(`[data-idea="${idea.id}"] [data-spec="${idea.jobs[1]}"]`)).toBeVisible();
   });
 
-  test('Add new starts a session with no repo; the scaffold form names it and sets the target', async ({ page }) => {
+  test('New repo starts a session with no repo; the scaffold form names it and sets the target', async ({ page }) => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'ideate-'));
     const replies = [
       { content: [{ type: 'tool_use', id: 'q1', name: 'ask_questions', input: { questions: [
         { question: 'Who uses it?', header: 'Users', multiSelect: false, options: [{ label: 'Just me', description: 'one person' }, { label: 'A team', description: 'several' }] }] } }], stop_reason: 'tool_use' },
       { content: [{ type: 'tool_use', id: 'p1', name: 'propose_scaffold', input: { repo: 'recipes', name: 'recipes', resource: 'Recipe', db: 'sqlite', ui: 'react', events: false, auth: true } }], stop_reason: 'tool_use' },
-      { content: [{ type: 'tool_use', id: 'b1', name: 'submit_brief', input: { markdown: '# Brief: Recipes\n\n## Target\n- Repo: sim/recipes-box' } }], stop_reason: 'tool_use' },
+      { content: [{ type: 'tool_use', id: 'b1', name: 'submit_product', input: { markdown: '# Product: Recipes\n\n## Home\n- Home: keep: the dashboard is fine\n\n## Features\n### Add a recipe\nIt does it.\n' } }], stop_reason: 'tool_use' },
     ];
     replies.forEach((r, i) => writeFileSync(path.join(dir, `${String(i + 1).padStart(3, '0')}.json`), JSON.stringify(r)));
     await fetch(`http://localhost:${stubPort}/__reset`, { method: 'POST', body: JSON.stringify({ dir }) });
@@ -405,23 +419,23 @@ test.describe.serial('factory dashboard', () => {
   });
 
   // The stuck-modal repro (2026-11-20, cloud 0.3.8): Approve bootstrap moved the job on but left the modal saying
-  // "Approve it here or leave it in Backlog", with nothing left to do. Confirming the brief is now the approval.
-  test('confirming a new repo\'s brief approves its bootstrap, and the session moves on to Scaffold', async ({ page }) => {
+  // "Approve it here or leave it in Backlog", with nothing left to do. Confirming the product is now the approval (spec 22).
+  test('confirming a New repo\'s product approves its bootstrap, and the session moves on to Scaffold', async ({ page }) => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'ideate-'));
     [
       { content: [{ type: 'tool_use', id: 'p1', name: 'propose_scaffold', input: { repo: 'pantry', name: 'pantry', resource: 'Item', db: 'sqlite', ui: 'react', events: false } }], stop_reason: 'tool_use' },
-      { content: [{ type: 'tool_use', id: 'b1', name: 'submit_brief', input: { markdown: '# Brief: Pantry\n\n## Target\n- Repo: sim/pantry' } }], stop_reason: 'tool_use' },
+      { content: [{ type: 'tool_use', id: 'b1', name: 'submit_product', input: { markdown: '# Product: Pantry\n\n## Home\n- Home: keep: the dashboard is fine\n\n## Features\n### List the pantry\nIt does it.\n' } }], stop_reason: 'tool_use' },
     ].forEach((r, i) => writeFileSync(path.join(dir, `${String(i + 1).padStart(3, '0')}.json`), JSON.stringify(r)));
     await fetch(`http://localhost:${stubPort}/__reset`, { method: 'POST', body: JSON.stringify({ dir }) });
 
     await page.goto('/');
     await column(page, 'ideas').locator('#new-idea-btn').click();
     await modal(page).locator('#s-target').selectOption('+new');
-    await expect(modal(page).locator('#s-new-note')).toContainText('A new repo is set up first by a bootstrap job.');
+    await expect(modal(page).locator('#s-new-note')).toContainText('a bootstrap job scaffolds it with them as docs/PRODUCT.md');
     await modal(page).locator('#s-text').fill('A pantry list');
     await modal(page).locator('#s-start').click();
     await modal(page).locator('#s-confirm-scaffold').click({ timeout: 20_000 });
-    await expect(modal(page).locator('[data-step="brief"]')).toHaveAttribute('data-state', 'now');
+    await expect(modal(page).locator('[data-step="grill"]')).toHaveAttribute('data-state', 'now');
     await expect(modal(page).locator('[data-waiting]')).toContainText('Confirming it also approves the bootstrap job');
     await modal(page).locator('#s-confirm-brief').click();
 
@@ -435,7 +449,8 @@ test.describe.serial('factory dashboard', () => {
     // Not stuck: the modal closes, and the card says what the session waits on.
     await modal(page).locator('button[aria-label="Close"]').first().click();
     await expect(modal(page)).toBeHidden();
-    await expect(column(page, 'ideas').locator('[data-session] [data-session-state]', { hasText: `waiting for bootstrap ${boot}` })).toHaveCount(1);
+    // The watchdog's runner may already have it in Ready for review.
+    await expect(column(page, 'ideas').locator('[data-session] [data-session-state]', { hasText: new RegExp(`waiting for bootstrap ${boot}|Ready: merge the scaffold`) })).toHaveCount(1);
     // Leave the board as it was: the bootstrap is discarded, and the session and its idea abandoned.
     await page.request.post(`/api/jobs/${boot}/move`, { data: { to: 'discarded' } });
     const sid = readdirSync(path.join(simDir, 'sessions')).find((d) => JSON.parse(readFileSync(path.join(simDir, 'sessions', d, 'session.json'), 'utf8')).idea === idea.id)!;

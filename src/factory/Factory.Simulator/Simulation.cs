@@ -314,8 +314,9 @@ public sealed class Simulation(string repoRoot, string stateDir, double speed, T
             foreach (var k in new[] { "FACTORY_GH_CMD", "FACTORY_AZ_CMD", "FACTORY_SIGNIN_CMD", "FACTORY_DEPLOY_POLL_SECONDS" }) _f.Env[k] = null;
         }
 
-        // S-001: a new repo (sim/shelf) through a dashboard session (spec 21). The human confirmed the brief, which
-        // approved the bootstrap; it has built and waits in Ready for review. The session's Merge starts its specs.
+        // S-001: a New repo (sim/shelf) through a dashboard session (spec 22). The human confirmed its product, which
+        // approved the bootstrap; it has built, with docs/PRODUCT.md, and waits in Ready for review. After the session's
+        // Merge, its card offers Implement first feature.
         SimSessionScaffold();
 
         // Lessons, as the runner compiles them when a pass leaves a job in Ready for review.
@@ -334,36 +335,41 @@ public sealed class Simulation(string repoRoot, string stateDir, double speed, T
         log.WriteLine(_f.Must("status"));
     }
 
-    /// <summary>A new-repo session after its brief: the files the dashboard wrote, and its bootstrap in Ready for review.</summary>
+    /// <summary>The simulator's New repo product: two features, and Home redirects to the books.</summary>
+    public const string ShelfProduct = "# Product: A book shelf\n\n## Purpose\nShelving books.\n\n## Users\nReaders.\n\n## Home\n- Home: redirect: /books\n\n"
+        + "## Features\n### Shelve a book\nPut a book on a shelf, and see the shelf.\n\n### Lend a book\nLend a shelved book to a friend.\n";
+
+    /// <summary>A New repo session after its product: the files the dashboard wrote, and its bootstrap in Ready for review.</summary>
     private void SimSessionScaffold()
     {
         const string text = "A book shelf";
         const string target = "sim/shelf";
         var scaffold = new JsonObject { ["name"] = "shelf", ["resource"] = "Book", ["db"] = "sqlite", ["ui"] = "react", ["events"] = false, ["auth"] = false };
-        var ids = _f.Must("new-idea", text, "-Target", target, "-Scaffold", scaffold.ToJsonString()).Split(' ');
+        var dir = Directory.CreateDirectory(Path.Combine(stateDir, "sessions", "S-001")).FullName;
+        var product = Path.Combine(dir, "product.md");
+        Put(product, ShelfProduct);
+        var ids = _f.Must("new-idea", text, "-Target", target, "-Scaffold", scaffold.ToJsonString(), "-Product", product).Split(' ');
         var (idea, boot) = (ids[0], ids[1]);
-        Put(Path.Combine(stateDir, "ideas", idea, "brief.md"), $"# Brief: {text}\n\n## What it is for\nShelving books.\n\n## Target\n- Repo: {target}");
         _f.Must("approve", boot);
         SimStart(boot); SimBuild(boot); SimReview(boot); SimApprove(boot);
         _f.F("gate", boot);
         _f.F("publish", boot);
 
-        var dir = Directory.CreateDirectory(Path.Combine(stateDir, "sessions", "S-001")).FullName;
         var now = DateTime.UtcNow.ToString("o");
         Put(Path.Combine(dir, "session.json"), new JsonObject
         {
             ["id"] = "S-001", ["target"] = target, ["text"] = text, ["newTarget"] = true, ["base"] = null, ["checkout"] = null, ["claudeSession"] = null,
             ["status"] = "idle", ["error"] = null, ["model"] = "claude-opus-5-5", ["costUsd"] = 0.21, ["scaffold"] = scaffold.DeepClone(),
             ["idea"] = idea, ["bootstrap"] = boot, ["pending"] = null, ["pendingResults"] = new JsonArray(), ["specs"] = new JsonArray(),
-            ["specsStarted"] = null, ["createdAt"] = now,
+            ["specsStarted"] = null, ["kind"] = "repo", ["createdAt"] = now,
         }.ToJsonString());
         Put(Path.Combine(dir, "chat.json"), new JsonObject
         {
             ["messages"] = new JsonArray(
                 new JsonObject { ["role"] = "user", ["content"] = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = $"Target: (none yet)\n\nIdea: {text}" }) },
-                new JsonObject { ["role"] = "assistant", ["content"] = new JsonArray(new JsonObject { ["type"] = "tool_use", ["id"] = "b1", ["name"] = "submit_brief", ["input"] = new JsonObject { ["markdown"] = $"# Brief: {text}" } }) },
+                new JsonObject { ["role"] = "assistant", ["content"] = new JsonArray(new JsonObject { ["type"] = "tool_use", ["id"] = "b1", ["name"] = "submit_product", ["input"] = new JsonObject { ["markdown"] = ShelfProduct } }) },
                 new JsonObject { ["role"] = "user", ["content"] = new JsonArray(new JsonObject { ["type"] = "tool_result", ["tool_use_id"] = "b1",
-                    ["content"] = $"The human confirmed the brief; it is saved as idea {idea}. The target is being scaffolded by bootstrap job {boot}. You will be told when it has merged; until then there is nothing to do." }) }),
+                    ["content"] = $"The human confirmed the product; it is saved as repo idea {idea}. Bootstrap job {boot} scaffolds the repo with it as docs/PRODUCT.md." }) }),
         }.ToJsonString());
         Put(Path.Combine(dir, "human.jsonl"), new JsonObject { ["ts"] = now, ["kind"] = "idea", ["text"] = text, ["target"] = null, ["newTarget"] = true }.ToJsonString());
     }

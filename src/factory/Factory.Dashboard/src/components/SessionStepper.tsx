@@ -7,8 +7,9 @@ import { cn } from '@/lib/cn'
 import { md } from '@/lib/markdown'
 import { phaseSteps, stageText, waitingText, type Phase } from '@/lib/session'
 import { Actions, Md } from './Modal'
+import { RepoActions } from './RepoActions'
 
-type Session = { status: string; target?: string; bootstrap?: string | null; pending?: { name: string } | null; specs?: unknown[] }
+type Session = { status: string; target?: string; bootstrap?: string | null; idea?: string | null; kind?: string | null; pending?: { name: string } | null; specs?: unknown[] }
 
 const link = 'inline-flex items-center rounded-control border border-border-subtle bg-surface-raised px-3.5 py-2 text-sm font-medium text-content hover:border-brand'
 
@@ -20,7 +21,8 @@ const link = 'inline-flex items-center rounded-control border border-border-subt
 export function SessionStepper({ s, phase }: { s: Session; phase: Phase }) {
   const { move } = useUi()
   const [merging, setMerging] = useState(false)
-  const steps = phaseSteps(phase, s.bootstrap)
+  const steps = phaseSteps(phase, s.bootstrap, s.kind === 'repo')
+  const toMerge = (phase.name === 'scaffold' && phase.stage === 'ready') || phase.name === 'review'
   const merge = async () => {
     setMerging(true)
     await move(phase.job!, 'done')
@@ -41,18 +43,19 @@ export function SessionStepper({ s, phase }: { s: Session; phase: Phase }) {
         ))}
       </ol>
       <p data-waiting className="mt-2 mb-0">{waitingText(phase, s)}</p>
-      {phase.name === 'scaffold' && phase.stage === 'ready' && (
+      {toMerge && (
         <>
           <Actions>
             {phase.pr && <a id="s-boot-pr" className={link} href={phase.pr.url} target="_blank" rel="noopener">Open PR #{phase.pr.number}</a>}
             <Button id="s-merge-boot" disabled={merging} onClick={merge}>{merging ? 'Merging…' : 'Merge'}</Button>
           </Actions>
           <p className="mt-1.5 mb-0 text-xs text-content-muted">
-            Merged it on GitHub instead? The dashboard records that at its next PR sync, while it is open, and the specs start then.
+            Merged it on GitHub instead? The dashboard records that at its next PR sync, while it is open, and {s.kind === 'repo' ? 'its features can start then' : 'the specs start then'}.
           </p>
         </>
       )}
-      {phase.name === 'scaffold' && phase.job && <BootSpec job={phase.job} stage={phase.stage} />}
+      {(phase.name === 'scaffold' || phase.name === 'review') && phase.job && <BootSpec job={phase.job} stage={phase.stage} />}
+      {phase.name === 'merged' && s.idea && <RepoActions idea={s.idea} />}
       {phase.name === 'build' && (
         <ul className="mt-2 mb-0 pl-4" data-build>
           {(phase.jobs ?? []).map((j) => (

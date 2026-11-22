@@ -58,7 +58,7 @@ export function NewSession() {
     <>
       <Head>
         <CloseButton />
-        <Title>New idea</Title>
+        <Title>{target === NEW ? 'New repo' : 'New idea'}</Title>
         <SubMeta>Claude grills you on it, writes a brief and specs, and you decide what reaches the board. Model <code>{config.model}</code></SubMeta>
       </Head>
       <Body>
@@ -66,7 +66,7 @@ export function NewSession() {
           <label htmlFor="s-target">Target repo</label>
           <div>
             <select id="s-target" value={target} onChange={(e) => pick(e.target.value)} className={control}>
-              <option value={NEW}>+ Add new (Claude grills you and names the repo)</option>
+              <option value={NEW}>+ New repo (Claude grills you on the app and names the repo)</option>
               {options.map((o) => <option key={o} value={o}>{o}</option>)}
               <option value={OTHER}>Other owner/name…</option>
             </select>{' '}
@@ -84,12 +84,12 @@ export function NewSession() {
           </div>
           <label htmlFor="s-text">The idea</label>
           <textarea id="s-text" rows={5} autoFocus value={text} onChange={(e) => setText(e.target.value)}
-            placeholder="What do you want built? A sentence is enough: Claude asks the rest." className={control} />
+            placeholder={target === NEW ? 'What is the app for? A sentence is enough: Claude asks the rest.' : 'What do you want built? A sentence is enough: Claude asks the rest.'} className={control} />
           <span />
           <Actions className="mt-0">
             <Button id="s-start" disabled={busy} onClick={start}>Start</Button>
             {target === NEW
-              ? <span id="s-new-note" className="text-sm">A new repo is set up first by a bootstrap job. Its feature specs are written after you merge it.</span>
+              ? <span id="s-new-note" className="text-sm">A new repo: Claude grills you on the app and its features, and a bootstrap job scaffolds it with them as docs/PRODUCT.md. You start each feature from its card once you merge it.</span>
               : <span className="text-xs text-content-muted">An existing repo, or a new one that a bootstrap job creates and scaffolds.</span>}
           </Actions>
         </div>

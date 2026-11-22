@@ -3,6 +3,7 @@ import { leaf } from '@/lib/board'
 import { cardState, stageText } from '@/lib/session'
 import { cn } from '@/lib/cn'
 import type { Idea, SessionSummary } from '@/lib/types'
+import { RepoActions, RepoSteps } from './RepoActions'
 import { SpecRows } from './SpecRows'
 
 /** An Ideas card's Abandon: the first click asks, a second within 4 s abandons (contract, "Ideas"). */
@@ -18,7 +19,7 @@ function AbandonButton({ id }: { id: string }) {
 }
 
 /** Beside Abandon: whose move it is (contract, "Advancing and notices"). The factory's gets a moving marker. */
-const YOURS = ['your turn', 'Ready: merge the scaffold', 'specs ready to approve']
+const YOURS = ['your turn', 'Ready: merge the scaffold', 'specs ready to approve', 'start a feature']
 function WaitChip({ text, running }: { text: string; running?: boolean }) {
   const yours = YOURS.includes(text)
   return (
@@ -36,11 +37,13 @@ export function IdeaCard({ i, stage }: { i: Idea; stage?: string }) {
     <div className={cn('card idea-card', i.status, i.status === 'failed' && 'border-intent-danger')} data-idea={i.id} onClick={() => openModal('idea', i.id)}>
       <div className="top">
         <span>{i.id}</span>
-        <span>{i.status === 'failed' ? 'failed' : i.status === 'waiting' ? '' : i.closeWhenDecided ? 'specs to approve' : <>spec it: <code>/factory:idea {i.id}</code></>}</span>
+        <span>{i.status === 'failed' ? 'failed' : i.status === 'waiting' || i.kind === 'repo' ? '' : i.closeWhenDecided ? 'specs to approve' : <>spec it: <code>/factory:idea {i.id}</code></>}</span>
       </div>
       <div className="title !font-medium">{i.text}</div>
       {i.target && <div className="repo" title={i.target}>→ {leaf(i.target)}</div>}
       {i.reason && <div className="meta">{i.reason}</div>}
+      {i.kind === 'repo' && <RepoSteps phase={{ name: i.status === 'waiting' ? 'scaffold' : 'merged' }} />}
+      {i.kind === 'repo' && i.status === 'drafting' && <RepoActions idea={i.id} />}
       <div className="meta">
         {i.base && <span className="chip kind">on {i.base}</span>}
         {i.status === 'waiting' && <WaitChip text={`waiting for bootstrap ${i.jobs?.[0] ?? ''} (${stageText(stage)})`} />}
@@ -61,6 +64,8 @@ export function SessionCard({ x }: { x: SessionSummary }) {
       </div>
       <div className="title !font-medium">{x.text}</div>
       {x.target && <div className="repo" title={x.target}>→ {leaf(x.target)}</div>}
+      {x.kind === 'repo' && x.phase && <RepoSteps phase={x.phase} />}
+      {x.kind === 'repo' && x.phase?.name === 'merged' && x.idea && <RepoActions idea={x.idea} />}
       <div className="meta">
         {x.status === 'error' ? <span className="flag">error</span>
           : <WaitChip text={cardState(x)} running={x.status === 'running'} />}

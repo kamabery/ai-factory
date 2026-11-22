@@ -62,6 +62,20 @@ describe('an idea session', () => {
     expect(writes(calls).map((c) => [c.url, c.body])).toEqual([['/api/sessions/S-1/reply', { text: 'tags are per user' }], ['/api/sessions/S-1/brief', undefined]])
   })
 
+  it('a New repo session confirms its product, and its stepper is Grill → Scaffold → Review → Merged', async () => {
+    const product = '# Product: Todo\n\n## Features\n### Add a todo\nType it in.\n'
+    const calls = session(() => ({ ...summary, kind: 'repo', newTarget: true, pending: { id: 'p', name: 'submit_product', input: { markdown: product } } }),
+      { 'GET /api/sessions/S-1': { ...summary, kind: 'repo', newTarget: true, phase: { name: 'grill' } } })
+    const { $ } = renderApp()
+    await openSession()
+    await waitFor(() => expect($('[data-brief]')).toHaveTextContent('Add a todo'))
+    expect($('[data-stepper]')).toHaveTextContent('Grill→Scaffold→Review→Merged')
+    expect($('[data-waiting]')).toHaveTextContent('Confirm the product below.')
+    fireEvent.click($('#s-confirm-brief')!)
+    await waitFor(() => expect($('#toast')).toHaveTextContent('Product saved as I-9'))
+    expect(writes(calls).map((c) => c.url)).toEqual(['/api/sessions/S-1/brief'])
+  })
+
   it('a new target: confirms the proposed scaffold with the repo it names', async () => {
     const calls = session(() => ({ ...summary, target: undefined, pending: { id: 'p', name: 'propose_scaffold', input: { repo: 'recipes', name: 'recipes', resource: 'Recipe', db: 'sqlite', ui: 'react', events: false, auth: true } } }))
     const { $ } = renderApp()
@@ -285,7 +299,7 @@ describe('New idea', () => {
     expect(writes(calls)).toEqual([{ method: 'POST', url: '/api/sessions', body: { target: 'sim/sandbox', text: 'tag list', base: 'J-1' } }])
   })
 
-  it('picking Add new says the bootstrap comes first, and asks once for notifications', async () => {
+  it('picking New repo says the bootstrap scaffolds it with its features, and asks once for notifications', async () => {
     const ask = vi.fn(async () => 'granted')
     const N = Object.assign(vi.fn(), { permission: 'default', requestPermission: ask })
     vi.stubGlobal('Notification', N)
@@ -293,7 +307,7 @@ describe('New idea', () => {
     const { $ } = renderApp()
     // Never on load.
     fireEvent.click(await find('#new-idea-btn'))
-    await waitFor(() => expect($('#s-new-note')).toHaveTextContent('A new repo is set up first by a bootstrap job. Its feature specs are written after you merge it.'))
+    await waitFor(() => expect($('#s-new-note')).toHaveTextContent('a bootstrap job scaffolds it with them as docs/PRODUCT.md. You start each feature from its card once you merge it.'))
     expect(ask).not.toHaveBeenCalled()
     fireEvent.change($('#s-target')!, { target: { value: 'sim/sandbox' } })
     expect($('#s-new-note')).toBeNull()
