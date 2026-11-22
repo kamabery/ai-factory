@@ -41,6 +41,10 @@ public sealed class ClaudeRunner(IFactoryPaths paths, IFileStore files, IOptions
         if (options.Value.DotnetRoot is { } root && !(psi.Environment.TryGetValue("DOTNET_ROOT", out var had) && !string.IsNullOrEmpty(had))) psi.Environment["DOTNET_ROOT"] = root;
         psi.Environment["FACTORY_JOB"] = jobId;
         psi.Environment["FACTORY_HOME"] = paths.Home;
+        // The agents run `factory` in the target's clone, where walking up finds the target's root and no .env: hand
+        // down this factory's checkout and .env, or read-reviews takes deploys for off (local J-037, 2026-11-21).
+        psi.Environment["FACTORY_REPO"] = FactoryRoot;
+        if (paths.EnvFile is { Length: > 0 } envFile) psi.Environment["FACTORY_ENV_FILE"] = envFile;
         psi.Environment["GIT_TERMINAL_PROMPT"] = "0";
 
         using var output = new StreamWriter(new FileStream(log, FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete), Utf8) { AutoFlush = true };

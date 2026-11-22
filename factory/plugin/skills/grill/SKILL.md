@@ -51,6 +51,12 @@ These open the first round or two. Later rounds are whatever their answers open 
 5. **What does "done" mean for the main object?** (A todo: checked? archived? deleted?)
 6. **What must not be built?** Their edges, not yours: auth, multi-user, mobile, import...
 
+7. **New app only (the idea scaffolds its repo): what does it open on at `/`?** The scaffold ships a
+   dashboard of its first resource (template-projects `docs/DESIGN.md` §4.1). Offer: redirect `/` to the
+   main screen, replace it with a screen the human names, or keep the dashboard. Insist on an answer: it
+   goes in the brief's `## Home`, never under *Not sure*. Two apps shipped the template's starter Home
+   because nobody asked what the app opens on at `/`.
+
 Each answer opens its own branch: name a screen and the frontier gains what is on it, who reaches
 it, and what happens when its data is missing.
 

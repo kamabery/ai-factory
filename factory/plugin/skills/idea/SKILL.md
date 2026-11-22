@@ -72,7 +72,9 @@ tell the human: when the bootstrap job reaches Ready for review, merge it on the
 Run the **spec-writer** agent (`factory:spec-writer`) with absolute paths: the idea file
 `.factory-runs/ideas/I-NNN/idea.md`, the brief `.factory-runs/ideas/I-NNN/brief.md`, the output
 folder `.factory-runs/ideas/I-NNN/`, the template `<templates>/spec.md`, and the target's clone
-(the directory to read the repo from). If it writes no spec,
+(the directory to read the repo from). For a new app, check that one spec has a `## Home` line
+(`- Home: replace|redirect|keep: <detail>`, from the brief's Home; contract, "Ideas") before showing
+any, and send the spec-writer back if none does: nothing else refuses it in this door. If it writes no spec,
 show its reason, and ask whether to grill further (back to step 2 with the brief) or close the idea
 (`F idea-done I-NNN -Failed -Reason "<its reason>"`).
 

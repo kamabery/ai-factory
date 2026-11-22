@@ -59,15 +59,18 @@ test.describe.serial('factory dashboard', () => {
     await expect(card(page, 'J-001').locator('[data-cost]')).toBeVisible();
   });
 
-  test('a new-repo session: Scaffold is lit, Merge in the session, and the specs arrive with no click', { tag: '@smoke' }, async ({ page }) => {
+  test('a new-repo session: Scaffold is lit, Merge in the session, and the specs arrive with no click, deciding Home', { tag: '@smoke' }, async ({ page }) => {
     // The simulator's S-001: a confirmed brief for sim/shelf, whose bootstrap waits in Ready for review.
     const s1 = JSON.parse(readFileSync(path.join(simDir, 'sessions/S-001/session.json'), 'utf8'));
     const boot: string = s1.bootstrap;
     expect(job(boot).stage).toBe('ready');
     const dir = mkdtempSync(path.join(os.tmpdir(), 'ideate-'));
     const spec = `# Spec: Shelve a book\n\n## Target\n- Repo: sim/shelf\n\n## Gate\n- build: \`git --version\`\n\n## Acceptance criteria\n- [ ] AC1: a book is shelved`;
+    // Spec 23: a new app's set must decide Home, so the first submit (no Home) is refused and the second lands.
+    const withHome = `${spec}\n\n## Home\n- Home: redirect: /books`;
     [
       { content: [{ type: 'tool_use', id: 's1', name: 'submit_specs', input: { specs: [{ k: 1, markdown: spec }] } }], stop_reason: 'tool_use' },
+      { content: [{ type: 'tool_use', id: 's2', name: 'submit_specs', input: { specs: [{ k: 1, markdown: withHome }] } }], stop_reason: 'tool_use' },
       { content: [{ type: 'text', text: 'One spec is ready for you.' }], stop_reason: 'end_turn' },
     ].forEach((r, i) => writeFileSync(path.join(dir, `${String(i + 1).padStart(3, '0')}.json`), JSON.stringify(r)));
     await fetch(`http://localhost:${stubPort}/__reset`, { method: 'POST', body: JSON.stringify({ dir }) });
@@ -85,6 +88,7 @@ test.describe.serial('factory dashboard', () => {
     // No Write specs click: the merge starts the spec turn.
     await expect(modal(page).locator('[data-step="specs"]')).toHaveAttribute('data-state', 'now');
     await expect(modal(page).locator('[data-spec="1"]')).toContainText('Shelve a book', { timeout: 30_000 });
+    await expect(modal(page).locator('[data-spec="1"]')).toContainText('Home: redirect: /books');
     await expect(sessionCard.locator('[data-session-state]')).toHaveText('specs ready to approve');
     await modal(page).locator('[data-spec="1"] [data-decide="backlog"]').click();
 

@@ -12,6 +12,11 @@
 ## Screens
 <Every screen this idea adds or changes, by name, and what is on each one.>
 
+## Home
+<!-- New app only (the idea scaffolded its repo): what the app opens on at `/`, in the human's words:
+     redirect to <a screen>, replace it with <what>, or keep the scaffold's dashboard (and why). Never "Not sure".
+     Delete this section for an existing repo. -->
+
 ## Empty and full
 <What the main screen shows with no data, and with a lot of it.>
 

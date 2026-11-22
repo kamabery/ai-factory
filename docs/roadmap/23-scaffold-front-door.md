@@ -1,7 +1,10 @@
 # 23: A scaffolded app's front door: the style guide stays local, and Home is decided
 
-**Status:** planned (2026-11-20), after 18. **Branch:** `feature/23-scaffold-front-door` here, plus a branch and PR in
-kamabery/template-projects (Kurt merges). **Depends on:** 18.
+**Status:** done (2026-11-22), in review. Template: kamabery/template-projects PR #11 (merged). Factory: the Home rule
+in the contract, the grill, the spec template and `submit_specs` / `revise_spec`; ai-factory 0.4.2 on the cloud board.
+Follow-ups: booklist on the local board (J-037, booklist PR #3, merged) and pantry on the cloud board (J-006, pantry
+PR #3, $1.53, one round, eval good). On the pantry preview, `/` opens Pantry, the nav is Pantry only, and
+`/styleguide` is not found. **Branch:** `feature/23-scaffold-front-door`. **Depends on:** 18.
 
 ## Why
 
@@ -43,6 +46,33 @@ What is known so far:
 3. **booklist itself**: a small follow-up job, so its Books page is the home page and the nav has no starter entries.
    It's the first real use of the decided rule.
 
+## Where Home came from (investigated 2026-11-21)
+
+No one piece is wrong; no step owns the front door.
+
+| Piece | What it does |
+| --- | --- |
+| template `routes/index.tsx`, `Pages/Home.razor` | The starter Home. `--resource` substitutes Widget/widget only, so the stack blurb survives into every app. |
+| template `__root.tsx`, `Layout/NavMenu.razor` | Home, the resource and Style guide in the nav, unconditionally. |
+| template `docs/DESIGN.md` §4.1 | Already says Home is a dashboard of every entity, and that the sample Home is "a README that got rendered", the thing §4.1 exists to stop being copied. |
+| template `boot-strap-app` Phase 4 | Tells the generated README the style guide "ships in every configuration". |
+| factory `templates/bootstrap.md` | Scope Out: anything beyond the scaffold's sample slice, so the bootstrap keeps Home as it is. |
+| factory `plugin/skills/grill` | "Name every screen this idea adds or changes": never what the app opens on. |
+| factory `plugin/agents/spec-writer.md` | "Spec what [the brief] says and nothing it doesn't", so with no Home in the brief, Home went under Scope: Out (J-003, J-005). |
+
+## Decisions (grilled 2026-11-21)
+
+- **(c) both.** The template's Home becomes a minimal §4.1 dashboard of the sample resource (a count tile and at most
+  five recent rows, each linking into its list), with no stack blurb, in React and Blazor. And every new-app idea
+  decides Home on purpose.
+- **The grill asks, the brief and the spec carry it, and the factory refuses a gap.** For a scaffolded target the grill
+  frontier asks what opens at `/`; `brief.md` gains a **Home** section; `spec.md` gains a `- Home:` line (replace,
+  redirect to a list, or keep); `submit_specs` refuses a new-app spec set where no spec decides Home, the same shape
+  as the Scope-line refusal.
+- **booklist and pantry:** `/` redirects to the app's list (`/books`, `/pantry`), the nav shows only the app's own
+  pages, and the style guide is dev-only in each app as well. booklist runs on the **local** board, pantry on the
+  **cloud** board.
+
 ## Tests
 
 Seen red before green:
@@ -51,6 +81,7 @@ Seen red before green:
 - factory (if the decision touches the spec-writer): the spec template and the prompt carry the Home decision; a
   Simulator/Playwright case where a new-app spec names it.
 - Live: the next new-repo idea's preview has no Style guide in its nav, and its Home matches what the spec decided.
+  Met on 2026-11-22 by cloud J-006 (kamabery/pantry), its `- Home: redirect` checked in a browser on the preview.
 
 ## Done when
 

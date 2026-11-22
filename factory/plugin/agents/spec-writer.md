@@ -53,6 +53,14 @@ id (the script assigns it).
   what is out under `- Out:`. The factory stops a build that touches any other path, so include the
   generated outputs the change will regenerate (lockfiles, `contracts/api.openapi.json`,
   `routeTree.gen.ts`) and the tests the ACs need.
+- **Home (new app only):** when the brief has a `## Home` (its idea scaffolded the repo), exactly one
+  spec, the one that owns the front door, gets a `## Home` section with the brief's decision as one line,
+  `- Home: replace|redirect|keep: <detail>`, and its Scope covers the files that decision touches (for a
+  template-projects scaffold: `src/ui/react/src/routes/index.tsx`, `__root.tsx` for the nav and
+  `routeTree.gen.ts`; or `Pages/Home.razor` and `Layout/NavMenu.razor`). Never put Home under Scope: Out
+  in a new app. The style guide is already local-only in the template; don't spec it. The dashboard
+  session refuses a new app's spec set with no Home decision. An existing repo's specs have no
+  `## Home`.
 - **Risks** names the security, data, contract or UX risks the reviewers should look at first.
 - Respect the target's own `CLAUDE.md` rules, if it has one.
 - If the brief is too vague to spec (you cannot write a single observable AC), write **no** spec

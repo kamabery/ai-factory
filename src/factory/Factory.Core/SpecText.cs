@@ -53,6 +53,18 @@ public static partial class SpecText
         return new ScopeIn(globs, at);
     }
 
+    /// <summary>A new app's Home decision (contract, "Ideas"): the value of the <c>- Home:</c> line under <c>## Home</c>, or null.</summary>
+    public static string? HomeDecision(IReadOnlyList<string> lines)
+    {
+        var inHome = false;
+        foreach (var line in lines)
+        {
+            if (AnyHeading().Match(line) is { Success: true } h) { inHome = string.Equals(h.Groups[1].Value, "Home", StringComparison.OrdinalIgnoreCase); continue; }
+            if (inHome && HomeLine().Match(line) is { Success: true } m) return m.Groups[1].Value.Trim();
+        }
+        return null;
+    }
+
     /// <summary>The ambiguous scope lines of a spec (contract, "Targets"): one message per path written after other words.</summary>
     public static IReadOnlyList<string> AmbiguousScope(IReadOnlyList<string> lines)
     {
@@ -116,6 +128,7 @@ public static partial class SpecText
     [GeneratedRegex(@"\([^()]*\)")] private static partial Regex Parenthetical();
     [GeneratedRegex(@"[/*]|\.[a-z0-9]+$", I)] private static partial Regex LooksLikePath();
     [GeneratedRegex(@"^#\s*Spec:\s*(.+)$", I)] private static partial Regex SpecName();
+    [GeneratedRegex(@"^\s*[-*]\s+Home:\s*((?:replace|redirect|keep):\s*\S.*)$", I)] private static partial Regex HomeLine();
     [GeneratedRegex(@"^\s+\S", I)] private static partial Regex Indented();
     [GeneratedRegex(@"^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$", I)] private static partial Regex TargetPattern();
 }

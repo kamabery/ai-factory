@@ -51,4 +51,19 @@ public sealed class PluginTests
     [Theory, InlineData("approver"), InlineData("devops")]
     public void An_agent_checks_the_API_through_the_front_end_when_there_is_one(string agent) =>
         Assert.Contains("<front end>/api/openapi/v1.json", File.ReadAllText(Plugin("agents", $"{agent}.md")));
+
+    // Spec 23: a new app decides its Home. The grill asks for it, the brief and the spec template carry it, and the
+    // spec-writer (agent and dashboard prompt) puts it in one spec.
+    [Fact]
+    public void The_grill_brief_spec_template_and_spec_writer_carry_the_home_decision()
+    {
+        string Template(string name) => File.ReadAllText(GitHubStub.RepoFile("factory", "templates", name));
+
+        Assert.Contains("## Home", Template("brief.md"));
+        Assert.Contains("## Home", Template("spec.md"));
+        Assert.Contains("- Home: <replace | redirect | keep>: <detail>", Template("spec.md"));
+        Assert.Contains("opens on at `/`", File.ReadAllText(Plugin("skills", "grill", "SKILL.md")));
+        foreach (var prompt in new[] { Plugin("agents", "spec-writer.md"), Plugin("prompts", "idea-api.md") })
+            Assert.Contains("## Home", File.ReadAllText(prompt));
+    }
 }

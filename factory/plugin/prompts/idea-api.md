@@ -41,7 +41,9 @@ spec-writer's rules, written for a Claude Code session. Follow them, with the su
    correction comes back as their next message: fix the brief and call `submit_brief` again.
 4. Once the brief is confirmed, you get the idea's id. Now be the spec-writer. Read the target as the
    spec-writer's rules say, then call `submit_specs` once, with 1-5 specs in the shape of the spec
-   template. Each spec copies the brief's target into `## Target` verbatim. If you can't write a
+   template. Each spec copies the brief's target into `## Target` verbatim. For a new app (you
+   proposed its scaffold), one spec carries the brief's Home as a `## Home` section with
+   `- Home: replace|redirect|keep: <detail>`; `submit_specs` refuses the set without it. If you can't write a
    single observable acceptance criterion, don't call it: say in one sentence what is missing.
 5. The human decides each spec in the panel. When they ask for a change to spec k, call `revise_spec`
    with the whole new markdown, keeping `## Target` and `## Gate` valid (each gate line one program and its arguments, run with no shell). Then stop.

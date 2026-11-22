@@ -372,6 +372,24 @@ An idea is not a job. The session:
 `drafting` means "open for a session". `/factory:idea I-NNN` resumes a `drafting` idea from its
 `brief.md`, after a bootstrap merge or an interrupted session.
 
+**A new app decides its Home (spec 23).** booklist (cloud J-003) and pantry (cloud J-005) shipped the
+template's starter Home because nothing asked what `/` should be: the grill names the screens an idea
+adds, and the spec-writer specs only the brief, so Home went under Scope: Out. So, when the idea
+scaffolded its target (`idea.scaffold` is set; in a dashboard session, `session.json.scaffold`):
+- The grill asks what the app opens on at `/`, and the brief records the answer under `## Home`. It is
+  never left under *Not sure*: the scaffold's own Home (a `docs/DESIGN.md` §4.1 dashboard of the sample
+  resource, in template-projects) is one of the options offered.
+- The spec-writer gives the one spec that owns the front door a `## Home` section with one line,
+  `- Home: <replace | redirect | keep>: <detail>`: **replace** (what `/` shows instead), **redirect**
+  (the route `/` sends to, such as `/books`) or **keep** (the scaffold's dashboard, and why). That spec's
+  Scope covers the files the decision touches. The other specs need no Home line, and nor does an existing
+  repo's.
+- `submit_specs` and `revise_spec` answer a new app's spec set with no Home decision as a tool error, so the
+  model rewrites it: `this idea scaffolded a new app, so one spec must decide Home: add '## Home' with
+  '- Home: replace|redirect|keep: <detail>', from the brief's Home`. A `- Home:` line whose value starts with
+  none of the three words counts as no decision. In the CLI fallback the rule is the spec-writer's
+  instructions alone; nothing refuses there.
+
 ```
 board.ideas[] = { "id": "I-001", "text": "...", "target": "kamabery/todo-app",
                   "scaffold": null, "base": null, "status": "waiting|drafting|done|failed|abandoned",
@@ -443,7 +461,7 @@ own last write.
 | Tool | Kind | Effect |
 | --- | --- | --- |
 | `read_file`, `list_dir`, `grep` | server, read-only | fenced to the session's clone of the target (`checkout`, when the target exists) and `factory/templates`; any other path is refused |
-| `submit_specs { specs: [{ k, markdown }] }` (1..5) · `revise_spec { k, markdown }` | server | write `ideas/<I>/spec-<k>.md` and the session's `specs`; refused until the brief is confirmed (the session has an idea) |
+| `submit_specs { specs: [{ k, markdown }] }` (1..5) · `revise_spec { k, markdown }` | server | write `ideas/<I>/spec-<k>.md` and the session's `specs`; refused until the brief is confirmed (the session has an idea), for an ambiguous Scope line (see [Scope](#scope)), and for a new app's set with no Home decision (see [Ideas](#ideas)) |
 | `ask_questions { questions }` (AskUserQuestion's shape) · `propose_scaffold { repo?, name, resource, db, ui, events }` (`repo`, a repo name, is required while the session has no target) · `submit_brief { markdown }` | UI | a valid call becomes `session.json.pending`, the model is told to end its turn, and any later tool call in the turn is refused; the human's answer is the next turn's prompt |
 
 ```
@@ -1667,7 +1685,9 @@ longer running. Otherwise it loops:
    an unmerged base job's branch), and records the branch head as `roundStart`. The builder's first step is `git merge --no-edit factory/base`,
    resolving any conflicts and noting them in build.md, so a branch cut before other work merged
    is reviewed, previewed and gated with that work in it (J-022).
-3. It sets `FACTORY_JOB=<id>`, `FACTORY_HOME=<this repo>\.factory-runs` and `FACTORY_REPO=<this repo>`,
+3. It sets `FACTORY_JOB=<id>`, `FACTORY_HOME=<this repo>\.factory-runs`, `FACTORY_REPO=<this repo>` and
+   `FACTORY_ENV_FILE=<its .env>` (agents run `factory` in the target's clone, where no `.env` is found by walking up;
+   without it `read-reviews` took deploys for off, local J-037),
    writes `<stateDir>/headless-settings.json`, and runs this in the job's work directory:
    `claude -p "/factory:factory run <id> <stateDir> <this repo>/factory/templates" --plugin-dir <this repo>/factory/plugin --plugin-dir <template workspace> --settings <stateDir>/headless-settings.json --add-dir <stateDir> --output-format stream-json --verbose --permission-mode acceptEdits`
    with the CLI's folder first on `PATH` (see [Implementations](#implementations)).
