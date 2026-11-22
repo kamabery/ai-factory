@@ -997,7 +997,8 @@ A crashed holder's lease lapses within 60 s.
 - **Pull:** pulls download every blob whose ETag differs from `.sync.json`, except a path changed
   locally since its last sync. Local changes win, last writer wins, and only `board.json` is
   ETag-checked. A pull never deletes local files.
-- **Dashboard:** when the dashboard polls `/state/board.json` or `/state/events.jsonl`, the server
+- **Dashboard:** when the dashboard polls `/state/board.json`, `/state/events.jsonl` or (with shared files)
+  `/state/canary.json`, the server
   refreshes that file with `If-None-Match`, at most once per `FACTORY_STATE_POLL_SECONDS` (the poll runs
   every 1.5 s; one conditional GET per file per 5 s costs about $0.45 a month while a dashboard is
   open). It pulls a job's folder when the job's files are listed. A transcript whose path is not on
@@ -1594,7 +1595,8 @@ retries it.
   "repo": "kamabery/factory-canary", "sha": "<scaffold commit>", "urls": { "frontend": "...", "api": "...", "health": "..." },
   "log": "canary-3.log", "startedAt": "...", "finishedAt": "...", "n": 3, "full": false,
   "teardown": { "status": "destroying" | "down" | "failed", "error": null | "<first error line>", "startedAt": "...", "failures": 0 },
-  "version": "0.4.2",
+  "version": "0.4.2", "phase": null | "scaffold" | "deploy" | "smoke" | "signin",
+  "deploy": null | { "done": 1, "total": 3 }, "run": null | "<the deploy workflow run's html_url>",
   "inputs": { "deploy": "<sha256>", "templates": "<sha256>", "varset": "<sha256>", "settings": "<sha256>" },
   "passes": [ { "n": 3, "version": "0.4.2", "inputs": { ... }, "startedAt": "...", "finishedAt": "..." } ] }
 ```
@@ -1613,6 +1615,15 @@ by each run and prepended on a pass.
   (`factory <old> → <new>` when both versions are known and differ, which is how a tool install's deploy group
   changes), `templates changed since pass #<n>`, `variable set changed since pass #<n>`,
   `canary settings changed since pass #<n>`.
+
+**Phases (spec 22).** While a canary runs, `phase` says where it is: `scaffold` (the scaffold and its push),
+`deploy` (the workflow run; `deploy` counts its jobs, `done` finished of `total`, from the run's jobs list on each
+poll, and `run` is the run's URL once it is found), `smoke`, then `signin` (only when the scaffold has sign-in).
+The canary saves `canary.json` at its start and at each change of phase or of `deploy.done`, and `phase` is null
+once it finishes. The teardown that follows shows in `teardown`. With shared files (`azure`, or `sql` with
+`FACTORY_BLOB_URL`) each save also uploads `canary.json` at once (the session's `Share`), not only when the command
+ends, so a dashboard in another container sees the phases; an upload that fails is ignored, since the next save or
+the command's own push sends it again.
 
 A canary is **due** when deploys are on, no canary is running (`status` is not `running`), and `canary.json` records
 no pass for the current fingerprint. A failed or `retry` record for it is due too. The **typical duration** is the

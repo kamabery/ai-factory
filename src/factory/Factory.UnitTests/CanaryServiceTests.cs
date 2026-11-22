@@ -49,7 +49,7 @@ public class CanaryServiceTests : CommandTestBase
         _hcp.EnsureWorkspace("factory-canary-j000", "prj-1", Arg.Any<string?>()).Returns("ws-0");
         _hcp.Outputs(default!, default!).ReturnsForAnyArgs(new Dictionary<string, string?> { ["react_url"] = "https://web", ["api_url"] = "https://api" });
         _hcp.RunLog("ws-0").Returns("hcp log");
-        _deploy.DeployRun("me/factory-canary", "j000", "main").Returns(new JsonObject { ["id"] = 1, ["conclusion"] = "success" });
+        _deploy.DeployRun("me/factory-canary", "j000", "main", Arg.Any<string?>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<Action<JsonObject>?>()).Returns(new JsonObject { ["id"] = 1, ["conclusion"] = "success" });
         _deploy.Smoke(Arg.Any<JsonObject?>(), Arg.Any<List<string>>()).Returns(c => { c.Arg<List<string>>().Add("https://web/api/health answered 200"); return null; });
         _deploy.SigninSmoke(default!, default, default!, default!).ReturnsForAnyArgs((string?)null);
     }
@@ -105,11 +105,67 @@ public class CanaryServiceTests : CommandTestBase
     }
 
     [Fact]
+    public void Each_phase_is_saved_and_shared_as_it_starts_and_the_deploy_counts_the_runs_jobs()
+    {
+        var jobs = 0;
+        _github.Send(HttpMethod.Get, "/repos/me/factory-canary/actions/runs/1/jobs", null).Returns(_ => new GitHubResponse(200, new JsonObject
+        {
+            ["jobs"] = new JsonArray([.. Enumerable.Range(0, 3).Select(i => (JsonNode)new JsonObject { ["status"] = i < jobs ? "completed" : "in_progress" })]),
+        }, null));
+        _deploy.DeployRun("me/factory-canary", "j000", "main", Arg.Any<string?>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<Action<JsonObject>?>())
+            .Returns(c =>
+            {
+                var progress = c.ArgAt<Action<JsonObject>?>(6)!;
+                var run = new JsonObject { ["id"] = 1, ["status"] = "in_progress", ["html_url"] = "https://gh/run/1" };
+                progress(run);
+                progress(run);
+                jobs = 2;
+                progress(run);
+                jobs = 3;
+                var done = new JsonObject { ["id"] = 1, ["status"] = "completed", ["conclusion"] = "success", ["html_url"] = "https://gh/run/1" };
+                progress(done);
+                return done;
+            });
+        var seen = new List<string>();
+        _session.OnShare = path =>
+        {
+            Assert.Equal("canary.json", path);
+            var c = Canary;
+            seen.Add($"{(string?)c["phase"] ?? "-"} {c["deploy"]?.ToJsonString() ?? "-"} {(string?)c["run"] ?? "-"}");
+        };
+
+        Sut.Run(_session, false, false);
+
+        Assert.Equal([
+            "scaffold - -",
+            "deploy - -",
+            """deploy {"done":0,"total":3} https://gh/run/1""",
+            """deploy {"done":2,"total":3} https://gh/run/1""",
+            """deploy {"done":3,"total":3} https://gh/run/1""",
+            """smoke {"done":3,"total":3} https://gh/run/1""",
+            """signin {"done":3,"total":3} https://gh/run/1""",
+            """- {"done":3,"total":3} https://gh/run/1""",
+        ], seen);
+    }
+
+    [Fact]
+    public void A_scaffold_without_sign_in_has_no_signin_phase()
+    {
+        _canary.Options().Returns(_ => new JsonObject { ["name"] = "canary", ["resource"] = "Item", ["db"] = "sqlite", ["ui"] = "react", ["events"] = false, ["auth"] = false });
+        var phases = new List<string?>();
+        _session.OnShare = _ => phases.Add((string?)Canary["phase"]);
+
+        Sut.Run(_session, false, false);
+
+        Assert.Equal(["scaffold", "deploy", "smoke", null], phases);
+    }
+
+    [Fact]
     public void A_failed_run_carries_the_passes_over_unchanged()
     {
         _canary.Inputs().Returns(Inputs);
         Record("pass", 2, 2);
-        _deploy.DeployRun("me/factory-canary", "j000", "main").Returns(new JsonObject { ["id"] = 1, ["conclusion"] = "failure" });
+        _deploy.DeployRun("me/factory-canary", "j000", "main", Arg.Any<string?>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<Action<JsonObject>?>()).Returns(new JsonObject { ["id"] = 1, ["conclusion"] = "failure" });
 
         Assert.Throws<FactoryException>(() => Sut.Run(_session, false, false));
 
@@ -220,7 +276,7 @@ public class CanaryServiceTests : CommandTestBase
     [Fact]
     public void A_failed_run_records_its_first_error_logs_GitHub_and_HCP_and_still_starts_the_teardown()
     {
-        _deploy.DeployRun("me/factory-canary", "j000", "main").Returns(new JsonObject { ["id"] = 1, ["conclusion"] = "failure" });
+        _deploy.DeployRun("me/factory-canary", "j000", "main", Arg.Any<string?>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<Action<JsonObject>?>()).Returns(new JsonObject { ["id"] = 1, ["conclusion"] = "failure" });
         _deploy.RunLog("me/factory-canary", Arg.Any<JsonObject>()).Returns("run x: failure\nError: exec: \"az\": executable file not found");
 
         Assert.Equal("canary failed: Error: exec: \"az\": executable file not found; see canary-1.log",
@@ -251,7 +307,7 @@ public class CanaryServiceTests : CommandTestBase
     [Fact]
     public void A_step_that_throws_is_a_Factory_section_with_HCPs_log()
     {
-        _deploy.DeployRun("me/factory-canary", "j000", "main").Throws(new FactoryException("cannot dispatch deploy.yml: GitHub 422: no"));
+        _deploy.DeployRun("me/factory-canary", "j000", "main", Arg.Any<string?>(), Arg.Any<bool>(), Arg.Any<string?>(), Arg.Any<Action<JsonObject>?>()).Throws(new FactoryException("cannot dispatch deploy.yml: GitHub 422: no"));
 
         Assert.Throws<FactoryException>(() => Sut.Run(_session, false, false));
 

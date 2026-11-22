@@ -12,4 +12,7 @@ public interface IStateCache
 
     /// <summary>state-pull jobs/&lt;id&gt;/ when a job is opened.</summary>
     void Job(string id);
+
+    /// <summary>With shared files, pulls canary.json, so a canary running in another container shows its phase.</summary>
+    void Canary();
 }

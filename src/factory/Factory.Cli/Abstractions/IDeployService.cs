@@ -34,8 +34,10 @@ public interface IDeployService
     /// <summary>
     /// Step 5: dispatches deploy.yml on <paramref name="branch"/> and waits for that run, or for one of
     /// <paramref name="sha"/> that is still going (or, with <paramref name="resume"/>, the newest one); returns it, completed.
+    /// <paramref name="progress"/> sees the run on each poll that finds it, the completed one last (the canary's phases).
     /// </summary>
-    JsonObject DeployRun(string target, string environment, string branch, string? sha = null, bool resume = false, string? since = null);
+    JsonObject DeployRun(string target, string environment, string branch, string? sha = null, bool resume = false, string? since = null,
+        Action<JsonObject>? progress = null);
 
     /// <summary>The failed jobs' logs of a GitHub run, as text.</summary>
     string RunLog(string target, JsonObject run);

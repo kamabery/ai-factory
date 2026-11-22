@@ -193,6 +193,19 @@ public class DeployServiceTests : CommandTestBase
     }
 
     [Fact]
+    public void DeployRun_hands_each_run_it_sees_to_the_progress_callback_the_completed_one_last()
+    {
+        _gh.AddRun(5, "old", "completed", "success");
+        _gh.Looks = 2;
+        var seen = new List<string?>();
+
+        Sut.DeployRun("o/todo", "j000", "main", progress: r => seen.Add((string?)r["status"]));
+
+        Assert.NotEmpty(seen);
+        Assert.Equal("completed", seen[^1]);
+    }
+
+    [Fact]
     public void DeployRun_waits_on_a_run_of_the_head_that_is_still_going_and_dispatches_none()
     {
         // J-019: each retry of a deploy whose process died dispatched another run and spent an attempt.

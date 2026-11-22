@@ -23,6 +23,11 @@ public sealed class StateCache(
         if (settings.SharesFiles) Throttled($"job-{id}", () => sync.Pull($"jobs/{id}/"));
     }
 
+    public void Canary()
+    {
+        if (settings.SharesFiles) Throttled("canary", () => sync.Pull("canary.json"));
+    }
+
     private void Throttled(string key, Action run)
     {
         if (!settings.IsAzure && !settings.IsDatabase) return;

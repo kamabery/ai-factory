@@ -44,6 +44,18 @@ internal sealed class BoardSession(
         }
     }
 
+    public void Share(string path)
+    {
+        if (azure) ShareOne(sync, path);
+    }
+
+    /// <summary>Pushes only <paramref name="path"/>; a failure waits for the command's own push.</summary>
+    internal static void ShareOne(IStateSync sync, string path)
+    {
+        try { sync.Push(p => !string.Equals(p, path, StringComparison.OrdinalIgnoreCase)); }
+        catch (FactoryException) { }
+    }
+
     public IReadOnlyList<string> Close()
     {
         return azure ? ArtifactPush.Run(sync, Board, AddEvent, clock) : [];

@@ -48,22 +48,39 @@ public sealed partial class CanaryService(
             {
                 ["fingerprint"] = fp, ["status"] = "running", ["error"] = null, ["repo"] = repo, ["sha"] = null, ["urls"] = null,
                 ["log"] = $"canary-{n}.log", ["startedAt"] = Now, ["finishedAt"] = null, ["n"] = n, ["full"] = full,
-                ["version"] = canary.Version, ["inputs"] = Inputs(canary.Inputs()),
+                ["version"] = canary.Version, ["phase"] = "scaffold", ["deploy"] = null, ["run"] = null, ["inputs"] = Inputs(canary.Inputs()),
                 // Carried over from the last record, so the reasons and the typical duration survive a failure.
                 ["passes"] = last?["passes"] is JsonArray kept ? kept.DeepClone() : new JsonArray(),
             };
             Save(rec);
+            session.Share("canary.json");
             var log = new List<string>();
+            // Each phase is saved and shared as it starts, so a dashboard in another container follows it.
+            void Phase(string? phase) { rec["phase"] = phase; Save(rec); session.Share("canary.json"); }
+            void Progress(JsonObject run)
+            {
+                rec["run"] = PsJsonReader.Str(run["html_url"]);
+                var jobs = github.Send(HttpMethod.Get, $"/repos/{repo}/actions/runs/{PsJsonReader.Text(run["id"])}/jobs").Body?["jobs"] as JsonArray ?? [];
+                var counts = new JsonObject
+                {
+                    ["done"] = jobs.OfType<JsonObject>().Count(j => PsJsonReader.Is(PsJsonReader.Str(j["status"]), "completed")), ["total"] = jobs.Count,
+                };
+                if (rec["deploy"]?.ToJsonString() == counts.ToJsonString()) return;
+                rec["deploy"] = counts;
+                Phase("deploy");
+            }
             // As canary.ps1's if ($err): an empty error is none.
-            session.Unlocked(() => err = RunCanary(repo, sc, rec, log, full) is { Length: > 0 } e ? e : null);
+            session.Unlocked(() => err = RunCanary(repo, sc, rec, log, full, Phase, Progress) is { Length: > 0 } e ? e : null);
 
             files.WriteAtomic(Path.Combine(paths.Home, PsJsonReader.Text(rec["log"])), new UTF8Encoding(false).GetBytes(string.Join("\n\n", log) + Nl));
             rec["status"] = err is null ? "pass" : "failed";
             rec["error"] = err;
             rec["finishedAt"] = Now;
+            rec["phase"] = null;
             rec["teardown"] = new JsonObject { ["status"] = "destroying", ["error"] = null, ["startedAt"] = Now, ["failures"] = 0 };
             if (err is null) AddPass(rec);
             Save(rec);
+            session.Share("canary.json");
             session.AddEvent(Events.Create(clock.GetUtcNow(), ("kind", "canary"), ("detail", err is null ? "pass" : $"failed: {err}")));
         }
         // Pass or fail, j000 comes down, and nothing waits for it: a destroy takes as long as the deploy.
@@ -180,7 +197,7 @@ public sealed partial class CanaryService(
             : $"{command} refused: another canary is running (canary.lock)");
 
     /// <summary>The run, lock released: scaffold, deploy j000 from main, smoke. Null, or the first error; <paramref name="log"/> gets canary-&lt;n&gt;.log's sections.</summary>
-    private string? RunCanary(string repo, JsonObject sc, JsonObject rec, List<string> log, bool full)
+    private string? RunCanary(string repo, JsonObject sc, JsonObject rec, List<string> log, bool full, Action<string?> phase, Action<JsonObject> progress)
     {
         var dir = Path.Combine(paths.WorkRoot, "canary");
         var name = Preview.RepoName(repo);
@@ -188,13 +205,14 @@ public sealed partial class CanaryService(
         try
         {
             if (Publish(repo, sc, dir, rec, log, full) is { } failed) return failed;
+            phase("deploy");
             try
             {
                 deploy.PrepareGitHub(repo);
                 var project = hcp.EnsureProject(name);
                 wsId = hcp.EnsureWorkspace($"{name}-j000", project,
                     clock.GetUtcNow().UtcDateTime.AddHours(24).ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture));
-                var run = deploy.DeployRun(repo, "j000", "main");
+                var run = deploy.DeployRun(repo, "j000", "main", progress: progress);
                 if (!PsJsonReader.Is(PsJsonReader.Str(run["conclusion"]), "success"))
                 {
                     log.Add($"## GitHub\n{deploy.RunLog(repo, run)}\n\n## HCP\n{hcp.RunLog(wsId)}");
@@ -203,11 +221,13 @@ public sealed partial class CanaryService(
                 var outs = hcp.Outputs(wsId, ["qa_password"]);
                 var urls = Preview.Urls(outs);
                 rec["urls"] = urls;
+                phase("smoke");
                 var smoke = new List<string>();
                 var err = deploy.Smoke(urls, smoke);
                 log.Add($"## Smoke\n{string.Join("\n", smoke)}");
                 if (err is not null) return err;
                 // Step 7a, when the canary scaffold has sign-in (a QA user on j000).
+                if (sc["entra"] is JsonObject) phase("signin");
                 var signin = new List<string>();
                 err = deploy.SigninSmoke(outs, urls, Path.Combine(paths.Home, "canary-signin"), signin);
                 if (signin.Count > 0) log.Add($"## Sign-in smoke\n{(err is null ? "" : $"Error: {err}\n")}{string.Join("\n", signin)}");

@@ -35,6 +35,11 @@ internal sealed class DbBoardSession(IBoardRows rows, IStateExport export, Board
         finally { _read = rows.Read() ?? BoardRead.None(); }
     }
 
+    public void Share(string path)
+    {
+        if (shared is not null) BoardSession.ShareOne(shared, path);
+    }
+
     public IReadOnlyList<string> Close()
     {
         var warnings = shared is null ? [] : ArtifactPush.Run(shared, Board, AddEvent, clock);

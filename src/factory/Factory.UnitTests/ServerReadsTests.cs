@@ -148,9 +148,11 @@ public class ServerReadsTests : ServerTestBase
         Assert.Equal(400, files.State("../outside.txt").Status);
         files.State("board.json");
         files.State("events.jsonl");
+        files.State("canary.json");
 
         Cache.Received(1).Board();
         Cache.Received(1).Events();
+        Cache.Received(1).Canary();
     }
 
     [Fact]

@@ -17,6 +17,7 @@ public sealed class StaticFiles(IFactoryPaths paths, IStateCache cache, IOptions
         if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase)) return Reply.BadPath();
         if (rest == "board.json") cache.Board();
         if (rest == "events.jsonl") cache.Events();
+        if (rest == "canary.json") cache.Canary();
         return Reply.File(full);
     }
 

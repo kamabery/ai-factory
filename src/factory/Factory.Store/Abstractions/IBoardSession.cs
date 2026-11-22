@@ -21,6 +21,13 @@ public interface IBoardSession : IDisposable
     void Unlocked(Action work);
 
     /// <summary>
+    /// With shared files (azure, or sql with FACTORY_BLOB_URL), uploads the one file at <paramref name="path"/> (relative
+    /// to FACTORY_HOME, '/' separators) now, not only at <see cref="Close"/>; nothing otherwise. A failed upload is
+    /// ignored: Close pushes it again (contract, "Canary", "Phases").
+    /// </summary>
+    void Share(string path);
+
+    /// <summary>
     /// How every command ends, still under the lock: in azure, push what changed and hold the container to its
     /// cap. Returns the stderr lines a failed push leaves (the command's own result stands).
     /// </summary>

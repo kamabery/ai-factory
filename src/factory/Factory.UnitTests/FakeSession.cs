@@ -32,6 +32,13 @@ public sealed class FakeSession(JsonObject board) : IBoardSession
 
     public void AddEvent(JsonObject e) => Events.Add(e);
 
+    /// <summary>What a command shared at once, in order; <see cref="OnShare"/> sees each as it happens.</summary>
+    public List<string> Shared { get; } = [];
+
+    public Action<string>? OnShare { get; set; }
+
+    public void Share(string path) { Shared.Add(path); OnShare?.Invoke(path); }
+
     public IReadOnlyList<string> Close() => [];
 
     public void Dispose() { }

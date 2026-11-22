@@ -1,16 +1,30 @@
 import { useState } from 'react'
-import { useData } from '@/app/data'
+import { useCanaryDue, useData } from '@/app/data'
 import { useUi } from '@/app/ui'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import type { Canary } from '@/lib/types'
+
+const PHASES: Record<string, string> = { scaffold: 'scaffolding', deploy: 'deploying', smoke: 'smoke check', signin: 'sign-in check' }
+
+/** `Deploy canary (0.4.2) · deploying 2/3 · 7 of ~15 min` (contract, "Canary", "Phases"). */
+export function running(c: Canary, now: number, typical: number) {
+  const name = c.version ? `Deploy canary (${c.version})` : 'Deploy canary'
+  let phase = c.phase ? PHASES[c.phase] ?? c.phase : 'running'
+  if (c.phase === 'deploy' && c.deploy && c.deploy.total > 0) phase += ` ${Math.min(c.deploy.done + 1, c.deploy.total)}/${c.deploy.total}`
+  const started = Date.parse(c.startedAt ?? '')
+  const minutes = Number.isNaN(started) ? 0 : Math.max(0, Math.floor((now - started) / 60_000))
+  return `${name} · ${phase} · ${minutes} of ~${typical} min`
+}
 
 /**
  * The deploy canary (contract, "Canary"): a banner while one runs, after one failed (deployable jobs wait in
  * Approved until it passes), or after a pass whose j000 teardown failed.
  */
 export function CanaryBanner() {
-  const { canary: c } = useData()
+  const { canary: c, boardReadAt } = useData()
+  const due = useCanaryDue()
   const { toast } = useUi()
   const [sent, setSent] = useState<string | null>(null)
   const stuck = c?.status === 'pass' && c.teardown?.status === 'failed'
@@ -29,7 +43,10 @@ export function CanaryBanner() {
       className={cn('flex flex-wrap items-center gap-3 border-b border-border-subtle px-4 py-2 text-[13px]',
         c.status === 'running' ? 'running bg-intent-running-subtle text-intent-running' : 'bg-intent-danger-subtle text-intent-danger')}>
       {c.status === 'running' ? (
-        <span className="min-w-0 flex-1">Deploy canary running (since {new Date(c.startedAt ?? '').toLocaleTimeString()}): deployable jobs wait for it.</span>
+        <>
+          <span className="min-w-0 flex-1">{running(c, boardReadAt || Date.now(), due?.typicalMinutes ?? 15)}: deployable jobs wait for it.</span>
+          {c.run && <a data-canary-run href={c.run} target="_blank" rel="noopener" className="underline">Actions run ↗</a>}
+        </>
       ) : stuck ? (
         <>
           <span className="min-w-0 flex-1 break-words">

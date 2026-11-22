@@ -249,12 +249,33 @@ describe('the canary banner', () => {
   it('a running canary, and a pass whose teardown failed, say so', async () => {
     fakeServer({ 'GET /state/canary.json': { status: 'running', startedAt: '2026-11-01T12:00:00Z' } })
     const { $, unmount } = renderApp()
-    await waitFor(() => expect($('#canary')).toHaveTextContent('Deploy canary running'))
+    await waitFor(() => expect($('#canary')).toHaveTextContent('Deploy canary · running · '))
     unmount()
     fakeServer({ 'GET /state/canary.json': { status: 'pass', log: 'c.log', teardown: { status: 'failed', error: '404', failures: 2 } } })
     const r = renderApp()
     await waitFor(() => expect(r.$('#canary')).toHaveTextContent('could not be torn down'))
     expect(r.$('#canary')).not.toHaveTextContent('Deployable jobs are waiting')
+  })
+
+  it('a running canary shows its version, phase, elapsed of typical minutes and the Actions run', async () => {
+    const startedAt = new Date(Date.now() - 7.5 * 60_000).toISOString()
+    fakeServer({
+      'GET /state/canary.json': { status: 'running', startedAt, version: '0.4.2', phase: 'deploy', deploy: { done: 1, total: 3 }, run: 'https://gh/run/1' },
+      'GET /api/canary': { due: false, reasons: [], typicalMinutes: 16 },
+    })
+    const { $ } = renderApp()
+    await waitFor(() => expect($('#canary')).toHaveTextContent('Deploy canary (0.4.2) · deploying 2/3 · 7 of ~16 min'))
+    expect($('#canary a[data-canary-run]')).toHaveAttribute('href', 'https://gh/run/1')
+  })
+
+  it('names each phase', async () => {
+    for (const [phase, text] of [['scaffold', 'scaffolding'], ['smoke', 'smoke check'], ['signin', 'sign-in check'], ['deploy', 'deploying']]) {
+      fakeServer({ 'GET /state/canary.json': { status: 'running', startedAt: new Date().toISOString(), phase } })
+      const r = renderApp()
+      await waitFor(() => expect(r.$('#canary')).toHaveTextContent(`Deploy canary · ${text} · 0 of ~15 min`))
+      expect(r.$('#canary a[data-canary-run]')).toBeNull()
+      r.unmount()
+    }
   })
 
   it('a pass shows no banner', async () => {

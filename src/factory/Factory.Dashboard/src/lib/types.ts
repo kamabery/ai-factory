@@ -84,6 +84,10 @@ export type CanaryDue = { due?: boolean; reasons?: string[]; typicalMinutes?: nu
 
 export type Canary = {
   status?: string
+  version?: string
+  phase?: 'scaffold' | 'deploy' | 'smoke' | 'signin' | null
+  deploy?: { done: number; total: number } | null
+  run?: string | null
   error?: string | null
   log?: string
   startedAt?: string

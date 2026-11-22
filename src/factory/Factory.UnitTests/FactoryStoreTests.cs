@@ -210,6 +210,21 @@ public class FactoryStoreTests
     }
 
     [Fact]
+    public void Share_in_azure_uploads_just_that_file_ignores_a_failure_and_is_nothing_locally()
+    {
+        using (var local = Store().Open()) local.Share("canary.json");
+        _sync.DidNotReceiveWithAnyArgs().Push(default);
+
+        Func<string, bool>? skip = null;
+        _sync.Push(Arg.Do<Func<string, bool>?>(f => skip = f)).Returns(_ => throw new FactoryException("state: PUT x answered 500"));
+        using var s = Store(azure: true).Open();
+        s.Share("canary.json");
+
+        Assert.False(skip!("canary.json"));
+        Assert.True(skip("board.json"));
+    }
+
+    [Fact]
     public void A_failed_push_is_reported_and_does_not_fail_the_command()
     {
         _sync.Push(Arg.Any<Func<string, bool>?>()).Throws(new FactoryException("state: PUT x answered 500"));

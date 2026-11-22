@@ -175,7 +175,8 @@ public sealed partial class DeployService(
         if (made.Code != 0) throw new FactoryException($"az federated-credential {verb} failed: {made.Out}");
     }
 
-    public JsonObject DeployRun(string target, string environment, string branch, string? sha = null, bool resume = false, string? since = null)
+    public JsonObject DeployRun(string target, string environment, string branch, string? sha = null, bool resume = false, string? since = null,
+        Action<JsonObject>? progress = null)
     {
         var runsPath = $"/repos/{target}/actions/runs?branch={Uri.EscapeDataString(branch)}&event=workflow_dispatch";
         var runs = Runs(runsPath);
@@ -199,6 +200,7 @@ public sealed partial class DeployService(
             run = run is null
                 ? Runs(runsPath).Where(x => Id(x) > last).OrderBy(Id).FirstOrDefault()
                 : github.Send(HttpMethod.Get, $"/repos/{target}/actions/runs/{PsJsonReader.Text(run["id"])}").Body as JsonObject;
+            if (run is not null) progress?.Invoke(run);
             if (run is not null && PsJsonReader.Is(PsJsonReader.Str(run["status"]), "completed")) return run;
             if (clock.GetUtcNow() > deadline)
                 throw new FactoryException($"deploy.yml did not finish in time{(run is null ? "" : $": {PsJsonReader.Text(run["html_url"])}")}");
