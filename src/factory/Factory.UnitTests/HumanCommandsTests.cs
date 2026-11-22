@@ -210,6 +210,48 @@ public class HumanCommandsTests
         _processes.DidNotReceive().Run("dotnet", Arg.Is<IReadOnlyList<string>>(a => a.Contains("clone-target")), "");
     }
 
+    private const string RepoIdeas = """{ "ideas": [ { "id": "I-002", "target": "me/app", "status": "done", "kind": "repo" }, { "id": "I-003", "target": "me/app", "status": "drafting", "kind": "repo" } ], "jobs": [] }""";
+    private const string Features = """{"features":[{"k":1,"heading":"Add a todo","text":"x","idea":"I-004"},{"k":2,"heading":"Share a list","text":"y","idea":null}],"next":2,"home":null}""";
+
+    [Fact]
+    public void Idea_with_a_feature_starts_that_feature_of_the_targets_repo_idea()
+    {
+        var clone = Path.Combine(Repo, "work", "cli", "me-app");
+        Cli("status", ["-Json"], RepoIdeas);
+        Cli("product", ["I-003"], Features);
+        Cli("check-target", ["me/app"], "existing\n");
+        Cli("clone-target", ["me/app", clone], clone + "\n");
+
+        Run(new IdeaCommand(_paths, _files, _processes, Host()), "me/app", "--feature", "2");
+
+        Assert.Equal($"/factory:idea me/app clone={clone} feature=2 from=I-003", Attached.Single().Args[^1]);
+    }
+
+    [Theory]
+    [InlineData("""{ "ideas": [], "jobs": [] }""", "2", "factory: idea refused: me/app has no drafting repo idea to start a feature of")]
+    [InlineData(RepoIdeas, "5", "factory: idea refused: docs/PRODUCT.md on main has no feature 5")]
+    [InlineData(RepoIdeas, "1", "factory: idea refused: feature 1 (Add a todo) already has I-004")]
+    [InlineData(RepoIdeas, "x", "factory: idea refused: --feature takes a number, the feature's place in docs/PRODUCT.md")]
+    public void Idea_with_a_feature_refuses_one_it_cannot_start(string status, string k, string refusal)
+    {
+        Cli("status", ["-Json"], status);
+        Cli("product", ["I-003"], Features);
+
+        Assert.Equal((1, refusal), Run(new IdeaCommand(_paths, _files, _processes, Host()), "me/app", "--feature", k));
+        Assert.Empty(Attached);
+    }
+
+    [Fact]
+    public void Idea_with_a_feature_says_why_PRODUCT_md_cannot_be_read()
+    {
+        Cli("status", ["-Json"], RepoIdeas);
+        _processes.Run("dotnet", Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { _paths.CliDll, "product", "I-003" })), "")
+            .Returns(new ProcessResult(1, "", "product refused: docs/PRODUCT.md on main: GitHub 404: Not Found\n"));
+
+        Assert.Equal((1, "factory: idea refused: product refused: docs/PRODUCT.md on main: GitHub 404: Not Found"),
+            Run(new IdeaCommand(_paths, _files, _processes, Host()), "me/app", "--feature", "1"));
+    }
+
     [Fact]
     public void Idea_with_no_argument_asks_in_the_session()
     {
