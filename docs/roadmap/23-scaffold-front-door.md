@@ -1,7 +1,10 @@
 # 23: A scaffolded app's front door: the style guide stays local, and Home is decided
 
-**Status:** in progress (2026-11-21): investigated and grilled; template, then factory, then the follow-ups. **Branch:** `feature/23-scaffold-front-door` here, plus a branch and PR in
-kamabery/template-projects (Kurt merges). **Depends on:** 18.
+**Status:** done (2026-11-22), in review. Template: kamabery/template-projects PR #11 (merged). Factory: the Home rule
+in the contract, the grill, the spec template and `submit_specs` / `revise_spec`; ai-factory 0.4.2 on the cloud board.
+Follow-ups: booklist on the local board (J-037, booklist PR #3, merged) and pantry on the cloud board (J-006, pantry
+PR #3, $1.53, one round, eval good). On the pantry preview, `/` opens Pantry, the nav is Pantry only, and
+`/styleguide` is not found. **Branch:** `feature/23-scaffold-front-door`. **Depends on:** 18.
 
 ## Why
 
@@ -78,6 +81,7 @@ Seen red before green:
 - factory (if the decision touches the spec-writer): the spec template and the prompt carry the Home decision; a
   Simulator/Playwright case where a new-app spec names it.
 - Live: the next new-repo idea's preview has no Style guide in its nav, and its Home matches what the spec decided.
+  Met on 2026-11-22 by cloud J-006 (kamabery/pantry), its `- Home: redirect` checked in a browser on the preview.
 
 ## Done when
 
