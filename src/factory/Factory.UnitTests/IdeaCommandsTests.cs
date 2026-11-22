@@ -83,7 +83,7 @@ public class IdeaCommandsTests : CommandTestBase
     }
 
     [Theory]
-    [InlineData(new[] { "new-idea" }, "usage: new-idea <text> -Target <owner/name> [-Scaffold <json>] [-Base <J-NNN>]")]
+    [InlineData(new[] { "new-idea" }, "usage: new-idea <text> -Target <owner/name> [-Scaffold <json> [-Product <file>]] [-Base <J-NNN>] [-From <I-NNN> -Feature <heading>]")]
     [InlineData(new[] { "new-idea", "x" }, "new-idea refused: a target repo (owner/name) is required")]
     [InlineData(new[] { "new-idea", "x", "-Target", "a/b/c" }, "new-idea refused: target 'a/b/c' is not a GitHub repo written owner/name")]
     [InlineData(new[] { "new-idea", "x", "-Target", "o/r", "-Scaffold", Scaffold }, "new-idea refused: 'o/r' is an existing repo; scaffold options are only for a new one")]
@@ -99,6 +99,106 @@ public class IdeaCommandsTests : CommandTestBase
 
         Assert.Equal(refusal, Assert.Throws<FactoryException>(() => NewIdea.Run(Args(args), s)).Message);
         Assert.Equal(0, s.Saves);
+    }
+
+    private static readonly string ProductFile = Path.Combine(Path.GetTempPath(), "S-001", "product.md");
+    private const string ProductMd = "# Product: Todo\n## Home\n- Home: redirect: /todos\n## Features\n### Add a todo\nType it in.\n### Share a list\nWith a friend.\n";
+
+    [Fact]
+    public void NewIdea_with_a_product_is_a_repo_idea_and_keeps_its_product()
+    {
+        _gh.Lookup("o/new").Returns(RepoState.Missing);
+        Files.Put(ProductFile, ProductMd);
+        var s = FakeSession.With();
+
+        var r = NewIdea.Run(Args("new-idea", "todo app", "-Target", "o/new", "-Scaffold", Scaffold, "-Product", ProductFile), s);
+
+        Assert.Equal(["I-001 J-001"], r.Out);
+        Assert.Equal(("repo", "waiting"), ((string?)Idea(s)["kind"], (string?)Idea(s)["status"]));
+        Assert.Equal(ProductMd, Files.Text(Path.Combine(Home, "ideas", "I-001", "product.md")));
+    }
+
+    [Theory]
+    [InlineData("o/r", true, "new-idea refused: 'o/r' is an existing repo; a product is only for a new one")]
+    [InlineData("o/new", false, "new-idea refused: no product file")]
+    public void NewIdea_refuses_a_product_out_of_place(string target, bool present, string refusal)
+    {
+        _gh.Lookup("o/new").Returns(RepoState.Missing);
+        if (present) Files.Put(ProductFile, ProductMd);
+        string[] scaffold = target == "o/new" ? ["-Scaffold", Scaffold] : [];
+        var s = FakeSession.With();
+
+        Assert.Equal(refusal, Assert.Throws<FactoryException>(() => NewIdea.Run(Args(["new-idea", "x", "-Target", target, .. scaffold, "-Product", ProductFile]), s)).Message);
+        Assert.Equal(0, s.Saves);
+    }
+
+    [Fact]
+    public void NewIdea_refuses_a_product_the_rules_refuse()
+    {
+        _gh.Lookup("o/new").Returns(RepoState.Missing);
+        Files.Put(ProductFile, "# Product: Todo\n## Home\n- Home: redirect: /todos\n## Features\n");
+
+        Assert.Equal("new-idea refused: list 1 to 10 features, each a ### heading under ## Features (it has 0)",
+            Assert.Throws<FactoryException>(() => NewIdea.Run(Args("new-idea", "x", "-Target", "o/new", "-Scaffold", Scaffold, "-Product", ProductFile), FakeSession.With())).Message);
+    }
+
+    private static FakeSession WithRepoIdea(string status = "drafting", string target = "o/r", JsonArray? features = null)
+    {
+        var s = FakeSession.With();
+        s.Board["ideas"]!.AsArray().Add(new JsonObject
+        {
+            ["id"] = "I-001", ["text"] = "todo app", ["target"] = target, ["status"] = status, ["kind"] = "repo",
+            ["features"] = features ?? new JsonArray(), ["jobs"] = new JsonArray(),
+        });
+        return s;
+    }
+
+    [Fact]
+    public void NewIdea_from_a_repo_idea_starts_that_feature()
+    {
+        var s = WithRepoIdea();
+
+        var r = NewIdea.Run(Args("new-idea", "Add a todo", "-Target", "o/r", "-From", "I-001", "-Feature", "Add a todo"), s);
+
+        Assert.Equal(["I-002"], r.Out);
+        var feature = s.Board["ideas"]![1]!.AsObject();
+        Assert.Equal(("I-001", "Add a todo", "drafting"), ((string?)feature["from"], (string?)feature["feature"], (string?)feature["status"]));
+        Assert.Equal("""[{"heading":"Add a todo","idea":"I-002"}]""", Idea(s)["features"]!.ToJsonString());
+    }
+
+    public static TheoryData<string[], string?, string> FromRefusals => new()
+    {
+        { ["-From", "I-001"], null, "new-idea refused: -From and -Feature go together" },
+        { ["-Feature", "Add a todo"], null, "new-idea refused: -From and -Feature go together" },
+        { ["-From", "I-009", "-Feature", "Add a todo"], null, "new-idea refused: no idea I-009" },
+        { ["-From", "I-001", "-Feature", "Add a todo"], "waiting", "new-idea refused: I-001 is waiting, not a drafting repo idea" },
+        { ["-From", "I-001", "-Feature", "Add a todo"], "other", "new-idea refused: I-001 is a repo idea on o/other, not o/r" },
+        { ["-From", "I-001", "-Feature", " add A TODO"], "started", "new-idea refused: feature 'Add a todo' of I-001 already has I-005" },
+    };
+
+    [Theory]
+    [MemberData(nameof(FromRefusals))]
+    public void NewIdea_refuses_a_feature_it_cannot_start(string[] from, string? setup, string refusal)
+    {
+        var s = setup switch
+        {
+            "waiting" => WithRepoIdea("waiting"),
+            "other" => WithRepoIdea(target: "o/other"),
+            "started" => WithRepoIdea(features: [new JsonObject { ["heading"] = "Add a todo", ["idea"] = "I-005" }]),
+            _ => WithRepoIdea(),
+        };
+
+        Assert.Equal(refusal, Assert.Throws<FactoryException>(() => NewIdea.Run(Args(["new-idea", "x", "-Target", "o/r", .. from]), s)).Message);
+        Assert.Equal(0, s.Saves);
+    }
+
+    [Fact]
+    public void NewIdea_refuses_a_feature_of_an_idea_that_is_not_a_repo_idea()
+    {
+        var s = WithIdea("drafting");
+
+        Assert.Equal("new-idea refused: I-001 is not a repo idea",
+            Assert.Throws<FactoryException>(() => NewIdea.Run(Args("new-idea", "x", "-Target", "o/r", "-From", "I-001", "-Feature", "A"), s)).Message);
     }
 
     [Fact]

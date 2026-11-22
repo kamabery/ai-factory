@@ -11,7 +11,7 @@ public sealed class CommandArgs
 
     /// <summary>factory.ps1's [string] parameters. Any other token starting with '-' is a positional value (a rework note can).</summary>
     public static readonly IReadOnlySet<string> Values = new HashSet<string>(
-        ["By", "Reason", "Detail", "File", "Job", "Idea", "Kind", "Agent", "Target", "Scaffold", "Base", "Session"], StringComparer.OrdinalIgnoreCase);
+        ["By", "Reason", "Detail", "File", "Job", "Idea", "Kind", "Agent", "Target", "Scaffold", "Base", "Session", "Product", "From", "Feature"], StringComparer.OrdinalIgnoreCase);
 
     private readonly Dictionary<string, string?> _named = new(StringComparer.OrdinalIgnoreCase);
 

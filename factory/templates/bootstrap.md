@@ -33,9 +33,13 @@ template code from the app's own.
 - [ ] AC3: `README.md` and `CLAUDE.md` exist and describe only what was generated, per the skill's
   Phase 4 — proven by the files in the diff. No `graphify-out/` and no `.claude/` hooks are committed.
 - [ ] AC4: Every Gate command exits 0 — proven by the Gate commands' output in build.md.
+- [ ] AC5: If the branch has `docs/PRODUCT.md` (the factory's `docs: product` commit, the app's roadmap from its
+  New repo idea), it is unchanged: features are built later, one idea each — proven by `git diff <that commit> -- docs/PRODUCT.md`
+  printing nothing.
 
 ## Scope
-- In: everything the templates generate, the wiring edits, README.md, CLAUDE.md, `.gitignore`.
+- In: everything the templates generate, the wiring edits, README.md, CLAUDE.md, `.gitignore`, `docs/PRODUCT.md`
+  (the factory's commit, left unchanged).
 - Out: any feature beyond the scaffold's sample `{{resource}}` slice; any change to the template
   workspace; Terraform apply or any deployment.
 

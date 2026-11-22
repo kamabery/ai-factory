@@ -109,7 +109,8 @@ the simulator at a stub.
   through the `aspire-addon` CLI and the gate adds `dotnet build .aspire/apphost.cs` and
   `aspire-addon infra check`. The idea waits (`waiting`) until that job is
   merged; the merge releases it (`drafting`), and the human resumes it with `/factory:idea I-NNN`,
-  so the spec-writer specs features against real code.
+  so the spec-writer specs features against real code. Since spec 22 a new target is a **New repo** idea
+  (see [Ideas](#ideas)): the merge releases it to start its features one by one, from its `docs/PRODUCT.md`.
   The first `checkout` creates the repo on GitHub (**private**; under the token's user when the
   owner is that user, else in the named organization) if it is missing, and pushes `main` with an
   empty initial commit if it has none. The control plane does this, never an agent.
@@ -404,14 +405,57 @@ scaffolded its target (`idea.scaffold` is set; in a dashboard session, `session.
   none of the three words counts as no decision. In the CLI fallback the rule is the spec-writer's
   instructions alone; nothing refuses there.
 
+**A New repo idea (spec 22).** Scaffolding a repo and building a feature are two ideas. A **New repo** idea
+(`kind: "repo"`) is grilled about the repo name, its scaffold options, the app's purpose and users, its Home and
+the features to build, and ends in a confirmed **product document**, not a brief, following
+`factory/templates/product.md`:
+
+```
+# Product: <app name>
+## Purpose        what it is for, in a paragraph
+## Users          who uses it
+## Home
+- Home: <replace | redirect | keep>: <detail>    (the same line spec 23's Home section takes)
+## Features
+### <feature 1>   1 to 10 features in build order, each a ### heading and a paragraph
+```
+
+A product with no such `- Home:` line, or with fewer than 1 or more than 10 `###` headings under `## Features`, is
+refused (`product refused: ...`). The repo idea's one job is the bootstrap, and it writes no specs:
+- `new-idea -Product <file>` (a new target only, with `-Scaffold`) copies the file to `ideas/I-NNN/product.md` and
+  sets `kind: "repo"`. `checkout`, creating the bootstrap's branch, commits it as `docs/PRODUCT.md` (subject
+  `docs: product`, author `factory`) before the builder starts, so the scaffold PR carries it; the bootstrap spec
+  says to leave it unchanged. A rework's checkout of the pushed branch already has it.
+- The bootstrap's merge releases the repo idea (`drafting`) as for any bootstrap. From then on its features are
+  read from `docs/PRODUCT.md` on the target's `main` (`factory product I-NNN`), so edits made there count. The
+  factory never edits PRODUCT.md after its first commit.
+- **A feature is started** by a feature idea that names it: `new-idea <text> -Target <repo> -From <I-NNN>
+  -Feature <heading>` records `from` and `feature` on the new idea and `{ heading, idea }` in the repo idea's
+  `features`, refused when `-From` is not a `drafting` repo idea on that target or the heading already has an idea.
+  The **next** feature is the first in PRODUCT.md's order whose heading (case-insensitive, trimmed) has no idea.
+  When none is left, or the human dismisses it, the repo idea goes `done` (`idea-done`).
+- **Home** moves with it: spec 23's grill question is the New repo grill's, recorded in PRODUCT.md, and the Home
+  rule for specs (the `- Home:` line, and `submit_specs` refusing a set without one) applies to a repo's **first**
+  feature idea (no other feature of its repo idea has started), with PRODUCT.md's Home line as the answer. A second
+  feature needs none.
+- Repos scaffolded before 22 (their idea has no `kind`) keep the old flow, and their targets use New idea.
+
 ```
 board.ideas[] = { "id": "I-001", "text": "...", "target": "kamabery/todo-app",
                   "scaffold": null, "base": null, "status": "waiting|drafting|done|failed|abandoned",
                   "closeWhenDecided": true,   // idea-done ran while specs waited in backlog (absent otherwise)
+                  "kind": "repo",             // a New repo idea (absent: a feature idea)
+                  "features": [ { "heading": "Borrow a book", "idea": "I-004" } ],   // repo idea: the features started
+                  "from": "I-003", "feature": "Borrow a book",                     // feature idea started from a repo idea
                   "jobs": ["J-004", "J-005"], "createdAt": "..." }
 ```
 
-- `factory new-idea <text> -Target <path> [-Scaffold <json>] [-Base <J-NNN>]` validates the target and options
+- `factory product <I-NNN>` reads `docs/PRODUCT.md` from the repo idea's target's `main` (GitHub contents API) and
+  prints `{ "features": [ { "k", "heading", "text", "idea" } ], "next": <k> | null, "home": "<line>" }`, with `k` from 1
+  in document order and `idea` from the board; it refuses with the read error, `docs/PRODUCT.md on main has no
+  feature to start` when it has none, or `I-NNN is not a repo idea`.
+
+- `factory new-idea <text> -Target <path> [-Scaffold <json> [-Product <file>]] [-Base <J-NNN>] [-From <I-NNN> -Feature <heading>]` validates the target and options
   (see [Targets](#targets)), allocates `I-NNN` and writes `ideas/I-NNN/idea.md` (the text, then a
   last line `Target: <path>`). For an existing repo it sets status `drafting`. For a new target it
   sets status `waiting`, creates the bootstrap job in `backlog` (`kind: "bootstrap"`, listed in the
@@ -481,7 +525,7 @@ own last write.
 | --- | --- | --- |
 | `read_file`, `list_dir`, `grep` | server, read-only | fenced to the session's clone of the target (`checkout`, when the target exists) and `factory/templates`; any other path is refused |
 | `submit_specs { specs: [{ k, markdown }] }` (1..5) · `revise_spec { k, markdown }` | server | write `ideas/<I>/spec-<k>.md` and the session's `specs`; refused until the brief is confirmed (the session has an idea), for an ambiguous Scope line (see [Scope](#scope)), and for a new app's set with no Home decision (see [Ideas](#ideas)) |
-| `ask_questions { questions }` (AskUserQuestion's shape) · `propose_scaffold { repo?, name, resource, db, ui, events }` (`repo`, a repo name, is required while the session has no target) · `submit_brief { markdown }` | UI | a valid call becomes `session.json.pending`, the model is told to end its turn, and any later tool call in the turn is refused; the human's answer is the next turn's prompt |
+| `ask_questions { questions }` (AskUserQuestion's shape) · `propose_scaffold { repo?, name, resource, db, ui, events }` (`repo`, a repo name, is required while the session has no target) · `submit_brief { markdown }` · `submit_product { markdown }` (a repo session's in place of `submit_brief`; a product [Ideas](#ideas) refuses is a tool error, and `submit_brief` is one there) | UI | a valid call becomes `session.json.pending`, the model is told to end its turn, and any later tool call in the turn is refused; the human's answer is the next turn's prompt |
 
 ```
 sessions/<S>/session.json = { "id": "S-001", "target": "owner/name" | null, "text": "...", "newTarget": false,
@@ -489,6 +533,8 @@ sessions/<S>/session.json = { "id": "S-001", "target": "owner/name" | null, "tex
   "claudeSession": "<uuid>" | null,
   "status": "running|idle|error|closed", "error": null, "model": "claude-opus-5-5", "costUsd": 0.12,
   "scaffold": null, "idea": "I-004", "bootstrap": null,
+  "kind": "repo",                                     // a New repo session (absent: a feature session)
+  "from": "I-003", "feature": "Borrow a book", "home": "- Home: redirect: /books",   // a session Implement opened; home only for a first feature
   "pending": { "id": "toolu_...", "name": "ask_questions", "input": { } } | null,
   "pendingResults": [ ],
   "specs": [ { "k": 1, "title": "...", "decision": null | "approved" | "backlog" | "rejected", "job": "J-007" } ],
@@ -542,6 +588,24 @@ has merged), and closing the session deletes the clone.
    the session: `idea-done`, or `idea-done -Failed -Reason "every spec rejected in session"`. A **Not yet**
    spec keeps the idea open on its card in Ideas until it is approved or discarded (see [Ideas](#ideas)).
 
+**New repo and its features (spec 22).** A session for a new target (**New repo** in the panel, which replaces
+**+ Add new**, or a picked repo that `check-target` calls `new`) is a repo session, `kind: "repo"`. Its grill ends
+in `submit_product`, and the panel shows the product with **Confirm** and **Correct** as it does a brief. Confirm
+writes it to `sessions/<S>/product.md`, runs `new-idea -Scaffold <json> -Product <that file>`, and then runs
+step 3's new-target branch (`approve <bootstrap>`, the runner, Merge). It writes no `brief.md` and the session
+never writes specs: the sweep starts no spec turn for a repo session.
+
+Once the repo idea is `drafting` (its bootstrap merged), its card in Ideas offers **Implement first feature**, later
+**Implement \<heading\>**, for `factory product`'s `next`, and **Dismiss** (`idea-done`). Implement opens a feature
+session on the repo, as `POST /api/sessions` does for an existing target, with `from`, `feature` and, for the first
+feature, `home` set, and its first message gives the model the feature's text and PRODUCT.md, and says to grill
+only what they and the code leave open. That session runs brief → specs → build, and its Confirm runs `new-idea`
+with `-From <repo idea> -Feature <heading>`, which is when the feature counts as started; until then the repo card
+shows the open session in place of Implement, and abandoning it leaves the feature unstarted. After a Confirm, the
+server reads `product` again and closes the repo idea (`idea-done`) when no feature is left. `home` makes
+`submit_specs` and `revise_spec` apply the Home rule, quoting PRODUCT.md's line. When `product` refuses, the repo card
+shows the refusal and offers Dismiss only.
+
 **The phase.** The server works out a session's phase from `session.json` and the board on every read; it is
 never stored. A new-target session's panel shows it as a stepper (Brief → Scaffold → Specs → Build) with the
 current phase lit and what it waits on in plain text; its card says the same in a line.
@@ -557,11 +621,15 @@ current phase lit and what it waits on in plain text; its card says the same in 
 - `build`: every spec is decided and at least one reached the board; `jobs` are those jobs as the board has them.
   An existing-target session goes brief → specs → build.
 
+A repo session's stepper is Grill → Scaffold → Review → Merged instead: `grill` (no idea yet), `scaffold` (its
+bootstrap short of `ready`), `review` (`ready`, to merge; `job`, `stage` and `pr` as for `scaffold`) and `merged`
+(`done`, or purged off the board).
+
 **Advancing and notices.** After every move, and on every watchdog tick (see [Runner](#runner)), the server sweeps
 the sessions that are not `closed` and have no turn running:
 
-- A session with a bootstrap that is `done`, an idea that is `drafting`, no specs and no `specsStarted` gets the
-  spec turn, exactly as `write-specs` (which sets `specsStarted`). So the turn starts once: a session that has
+- A session (not a repo session) with a bootstrap that is `done`, an idea that is `drafting`, no specs and no
+  `specsStarted` gets the spec turn, exactly as `write-specs` (which sets `specsStarted`). So the turn starts once: a session that has
   specs, has started them, or is running a turn is left alone.
 - Two moments are recorded once each in `notices`, with the time: `scaffold-ready` when the bootstrap is first
   `ready` ("J-NNN is ready for review: merge the *repo* scaffold"), and `specs-ready` when the session first has
@@ -817,10 +885,12 @@ session. A human marks one `applied` once the fix has merged. `purge` never touc
   canary-<n>.log               canary run n's log
   headless-settings.json       written by the runner for each claude -p run (see Runner)
   sessions/<S-NNN>/            a dashboard idea session (see Idea sessions)
-    session.json  chat.json  stream.jsonl  human.jsonl  turn.lock
+    session.json  chat.json  stream.jsonl  human.jsonl  turn.lock  product.md (a repo session's, at Confirm)
   ideas/<id>/
     idea.md                    the idea's one-line title, then `Target: <path>`
     brief.md                   the grilled brief, in the human's words (factory/templates/brief.md)
+    product.md                 a New repo idea's product document (factory/templates/product.md), committed to the
+                               target as docs/PRODUCT.md
     spec-<k>.md                spec-writer output, one per proposed job
   jobs/<id>/
     spec.md                    copied from the idea, then edited by the human while in backlog
@@ -1234,10 +1304,14 @@ state and takes no board lock.
 on `PATH`. For a resumed idea it sets `FACTORY_IDEA`, so the spec-writer's hook events go to it. An existing
 target is cloned with `clone-target` into `<work>\cli\<owner>-<name>` and passed as `--add-dir` and
 `clone=<dir>`, and the clone is deleted when the session ends.
+`factory idea <owner/name> --feature <k>` (spec 22) starts feature `k` of a repo idea on that target: it runs
+`product` on the target's `drafting` repo idea, refuses when there is none, no feature `k`, or `k` already has an idea,
+and passes `feature=<k> from=<I-NNN>` to `/factory:idea`, whose Confirm step runs `new-idea -From -Feature`. A new
+target's `/factory:idea` grills to a product (the New repo idea) and stops at the bootstrap.
 
 | Command | Used by |
 | --- | --- |
-| `new-idea <text> -Target <path> [-Scaffold <json>] [-Base <J-NNN>]` · `add-spec <ideaId> <file>` · `idea-done <ideaId> [-Failed -Reason]` · `idea-abandon <ideaId>` | `/factory:idea`, the server (idea sessions, **Abandon**) |
+| `new-idea <text> -Target <path> [-Scaffold <json> [-Product <file>]] [-Base <J-NNN>] [-From <I-NNN> -Feature <heading>]` · `add-spec <ideaId> <file>` · `idea-done <ideaId> [-Failed -Reason]` · `idea-abandon <ideaId>` · `product <I-NNN>` | `/factory:idea`, the server (idea sessions, **Abandon**, the repo card) |
 | `check-target <owner/name>` (prints `new` or `existing` from the GitHub API, or refuses as `new-idea` would) · `clone-target <owner/name> <dir> [-Base <J-NNN>]` (replaces `<dir>` with a `--depth 1` clone of `main`, or of `factory/<base>`) | the server (idea sessions), idea.ps1 |
 | `list-repos` (prints a JSON array of the token user's own repos, `owner/name`, newest push first, at most 100) | the server (New idea) |
 | `edit-spec <id> -File <path>` (backlog only) | the server |
@@ -1701,17 +1775,20 @@ and a refused move snaps the card back and shows the message.
 | `GET /api/evals` | (read-only) | every `evals/<id>.json`, newest job first; the markdown is at `/state/evals/<id>.md` |
 | `PUT /api/evals/<id>/feedback` (text/markdown) | `feedback` | the feedback is at `/state/evals/<id>.feedback.md` |
 | `GET /api/ideate/config` | (read-only) | `{ enabled, model, owner, templatesRepo, deploys, mode, provider }`; `enabled` means the mode can run idea turns (always locally; cloud mode needs `FACTORY_FOUNDRY_RESOURCE`) (see [Idea sessions](#idea-sessions-dashboard)); `mode` and `provider` are the [run mode](#run-mode-and-providers) and its provider, shown in the dashboard header; `owner` is `GITHUB_OWNER`; `templatesRepo` is `FACTORY_TEMPLATES_REPO`; `deploys` means `.env` has `HCP_ORG` (Approved cards' wait reasons); no key is ever returned |
-| `GET /api/sessions` | (read-only) | every session that is not `closed`: `{ id, target, text, status, idea, bootstrap, costUsd, newTarget, notices, phase }` |
+| `GET /api/sessions` | (read-only) | every session that is not `closed`: `{ id, target, text, status, idea, bootstrap, costUsd, newTarget, notices, phase, kind, from, feature }` |
 | `GET /api/sessions/<S>` | (read-only) | that session's summary, the same shape, `closed` or not: the panel's stepper reads it |
 | `GET /api/repos` | `list-repos` | the JSON array, for the New idea picker |
 | `POST /api/sessions` `{ target, text, base? }` or `{ new: true, text }` | `check-target` (not for `new`, which needs `GITHUB_OWNER`), then `clone-target [-Base]` | allocates `S-NNN`, writes `session.json` (with `base`) and the first message, which tells the model the clone is the base's unmerged branch, and starts a turn. The panel's **Base** list is `main` plus every job on the target that is not `done` or `discarded` and has a PR |
 | `POST /api/sessions/<S>/reply` `{ text, scaffold? }` | (session write); `check-target` when the session has no target | answers `pending` (or adds user text), stores `scaffold`, starts a turn; with no target, `scaffold.repo` sets it and must name a new repo; empty text with no pending retries a failed turn |
-| `POST /api/sessions/<S>/brief` | `new-idea`, then writes `brief.md`; new target: then `approve <bootstrap>` | existing target: answers `submit_brief` and starts the spec turn; new target: records the bootstrap job and starts the runner, or, when `approve` refuses, leaves it in `backlog` and answers the refusal |
+| `POST /api/sessions/<S>/brief` | `new-idea`, then writes `brief.md`; new target: then `approve <bootstrap>`; a repo session: `new-idea -Scaffold -Product` and `approve <bootstrap>`, no `brief.md`; a feature session: `new-idea -From -Feature`, then `product` | existing target: answers `submit_brief` and starts the spec turn; new target: records the bootstrap job and starts the runner, or, when `approve` refuses, leaves it in `backlog` and answers the refusal; a repo session answers `submit_product`; a feature session's repo idea gets `idea-done` when `product` has no `next` |
 | `POST /api/sessions/<S>/write-specs` | (session write) | after the bootstrap merge (the idea is `drafting`): starts the spec turn and sets `specsStarted`. The server's sweep does the same by itself; the panel has no button for it |
 | `POST /api/sessions/<S>/specs/<k>` `{ decision }` | `add-spec` (+ `approve`) | `approved` starts the runner; `rejected` calls nothing |
 | `PUT /api/sessions/<S>/specs/<k>` (text/markdown) | (session write) | the human's direct edit of `spec-<k>.md` |
 | `POST /api/sessions/<S>/close` `{ failed, reason? }` or `{ abandon: true }` | `idea-done [-Failed -Reason]`, or `idea-abandon` (only once there is an idea, and not when the idea is already `done` or `abandoned`: then any close only closes the session) | the session becomes `closed`; the default reason is "every spec rejected in session". `abandon` is the session card's **Abandon**, refused while a turn is running |
 | `POST /api/ideas/<I>/abandon` | `idea-abandon` | **Abandon** on an idea card |
+| `GET /api/ideas/<I>/product` | `product` | a repo idea's features, `next` and Home, cached 60 s per idea (a GitHub read), and dropped by the two writes below; a refusal is `{ ok: false, message }`, which the repo card shows |
+| `POST /api/ideas/<I>/implement` | `product`, then `clone-target` as `POST /api/sessions` | **Implement** on a repo card: opens a feature session for `next` (`from`, `feature`, `home` for a first feature), refused when there is no `next` or an open session already has that feature; answers the session id |
+| `POST /api/ideas/<I>/dismiss` | `idea-done` | **Dismiss** on a repo card; closes the idea's open repo session |
 
 Session reads use `/state/sessions/<S>/...`. An idea card opens its brief. A card for an open
 session, or for an idea that a session created, reopens the session panel. An idea card from the
