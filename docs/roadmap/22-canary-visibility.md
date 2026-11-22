@@ -86,15 +86,26 @@ Contract first (`docs/FACTORY-CONTRACT.md`, "Canary" and "Dashboard API"):
 - **SPA:** `CanaryBanner` renders the running state and the reason from the new fields, and the jobs waiting for it
   are the jobs in the `canary` stage. A `CanaryDueChip` sits by the run-mode chip.
 
-- **No Backlog column** (to grill at the start of 22, recommendation first): the `backlog` stage stays in the
+- **No Backlog column** (grilled 2026-11-22): the `backlog` stage stays in the
   contract and the CLI, as where an unapproved spec lives, but the board has no column for it. Each feature idea's
   card in Ideas (and its session card, and spec 21's Specs and Build phases) lists its specs still in `backlog`, each
   with **Approve** (the same `approve` the drag runs) and **Edit** (today's backlog editing), so a spec is edited and
   approved where it was decided. A repo card lists none: it shows only its scaffold and its next feature. Approving
-  moves a spec to Approved, and the runner takes it on to Canary or Build as above. To settle: where a spec with no
-  idea (a `new-job` or the CLI's `/factory:idea`) shows; where a refused approval (spec 21's bootstrap left in
-  Backlog) shows its message; whether **Not yet** keeps a spec on the idea card or the idea closes; and where a job
-  dragged back out of Approved goes (today, to Backlog).
+  moves a spec to Approved, and the runner takes it on to Canary or Build as above. Settled (Kurt, 2026-11-22):
+  - **A spec with no idea** (a `new-job`, or an idea record that is gone) gets **its own card in Ideas**, styled as a
+    spec, with Approve, Edit and Discard. Not chosen: one "Loose specs" group card.
+  - **Not yet keeps the idea open.** A session with a spec left in `backlog` does not run `idea-done` when every
+    spec is decided; the idea stays `drafting`, its card lists the waiting specs, and it closes (`idea-done`) only
+    when the last of them is approved or discarded. Not chosen: showing a done idea while it has backlog specs;
+    dropping Not yet.
+  - **A refused approval shows on its spec's row, sticky**, under the spec on its idea or repo card, until the next
+    try succeeds, as well as spec 21's large sticky toast. A refused bootstrap shows on the repo card's Scaffold
+    step with Approve to retry. Not chosen: the toast only.
+  - **Out of Approved:** the contract has no `approved → backlog` move, and 22 adds none. Out of Canary, 22 adds
+    `canary → approved` and `canary → discarded`, both human.
+  - **PRODUCT.md missing or with no feature left** on the target's `main`: the repo card says so (`docs/PRODUCT.md
+    on main has no feature to start`, or the read error) and offers Dismiss only; New idea still works on the repo.
+    Not chosen: a board copy to fall back on.
 
 - **The New repo idea** (contract "Targets", "Ideas" and "Idea sessions" first; the names below are proposals, to
   confirm against the contract at the start of 22):
