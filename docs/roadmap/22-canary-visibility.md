@@ -197,6 +197,21 @@ straight to Approved or Canary. The cloud board runs the released image and pass
 against its URL. The README, TERMINOLOGY, DEPLOY, CLOUD and BUILD-GUIDE docs describe the board as it now is, say
 what the canary is, when it runs and why jobs wait for it, and describe the two kinds of idea.
 
+## Progress (2026-11-22)
+
+Built on `feature/22-canary-visibility`: canary reasons (`0d6af9f`, `b852a2e`), phases (`849d339`), the Canary stage
+and column (`0c60468`), its Playwright `@smoke` (`44866e7`), and no Backlog column (`de13b60`). Next: the New repo
+idea, then the docs list and the proofs.
+
+Where the build differs from the plan above:
+- **The Canary `@smoke` serves its board and `canary.json` from the test**, not the Simulator: the Playwright
+  dashboard runs with deploys off, so its watchdog's runner takes a Canary job straight to Build.
+- **No `canary → approved` drag.** A job dragged back would wait in Approved just the same; Discard is the way out.
+- **A refused bootstrap approval** shows as a spec row on its idea's card for now; the repo card's Scaffold step
+  (with Approve to retry) comes with the New repo idea.
+- **Not yet keeps the idea open in the CLI**: `idea-done` leaves an idea with `backlog` specs `drafting` with
+  `closeWhenDecided`, and `approve`/`discard` of the last one closes it, so the server is unchanged.
+
 ## Follow-ups (not built in 22)
 
 - **Gate by input group.** A templates-only change would hold only jobs on targets scaffolded after it, plus jobs
