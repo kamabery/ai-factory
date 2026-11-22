@@ -445,5 +445,11 @@ public class DeployCommandsTests : CommandTestBase
         canary.Retry().Returns("canary: retry queued");
         Assert.Equal(["canary: retry queued"], new CanaryCommand(canary).Run(Args("canary", "-Retry"), s).Out);
         canary.DidNotReceive().Run(s, false, false);
+
+        // The due chip's read must never start a canary (GET /api/canary calls it every minute).
+        canary.ClearReceivedCalls();
+        canary.Due().Returns(new System.Text.Json.Nodes.JsonObject { ["due"] = false });
+        Assert.Equal(["""{"due":false}"""], new CanaryCommand(canary).Run(Args("canary", "-Due"), s).Out);
+        canary.DidNotReceiveWithAnyArgs().Run(default!, default, default);
     }
 }
