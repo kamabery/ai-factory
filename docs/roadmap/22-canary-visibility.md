@@ -220,6 +220,10 @@ Where the build differs from the plan above:
   list is always `factory product`'s read of `main`.
 - **Older new-target sessions keep 21's flow**: a session or idea with no `kind` (a 21 session mid-flight) still gets
   its spec turn after the merge; only `kind: "repo"` sessions skip it. The dashboard creates no new ones.
+- **The cloud proof is a `@cloud` check, not the `@smoke` set**: `@smoke` needs the Simulator, the local stubs and state
+  files, so it cannot target a deployed board. `cloud.spec.ts` (`playwright.cloud.config.ts`) is read-only against
+  `FACTORY_CLOUD_URL` with a saved Entra sign-in: the header, the six columns, the API, and New repo in New idea
+  (Kurt, 2026-11-22).
 - **The New repo `@smoke` is the Simulator's S-001**, a repo session for `sim/shelf`: Merge, Implement first feature,
   the Home refusal on the first feature's specs, the next feature offered, then Dismiss.
 

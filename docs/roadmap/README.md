@@ -69,8 +69,8 @@ the setup scripts, the last of it. **Decided 2026-11-15: 15 is split around 20.*
 prefers, and every feature works on both. Each is a whole factory with its own board; nothing makes a user pick one
 for good. So every spec from 21 on is proven on a local board first and then in the cloud, and its Done when says
 "in both modes". **Local first (Kurt, 2026-11-22):** from 22 on, live proofs (real ideas, jobs, canaries) run on
-the local board, and the cloud board gets each release applied and the dashboard's Playwright `@smoke` set run against
-its URL, with no live cloud job and no Foundry spend. The end state is unchanged: every feature works on both. The last spec's close-out (23) also makes the repo's README offer both, with how to choose: today it
+the local board, and the cloud board gets each release applied and the dashboard's read-only Playwright `@cloud` check
+(`factory/tests/dashboard/cloud.spec.ts`) run against its URL, with no live cloud job and no Foundry spend. The end state is unchanged: every feature works on both. The last spec's close-out (23) also makes the repo's README offer both, with how to choose: today it
 says only "a local dashboard is where you work it".
 
 **Previews last.** A deployable job spends about 30 minutes in its preview deploy, and a template
@@ -106,7 +106,7 @@ calls `lesson`. Spec numbers are names, not the order; sessions are one at a tim
   only at cutover (12), so the oracle can still run both ways.
 - **Both modes:** a feature that changes the dashboard, the runner or the board is proven on a local board and on
   the cloud board before its spec is done (from 21 on; see "Both boards at the end"). From 22 on, the cloud proof is
-  the released image plus the Playwright `@smoke` set against the deployed board, not a live job.
+  the released image plus the read-only Playwright `@cloud` check against the deployed board, not a live job.
 - Cross-platform from the first line: no named mutex, no `-WindowStyle Hidden`, `Path.Combine`,
   `git`/`claude`/`az`/`terraform` resolved from PATH.
 - A human session changes the factory, never `/factory`. Commit per step, with the suite counts in
