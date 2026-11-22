@@ -43,6 +43,10 @@ public sealed partial class CanaryService(
         {
             var repo = canary.Repo();
             var sc = canary.Options();
+            // The deployable jobs in Approved wait in Canary for this run (contract, "Canary", "The gate").
+            var held = Queue.ToHold(session.Board, deploysOn: true);
+            foreach (var j in held) session.AddEvent(Transitions.Move(j, Stages.Canary, "runner", null, null, null, clock.GetUtcNow()));
+            if (held.Count > 0) session.Save();
             var n = 1 + (last is null ? 0 : PsJsonReader.Int(last["n"]));
             rec = new JsonObject
             {

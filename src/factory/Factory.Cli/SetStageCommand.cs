@@ -35,11 +35,13 @@ public sealed partial class SetStageCommand(
             if (!Queue.IsNext(board, j, deploysOn, canary.State)) throw new FactoryException($"{move} refused: {j.Id} is not next in the queue, or a job is already building");
         }
 
-        if (PsJsonReader.Is(from, Stages.Approved) && PsJsonReader.Truthy(j.Node["resumeSession"]) && PsJsonReader.In(to, Resumable))
+        // A job waiting in Canary leaves it as one in Approved does, once a canary has passed (contract, "Canary").
+        var queued = PsJsonReader.In(from, Stages.Approved, Stages.Canary);
+        if (queued && PsJsonReader.Truthy(j.Node["resumeSession"]) && PsJsonReader.In(to, Resumable))
         {
             // Queued by resume: back to the stage the usage limit stopped it in, as it was.
-            RequireNext($"approved->{to}");
-            if (!PsJsonReader.Is(j.Resume, to)) throw new FactoryException($"approved->{to} refused: {j.Id} was resumed; it resumes at {j.Resume}");
+            RequireNext($"{from}->{to}");
+            if (!PsJsonReader.Is(j.Resume, to)) throw new FactoryException($"{from}->{to} refused: {j.Id} was resumed; it resumes at {j.Resume}");
             var start = j.Node["roundStart"]?.DeepClone();
             j.Node["resume"] = null;
             j.Node["resumeSession"] = null;
@@ -47,17 +49,17 @@ public sealed partial class SetStageCommand(
             if (PsJsonReader.Truthy(start)) j.Node["roundStart"] = start;
             return Done(session, [e]);
         }
-        if (PsJsonReader.Is(from, Stages.Approved) && PsJsonReader.Is(to, Stages.Build))
+        if (queued && PsJsonReader.Is(to, Stages.Build))
         {
-            RequireNext("approved->build");
-            if (PsJsonReader.Truthy(j.Node["resume"])) throw new FactoryException($"approved->build refused: {j.Id} was redeployed; it resumes at {j.Resume}");
+            RequireNext($"{from}->build");
+            if (PsJsonReader.Truthy(j.Node["resume"])) throw new FactoryException($"{from}->build refused: {j.Id} was redeployed; it resumes at {j.Resume}");
             Transitions.ResetReviews(j);
             return Done(session, [Transitions.Move(j, Stages.Build, by, null, null, null, now)]);
         }
-        if (PsJsonReader.Is(from, Stages.Approved) && PsJsonReader.Is(to, Stages.Deploy))
+        if (queued && PsJsonReader.Is(to, Stages.Deploy))
         {
-            RequireNext("approved->deploy");
-            if (!PsJsonReader.Is(j.Resume, Stages.Deploy)) throw new FactoryException($"approved->deploy refused: {j.Id} was not redeployed");
+            RequireNext($"{from}->deploy");
+            if (!PsJsonReader.Is(j.Resume, Stages.Deploy)) throw new FactoryException($"{from}->deploy refused: {j.Id} was not redeployed");
             j.Node["resume"] = null;
             return Done(session, [Transitions.Move(j, Stages.Deploy, by, null, null, null, now)]);
         }

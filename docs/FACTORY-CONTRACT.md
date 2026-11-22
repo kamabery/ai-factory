@@ -24,6 +24,8 @@ No agent, skill or endpoint writes to `.factory-runs/board.json`. Every state ch
         │ "not yet"                                  ↓
         └────→ Backlog ──human drag──→ Approved ──runner──→ Building ──→ Ready for review ──human drag──→ Done
                (edit spec)             (FIFO queue)        build ←─┐     (flag if the       (merge)
+                                        │    ↑ (pass)                                                         
+                                        └→ Canary: a deployable job waits there for a canary pass (see Canary)
                   │                         ↑              review  │     factory gave up;
                   └──discard                │              deploy ─┘     live preview,
                                             │              approve  app  Launch / Tear down)
@@ -45,6 +47,7 @@ Done and discarded cards stay until a human clears them ([Purge](#purge), the Do
 | Ideas | `idea` records with status `waiting`, `drafting` or `failed`, and open dashboard [idea sessions](#idea-sessions-dashboard) (not jobs) | the idea session, or **Abandon**, on the card or in the idea's opened card |
 | Backlog | `backlog` | human (drag to Approved, or discard) |
 | Approved | `approved` | runner |
+| Canary | `canary` | runner (to Building after a canary pass); human (discard) |
 | Building | `build`, `review`, `deploy`, `approve`, `gate`, `blocked` | orchestrator / script; a `blocked` card: human (retry deploy, rework, or discard) |
 | Ready for review | `ready` | human (drag to Done, rework, or discard) |
 | Done | `done` | nobody (terminal) |
@@ -52,7 +55,9 @@ Done and discarded cards stay until a human clears them ([Purge](#purge), the Do
 
 In Building, the card shows its sub-stage, its round and the reviewer chips; a `blocked` card also
 shows its flag and the **Retry deploy**, **Rework** and **Discard** buttons. Only Backlog,
-Approved, Ready for review and Done accept drops.
+Approved, Ready for review and Done accept drops. A Canary card shows `canary running N of ~M min` with the
+canary's phase while one runs, or, after a failure, red with the canary's error, its **Log** and **Run canary**,
+and a **Discard** button.
 
 An Approved card says what it is waiting on (`data-wait`), using the rules `next` applies (see
 [Canary](#canary)). The first rule that matches wins:
@@ -60,7 +65,7 @@ An Approved card says what it is waiting on (`data-wait`), using the rules `next
 2. `waiting: deploy canary` while `canary.json` says `running`. The runner runs the canary itself,
    so every approved job waits for it.
 3. `held: deploy canary failed` for a deployable job (deploys on and not a bootstrap) after a failed
-   canary.
+   canary (one approved after the run started; the jobs it held are in Canary).
 4. `after J-NNN` when an older approved job that is not held is ahead of it.
 5. `next` otherwise.
 
@@ -563,6 +568,9 @@ the sessions that are not `closed` and have no turn running:
 | backlog | approved | human; `spec.md` has a valid `## Target` and at least one `## Gate` command, and no [shell line](#gate) (`approve refused: <id>'s gate runs with no shell (contract, "Gate"): <name>: <reason>, so <hint>[; <name>: ...]`, where the reason is `` `<x>` is a PowerShell cmdlet ``, `` `<x>` is a shell builtin ``, `` `<c>` needs a shell `` or `an unterminated quote`, and the hint is `use factory check file` for a cmdlet that reads files (`Test-Path`, `Get-Content`, `Select-String`, `Get-Item`, `Get-ChildItem`), `use the tool's directory flag or path` for a `cd` (`cd`, `Set-Location`, `Push-Location`), else `use one gate line per command, or a script the target commits`). Sets `approvedAt` and `target` | |
 | backlog | discarded | human | |
 | approved | build | runner; no job is in `build`, `review`, `approve` or `gate`, and this is the oldest `approvedAt` | |
+| approved | canary | runner: `factory canary`, when it starts a run, moves every deployable approved job here (see [Canary](#canary), "The gate") | |
+| canary | build / review / deploy / approve | runner, as from `approved`: the job is next in the queue, which it is only after a canary pass for the current fingerprint | |
+| canary | discarded | human `discard <id>`, as from `backlog` | |
 | build | review | `round-<n>/build.md` exists and the [build checks](#build-checks) pass | |
 | build | ready / blocked | `set-stage review` found a file outside the spec's Scope: In (`ready` if not deployable, else `blocked`) | `out-of-scope` |
 | build | ready / blocked | `set-stage review`: the job has `baseMoved` and build.md's `## Spec against base` says `Spec holds: no` | `spec-stale` |
@@ -1219,7 +1227,7 @@ target is cloned with `clone-target` into `<work>\cli\<owner>-<name>` and passed
 | `list-repos` (prints a JSON array of the token user's own repos, `owner/name`, newest push first, at most 100) | the server (New idea) |
 | `edit-spec <id> -File <path>` (backlog only) | the server |
 | `approve <id>` | `/factory:idea` (on the human's yes), the server (human drag) |
-| `rework <id> <note>` · `discard <id>` (both from `ready` or `blocked`) · `merge <id>` · `purge` | the server (human drags, the blocked card's buttons, and **Clear**) |
+| `rework <id> <note>` · `discard <id>` (both from `ready` or `blocked`; `discard` also from `backlog` and `canary`) · `merge <id>` · `purge` | the server (human drags, the blocked card's buttons, and **Clear**) |
 | `gate-check <id> [<name>]` (runs the spec's gate commands, or the one named, in the job's work directory exactly as `gate` does, and records nothing on the board; prints the output and exits with the first non-zero code; see [Gate and merge](#gate-and-merge)) · `provenance <id>` (prints this round's template-sourced paths) | the builder, the reviewers, the approver, `/factory run` |
 | `sync-prs` (moves each `ready` job whose PR was merged on GitHub to `done`; prints their ids) | the server (PR sync) |
 | `next` (prints the next runnable approved id, or nothing; nothing at all while any job is flagged `usage-limit`, since the limit holds for every job until the human resumes; a deployable job is runnable only after a canary pass for the current fingerprint, and `next -NeedsCanary` prints `canary` when that is all that holds it back) · `checkout <id>` (creates the GitHub repo if needed, then clones or reuses `<work>\jobs\<id>` on `factory/<id>`, fetches, and points `factory/base` at the base branch; prints the work directory. It builds on a `factory/<id>` already on GitHub only when the job has a PR, that is, when this board published it; otherwise the branch is another board's job of the same id, and checkout fails with `<owner/name> already has factory/<id>, which this board never published (another board's job?); delete or rename that branch, then approve the job again`, before anything is built or pushed) · `publish <id>` (`ready` or `blocked`: pushes `factory/<id>` and opens the job's PR if it has none; prints the PR url) · `set-cost <id> <usd> <ms>` | the runner |
@@ -1629,11 +1637,15 @@ A canary is **due** when deploys are on, no canary is running (`status` is not `
 no pass for the current fingerprint. A failed or `retry` record for it is due too. The **typical duration** is the
 median of `finishedAt - startedAt` over `passes`, in whole minutes, or 15 with fewer than three passes.
 
-**The gate.** `next` does not return a deployable job unless `canary.json` records a pass for the
-current fingerprint. When it does not, the runner runs `canary` itself (logging `canary pass` or
-`canary failed: <error>`) before taking that job. On a failure, deployable jobs stay in Approved and
-the runner takes only jobs that are not deployable (bootstraps); the dashboard shows a banner with
-the error and **Run canary**. A failed canary is not retried automatically, because each run costs
+**The gate (the `canary` stage, spec 22).** `next` takes from the `approved` and `canary` stages together, oldest
+`approvedAt` first, and does not return a deployable job unless `canary.json` records a pass for the current
+fingerprint. When it does not, the runner runs `canary` itself (logging `canary pass` or `canary failed: <error>`)
+before taking that job. A `canary` that starts a run (not one that is up to date or refused) first moves every
+deployable job in `approved` to `canary` (`by: runner`), under the board lock, so they wait in the Canary column
+for that one run; one approved while it runs waits in Approved. After a pass, the runner takes the `canary` jobs in
+order, each `canary → build` (or the stage its `resume` names). On a failure they stay in `canary`, shown red,
+and the runner takes only jobs that are not deployable (bootstraps); the dashboard shows a banner with the error
+and **Run canary**, and a `canary` card the same. A failed canary is not retried automatically, because each run costs
 real Azure time; the human fixes the cause and clicks **Run canary** (`canary -Force`), and the
 watchdog starts the runner once it passes. In a deployed factory ([Cloud mode](#cloud-mode-deployed)) **Run canary** runs
 `canary -Retry` instead, then starts the runner: the canary runs in a runner execution, which the runner's own
@@ -1691,7 +1703,7 @@ session, or for an idea that a session created, reopens the session panel. An id
 CLI session shows the command that resumes it.
 
 "Starts the runner" means: spawn `factory runner` detached, unless `runner.lock` is held. The
-[watchdog](#runner) also starts it when Approved is not empty and no live runner holds the lock. The claude
+[watchdog](#runner) also starts it when Approved or Canary is not empty and no live runner holds the lock. The claude
 command is taken from `$env:FACTORY_CLAUDE_CMD` (a program and its leading arguments, see
 [Implementations](#implementations)) when it is set, so tests spend no tokens.
 
@@ -1712,7 +1724,8 @@ The runner drains the Approved queue one job at a time. It exits at once if it c
 `runner.lock` (an exclusive file create holding its PID). It takes over a lock whose PID is no
 longer running. Otherwise it loops:
 
-1. `factory next -NeedsCanary`. If it prints `canary`, the runner runs `factory canary` and
+1. `factory next -NeedsCanary`. If it prints `canary`, the runner runs `factory canary` (which moves the
+   deployable approved jobs to `canary` first) and
    logs the outcome; after a pass it goes back to step 1, after a failure it takes only what plain
    `next` returns. If nothing comes back, it deletes the lock and exits.
 2. It calls `factory set-stage <id> build -By runner` (or the stage named by the job's `resume`), then `factory checkout <id>`, which

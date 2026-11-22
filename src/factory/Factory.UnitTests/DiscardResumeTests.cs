@@ -19,6 +19,7 @@ public class DiscardResumeTests : CommandTestBase
 
     [Theory]
     [InlineData("backlog")]
+    [InlineData("canary")]
     [InlineData("ready")]
     [InlineData("blocked")]
     public void Discard_moves_the_job_then_removes_its_work_and_destroys_its_preview(string stage)
@@ -35,7 +36,7 @@ public class DiscardResumeTests : CommandTestBase
     public void Discard_refuses_a_building_job_and_one_with_live_jobs_stacked_on_it()
     {
         var sut = new DiscardCommand(_work, Clock);
-        Assert.Equal("discard refused: J-001 is in 'build', needs backlog|ready|blocked",
+        Assert.Equal("discard refused: J-001 is in 'build', needs backlog|canary|ready|blocked",
             Assert.Throws<FactoryException>(() => sut.Run(Args("discard", "J-001"), FakeSession.With(Jobs.New("J-001", "build")))).Message);
 
         var s = FakeSession.With(Jobs.New("J-001", "ready"), Jobs.New("J-002", "build").With("base", "J-001"), Jobs.New("J-003", "done").With("base", "J-001"));

@@ -7,6 +7,7 @@ export const COLUMNS: Column[] = [
   { key: 'ideas', label: 'Ideas' },
   { key: 'backlog', label: 'Backlog', stages: ['backlog'] },
   { key: 'approved', label: 'Approved', stages: ['approved'] },
+  { key: 'canary', label: 'Canary', stages: ['canary'] },
   { key: 'building', label: 'Building', stages: ['build', 'review', 'deploy', 'approve', 'gate', 'blocked'] },
   { key: 'ready', label: 'Ready for review', stages: ['ready'] },
   { key: 'done', label: 'Done', stages: ['done'] },

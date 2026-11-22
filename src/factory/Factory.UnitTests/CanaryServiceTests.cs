@@ -161,6 +161,25 @@ public class CanaryServiceTests : CommandTestBase
     }
 
     [Fact]
+    public void A_run_first_moves_every_deployable_approved_job_to_canary_and_an_up_to_date_one_moves_none()
+    {
+        var session = FakeSession.With(Jobs.New("J-001", "approved"), Jobs.New("J-002", "approved"), Jobs.New("J-003", "approved"), Jobs.New("J-004", "backlog"));
+        session.Job("J-003")["kind"] = "bootstrap";
+
+        Sut.Run(session, false, false);
+
+        Assert.Equal(["canary", "canary", "approved", "backlog"], new[] { "J-001", "J-002", "J-003", "J-004" }.Select(id => (string?)session.Job(id)["stage"]));
+        var moves = session.Events.Where(e => (string?)e["kind"] == "stage").ToList();
+        Assert.Equal(["J-001 approved canary runner", "J-002 approved canary runner"],
+            moves.Select(e => $"{(string?)e["job"]} {(string?)e["from"]} {(string?)e["to"]} {(string?)e["by"]}"));
+        Assert.True(session.Saves >= 1);
+
+        var again = FakeSession.With(Jobs.New("J-005", "approved"));
+        Assert.Equal("canary: up to date", Sut.Run(again, false, false));
+        Assert.Equal("approved", (string?)again.Job("J-005")["stage"]);
+    }
+
+    [Fact]
     public void A_failed_run_carries_the_passes_over_unchanged()
     {
         _canary.Inputs().Returns(Inputs);

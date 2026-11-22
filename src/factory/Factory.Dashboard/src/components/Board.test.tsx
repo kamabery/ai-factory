@@ -292,7 +292,7 @@ describe('the canary due chip', () => {
     const { unmount } = renderApp()
     const chip = await find('#canary-due')
     expect(chip).toHaveTextContent('canary due: templates changed since pass #32; factory 0.4.1 → 0.4.2')
-    expect(chip).toHaveTextContent('the next deployable job waits for it (~17 min)')
+    expect(chip).toHaveTextContent('the next deployable job waits in Canary for it (~17 min)')
     unmount()
     fakeServer({ 'GET /api/canary': { due: false, reasons: [], typicalMinutes: 15 } }, { jobs: [job('J-1', 'backlog')], ideas: [] })
     const r = renderApp()

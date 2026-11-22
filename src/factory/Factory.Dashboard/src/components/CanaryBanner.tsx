@@ -8,14 +8,18 @@ import type { Canary } from '@/lib/types'
 
 const PHASES: Record<string, string> = { scaffold: 'scaffolding', deploy: 'deploying', smoke: 'smoke check', signin: 'sign-in check' }
 
-/** `Deploy canary (0.4.2) · deploying 2/3 · 7 of ~15 min` (contract, "Canary", "Phases"). */
-export function running(c: Canary, now: number, typical: number) {
-  const name = c.version ? `Deploy canary (${c.version})` : 'Deploy canary'
+/** `deploying 2/3 · 7 of ~15 min` (contract, "Canary", "Phases"): the banner and a Canary card both show it. */
+export function canaryProgress(c: Canary, now: number, typical: number) {
   let phase = c.phase ? PHASES[c.phase] ?? c.phase : 'running'
   if (c.phase === 'deploy' && c.deploy && c.deploy.total > 0) phase += ` ${Math.min(c.deploy.done + 1, c.deploy.total)}/${c.deploy.total}`
   const started = Date.parse(c.startedAt ?? '')
   const minutes = Number.isNaN(started) ? 0 : Math.max(0, Math.floor((now - started) / 60_000))
-  return `${name} · ${phase} · ${minutes} of ~${typical} min`
+  return `${phase} · ${minutes} of ~${typical} min`
+}
+
+/** `Deploy canary (0.4.2) · deploying 2/3 · 7 of ~15 min`. */
+export function running(c: Canary, now: number, typical: number) {
+  return `${c.version ? `Deploy canary (${c.version})` : 'Deploy canary'} · ${canaryProgress(c, now, typical)}`
 }
 
 /**
@@ -23,8 +27,9 @@ export function running(c: Canary, now: number, typical: number) {
  * Approved until it passes), or after a pass whose j000 teardown failed.
  */
 export function CanaryBanner() {
-  const { canary: c, boardReadAt } = useData()
+  const { canary: c, boardReadAt, board } = useData()
   const due = useCanaryDue()
+  const waiting = board.jobs.filter((j) => j.stage === 'canary').map((j) => j.id)
   const { toast } = useUi()
   const [sent, setSent] = useState<string | null>(null)
   const stuck = c?.status === 'pass' && c.teardown?.status === 'failed'
@@ -45,6 +50,7 @@ export function CanaryBanner() {
       {c.status === 'running' ? (
         <>
           <span className="min-w-0 flex-1">{running(c, boardReadAt || Date.now(), due?.typicalMinutes ?? 15)}: deployable jobs wait for it.</span>
+          {waiting.length > 0 && <span data-canary-waiting>waiting in Canary: {waiting.join(', ')}</span>}
           {c.run && <a data-canary-run href={c.run} target="_blank" rel="noopener" className="underline">Actions run ↗</a>}
         </>
       ) : stuck ? (

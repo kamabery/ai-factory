@@ -59,7 +59,7 @@ public sealed class Watchdog(
 
     private void Watch(DateTimeOffset now)
     {
-        if (!board.Jobs().Any(j => BoardFile.Str(j, "stage") == "approved")) return;
+        if (!board.Jobs().Any(j => BoardFile.Str(j, "stage") is "approved" or "canary")) return;
         if (runner.StartsExecutions)
         {
             // The runner is in another container: alive while it holds the lease, or while one it started is starting.

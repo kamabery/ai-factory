@@ -15,7 +15,7 @@ public sealed class DiscardCommand(IJobWork work, TimeProvider clock) : ICommand
     public CommandResult Run(CommandArgs args, IBoardSession session)
     {
         var j = session.Board.Job(args.Arg(1));
-        Transitions.RequireStage(j, [Stages.Backlog, Stages.Ready, Stages.Blocked], "discard");
+        Transitions.RequireStage(j, [Stages.Backlog, Stages.Canary, Stages.Ready, Stages.Blocked], "discard");
         MergeRules.RequireNothingStacked(session.Board, j);
         BoardMoves.Move(session, j, Stages.Discarded, "human", clock);
         work.RemoveJobWork(session, j);
