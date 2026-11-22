@@ -70,7 +70,7 @@ export function Board() {
 
   const inSession = new Set(sessions.map((x) => x.idea).filter(Boolean))
   return (
-    <main id="board" ref={root} className="grid grid-cols-[repeat(6,78vw)] items-start gap-3 overflow-x-auto p-4 md:grid-cols-[repeat(6,minmax(200px,1fr))]">
+    <main id="board" ref={root} className="grid grid-cols-[repeat(7,78vw)] items-start gap-3 overflow-x-auto p-4 md:grid-cols-[repeat(7,minmax(160px,1fr))]">
       {COLUMNS.map((c) => {
         const items = c.key === 'ideas'
           ? [...sessions.map((x) => <SessionCard key={x.id} x={x} />),

@@ -24,7 +24,7 @@ export function running(c: Canary, now: number, typical: number) {
 
 /**
  * The deploy canary (contract, "Canary"): a banner while one runs, after one failed (deployable jobs wait in
- * Approved until it passes), or after a pass whose j000 teardown failed.
+ * Canary until it passes), or after a pass whose j000 teardown failed.
  */
 export function CanaryBanner() {
   const { canary: c, boardReadAt, board } = useData()

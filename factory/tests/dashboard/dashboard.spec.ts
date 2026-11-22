@@ -710,6 +710,53 @@ test.describe.serial('factory dashboard', () => {
     await expect(card(page, 'J-200').locator('[data-wait]')).toHaveCount(0);
   });
 
+  test('a job waiting in Canary follows the canary: running, then Building after a pass; red with Run canary after a failure', { tag: '@smoke' }, async ({ page }) => {
+    // Served by the test, not the Simulator: this dashboard runs with deploys off, so its watchdog's runner would take
+    // a Canary job straight to Build.
+    const at = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
+    const j = (id: string, stage: string, extra = {}) => ({
+      id, stage, round: 1, title: `job ${id}`, target: 'sim/sandbox', createdAt: at(9), approvedAt: at(9), updatedAt: at(9), history: [], ...extra,
+    });
+    let jobs = [j('J-401', 'canary'), j('J-402', 'canary')];
+    let canary: object = { fingerprint: 'sha256:02', status: 'running', error: null, log: 'canary-7.log', startedAt: at(3), n: 7,
+      version: '0.4.2', phase: 'deploy', deploy: { done: 1, total: 3 }, run: 'https://github.com/sim/factory-canary/actions/runs/7' };
+    await page.route('**/api/ideate/config', (r) => r.fulfill({ json: { enabled: false, deploys: true } }));
+    await page.route('**/api/canary', (r) => r.request().method() === 'GET'
+      ? r.fulfill({ json: { due: false, reasons: [], typicalMinutes: 12 } })
+      : r.fulfill({ json: { ok: true, message: 'canary started' } }));
+    await page.route('**/state/board.json', (r) => r.fulfill({ body: JSON.stringify({ jobs, ideas: [] }) }));
+    await page.route('**/state/events.jsonl', (r) => r.fulfill({ body: '' }));
+    await page.route('**/state/canary.json', (r) => r.fulfill({ body: JSON.stringify(canary) }));
+
+    await page.goto('/');
+    const canaryCol = column(page, 'canary');
+    const c1 = canaryCol.locator('[data-card="J-401"]');
+    await expect(c1.locator('[data-canary-wait]')).toHaveText('canary running · deploying 2/3 · 3 of ~12 min');
+    await expect(canaryCol.locator('[data-card="J-402"]')).toBeVisible();
+    const banner = page.locator('#canary');
+    await expect(banner).toContainText('Deploy canary (0.4.2) · deploying 2/3');
+    await expect(banner.locator('[data-canary-waiting]')).toHaveText('waiting in Canary: J-401, J-402');
+    await expect(banner.locator('a[data-canary-run]')).toHaveAttribute('href', 'https://github.com/sim/factory-canary/actions/runs/7');
+
+    // A failure: both stay in Canary, red, each with the error, Log, Run canary and Discard.
+    canary = { ...canary, status: 'failed', error: 'Error: exec: "az": executable file not found', finishedAt: at(0) };
+    await expect(c1).toHaveAttribute('data-red', '1');
+    await expect(c1.locator('[data-canary-failed]')).toContainText('executable file not found');
+    await expect(c1.locator('a[data-canary-log]')).toHaveAttribute('href', '/state/canary-7.log');
+    await expect(c1.locator('[data-discard]')).toBeVisible();
+    const answer = page.waitForResponse((r) => r.url().endsWith('/api/canary') && r.request().method() === 'POST');
+    await c1.locator('[data-run-canary]').click();
+    expect((await (await answer).json()).ok).toBe(true);
+
+    // A pass: the runner takes the queue's head to Build, and the other waits in Approved order behind it.
+    canary = { ...canary, status: 'pass', error: null, phase: null };
+    jobs = [j('J-401', 'build'), j('J-402', 'canary')];
+    await expect(column(page, 'building').locator('[data-card="J-401"]')).toBeVisible();
+    await expect(canaryCol.locator('[data-card="J-401"]')).toHaveCount(0);
+    await expect(canaryCol.locator('[data-card="J-402"]')).not.toHaveAttribute('data-red', '1');
+    await expect(banner).toBeHidden();
+  });
+
   test('a blocked card waits in Building with its flag and Retry deploy, Rework and Discard, and does not hold the queue', async ({ page }) => {
     // Rendering and wiring only: a board served by the test, and the write calls captured.
     const at = (m: number) => new Date(Date.UTC(2026, 10, 1, 12, m)).toISOString();
