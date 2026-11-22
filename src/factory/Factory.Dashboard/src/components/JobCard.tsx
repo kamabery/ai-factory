@@ -99,7 +99,7 @@ export function JobCard({ j, now, onDragStart, onDragEnd }: {
   const { board, canary, config } = useData()
   const { open, openModal, moving } = useUi()
   const isMoving = moving.has(j.id)
-  const draggable = (j.stage === 'backlog' || j.stage === 'ready') && !isMoving
+  const draggable = j.stage === 'ready' && !isMoving
   const reviews = j.reviews && ROLES.some((r) => j.reviews![r] && j.reviews![r] !== 'pending')
   // Stacked on an unmerged job (contract, "Stacked jobs"): built on its branch, merged after it.
   const baseJob = j.base ? board.jobs.find((x) => x.id === j.base) : null

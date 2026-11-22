@@ -105,7 +105,7 @@ describe('an idea session', () => {
     await waitFor(() => expect($('[data-spec="1"]')).toHaveTextContent('approved J-2'))
     fireEvent.click($('[data-spec="2"] [data-decide="backlog"]')!)
     await waitFor(() => expect($('#backdrop')).not.toHaveClass('open'))
-    expect($('#toast')).toHaveTextContent('I-9 done: J-2 approved, J-3 in Backlog')
+    expect($('#toast')).toHaveTextContent('I-9 done: J-2 approved, J-3 waits for approval')
     expect(writes(calls).map((c) => [c.method, c.url, c.body])).toEqual([
       ['PUT', '/api/sessions/S-1/specs/1', '# Spec: Tag a book, edited'],
       ['POST', '/api/sessions/S-1/specs/1', { decision: 'approved' }],

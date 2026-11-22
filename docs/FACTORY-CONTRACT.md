@@ -9,7 +9,7 @@ change, but only by editing this file first.
 
 Agents propose and execute; `factory` attests and constrains; a human owns intent and the
 release. A human touches the factory at exactly two points: **approving a spec**, in an idea
-session (or by dragging a Backlog card to Approved), and **accepting the work**
+session (or by **Approve** on a spec waiting on its idea's card in Ideas), and **accepting the work**
 (Ready for review → Done). Everything between those two is automated.
 
 No agent, skill or endpoint writes to `.factory-runs/board.json`. Every state change is a
@@ -21,8 +21,8 @@ No agent, skill or endpoint writes to `.factory-runs/board.json`. Every state ch
  idea session ───────────── human "yes" per spec ────┐
  grill → brief → spec-writer                         │
  (dashboard, or /factory:idea)                       │
-        │ "not yet"                                  ↓
-        └────→ Backlog ──human drag──→ Approved ──runner──→ Building ──→ Ready for review ──human drag──→ Done
+        │ "not yet": the spec waits on its idea's    ↓
+        └────→ card in Ideas ──human Approve──→ Approved ──runner──→ Building ──→ Ready for review ──human drag──→ Done
                (edit spec)             (FIFO queue)        build ←─┐     (flag if the       (merge)
                                         │    ↑ (pass)                                                         
                                         └→ Canary: a deployable job waits there for a canary pass (see Canary)
@@ -44,8 +44,7 @@ Done and discarded cards stay until a human clears them ([Purge](#purge), the Do
 
 | Column | Stages | Who moves cards out |
 | --- | --- | --- |
-| Ideas | `idea` records with status `waiting`, `drafting` or `failed`, and open dashboard [idea sessions](#idea-sessions-dashboard) (not jobs) | the idea session, or **Abandon**, on the card or in the idea's opened card |
-| Backlog | `backlog` | human (drag to Approved, or discard) |
+| Ideas | `idea` records with status `waiting`, `drafting` or `failed`, and open dashboard [idea sessions](#idea-sessions-dashboard); jobs in `backlog`, listed on their idea's card (see below) | the idea session, or **Abandon**, on the card or in the idea's opened card; a `backlog` spec: human (**Approve**, or **Discard**) |
 | Approved | `approved` | runner |
 | Canary | `canary` | runner (to Building after a canary pass); human (discard) |
 | Building | `build`, `review`, `deploy`, `approve`, `gate`, `blocked` | orchestrator / script; a `blocked` card: human (retry deploy, rework, or discard) |
@@ -54,10 +53,19 @@ Done and discarded cards stay until a human clears them ([Purge](#purge), the Do
 | (hidden) | `discarded` | nobody (terminal) |
 
 In Building, the card shows its sub-stage, its round and the reviewer chips; a `blocked` card also
-shows its flag and the **Retry deploy**, **Rework** and **Discard** buttons. Only Backlog,
-Approved, Ready for review and Done accept drops. A Canary card shows `canary running N of ~M min` with the
+shows its flag and the **Retry deploy**, **Rework** and **Discard** buttons. Only Approved and Done
+accept drops, of a Ready for review card. A Canary card shows `canary running N of ~M min` with the
 canary's phase while one runs, or, after a failure, red with the canary's error, its **Log** and **Run canary**,
 and a **Discard** button.
+
+**No Backlog column (spec 22).** The `backlog` stage stays, as where an unapproved spec lives, but the board
+has no column for it. A spec in `backlog` is listed on its idea's card in Ideas (on the session card while its
+idea is in an open session), one row per spec (`data-spec="J-NNN"`) with **Approve** (`approve`, as the drag to
+Approved was) and **Edit** (the job's opened card, which edits `spec.md` as the Backlog card did). A spec whose idea
+is not shown in Ideas (a `new-job`, an idea record that is gone, or one that is `done`, `failed` or `abandoned`) gets
+a card of its own in Ideas (`data-card="J-NNN"`), styled as a spec, with **Approve**, **Edit** and **Discard**. A
+refused approval stays on its spec's row (`data-refused`) until the next try succeeds, as well as in the large sticky
+toast. Approving moves the spec to Approved, and the runner takes it on to Canary or Building.
 
 An Approved card says what it is waiting on (`data-wait`), using the rules `next` applies (see
 [Canary](#canary)). The first rule that matches wins:
@@ -138,7 +146,7 @@ an existing target (`clone-target`) in `<work>\sessions\<S>` (dashboard) or
 `<work>\cli\<owner>-<name>` (`factory idea`), deleted when the session closes. A session with a
 [base](#stacked-jobs) reads `factory/<base>` instead of `main`.
 
-The spec carries the target and the gate, and the human can edit both in Backlog:
+The spec carries the target and the gate, and the human can edit both while it waits in `backlog` (**Edit** on its row in Ideas):
 
 ```
 ## Target
@@ -371,8 +379,9 @@ An idea is not a job. The session:
    its own. It shows each spec; the human approves it, asks for changes (made to `spec-<k>.md`
    before it reaches the board), defers it, or rejects it.
 5. For each approved spec: `add-spec`, then `approve` (it lands in Approved and the session starts
-   the runner). A deferred spec gets `add-spec` only and waits in Backlog. A rejected spec never
-   reaches the board. Then `idea-done`, or `idea-done -Failed` if every spec was rejected.
+   the runner). A deferred spec gets `add-spec` only and waits in `backlog`, on the idea's card. A
+   rejected spec never reaches the board. Then `idea-done`, or `idea-done -Failed` if every spec was
+   rejected; an idea with a deferred spec stays open until its last one is decided (see `idea-done`).
 
 `drafting` means "open for a session". `/factory:idea I-NNN` resumes a `drafting` idea from its
 `brief.md`, after a bootstrap merge or an interrupted session.
@@ -398,6 +407,7 @@ scaffolded its target (`idea.scaffold` is set; in a dashboard session, `session.
 ```
 board.ideas[] = { "id": "I-001", "text": "...", "target": "kamabery/todo-app",
                   "scaffold": null, "base": null, "status": "waiting|drafting|done|failed|abandoned",
+                  "closeWhenDecided": true,   // idea-done ran while specs waited in backlog (absent otherwise)
                   "jobs": ["J-004", "J-005"], "createdAt": "..." }
 ```
 
@@ -415,7 +425,11 @@ board.ideas[] = { "id": "I-001", "text": "...", "target": "kamabery/todo-app",
   `-Base` (an existing target only) records the job the idea builds on as `base`; see
   [Stacked jobs](#stacked-jobs).
 - `factory idea-done <ideaId> [-Failed -Reason <text>]` closes the idea. Ideas in `done`
-  are no longer shown; ideas in `failed` stay in Ideas with the reason until a `purge`.
+  are no longer shown; ideas in `failed` stay in Ideas with the reason until a `purge`. **Not yet keeps the
+  idea open (spec 22):** `idea-done` without `-Failed` on an idea with a job in `backlog` leaves it `drafting`,
+  sets `closeWhenDecided: true` and prints `I-NNN stays open: J-NNN waits in backlog`. When `approve` or `discard`
+  moves the last of its `backlog` jobs on, the idea goes `done` (`closeWhenDecided` cleared, an `idea` event
+  `done`), as `idea-done` would have.
 - `factory idea-abandon <ideaId>` sets an idea in `waiting`, `drafting` or `failed` to
   `abandoned`: the human is not doing it. It is hidden like `done`, its files stay until a
   `purge`, and jobs it already created are left where they are. It appends an `idea` event
@@ -515,7 +529,7 @@ has merged), and closing the session deletes the clone.
    and writes `ideas/<I>/brief.md`.
    - **Existing target:** the turn continues to the specs.
    - **New target:** confirming the brief is the bootstrap's approval: Confirm also runs
-     `approve <bootstrap>` and starts the runner. If `approve` refuses, the bootstrap stays in Backlog
+     `approve <bootstrap>` and starts the runner. If `approve` refuses, the bootstrap stays in `backlog`, on its idea's card,
      and the answer carries the refusal, as a refused spec approval does. The human still merges the
      scaffold: once the bootstrap is Ready for review, the session shows its PR and a **Merge** button,
      the usual move to `done` (a drag to Done works too). When the merge is recorded (the session's
@@ -525,7 +539,8 @@ has merged), and closing the session deletes the clone.
 4. The model calls `submit_specs`. Each spec card offers **Approve** (`add-spec` + `approve`, then
    the runner starts), **Change** (ask the model, which calls `revise_spec`, or edit the markdown
    directly), **Not yet** (`add-spec`), or **Reject**. Once every spec is decided, the panel closes
-   the session: `idea-done`, or `idea-done -Failed -Reason "every spec rejected in session"`.
+   the session: `idea-done`, or `idea-done -Failed -Reason "every spec rejected in session"`. A **Not yet**
+   spec keeps the idea open on its card in Ideas until it is approved or discarded (see [Ideas](#ideas)).
 
 **The phase.** The server works out a session's phase from `session.json` and the board on every read; it is
 never stored. A new-target session's panel shows it as a stepper (Brief → Scaffold → Specs → Build) with the
@@ -661,7 +676,7 @@ asking the builder to remove them.
 **2. Base moved.** When a job merges (`merge`, or `sync-prs` recording a GitHub merge), every other
 job of the same idea that is not `done` or `discarded` gets
 `baseMoved: { "by": "<merged id>", "sha": "<merge commit>", "at": "..." }` and a `note` event. A
-Backlog card shows it ("base moved: J-021 merged"), so the human can edit the spec before approving.
+`backlog` spec's row shows it ("base moved: J-021 merged"), so the human can edit the spec before approving.
 In the job's next build round, build.md must contain:
 
 ```
@@ -808,7 +823,7 @@ session. A human marks one `applied` once the fix has merged. `purge` never touc
     brief.md                   the grilled brief, in the human's words (factory/templates/brief.md)
     spec-<k>.md                spec-writer output, one per proposed job
   jobs/<id>/
-    spec.md                    copied from the idea, then edited by the human in Backlog
+    spec.md                    copied from the idea, then edited by the human while in backlog
     rework-<n>.md              the human's rework note for round n
     deploy-fix-<n>.md          the devops agent's diagnosis of a failed deploy, the builder's input for round n
     round-<n>/
@@ -1691,7 +1706,7 @@ and a refused move snaps the card back and shows the message.
 | `GET /api/repos` | `list-repos` | the JSON array, for the New idea picker |
 | `POST /api/sessions` `{ target, text, base? }` or `{ new: true, text }` | `check-target` (not for `new`, which needs `GITHUB_OWNER`), then `clone-target [-Base]` | allocates `S-NNN`, writes `session.json` (with `base`) and the first message, which tells the model the clone is the base's unmerged branch, and starts a turn. The panel's **Base** list is `main` plus every job on the target that is not `done` or `discarded` and has a PR |
 | `POST /api/sessions/<S>/reply` `{ text, scaffold? }` | (session write); `check-target` when the session has no target | answers `pending` (or adds user text), stores `scaffold`, starts a turn; with no target, `scaffold.repo` sets it and must name a new repo; empty text with no pending retries a failed turn |
-| `POST /api/sessions/<S>/brief` | `new-idea`, then writes `brief.md`; new target: then `approve <bootstrap>` | existing target: answers `submit_brief` and starts the spec turn; new target: records the bootstrap job and starts the runner, or, when `approve` refuses, leaves it in Backlog and answers the refusal |
+| `POST /api/sessions/<S>/brief` | `new-idea`, then writes `brief.md`; new target: then `approve <bootstrap>` | existing target: answers `submit_brief` and starts the spec turn; new target: records the bootstrap job and starts the runner, or, when `approve` refuses, leaves it in `backlog` and answers the refusal |
 | `POST /api/sessions/<S>/write-specs` | (session write) | after the bootstrap merge (the idea is `drafting`): starts the spec turn and sets `specsStarted`. The server's sweep does the same by itself; the panel has no button for it |
 | `POST /api/sessions/<S>/specs/<k>` `{ decision }` | `add-spec` (+ `approve`) | `approved` starts the runner; `rejected` calls nothing |
 | `PUT /api/sessions/<S>/specs/<k>` (text/markdown) | (session write) | the human's direct edit of `spec-<k>.md` |

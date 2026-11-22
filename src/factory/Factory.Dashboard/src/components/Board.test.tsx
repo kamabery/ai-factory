@@ -77,24 +77,25 @@ describe('dragging a card', () => {
     fireEvent.drop(to, { dataTransfer })
   }
 
-  it('to Approved approves a backlog card, and lights the columns it may land on', async () => {
-    const calls = fakeServer({}, { jobs: [job('J-1', 'backlog')], ideas: [] })
+  it('to Done merges a ready card, and lights the columns it may land on', async () => {
+    const calls = fakeServer({}, { jobs: [job('J-1', 'ready')], ideas: [] })
     const { $ } = renderApp()
     const card = await find('[data-card="J-1"]')
     expect(card).toHaveAttribute('draggable', 'true')
     fireEvent.dragStart(card, { dataTransfer: { setData: vi.fn() } })
     expect($('[data-column="approved"]')).toHaveClass('drop-ok')
-    expect($('[data-column="ready"]')).not.toHaveClass('drop-ok')
-    fireEvent.drop($('[data-column="approved"]')!)
-    await waitFor(() => expect(writes(calls)).toEqual([{ method: 'POST', url: '/api/jobs/J-1/move', body: { to: 'approved' } }]))
-    await waitFor(() => expect($('#toast')).toHaveTextContent('J-1 → Approved'))
+    expect($('[data-column="done"]')).toHaveClass('drop-ok')
+    expect($('[data-column="building"]')).not.toHaveClass('drop-ok')
+    fireEvent.drop($('[data-column="done"]')!)
+    await waitFor(() => expect(writes(calls)).toEqual([{ method: 'POST', url: '/api/jobs/J-1/move', body: { to: 'done' } }]))
+    await waitFor(() => expect($('#toast')).toHaveTextContent('J-1 → Done'))
   })
 
   it('a refused move says why; a drop on its own column does nothing', async () => {
-    const calls = fakeServer({ 'POST /api/jobs/J-1/move': { ok: false, message: 'merge refused: not ready' } }, { jobs: [job('J-1', 'backlog')], ideas: [] })
+    const calls = fakeServer({ 'POST /api/jobs/J-1/move': { ok: false, message: 'merge refused: not ready' } }, { jobs: [job('J-1', 'ready')], ideas: [] })
     const { $ } = renderApp()
     const card = await find('[data-card="J-1"]')
-    drag(card, $('[data-column="backlog"]')!)
+    drag(card, $('[data-column="ready"]')!)
     expect(writes(calls)).toEqual([])
     drag(card, $('[data-column="done"]')!)
     await waitFor(() => expect($('#toast')).toHaveTextContent('merge refused: not ready'))

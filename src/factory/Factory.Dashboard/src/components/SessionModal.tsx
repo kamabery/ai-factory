@@ -250,20 +250,20 @@ function SpecsForm({ id, s, sessApi }: { id: string; s: SessionFile; sessApi: Se
   const specs = s.specs ?? []
   const decide = async (sp: SpecEntry, decision: string) => {
     const { r, s: fresh } = await sessApi(`specs/${sp.k}`, { decision })
-    if (r.ok) toast(decision === 'rejected' ? `Spec ${sp.k} rejected` : `${r.message} → ${decision === 'approved' ? 'Approved' : 'Backlog'}`)
+    if (r.ok) toast(decision === 'rejected' ? `Spec ${sp.k} rejected` : `${r.message} → ${decision === 'approved' ? 'Approved' : 'waits on its card in Ideas'}`)
     const now = fresh?.specs ?? []
     if (!now.length || !now.every((x) => x.decision)) return
     const kept = now.filter((x) => x.decision !== 'rejected')
     const { r: c } = await sessApi('close', { failed: !kept.length })
     if (!c.ok) return
-    toast(kept.length ? `${fresh?.idea} done: ${kept.map((x) => `${x.job} ${x.decision === 'approved' ? 'approved' : 'in Backlog'}`).join(', ')}` : `${fresh?.idea} closed: every spec rejected`)
+    toast(kept.length ? `${fresh?.idea} done: ${kept.map((x) => `${x.job} ${x.decision === 'approved' ? 'approved' : 'waits for approval'}`).join(', ')}` : `${fresh?.idea} closed: every spec rejected`)
     // A new-repo session stays open on its Build phase: the stepper follows the jobs it made.
     if (!(s.newTarget && kept.length)) closeModal(true)
     await refresh()
   }
   return (
     <>
-      <p>Decide each spec. <b>Approve</b> builds it now, <b>Not yet</b> puts it in Backlog, <b>Reject</b> drops it. To change one, edit it, or ask Claude below.</p>
+      <p>Decide each spec. <b>Approve</b> builds it now, <b>Not yet</b> leaves it on this idea's card in Ideas, <b>Reject</b> drops it. To change one, edit it, or ask Claude below.</p>
       {specs.map((sp) => <SpecCard key={sp.k} id={id} idea={s.idea} sp={sp} decide={decide} sessApi={sessApi} />)}
     </>
   )

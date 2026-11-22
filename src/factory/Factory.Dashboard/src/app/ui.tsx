@@ -27,6 +27,8 @@ type Ui = {
   toast: (text: string, error?: boolean, opts?: { sticky?: boolean }) => void
   dismissToast: () => void
   moving: ReadonlySet<string>
+  /** A refused approval per job, kept until its next try succeeds (contract, "Board columns and stages"). */
+  refusals: ReadonlyMap<string, string>
   move: (id: string, to: string, note?: string) => Promise<boolean>
   refresh: () => Promise<void>
   armed: string | null
@@ -51,6 +53,7 @@ export function UiProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState<Open | null>(null)
   const [toastState, setToast] = useState<ToastState>(null)
   const [moving, setMoving] = useState<ReadonlySet<string>>(new Set())
+  const [refusals, setRefusals] = useState<ReadonlyMap<string, string>>(new Map())
   const [armed, setArmed] = useState<string | null>(null)
   const dirty = useRef(false)
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
@@ -95,7 +98,10 @@ export function UiProvider({ children }: { children: ReactNode }) {
     }
     if (to === 'done') toast(`${id}: merging…`)
     const res = await api('POST', `/api/jobs/${id}/move`, note ? { to, note } : { to })
-    if (to === 'approved') setMove(id, false)
+    if (to === 'approved') {
+      setMove(id, false)
+      setRefusals((m) => { const n = new Map(m); if (res.ok) n.delete(id); else n.set(id, res.message || 'refused'); return n })
+    }
     if (res.ok) toast(`${id} → ${to === 'discarded' ? 'discarded' : COLUMNS.find((c) => c.key === to)?.label ?? to}`)
     else toast(res.message || 'refused', true)
     await refresh()
@@ -128,8 +134,8 @@ export function UiProvider({ children }: { children: ReactNode }) {
   const setDirty = useCallback((on: boolean) => { dirty.current = on }, [])
 
   const value = useMemo<Ui>(() => ({
-    view, setView, open, openModal, closeModal, isDirty, setDirty, toastState, toast, dismissToast, moving, move, refresh, armed, abandon,
-  }), [view, open, openModal, closeModal, isDirty, setDirty, toastState, toast, dismissToast, moving, move, refresh, armed, abandon])
+    view, setView, open, openModal, closeModal, isDirty, setDirty, toastState, toast, dismissToast, moving, refusals, move, refresh, armed, abandon,
+  }), [view, open, openModal, closeModal, isDirty, setDirty, toastState, toast, dismissToast, moving, refusals, move, refresh, armed, abandon])
 
   return <UiContext.Provider value={value}>{children}</UiContext.Provider>
 }

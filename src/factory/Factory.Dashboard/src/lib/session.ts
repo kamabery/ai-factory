@@ -20,7 +20,7 @@ export function phaseSteps(phase: Phase, bootstrap?: string | null): Step[] {
 
 /** A stage as a phrase: "J-2 is scaffolding shelf (in review)". */
 export const stageText = (stage?: string) => ({
-  backlog: 'in Backlog', approved: 'approved', build: 'building', review: 'in review', deploy: 'deploying', approve: 'with the approver',
+  backlog: 'waiting for approval', approved: 'approved', build: 'building', review: 'in review', deploy: 'deploying', approve: 'with the approver',
   gate: 'at the gate', blocked: 'blocked', ready: 'ready for review', done: 'merged', discarded: 'discarded',
 } as Record<string, string>)[stage ?? ''] ?? stage ?? 'not on the board'
 
@@ -35,7 +35,7 @@ export function waitingText(phase: Phase, s: Waiting): string {
       return s.status === 'running' ? 'Claude is working.' : 'Answer Claude below: it grills you, then proposes a brief.'
     case 'scaffold':
       if (phase.stage === 'ready') return `${phase.job} is ready for review: merge the ${repo} scaffold. Claude then writes the specs, with no click.`
-      if (phase.stage === 'backlog') return `${phase.job} is in Backlog: its approval was refused. Approve it on the board once that is fixed.`
+      if (phase.stage === 'backlog') return `${phase.job} was not approved: its approval was refused. Approve it on its row in Ideas once that is fixed.`
       if (phase.stage === 'blocked') return `${phase.job} is blocked: open it on the board to see why.`
       if (phase.stage === 'discarded') return `${phase.job} was discarded: this repo has no scaffold.`
       return `${phase.job} is scaffolding ${repo} (${stageText(phase.stage)}). Nothing to do until it is ready for review.`
@@ -46,7 +46,7 @@ export function waitingText(phase: Phase, s: Waiting): string {
       return 'Starting the specs…'
     case 'build':
       return phase.jobs?.length && phase.jobs.every((j) => j.stage === 'backlog')
-        ? 'The specs wait in Backlog: approve them on the board when you are ready.'
+        ? 'The specs wait for approval: approve them on this card in Ideas when you are ready.'
         : 'The approved specs are building: follow them here or on the board.'
   }
 }

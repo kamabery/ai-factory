@@ -63,7 +63,7 @@ a question for the human. The grill ends with a brief the human has confirmed, i
 Write the confirmed brief to `.factory-runs/ideas/I-NNN/brief.md`.
 
 **New target:** show `.factory-runs/jobs/J-NNN/spec.md` (the bootstrap spec) in full and ask:
-approve, or leave it in Backlog. On approve, `F approve J-NNN` (step 6 says who starts the runner). Then
+approve, or leave it waiting on the idea's card in Ideas. On approve, `F approve J-NNN` (step 6 says who starts the runner). Then
 tell the human: when the bootstrap job reaches Ready for review, merge it on the dashboard and run
 `/factory:idea I-NNN` (or `factory idea I-NNN`) to spec the features. Stop.
 
@@ -85,13 +85,13 @@ For each `spec-<k>.md`, in order: show it **in full**, then ask (AskUserQuestion
 - **Approve**: it goes to Approved and gets built.
 - **Change it**: take the human's changes, edit `spec-<k>.md` yourself (keep the template's shape,
   the `## Target` line and the `## Gate` lines valid: each one program and its arguments, run with no shell), show it again, and ask again.
-- **Not yet**: it goes to Backlog for later editing on the dashboard.
+- **Not yet**: it waits on the idea's card in Ideas (the dashboard), to edit and approve later; the idea stays open until it is decided.
 - **Reject**: it never reaches the board.
 
 Then, for each spec in order:
 
 - Approved: `F add-spec I-NNN "<absolute path of spec-<k>.md>"` prints `J-NNN`; then `F approve J-NNN`.
-  If `approve` is refused, say why: the job is in Backlog, and the human can fix the spec there.
+  If `approve` is refused, say why: the spec waits on the idea's card in Ideas, and the human can fix it there (Edit).
 - Not yet: `F add-spec` only.
 - Rejected: nothing.
 
@@ -102,6 +102,6 @@ Close the idea: `F idea-done I-NNN` if any spec reached the board, otherwise
 
 You don't start the runner: the dashboard's watchdog starts it within seconds of an approval.
 
-Finish with one line per job (id, title, Approved or Backlog), and point the human at the dashboard,
+Finish with one line per job (id, title, Approved or waiting in Ideas), and point the human at the dashboard,
 at the URL `factory serve` printed. If no dashboard is running, tell them to run `factory serve` (whose
 watchdog then starts the runner), or `factory runner` to drain the queue without one.

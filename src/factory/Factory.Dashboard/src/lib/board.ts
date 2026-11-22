@@ -5,7 +5,6 @@ export type Column = { key: string; label: string; stages?: string[] }
 
 export const COLUMNS: Column[] = [
   { key: 'ideas', label: 'Ideas' },
-  { key: 'backlog', label: 'Backlog', stages: ['backlog'] },
   { key: 'approved', label: 'Approved', stages: ['approved'] },
   { key: 'canary', label: 'Canary', stages: ['canary'] },
   { key: 'building', label: 'Building', stages: ['build', 'review', 'deploy', 'approve', 'gate', 'blocked'] },
@@ -13,7 +12,7 @@ export const COLUMNS: Column[] = [
   { key: 'done', label: 'Done', stages: ['done'] },
 ]
 /** Where a card may be dropped, by its stage: the columns that light up while it is dragged. */
-export const DROP_TARGETS: Record<string, string[]> = { backlog: ['approved', 'done'], ready: ['approved', 'done'] }
+export const DROP_TARGETS: Record<string, string[]> = { ready: ['approved', 'done'] }
 export const ROLES = ['security', 'code', 'ux', 'ui']
 export const NODES: (string | string[])[] = ['spec-writer', 'builder', ['security-reviewer', 'code-reviewer', 'ux-reviewer', 'ui-reviewer'], 'devops', 'approver', 'gate']
 /** Stages that are building. Blocked waits in Building but is not building. */

@@ -48,6 +48,8 @@ export type Idea = {
   jobs?: string[]
   reason?: string
   base?: string
+  /** idea-done ran while specs waited in backlog: it closes when the last is decided (spec 22). */
+  closeWhenDecided?: boolean
 }
 
 export type Board = { jobs: Job[]; ideas: Idea[] }

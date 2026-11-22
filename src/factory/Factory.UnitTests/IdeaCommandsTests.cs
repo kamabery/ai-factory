@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Factory.Cli;
+using Factory.Cli.Abstractions;
 using Factory.Core;
 using Factory.Store;
 using Factory.Store.Abstractions;
@@ -35,6 +36,8 @@ public class IdeaCommandsTests : CommandTestBase
         s.Board["ideas"]!.AsArray().Add(new JsonObject { ["id"] = "I-001", ["text"] = "x", ["target"] = "o/r", ["status"] = status, ["jobs"] = new JsonArray() });
         return s;
     }
+
+    private const string ApprovableSpec = "# Spec: x\n## Target\n- Repo: o/r\n## Gate\n- build: `dotnet build`\n";
 
     private static JsonObject Idea(FakeSession s) => s.Board["ideas"]![0]!.AsObject();
 
@@ -160,6 +163,48 @@ public class IdeaCommandsTests : CommandTestBase
 
         Assert.Equal(("failed", "too vague"), ((string?)Idea(s)["status"], (string?)Idea(s)["reason"]));
         Assert.Equal(["done", "failed"], s.Events.Select(e => (string?)e["detail"]));
+    }
+
+    [Fact]
+    public void IdeaDone_with_a_spec_in_backlog_keeps_the_idea_open_until_its_last_spec_is_decided()
+    {
+        // Spec 22: Not yet keeps the idea open on its card in Ideas.
+        var s = WithIdea("drafting", Jobs.New("J-001", "backlog"), Jobs.New("J-002", "backlog"), Jobs.New("J-003", "approved"));
+        Files.Put(JobFile("J-001", "spec.md"), ApprovableSpec);
+
+        var r = new IdeaDoneCommand(Clock).Run(Args("idea-done", "I-001"), s);
+
+        Assert.Equal(["I-001 stays open: J-001, J-002 wait in backlog"], r.Out);
+        Assert.Equal(("drafting", true), ((string?)Idea(s)["status"], (bool?)Idea(s)["closeWhenDecided"]));
+        Assert.Empty(s.Events);
+
+        new ApproveCommand(Paths, Files, Clock).Run(Args("approve", "J-001"), s);
+        Assert.Equal("drafting", (string?)Idea(s)["status"]);
+
+        new DiscardCommand(Substitute.For<IJobWork>(), Clock).Run(Args("discard", "J-002"), s);
+        Assert.Equal(("done", null), ((string?)Idea(s)["status"], Idea(s)["closeWhenDecided"]));
+        Assert.Equal("""{"ts":"2026-11-10T12:00:00.000Z","idea":"I-001","kind":"idea","detail":"done"}""", s.Events.Last().ToJsonString());
+    }
+
+    [Fact]
+    public void Approving_a_spec_of_an_idea_still_being_specced_leaves_it_open()
+    {
+        var s = WithIdea("drafting", Jobs.New("J-001", "backlog"));
+        Files.Put(JobFile("J-001", "spec.md"), ApprovableSpec);
+
+        new ApproveCommand(Paths, Files, Clock).Run(Args("approve", "J-001"), s);
+
+        Assert.Equal("drafting", (string?)Idea(s)["status"]);
+    }
+
+    [Fact]
+    public void IdeaDone_Failed_closes_whatever_waits_in_backlog()
+    {
+        var s = WithIdea("drafting", Jobs.New("J-001", "backlog"));
+
+        new IdeaDoneCommand(Clock).Run(Args("idea-done", "I-001", "-Failed", "-Reason", "r"), s);
+
+        Assert.Equal(("failed", null), ((string?)Idea(s)["status"], Idea(s)["closeWhenDecided"]));
     }
 
     [Fact]

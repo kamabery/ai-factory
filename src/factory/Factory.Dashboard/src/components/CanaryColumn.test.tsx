@@ -12,7 +12,7 @@ describe('the Canary column', () => {
     }, { jobs: [job('J-1', 'canary')], ideas: [] })
     const r = renderApp()
     const card = await find('[data-column="canary"] [data-card="J-1"]')
-    expect(r.$$('[data-column]').map((c) => c.dataset.column)).toEqual(['ideas', 'backlog', 'approved', 'canary', 'building', 'ready', 'done'])
+    expect(r.$$('[data-column]').map((c) => c.dataset.column)).toEqual(['ideas', 'approved', 'canary', 'building', 'ready', 'done'])
     await waitFor(() => expect(card.querySelector('[data-canary-wait]')).toHaveTextContent('canary running · deploying 1/3 · 0 of ~12 min'))
     expect(card.querySelector('[data-canary-failed]')).toBeNull()
     expect(r.$('#canary [data-canary-waiting]')).toHaveTextContent('waiting in Canary: J-1')
