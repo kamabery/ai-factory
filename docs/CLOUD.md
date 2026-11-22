@@ -43,6 +43,10 @@ image is `factory/container/Dockerfile`.
 
   Then, under the package's **Package settings**, set its visibility to public (`https://github.com/users/<owner>/packages/container/ai-factory/settings`).
 
+  **A new image forces a canary.** The fingerprint includes the package version, so after a release the first
+  deployable job waits in the Canary column while it runs ([DEPLOY.md](DEPLOY.md), "The canary"). A release is
+  checked with the dashboard's Playwright `@smoke` set, not a live cloud job.
+
 ## 1. Apply the Terraform
 
 State lives in HCP Terraform (workspace `factory-cloud`, execution mode local). The apply runs on your machine under

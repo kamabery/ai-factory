@@ -1,6 +1,6 @@
 # Build guide: finishing the factory
 
-**The target:** you type an idea into the dashboard, and the spec-writer turns it into backlog cards.
+**The target:** you type an idea into the dashboard, and the spec-writer turns it into specs you approve from its card in Ideas.
 You edit each spec and drag the ones you want to **Approved**. Each approved card is built, reviewed
 by four agents, judged by the approver and gated, then lands in **Ready for review**. You inspect it
 and drag it to **Done**, which merges it, or send it back with a rework note. The contract for all
@@ -200,7 +200,7 @@ review the seven files yourself: this is where the factory's quality bar lives.
 
 **Test:** a smoke run. `/factory status` on an empty board prints an empty board without error.
 Then type a trivial idea into the dashboard (serve.ps1 with no `FACTORY_CLAUDE_CMD`) and confirm that
-it becomes at least one backlog card with a sensible spec, and that the spec-writer pulse showed on
+it becomes at least one spec on its idea's card with a sensible spec, and that the spec-writer pulse showed on
 the pipeline strip. Discard the card afterwards.
 
 ---
@@ -214,7 +214,7 @@ the pipeline strip. Discard the card afterwards.
    the branch in the worktree (`aspire run` from the target's work dir, then its list page). If you're happy, drag it to **Done**.
 
 **Pass criteria (check each one; don't trust the summary):**
-- The idea produced a sensible backlog card, and your spec edit is what the builder built.
+- The idea produced a sensible spec on its card in Ideas, and your spec edit is what the builder built.
 - The card ends in **Done**, and the timeline shows all 7 agents starting and stopping.
 - `.factory-runs/jobs/J-001/` has spec.md, round-1/build.md, the 4 reviews, decision.md, gate.log and run-1.json.
 - The gate exit codes are all 0, `git log --graph --oneline -5` shows the `--no-ff` merge of `factory/J-001`,
@@ -236,7 +236,7 @@ Timeline); Done lists the full paths the merge added. See "Targets" in `docs/FAC
 1. Restart the dashboard (`factory serve`). Discard the legacy J-001 and J-002.
 2. Submit the idea with a target you type, for example `D:\code\Scratchpad\todo-app`. The hint
    must say "New repo".
-3. In Backlog, check each spec's `Repo:` is exactly your path and its `## Gate` commands make sense
+3. On the idea's card in Ideas, check each waiting spec's `Repo:` is exactly your path and its `## Gate` commands make sense
    for the stack; edit in the modal and Save, then Approve spec 1 first (later specs depend on it).
 4. Watch the **Output** tab: orchestrator lines, then each agent's narration and tool calls.
    (Claude Code records thinking blocks without text, so they show as a marker only.)
@@ -281,8 +281,8 @@ Run each one and confirm the end state on the dashboard and in `board.json`.
 | 7b Security rejection | Idea: "Log every incoming request including all headers to the console" | The security reviewer returns CHANGES (auth headers / PII) → round 2 → either fixed (headers redacted) or Ready with `max-rounds` |
 | 7c Human rework | On any ready card: Rework, "use the Input component from the design system" | Back to Approved at round + 1, then built again; `rework-<n>.md` exists and the new build.md addresses it |
 | 7d Gate failure | Rework asking for a deliberately failing test (or inject `FACTORY_GATE_CMDS` in the dashboard's environment) | Ready with `gate-failed`; the exit code and log are visible in the drawer, and dragging to Done is refused |
-| 7e Queue | Approve two backlog cards back to back | The second waits in Approved until the first reaches Ready; never two cards in Building |
-| 7f Discard | Discard a backlog card and a ready card | Both disappear, and the ready card's branch is gone |
+| 7e Queue | Approve two waiting specs back to back | The second waits in Approved until the first reaches Ready; never two cards in Building |
+| 7f Discard | Discard a waiting spec and a ready card | Both disappear, and the ready card's branch is gone |
 
 ---
 

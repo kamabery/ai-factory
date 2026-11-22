@@ -35,9 +35,11 @@ flowchart TD
     D --> E["Spec-writer drafts<br/>spec-1 .. spec-N"]
     E --> F{"Human decides<br/>each spec"}
     F -- reject --> X["never reaches the board"]
-    F -- defer --> G["Job J-NNN in Backlog"]
+    F -- "not yet" --> G["Job J-NNN in backlog,<br/>on its idea's card in Ideas"]
     F -- approve --> H["Job J-NNN in Approved"]
-    G -- "human drags" --> H
+    G -- "Approve on its row" --> H
+    H -- "runner picks it up,<br/>a canary is due" --> C2["Canary: waits for<br/>the canary to pass"]
+    C2 -- "canary passes" --> I
     H -- "runner picks it up" --> I["Building: build → review<br/>→ deploy j&lt;NNN&gt; → approve → gate"]
     I -- "rework / failed deploy:<br/>next round" --> I
     I -- "green gate" --> J["Ready for review<br/>live preview, PR open"]
@@ -46,8 +48,20 @@ flowchart TD
     K --> L["Evaluation<br/>evals/J-NNN.md: good / mixed / poor"]
 ```
 
-One session makes at most one idea. One idea makes 1 to 5 jobs (plus a bootstrap job for a new
-repo). A job belongs to exactly one idea. Everything a job leaves behind is keyed by its `J-` id.
+One session makes at most one idea. A feature idea makes 1 to 5 jobs; a New repo idea makes one, its
+bootstrap. A job belongs to exactly one idea. Everything a job leaves behind is keyed by its `J-` id.
+
+A new app, from the New repo idea to its features (spec 22):
+
+```mermaid
+flowchart LR
+    R["New repo session<br/>grill → product"] --> P["Repo idea I-NNN<br/>kind repo, product.md"]
+    P --> B["Bootstrap J-NNN<br/>commits docs/PRODUCT.md,<br/>scaffolds"]
+    B -- "human merges" --> M["Repo card: Merged"]
+    M -- "Implement first feature" --> F1["Feature idea I-NNN<br/>from the repo idea:<br/>brief → specs → jobs"]
+    M -- "Implement &lt;next&gt;" --> F2["the next feature idea"]
+    M -- "Dismiss, or none left" --> D["repo idea done"]
+```
 
 ## Terms
 
@@ -69,21 +83,39 @@ human confirms it. Confirming it is what creates the idea (`I-NNN`), and the bri
 **Idea** (`I-NNN`). The board record of what the human wants, on one target. Statuses: `waiting`
 (new target, waiting for its bootstrap to merge), `drafting` (open for a session), `done`,
 `failed` (every spec rejected), `abandoned`. Shown in the Ideas column until done or abandoned. An
-idea is not a job and is never built.
+idea is not a job and is never built. A **feature idea** builds on a repo that exists; a **New repo
+idea** (`kind: "repo"`) makes the app, and its features are feature ideas started from it (`from`,
+`feature`).
+
+**Product** (`docs/PRODUCT.md`). A New repo idea's grilled document in place of a brief
+(`factory/templates/product.md`): the app's purpose, its users, its Home decision, and 1 to 10 features in build
+order, each a `###` heading. The factory commits it into the bootstrap's branch (`docs: product`) and never edits it
+again; it is the app's roadmap, read from the target's `main` whenever the next feature is offered.
+
+**Repo card.** A New repo idea's card in Ideas, marked New repo, with steps Grill → Scaffold → Review → Merged. Once
+the scaffold merges it offers **Implement first feature**, then **Implement \<heading\>** for the next feature in
+PRODUCT.md with no idea yet, and **Dismiss**. Repos scaffolded before spec 22 have none; they use New idea.
+
+**Implement.** Starts one feature of a repo: a feature session on the repo, seeded with that feature's text, that
+grills only what PRODUCT.md and the code leave open. The feature counts as started when its brief is confirmed. The
+first feature's specs carry the Home decision. CLI: `factory idea <owner/name> --feature <k>`.
 
 **Spec.** One small, separately buildable piece of an idea (`factory/templates/spec.md`), written
 by the spec-writer. A draft is `ideas/I-NNN/spec-<k>.md`, where `k` is its position in the idea
 (1..5), not an id. The human approves, defers, revises or rejects each one. Approved and deferred
 specs become jobs; a rejected spec never reaches the board. Once it is a job, the spec is
-`jobs/J-NNN/spec.md`, and the human can still edit it in Backlog.
+`jobs/J-NNN/spec.md`, and while it waits in `backlog` the human can still edit and approve it on its idea's card in
+Ideas (the board has no Backlog column).
 
 **Job** (`J-NNN`). A spec on the board: the unit that is built, reviewed, deployed, gated and
-merged. Its card moves Backlog → Approved → Building → Ready for review → Done (or is discarded).
+merged. Its card moves Ideas (on its idea's card, until approved) → Approved → Canary (only when a canary is due)
+→ Building → Ready for review → Done (or is discarded).
 Each job has its own temp clone, branch `factory/J-NNN` and PR. `kind` is `feature` (from a spec)
 or `bootstrap`.
 
-**Bootstrap job.** The first job on a new target: it scaffolds the repo from the templates. The
-idea waits (`waiting`) until the bootstrap merges, then its feature specs are written.
+**Bootstrap job.** The first job on a new target: it scaffolds the repo from the templates, with a New repo idea's
+product committed as `docs/PRODUCT.md`. The idea waits (`waiting`) until the bootstrap merges; then its repo card offers
+the features. A bootstrap never deploys, so it never waits for a canary.
 
 **Stacked job / base.** A job built on another job's unmerged branch instead of `main`. The
 session's **Base** picks it; the job's `base` field holds that job's `J-` id, and it cannot merge
@@ -92,8 +124,8 @@ before its base does.
 **Round** (`round-<n>`). One pass of build → review (→ deploy) for a job. A rework or a failed
 deploy starts the next round. Rounds are numbered per job, from 1.
 
-**Stage.** Where a job is inside a column: `backlog`, `approved`, `build`, `review`, `deploy`,
-`approve`, `gate`, `blocked`, `ready`, `done`, `discarded`.
+**Stage.** Where a job is: `backlog` (on its idea's card in Ideas), `approved`, `canary`, `build`, `review`,
+`deploy`, `approve`, `gate`, `blocked`, `ready`, `done`, `discarded`.
 
 **Gate.** The deterministic check (build, tests, UI) `factory` runs on the job's head after the
 approver says APPROVE. A green gate moves the job to Ready for review; only a human merges.
@@ -103,9 +135,27 @@ case: J-024 deploys to `j024`, resource group `rg-<project>-j024`, HCP workspace
 `<repo>-j024`. Previews are never production.
 
 **Canary** (`j000`, run `n`). The factory's check that its own deploy machinery works: it scaffolds
-`kamabery/factory-canary`, deploys it to the reserved preview `j000`, smoke-tests and destroys it.
-Runs are numbered `canary-<n>.log` (canary 17, ...) and are not tickets. Job deploys wait while the
-canary has not passed for the current fingerprint.
+`kamabery/factory-canary` from the current templates, deploys it to the reserved preview `j000` through the same path a
+job's preview takes, smoke-tests it, signs in, and destroys it. A broken template or deploy change so fails one
+throwaway run instead of a real job after its tokens are spent (J-019's three attempts went on three platform bugs).
+Runs are numbered `canary-<n>.log` (canary 17, ...) and are not tickets. Its limits: it is one scaffold (Postgres +
+React + sign-in, so a SQLite-only bug like template-projects PR #10's gets past it), it runs on the shared platform
+(only `factory canary -Full` proves a from-scratch stack), and it never deploys an existing target's own IaC.
+
+**Canary stage and column.** A deployable job the runner takes while the canary has no pass for the current
+fingerprint moves `approved → canary` and waits in the **Canary** column; the pass moves it to Building. A failed
+canary leaves it there, red, with the error and **Run canary**. The header's "canary due" chip says beforehand that the
+next deployable job will wait, and why (what changed since the last pass).
+
+When a canary runs:
+
+| Question | Answer |
+| --- | --- |
+| Deploys off (no `HCP_ORG`)? | never: no job is deployable |
+| Local or cloud run mode, local or Azure board? | no difference: it runs no LLM |
+| A bootstrap job? | never waits: a bootstrap does not deploy |
+| How often? | once per fingerprint, not per job: the first deployable job after a change waits, and the jobs taken meanwhile wait on the same run |
+| What is in the fingerprint? | four groups: the deploy code (or the package version in a tool install) and the HCP variable set, which affect every target's previews; the templates (`IaC/`, `deploy.yml`, the template pack), which mostly affect targets scaffolded after the change, since a target deploys its own committed copy; and the canary's own settings |
 
 **Evaluation.** A written judgement of a finished job (`evals/J-NNN.md` and `.json`, rated
 `good`, `mixed` or `poor` on its first line). A human can add feedback (`evals/J-NNN.feedback.md`).

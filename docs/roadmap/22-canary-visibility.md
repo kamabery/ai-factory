@@ -200,8 +200,10 @@ what the canary is, when it runs and why jobs wait for it, and describe the two 
 ## Progress (2026-11-22)
 
 Built on `feature/22-canary-visibility`: canary reasons (`0d6af9f`, `b852a2e`), phases (`849d339`), the Canary stage
-and column (`0c60468`), its Playwright `@smoke` (`44866e7`), and no Backlog column (`de13b60`). Next: the New repo
-idea, then the docs list and the proofs.
+and column (`0c60468`), its Playwright `@smoke` (`44866e7`), no Backlog column (`de13b60`), and the New repo idea: its
+contract and CLI (`f0156f5`: `product.md`, `new-idea -Product` / `-From -Feature`, `factory product`, the `docs: product`
+commit), its sessions and endpoints (`0de10fb`), the repo card and its `@smoke` (`2f3f3ca`), and the CLI door's
+`--feature` (`4b6aa24`). The docs list is done. Next: the live proof on the local board, then the cloud release.
 
 Where the build differs from the plan above:
 - **The Canary `@smoke` serves its board and `canary.json` from the test**, not the Simulator: the Playwright
@@ -211,6 +213,15 @@ Where the build differs from the plan above:
   (with Approve to retry) comes with the New repo idea.
 - **Not yet keeps the idea open in the CLI**: `idea-done` leaves an idea with `backlog` specs `drafting` with
   `closeWhenDecided`, and `approve`/`discard` of the last one closes it, so the server is unchanged.
+- **A feature counts as started at its brief's Confirm**, not at the Implement click: Confirm runs `new-idea -From
+  -Feature`. Until then the repo card shows the open feature session in place of Implement, and abandoning that
+  session leaves the feature unstarted.
+- **Repo ideas name their features by heading only after they start** (`features` lists the started ones); the full
+  list is always `factory product`'s read of `main`.
+- **Older new-target sessions keep 21's flow**: a session or idea with no `kind` (a 21 session mid-flight) still gets
+  its spec turn after the merge; only `kind: "repo"` sessions skip it. The dashboard creates no new ones.
+- **The New repo `@smoke` is the Simulator's S-001**, a repo session for `sim/shelf`: Merge, Implement first feature,
+  the Home refusal on the first feature's specs, the next feature offered, then Dismiss.
 
 ## Follow-ups (not built in 22)
 

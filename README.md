@@ -41,9 +41,9 @@ templates new projects are scaffolded from, runs `factory doctor`, and opens the
 [docs/GITHUB-APP.md](docs/GITHUB-APP.md) has the details.
 
 Then, in the dashboard:
-1. **New idea**: give a target repo (`owner/name`) and a sentence. A repo that doesn't exist yet is created, private,
-   and scaffolded first. For a small first job, fork
+1. **New idea**: pick a target repo (`owner/name`) and give a sentence. For a small first job, fork
    [kamabery/ai-factory-hello](https://github.com/kamabery/ai-factory-hello), a .NET console app and its tests.
+   Or pick **+ New repo** to make an app from scratch: see "Two kinds of idea" below.
 2. Answer Claude's questions until the brief is right, and approve the specs it proposes.
 3. Wait for the card to reach **Ready for review**, read its PR, and drag it to **Done**.
 
@@ -72,11 +72,24 @@ dashboard's header says which one you are on (`local · subscription` or `cloud 
 Ideas are grilled in the panel on the `claude` CLI, headless, like a job (`claude-opus-5-5` unless
 `FACTORY_IDEA_MODEL` says otherwise). Claude asks rounds of clickable questions until nothing in the idea is assumed,
 reads the brief back for your yes, and splits it into one to five small specs. Each spec card asks you to approve it,
-change it (edit it, or ask Claude), choose "not yet" (it goes to **Backlog**), or reject it. The panel shows the
-session's cost as it goes. Closing the browser loses nothing: the session's card reopens it.
+change it (edit it, or ask Claude), choose "not yet", or reject it. A "not yet" spec waits on its idea's card in the
+**Ideas** column, with **Approve** and **Edit**, and the idea stays open until it is decided; the board has no Backlog
+column. The panel shows the session's cost as it goes. Closing the browser loses nothing: the session's card reopens it.
+
+**Two kinds of idea.** A **feature** idea builds something on a repo that exists. A **New repo** idea (**+ New repo**
+in the panel) makes the app: Claude grills you on its name and scaffold, what it is for, who uses it, what it opens on
+at `/` (its Home), and the features to build, 1 to 10 in order. You confirm that as a product document, and a
+bootstrap job scaffolds the repo from the templates with it committed as `docs/PRODUCT.md`. The repo's card in Ideas
+goes Grill → Scaffold → Review → Merged; once you merge the scaffold it offers **Implement first feature**, then
+**Implement** each next one in order, every one a feature idea of its own whose session starts from that feature's
+text (the first one's specs carry the Home decision). **Dismiss** stops offering them. From the CLI it is
+`factory idea <owner/name> --feature <k>`.
 
 **Approved** is a FIFO queue, and jobs build one at a time, each in its own temp clone that is deleted when the job is
-done or discarded. A building card's pipeline strip lights up as each agent runs:
+done or discarded. With previews on, a job that would deploy while the current templates and deploy code have no
+**canary** pass waits in the **Canary** column first: the canary deploys a throwaway scaffold the way a preview would,
+so a broken template fails there, not in your job ([docs/DEPLOY.md](docs/DEPLOY.md), "The canary"). A "canary due"
+chip in the header says when that will happen, and why. A building card's pipeline strip lights up as each agent runs:
 1. **builder:** implements the spec on branch `factory/<id>`.
 2. **security, code, UX and UI reviewers:** in parallel. Any `CHANGES` sends the job back to the builder for round 2.
 3. **approver:** checks every acceptance criterion against the evidence.
