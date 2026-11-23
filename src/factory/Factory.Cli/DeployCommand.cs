@@ -12,7 +12,7 @@ namespace Factory.Cli;
 /// writes deploy-&lt;a&gt;.log, exits 1 and leaves the job in deploy, or on the fifth attempt blocks it deploy-failed. A
 /// missing GitHub App permission gives the attempt back and blocks it github-permission. A bootstrap never deploys.
 /// </summary>
-public sealed class DeployCommand(IDeployService deploy, IFactoryPaths paths, IFileStore files, IDotEnv dotEnv, TimeProvider clock) : ICommand
+public sealed class DeployCommand(IDeployService deploy, IPlatform platform, IFactoryPaths paths, IFileStore files, IDotEnv dotEnv, TimeProvider clock) : ICommand
 {
     public string Name => "deploy";
 
@@ -37,16 +37,16 @@ public sealed class DeployCommand(IDeployService deploy, IFactoryPaths paths, IF
         // Still applying: the last attempt's process died before it recorded a result (J-019: the devops agent's shell
         // call ended at 20 minutes, against a run of up to an hour). This resumes that attempt, not a new one.
         var resume = PsJsonReader.Is(PsJsonReader.Str(d["status"]), "applying");
+        // Died while waking the platform (spec 24): that attempt is resumed, but nothing was dispatched for it.
+        var died = resume || PsJsonReader.Is(PsJsonReader.Str(d["status"]), "waking");
         // The live preview's applied head; a failed or half-applied preview gets a full deploy.
         var since = PsJsonReader.Is(PsJsonReader.Str(d["status"]), "up") && PsJsonReader.Str(d["sha"]) is { Length: > 0 } sha ? sha : null;
-        if (!resume && PsJsonReader.Int(d["attempts"]) >= Preview.MaxAttempts)
+        if (!died && PsJsonReader.Int(d["attempts"]) >= Preview.MaxAttempts)
             throw new FactoryException($"deploy refused: {j.Id} has used its {Preview.MaxAttempts} attempts");
-        if (!resume) d["attempts"] = PsJsonReader.Int(d["attempts"]) + 1;
-        d["status"] = "applying";
-        session.Save();
+        if (!died) d["attempts"] = PsJsonReader.Int(d["attempts"]) + 1;
         var attempt = PsJsonReader.Int(d["attempts"]);
 
-        var res = deploy.Attempt(session, j, resume, since);
+        var res = Wake(session, j, d) ?? Apply(session, id, resume, since);
         j = session.Board.Job(id);
         d = j.Node["deploy"]!.AsObject();
         d["sha"] = res.Sha;
@@ -83,5 +83,34 @@ public sealed class DeployCommand(IDeployService deploy, IFactoryPaths paths, IF
         }
         if (attempt >= Preview.MaxAttempts) BoardMoves.Move(session, j, Transitions.EscalationStage(j, deploysOn), "orchestrator", clock, "deploy-failed", first);
         throw new FactoryException($"deploy attempt {attempt} failed: {first}; see deploy-{attempt}.log (factory deploy-log {j.Id})");
+    }
+
+    /// <summary>
+    /// Spec 24: a platform that is not awake is started within the attempt (<c>waking</c>), the board lock released.
+    /// Null to go on, or the failed attempt, which keeps the preview's last head and run.
+    /// </summary>
+    private DeployAttempt? Wake(IBoardSession session, Job j, JsonObject d)
+    {
+        try
+        {
+            if (!platform.Configured || platform.Status() == "awake") return null;
+            d["status"] = "waking";
+            session.Save();
+            session.Unlocked(() => platform.Start());
+            return null;
+        }
+        catch (FactoryException e)
+        {
+            var now = session.Board.Job(j.Id).Node["deploy"]!;
+            return new DeployAttempt(false, PsJsonReader.Str(now["sha"]), PsJsonReader.Str(now["run"]), null, null, null, $"## Platform\n{e.Message}");
+        }
+    }
+
+    private DeployAttempt Apply(IBoardSession session, string id, bool resume, string? since)
+    {
+        var j = session.Board.Job(id);
+        j.Node["deploy"]!["status"] = "applying";
+        session.Save();
+        return deploy.Attempt(session, j, resume, since);
     }
 }

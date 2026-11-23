@@ -25,6 +25,13 @@ test.describe('a deployed board', { tag: '@cloud' }, () => {
     expect(Array.isArray(canary.reasons)).toBeTruthy();
   });
 
+  test('the platform chip says whether the preview platform is awake, through the identity (spec 24)', async ({ page }) => {
+    await page.goto('/');
+    const status = await (await page.request.get('/api/platform')).json();
+    expect(status.ok, status.message).toBeTruthy();
+    await expect(page.locator('#platform')).toHaveText(/^platform: (awake|asleep|starting|stopping)/);
+  });
+
   test('New idea opens with + New repo, and closes without starting anything', async ({ page }) => {
     await page.goto('/');
     await page.locator('#new-idea-btn').click();

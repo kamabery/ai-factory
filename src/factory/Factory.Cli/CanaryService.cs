@@ -19,7 +19,7 @@ namespace Factory.Cli;
 /// </summary>
 public sealed partial class CanaryService(
     IDeployService deploy, IHcpClient hcp, ICanary canary, ICanaryLock canaryLock, IGitHub github, IGitClient git, IToolRunner tools,
-    IFileStore files, IFactoryPaths paths, IDotEnv dotEnv, IFactoryLauncher launcher, IPause pause, TimeProvider clock,
+    IFileStore files, IFactoryPaths paths, IDotEnv dotEnv, IFactoryLauncher launcher, IPause pause, IPlatform platform, TimeProvider clock,
     IOptions<DeployOptions> options) : ICanaryService
 {
     private DeployOptions O => options.Value;
@@ -48,11 +48,16 @@ public sealed partial class CanaryService(
             foreach (var j in held) session.AddEvent(Transitions.Move(j, Stages.Canary, "runner", null, null, null, clock.GetUtcNow()));
             if (held.Count > 0) session.Save();
             var n = 1 + (last is null ? 0 : PsJsonReader.Int(last["n"]));
+            // Spec 24: a platform that is not awake is woken first, as the wake phase; a status az refuses fails the run there.
+            string? wakeErr = null;
+            bool waking;
+            try { waking = platform.Configured && platform.Status() != "awake"; }
+            catch (FactoryException e) { (waking, wakeErr) = (true, e.Message); }
             rec = new JsonObject
             {
                 ["fingerprint"] = fp, ["status"] = "running", ["error"] = null, ["repo"] = repo, ["sha"] = null, ["urls"] = null,
                 ["log"] = $"canary-{n}.log", ["startedAt"] = Now, ["finishedAt"] = null, ["n"] = n, ["full"] = full,
-                ["version"] = canary.Version, ["phase"] = "scaffold", ["deploy"] = null, ["run"] = null, ["inputs"] = Inputs(canary.Inputs()),
+                ["version"] = canary.Version, ["phase"] = waking ? "wake" : "scaffold", ["deploy"] = null, ["run"] = null, ["inputs"] = Inputs(canary.Inputs()),
                 // Carried over from the last record, so the reasons and the typical duration survive a failure.
                 ["passes"] = last?["passes"] is JsonArray kept ? kept.DeepClone() : new JsonArray(),
             };
@@ -74,7 +79,7 @@ public sealed partial class CanaryService(
                 Phase("deploy");
             }
             // As canary.ps1's if ($err): an empty error is none.
-            session.Unlocked(() => err = RunCanary(repo, sc, rec, log, full, Phase, Progress) is { Length: > 0 } e ? e : null);
+            session.Unlocked(() => err = ((waking ? Wake(wakeErr, log, Phase) : null) ?? RunCanary(repo, sc, rec, log, full, Phase, Progress)) is { Length: > 0 } e ? e : null);
 
             files.WriteAtomic(Path.Combine(paths.Home, PsJsonReader.Text(rec["log"])), new UTF8Encoding(false).GetBytes(string.Join("\n\n", log) + Nl));
             rec["status"] = err is null ? "pass" : "failed";
@@ -199,6 +204,23 @@ public sealed partial class CanaryService(
         canaryLock.TryTake(out var otherMachine) ?? throw new FactoryException(otherMachine
             ? $"{command} refused: another canary is running on another machine (locks/canary)"
             : $"{command} refused: another canary is running (canary.lock)");
+
+    /// <summary>The wake phase, lock released: null once the platform is awake and the scaffold phase begun, or the error.</summary>
+    private string? Wake(string? statusErr, List<string> log, Action<string?> phase)
+    {
+        try
+        {
+            if (statusErr is not null) throw new FactoryException(statusErr);
+            platform.Start();
+            phase("scaffold");
+            return null;
+        }
+        catch (FactoryException e)
+        {
+            log.Add($"## Platform\n{e.Message}");
+            return e.Message;
+        }
+    }
 
     /// <summary>The run, lock released: scaffold, deploy j000 from main, smoke. Null, or the first error; <paramref name="log"/> gets canary-&lt;n&gt;.log's sections.</summary>
     private string? RunCanary(string repo, JsonObject sc, JsonObject rec, List<string> log, bool full, Action<string?> phase, Action<JsonObject> progress)

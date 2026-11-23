@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Factory.Cli;
+using Factory.Cli.Abstractions;
 using Factory.Core;
 using Factory.Store;
 using Factory.Store.Abstractions;
@@ -20,6 +21,7 @@ public class DeployServiceTests : CommandTestBase
     private readonly FakeGit _git = new FakeGit().On("rev-parse HEAD", 0, "sha-1");
     private readonly FakePause _pause;
     private readonly DeployOptions _o = new();
+    private readonly IPlatform _platform = Substitute.For<IPlatform>();
     private readonly Dictionary<string, string?> _outs = new()
     {
         ["react_url"] = "https://web", ["api_url"] = "https://api", ["qa_user"] = "qa@x.test", ["qa_password"] = "pw-1",
@@ -28,6 +30,8 @@ public class DeployServiceTests : CommandTestBase
     public DeployServiceTests()
     {
         _pause = new FakePause(Clock);
+        _platform.Configured.Returns(true);
+        _platform.Status().Returns("awake");
         _credential.Token(Arg.Any<string?>()).Returns("pat");
         foreach (var (k, v) in new[] { ("AZURE_GH_CLIENT_ID", "gh-app"), ("AZURE_TENANT_ID", "tenant"), ("AZURE_SUBSCRIPTION_ID", "sub"), ("HCP_ORG", "org"), ("HCP_TEAM_TOKEN", "team") })
             DotEnv.Get(k).Returns(v);
@@ -43,7 +47,7 @@ public class DeployServiceTests : CommandTestBase
         _o.SigninRetrySeconds = "30";
     }
 
-    private DeployService Sut => new(_gh.GitHub, _credential, _hcp, _tools, _probe, _git, Files, Paths, DotEnv, EnvSecrets.Over(DotEnv), _pause, Clock,
+    private DeployService Sut => new(_gh.GitHub, _credential, _hcp, _tools, _probe, _git, Files, Paths, DotEnv, EnvSecrets.Over(DotEnv), _pause, _platform, Clock,
         Options.Create(_o), Options.Create(new FactoryOptions { TempPath = Path.Combine(Path.GetTempPath(), "deploy-tmp") }));
 
     private static (FakeSession Session, Job Job) InDeploy(int attempts = 1)
@@ -447,6 +451,31 @@ public class DeployServiceTests : CommandTestBase
 
         _hcp.Received(3).SafeDelete("ws-1");
         Assert.Equal(4, _pause.Sleeps.Count);
+    }
+
+    [Fact]
+    public void RemovePreview_wakes_a_sleeping_platform_before_the_destroy_run()
+    {
+        // Spec 24: a destroy drops the preview's database and role on the platform server, which must be running.
+        _platform.Status().Returns("asleep");
+        Assert.Null(Sut.RemovePreview("ws-1"));
+        Received.InOrder(() => { _platform.Start(); _hcp.QueueDestroy("ws-1"); });
+    }
+
+    [Fact]
+    public void RemovePreview_with_an_awake_platform_does_not_start_it()
+    {
+        Assert.Null(Sut.RemovePreview("ws-1"));
+        _platform.DidNotReceive().Start();
+    }
+
+    [Fact]
+    public void RemovePreview_whose_wake_fails_answers_the_refusal_and_queues_nothing()
+    {
+        _platform.Status().Returns("asleep");
+        _platform.Start().Returns<string>(_ => throw new FactoryException("platform refused: az start failed: ERROR: quota"));
+        Assert.Equal("platform refused: az start failed: ERROR: quota", Sut.RemovePreview("ws-1"));
+        _hcp.DidNotReceiveWithAnyArgs().QueueDestroy(default!);
     }
 
     [Theory]

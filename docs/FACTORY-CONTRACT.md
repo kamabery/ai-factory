@@ -991,7 +991,7 @@ those lines and nothing else; if one is missing or malformed, the script treats 
   has the stage it stopped in (`build`, `review`, `deploy` or `approve`) and `resumeSession`, the
   claude session to continue; the runner moves it to that stage and clears both.
 - `deploy` is `null` (or absent) until the first `deploy`, then
-  `{ "env": "j001", "workspace": "<repo>-j001", "workspaceId": "ws-...", "status": "applying|up|failed|destroying|down", "attempts": 1, "sha": "<deployed head>", "run": "<GitHub run url>", "urls": { "frontend": "...", "api": "...", "health": "..." }, "appliedAt": "...", "destroyAt": "...", "destroyStartedAt": "...", "destroyError": null, "destroyFailures": 0 }`. The last three exist once a destroy has started; a successful destroy clears the error and the count.
+  `{ "env": "j001", "workspace": "<repo>-j001", "workspaceId": "ws-...", "status": "waking|applying|up|failed|destroying|down", "attempts": 1, "sha": "<deployed head>", "run": "<GitHub run url>", "urls": { "frontend": "...", "api": "...", "health": "..." }, "appliedAt": "...", "destroyAt": "...", "destroyStartedAt": "...", "destroyError": null, "destroyFailures": 0 }`. The last three exist once a destroy has started; a successful destroy clears the error and the count.
   `urls.frontend` is null for an API-only target. `destroyAt` is HCP's auto-destroy time; after it
   the dashboard treats the preview as gone whatever `status` says. `destroy` and `qa-login` use
   `workspaceId`, so they need `HCP_TOKEN` but not `HCP_ORG`: a dashboard can tear down and log in to
@@ -1326,6 +1326,7 @@ target's `/factory:idea` grills to a product (the New repo idea) and stops at th
 | `resume <id>` (`ready` or `blocked` with flag `usage-limit`: back to Approved, to continue its claude session in the stage it stopped in) | the server (**Resume**), a human |
 | `canary [-Force] [-Full] [-Retry] [-Due]` (see [Canary](#canary)) | the runner (before a deployable job), the server (**Run canary**; `-Due` for the due chip), a human |
 | `destroy <id>` (any stage; a no-op without a preview) · `qa-login <id>` (prints the preview's QA user and password) | the server (**Tear down**, **QA login**), and `merge`/`discard` |
+| `platform status\|start\|sleep` (see [The platform](#the-platform)) | the server (the platform chip), `deploy` and `canary` (start), a human |
 | `sweep` · `canary-destroy` (see [Deploy](#deploy) and [Canary](#canary)) | the server at startup and the runner when it drains; `canary` and `sweep` start `canary-destroy` |
 | `event <json \| -Job -Idea -Kind -Agent>`, or `event` alone: a `SubagentStart` / `SubagentStop` hook payload on stdin, which appends `agent-start` or `agent-stop` for `FACTORY_JOB` (else `FACTORY_IDEA`; neither set, nothing), the plugin's `factory:` prefix stripped and an empty `agent_type` (Claude Code's internal agents) skipped; `agent-start` adds `agentId` and `transcript` (`<transcript_path without .jsonl>/subagents/agent-<agent_id>.jsonl`). The hook form prints nothing and always exits 0, so a hook never breaks a session | the plugin's hooks |
 | `eval <id> -File <path>` | a human session evaluating a finished job (see [Evaluations](#evaluations)) |
@@ -1484,6 +1485,7 @@ anything but the one child process that needs it, never logged):
 | `HCP_AZURE_VARSET` | id of the variable set holding Azure (and Entra External) dynamic credentials, attached to every project |
 | `AZURE_GH_CLIENT_ID` · `AZURE_TENANT_ID` · `AZURE_SUBSCRIPTION_ID` | the app registration GitHub Actions signs in as (OIDC), for image builds and schema steps |
 | `HCP_API_URL` | default `https://app.terraform.io`; tests point it at a stub |
+| `FACTORY_PLATFORM_SERVER_ID` | the resource id of the shared platform's Postgres server (`psql-factory-<suffix>` in `rg-factory-platform`), which [`platform`](#the-platform) starts and stops; `previews-env` writes it (spec 24) |
 
 **One-time setup** is Terraform, applied by a human (`docs/DEPLOY.md`), never by `factory`: `factory/infra/previews`
 holds the Azure identities, their roles and federated credentials, the External tenant's user flow and app, the shared
@@ -1494,7 +1496,8 @@ organization, its team token and the External tenant itself are made by hand.
 **`factory previews-env [--from <file>]`** copies that setup's results into `.env`. It reads the `dotenv` output of
 `terraform -chdir=<factory root>/factory/infra/previews output -json` (or of the JSON in `<file>`, in the same shape):
 a map of setting to value. Each of `AZURE_GH_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`,
-`HCP_AZURE_VARSET`, `FACTORY_ENTRA_TENANT_ID`, `FACTORY_ENTRA_SUBDOMAIN` and `FACTORY_ENTRA_USER_FLOW_ID` in the map is
+`HCP_AZURE_VARSET`, `FACTORY_PLATFORM_SERVER_ID`, `FACTORY_ENTRA_TENANT_ID`, `FACTORY_ENTRA_SUBDOMAIN` and
+`FACTORY_ENTRA_USER_FLOW_ID` in the map is
 written by init's rule (the live line, else a commented-out one, else appended) and printed `<NAME>: set` or
 `<NAME>: unchanged`; any other name is ignored. It never writes `HCP_ORG`, so it never turns deploys on. With no
 `dotenv` output, or output that is not JSON, it refuses with `previews-env refused: <why>; run terraform apply in
@@ -1508,6 +1511,9 @@ factory/infra/previews first` and exits 1, changing nothing.
    set to `status: down` (no preview), so the card stops showing a stale failure. Its first feature
    job is the first preview.
 1. Refuses when `deploy.attempts` is already 5. Increments `attempts`, sets `status: applying`.
+   **Wake (spec 24):** when [`platform status`](#the-platform) is not `awake`, it sets `status: waking` instead,
+   runs `platform start` within the attempt, and then sets `status: applying`. A start that fails is a failed attempt (step 9). A `status` of `waking`, like
+   `applying`, means the last attempt's process died, and is resumed.
    When `status` is already `applying`, the last attempt's process died before recording a result
    (the caller's shell timed out; a full apply takes about an hour), and this call **resumes that
    attempt**: no refusal, no increment. A resumed attempt takes the newest `deploy.yml` run of the
@@ -1622,6 +1628,40 @@ It prints what it started and does nothing with deploys off. The server runs it 
 runner when it drains. Non-terminal jobs are left alone: their next round applies over the preview,
 and a destroy there is the J-022 race.
 
+### The platform
+
+The [shared platform](DEPLOY.md#the-shared-platform) has one resource with a real idle cost: its Postgres flexible
+server, about $13 a month while it runs. Stopping it is how the factory saves that money, and nothing else on the
+platform is stopped (spec 24).
+
+**`factory platform status|start|sleep`** (deploys only: with no `HCP_ORG` it refuses `platform refused: deploys are
+off`) finds the server by `FACTORY_PLATFORM_SERVER_ID` (refused with `platform refused: no FACTORY_PLATFORM_SERVER_ID
+in .env; run factory previews-env` when it is missing) and calls `az postgres flexible-server show|start|stop --ids
+<id>` (az where it fits better than HCP Terraform, as for Postgres roles). An az failure is a refusal,
+`platform refused: az <verb> failed: <first error line>`.
+
+- `status` prints one word: `awake` (`Ready`), `asleep` (`Stopped`), `starting` (`Starting`), `stopping`
+  (`Stopping`), or the server's own state in lower case for anything else (`updating`, `disabled`).
+- `start` does nothing and prints `platform: awake` when it is awake. Otherwise it starts the server and waits for
+  `Ready` (az waits; when the server is `stopping`, it waits for `Stopped` first), then prints `platform: awake`.
+- `sleep` does nothing and prints `platform: asleep` when it is asleep. Otherwise it applies the **guard**, then stops
+  the server without waiting (`--no-wait`) and prints `platform: stopping`.
+
+`destroy` and `canary-destroy` wake it too, before the destroy run (a destroy drops the preview's database and role
+on it), so a sleeping platform never fails a teardown; a start that fails is the destroy's error. Found by spec 24's
+live proof: a failed teardown does not hold Sleep, and its retry then needs the server.
+
+`deploy`, `canary`, `destroy` and `canary-destroy` wake the server only when the platform is **configured**: deploys on and
+`FACTORY_PLATFORM_SERVER_ID` set. An `.env` from before spec 24 deploys as it did, and doctor's `previews` check names
+the missing setting.
+
+**The guard.** `sleep` is refused, `platform busy: <holder>`, while anything uses the server, naming the first of:
+- a canary is running (`canary.json` `status: running`): `the canary is running`;
+- the canary's teardown is `destroying`: `the canary is tearing down`;
+- a job is in `canary` or `deploy`: `J-NNN is in <stage>`;
+- a job's preview is `waking`, `applying`, `up` or `destroying` (and its `destroyAt` has not passed): `J-NNN's preview
+  is <status>`.
+
 ### Canary
 
 The deploy path is tested against stubs, and stubs encode our assumptions about GitHub, Azure and
@@ -1666,6 +1706,7 @@ it is due" above) and exits 0.
 1. Computes the fingerprint. Without `-Force`, when `canary.json` already records a pass for it,
    prints `canary: up to date` and exits 0. Otherwise it waits for the last canary's teardown, which
    still holds `j000`; a teardown that started over 90 minutes ago is taken to have died.
+1a. Wakes the platform when it is not `awake` (phase `wake`), as `deploy` does.
 2. Scaffolds into `<work>\canary` (emptied first): `dotnet new aspire-base -n <name> -o .
    --dbProvider <db> --resource <resource>`, then `aspire-addon add ui-<ui>` (and `add auth` when
    the options say so) - the commands a bootstrap job runs, with no agent.
@@ -1692,7 +1733,7 @@ retries it.
   "repo": "kamabery/factory-canary", "sha": "<scaffold commit>", "urls": { "frontend": "...", "api": "...", "health": "..." },
   "log": "canary-3.log", "startedAt": "...", "finishedAt": "...", "n": 3, "full": false,
   "teardown": { "status": "destroying" | "down" | "failed", "error": null | "<first error line>", "startedAt": "...", "failures": 0 },
-  "version": "0.4.2", "phase": null | "scaffold" | "deploy" | "smoke" | "signin",
+  "version": "0.4.2", "phase": null | "wake" | "scaffold" | "deploy" | "smoke" | "signin",
   "deploy": null | { "done": 1, "total": 3 }, "run": null | "<the deploy workflow run's html_url>",
   "inputs": { "deploy": "<sha256>", "templates": "<sha256>", "varset": "<sha256>", "settings": "<sha256>" },
   "passes": [ { "n": 3, "version": "0.4.2", "inputs": { ... }, "startedAt": "...", "finishedAt": "..." } ] }
@@ -1713,7 +1754,9 @@ by each run and prepended on a pass.
   changes), `templates changed since pass #<n>`, `variable set changed since pass #<n>`,
   `canary settings changed since pass #<n>`.
 
-**Phases (spec 22).** While a canary runs, `phase` says where it is: `scaffold` (the scaffold and its push),
+**Phases (spec 22).** While a canary runs, `phase` says where it is: `wake` (spec 24: only when
+[`platform status`](#the-platform) is not `awake`; `platform start` runs, and a start that fails fails the canary),
+`scaffold` (the scaffold and its push),
 `deploy` (the workflow run; `deploy` counts its jobs, `done` finished of `total`, from the run's jobs list on each
 poll, and `run` is the run's URL once it is found), `smoke`, then `signin` (only when the scaffold has sign-in).
 The canary saves `canary.json` at its start and at each change of phase or of `deploy.done`, and `phase` is null
@@ -1767,6 +1810,9 @@ and a refused move snaps the card back and shows the message.
 | `POST /api/jobs/<id>/resume` | `resume` | **Resume** on a card flagged `usage-limit`; starts the runner |
 | `POST /api/canary` | `canary -Force`, started detached | **Run canary** on the canary banner; 409 while `canary.lock` is held. The banner reads `/state/canary.json` and shows the error and the log link |
 | `GET /api/canary` | `canary -Due` | `{ due, reasons, typicalMinutes }` (see [Canary](#canary), "Why it is due"): the due chip. The fingerprint needs the HCP variable set, so the server caches the answer for 60 s; with deploys off `canary -Due` prints `{ due: false, reasons: [], typicalMinutes }` without computing one |
+| `GET /api/platform` | `platform status` | `{ ok, message }`, the message being the status word: the platform chip. Cached 30 s, and dropped by the two writes below; with deploys off `{ ok: false }` and the chip is not shown |
+| `POST /api/platform/start` | `platform start`, started detached | **Start** on the chip; answers at once, and the chip shows `starting` until the status says `awake` |
+| `POST /api/platform/sleep` | `platform sleep` | **Sleep** on the chip; a `platform busy` refusal is shown sticky, as a refused approval is |
 | `POST /api/purge` | `purge` | |
 | `POST /api/jobs/<id>/destroy` | `destroy`, started detached | **Tear down** on a card with a live preview; answers at once, the card shows `destroying` until the board says `down` |
 | `GET /api/jobs/<id>/qa-login` | `qa-login` | `{ ok, message }` with the user and password; the card's **QA login** shows it, never stores it |
@@ -1798,6 +1844,10 @@ CLI session shows the command that resumes it.
 [watchdog](#runner) also starts it when Approved or Canary is not empty and no live runner holds the lock. The claude
 command is taken from `$env:FACTORY_CLAUDE_CMD` (a program and its leading arguments, see
 [Implementations](#implementations)) when it is set, so tests spend no tokens.
+
+**The platform chip (spec 24).** With deploys on, the header shows `platform: awake`, `asleep`, `starting` or
+`stopping` beside the canary's due chip, from `GET /api/platform`: **Start** when asleep, **Sleep** when awake, and
+the moving marker while starting or stopping. The canary's phase list shows `wake` as `waking the platform`.
 
 The header's **Board** and **Evaluations** tabs switch the page. Evaluations lists every
 evaluation with its rating, the human's rating if given, and snapshot facts, and opens one to its
@@ -1907,7 +1957,8 @@ used, because its Bicep would sit outside the HCP Terraform state everything els
 the Foundry account (assigned by `factory/infra/cloud`, not `factory/infra/llm`), is the Entra admin of its own Azure SQL
 server (Entra-only, so no database user is made by hand), owns the previews' GitHub deploy app (`AZURE_GH_CLIENT_ID`) with Graph's `Application.ReadWrite.OwnedBy` (for the
 deploy step's federated credentials), and has Storage Blob Data Owner on the artifacts container, Key Vault Secrets Officer on the factory's vault (it writes the refreshed user
-token back), and the right to start its own runner job. No key, connection secret or subscription login exists anywhere in it.
+token back), the right to start its own runner job, and, with previews on, a custom role on the platform's
+Postgres server that can only read, start and stop it (spec 24). No key, connection secret or subscription login exists anywhere in it.
 
 | Part | Is | Environment |
 | --- | --- | --- |

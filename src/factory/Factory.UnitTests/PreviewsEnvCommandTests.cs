@@ -20,7 +20,7 @@ public class PreviewsEnvCommandTests
     private const string Outputs = """
         {"dotenv":{"sensitive":false,"type":["map","string"],"value":{
           "AZURE_GH_CLIENT_ID":"gh-app","AZURE_TENANT_ID":"tenant","AZURE_SUBSCRIPTION_ID":"sub","HCP_AZURE_VARSET":"varset-1",
-          "FACTORY_ENTRA_TENANT_ID":"ext","FACTORY_ENTRA_SUBDOMAIN":"kamfactorypv","FACTORY_ENTRA_USER_FLOW_ID":"flow",
+          "FACTORY_PLATFORM_SERVER_ID":"/sub/psql","FACTORY_ENTRA_TENANT_ID":"ext","FACTORY_ENTRA_SUBDOMAIN":"kamfactorypv","FACTORY_ENTRA_USER_FLOW_ID":"flow",
           "HCP_ORG":"never-written","OTHER":"ignored"}},
          "something_else":{"sensitive":false,"type":"string","value":"x"}}
         """;
@@ -60,6 +60,7 @@ public class PreviewsEnvCommandTests
             AZURE_TENANT_ID: unchanged
             AZURE_SUBSCRIPTION_ID: set
             HCP_AZURE_VARSET: set
+            FACTORY_PLATFORM_SERVER_ID: set
             FACTORY_ENTRA_TENANT_ID: set
             FACTORY_ENTRA_SUBDOMAIN: set
             FACTORY_ENTRA_USER_FLOW_ID: set
@@ -67,7 +68,7 @@ public class PreviewsEnvCommandTests
             """.ReplaceLineEndings("\n"), ""), r);
         Assert.Equal(string.Join(Environment.NewLine,
             "# HCP_ORG=off", "AZURE_TENANT_ID=tenant", "AZURE_GH_CLIENT_ID=gh-app", "GITHUB_OWNER=me", "AZURE_SUBSCRIPTION_ID=sub",
-            "HCP_AZURE_VARSET=varset-1", "FACTORY_ENTRA_TENANT_ID=ext", "FACTORY_ENTRA_SUBDOMAIN=kamfactorypv", "FACTORY_ENTRA_USER_FLOW_ID=flow") + Environment.NewLine,
+            "HCP_AZURE_VARSET=varset-1", "FACTORY_PLATFORM_SERVER_ID=/sub/psql", "FACTORY_ENTRA_TENANT_ID=ext", "FACTORY_ENTRA_SUBDOMAIN=kamfactorypv", "FACTORY_ENTRA_USER_FLOW_ID=flow") + Environment.NewLine,
             _files.ReadText(EnvPath));
         _proc.Received(1).Run("terraform", Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { $"-chdir={Infra}", "output", "-json" })), Arg.Any<string>());
     }

@@ -130,6 +130,10 @@ deploy starts the next round. Rounds are numbered per job, from 1.
 **Gate.** The deterministic check (build, tests, UI) `factory` runs on the job's head after the
 approver says APPROVE. A green gate moves the job to Ready for review; only a human merges.
 
+**Platform** (`rg-factory-platform`). The previews' shared Container Apps environment, Log Analytics workspace, Key
+Vault and Postgres server. **Asleep** means its Postgres server is stopped, the one part with a real idle cost; the
+header's platform chip starts it and puts it to sleep, and a canary or a deploy wakes it first (spec 24).
+
 **Preview** (`j<NNN>`). The job's ephemeral Azure environment, named from its job number in lower
 case: J-024 deploys to `j024`, resource group `rg-<project>-j024`, HCP workspace
 `<repo>-j024`. Previews are never production.

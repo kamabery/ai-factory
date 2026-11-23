@@ -1,6 +1,6 @@
 # 24: Put the preview platform to sleep, and wake it before a deploy
 
-**Status:** planned (2026-11-22), after 22. **Branch:** `feature/24-platform-sleep`. **Depends on:** 16, 18, 22.
+**Status:** done (2026-11-23), PR open; ai-factory 0.4.4 on the cloud board. Planned 2026-11-22, after 22. **Branch:** `feature/24-platform-sleep`. **Depends on:** 16, 18, 22.
 
 ## Why
 
@@ -27,14 +27,19 @@ Grilled 2026-11-22.
 | Sleep guard (Kurt) | **Refuse while in use**: while a canary runs, a job is in `canary` or `deploy`, or any job's preview is up (`deploy.status` `up` or `deploying`), Sleep is refused and the refusal names what holds it (`platform busy: J-039's preview is up`). | Tearing every preview down first; a warning only |
 | Auto-sleep (Kurt) | **Not now.** Sleep is manual; an idle timer is a follow-up. | The watchdog sleeping it after N idle hours |
 | Where (Kurt) | **Its own spec, after 22**, on its own branch. | Part 4 of spec 22 |
+| Guard, settled (Kurt, 2026-11-23) | **Keep a job in `canary`** in the guard, though auto-wake would cover it. **Add the destroys:** a preview `destroying` and the canary's teardown `destroying` hold it too (a destroy drops the preview's database and role). The contract has no `deploying`; the guard reads `waking`, `applying`, `up` and `destroying`. | Dropping the `canary` stage from the guard; `up` and `applying` only |
+| Cloud role (Kurt, 2026-11-23) | **A custom role on the one server**: `flexibleServers/read`, `start/action`, `stop/action`. | Contributor on the server |
+| How it finds the server | **`FACTORY_PLATFORM_SERVER_ID`**, the server's resource id, added to `factory/infra/previews`'s `dotenv` output (so `previews-env` writes it, and the cloud board gets it through `settings`). | The resource group and name as two settings |
+| Destroys wake it (Kurt, 2026-11-23, from the live proof) | **`destroy` and `canary-destroy` wake the platform first**, so a failed teardown, which does not hold Sleep, can still be retried after it. | The guard also holding on a failed teardown or preview |
+| The deploy's wake | **`deploy.status: waking`**, inside the attempt (after the increment), then `applying`; resumed like `applying`. | A separate field |
 
 ## Scope
 
 Contract first (`docs/FACTORY-CONTRACT.md`, "Deploy", "Canary", "Dashboard API", "factory commands"):
 
-- **`factory platform status|start|sleep`** (deploys only): finds the server from the previews setup's settings (the
-  platform resource group and server name; `previews-env` writes them to `.env` if they are not there yet), and calls
-  `az postgres flexible-server show|start|stop` (contract: az where it fits better than HCP Terraform, as for Postgres
+- **`factory platform status|start|sleep`** (deploys only): finds the server by `FACTORY_PLATFORM_SERVER_ID` (the
+  previews setup's `dotenv` output, which `previews-env` writes to `.env`), and calls
+  `az postgres flexible-server show|start|stop --ids` (contract: az where it fits better than HCP Terraform, as for Postgres
   roles). `status` prints `awake`, `asleep`, `starting` or `stopping`. `start` is a no-op when awake and waits for
   `Ready`. `sleep` applies the guard above, then stops it and returns without waiting. Refusals as usual.
 - **Auto-wake:** `canary` (a new first phase, `wake`, only when the server is not `Ready`) and `deploy` (before the

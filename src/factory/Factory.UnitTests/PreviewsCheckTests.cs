@@ -12,7 +12,7 @@ public class PreviewsCheckTests
 {
     private static readonly string[] Settings =
     [
-        "AZURE_GH_CLIENT_ID", "AZURE_TENANT_ID", "AZURE_SUBSCRIPTION_ID", "HCP_AZURE_VARSET",
+        "AZURE_GH_CLIENT_ID", "AZURE_TENANT_ID", "AZURE_SUBSCRIPTION_ID", "HCP_AZURE_VARSET", "FACTORY_PLATFORM_SERVER_ID",
         "FACTORY_ENTRA_TENANT_ID", "FACTORY_ENTRA_SUBDOMAIN", "FACTORY_ENTRA_USER_FLOW_ID",
     ];
 
@@ -43,7 +43,7 @@ public class PreviewsCheckTests
     [Fact]
     public void Passes_with_every_setting_and_variable()
     {
-        Assert.Equal(DoctorResult.Ok("variable set HCP_AZURE_VARSET-value: 6 variables; .env has the 7 settings"), Check());
+        Assert.Equal(DoctorResult.Ok("variable set HCP_AZURE_VARSET-value: 6 variables; .env has the 8 settings"), Check());
     }
 
     [Fact]

@@ -1,6 +1,6 @@
 # 22: A Canary column, the canary shown while it runs and why it is due, no Backlog column, and a New repo idea
 
-**Status:** done (2026-11-23), PR open; ai-factory 0.4.3 on the cloud board. Planned 2026-11-20; Backlog removal
+**Status:** done (2026-11-23), merged in PR #36 (2026-11-23); ai-factory 0.4.3 on the cloud board. Planned 2026-11-20; Backlog removal
 added 2026-11-21; canary reasons, the New repo idea and local-first proofs added 2026-11-22. **Branch:** `feature/22-canary-visibility`. **Depends on:** 17, 18, 21, 23.
 
 ## Why

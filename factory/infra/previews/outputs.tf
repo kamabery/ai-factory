@@ -8,6 +8,8 @@ output "dotenv" {
       AZURE_TENANT_ID       = var.tenant_id
       AZURE_SUBSCRIPTION_ID = var.subscription_id
       HCP_AZURE_VARSET      = tfe_variable_set.azure.id
+      # The server `factory platform` starts and stops (spec 24).
+      FACTORY_PLATFORM_SERVER_ID = azurerm_postgresql_flexible_server.platform.id
     },
     local.external ? {
       FACTORY_ENTRA_TENANT_ID    = var.external_tenant_id

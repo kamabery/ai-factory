@@ -196,6 +196,24 @@ first bill for it.
 A fresh preview no longer proves a from-scratch create; `factory canary -Full` does. dev, staging, a
 preview in another region and scaffolds made before this keep a full stack of their own.
 
+### Putting it to sleep
+
+Only the Postgres server has a real idle cost (about $14 of the $18 a month), so it is the only thing the factory
+stops. Stopped, a flexible server bills only its storage (about $4 a month for 32 GB); the environment, the vault and
+Log Analytics cost next to nothing idle already. Azure starts a stopped server again by itself after 7 days.
+
+- **The chip.** With deploys on, the dashboard header shows `platform: awake`, `asleep`, `starting` or `stopping`,
+  with **Start** when asleep and **Sleep** when awake. From the CLI: `factory platform status|start|sleep`.
+- **Auto-wake.** A canary (its `wake` phase, `waking the platform` on the banner) and a deploy (`waking`, inside the
+  attempt) start a sleeping server first and wait for it to be `Ready`, a few minutes. A start that fails counts as a
+  failed canary or a failed attempt. A teardown (Tear down, a merge or discard, `sweep`, the canary's own) wakes it
+  too, so a preview left half-destroyed can still be cleaned up after Sleep.
+- **The guard.** **Sleep** is refused while anything uses the server, and the refusal names it (`platform busy:
+  J-039's preview is up`): a canary running or tearing down, a job in Canary or deploy, or a preview `waking`,
+  `applying`, `up` or `destroying`. Tear previews down first. Nothing sleeps it by itself yet; that is a follow-up.
+- **Setup.** `factory platform` finds the server by `FACTORY_PLATFORM_SERVER_ID`, which `factory previews-env` writes
+  (run it again after the spec 24 apply). Without it, deploys and canaries work as before and nothing wakes the server.
+
 To remove the platform: remove `platform.tf`'s resources and the `platform` variable from the Terraform (or
 `terraform destroy -target` them) and apply. Previews go back to full stacks.
 
@@ -226,6 +244,7 @@ HCP_AZURE_VARSET=varset-...   # section 3, written by factory previews-env
 AZURE_GH_CLIENT_ID=...        # section 3, written by factory previews-env
 AZURE_TENANT_ID=...           # section 3, written by factory previews-env
 AZURE_SUBSCRIPTION_ID=...     # section 3, written by factory previews-env
+FACTORY_PLATFORM_SERVER_ID=...  # section 3, written by factory previews-env: the server the chip starts and stops
 FACTORY_ENTRA_TENANT_ID=...   # section 3, written by factory previews-env (auth add-on)
 FACTORY_ENTRA_SUBDOMAIN=...
 FACTORY_ENTRA_USER_FLOW_ID=...

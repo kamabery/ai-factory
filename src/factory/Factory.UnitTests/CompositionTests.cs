@@ -23,7 +23,7 @@ public class CompositionTests
         Assert.Equal(
             ["add-spec", "allow-ip", "approve", "block", "canary", "canary-destroy", "check-target", "checkout", "clone-target", "deploy", "deploy-fix", "deploy-log",
              "destroy", "discard", "edit-spec", "eval", "event", "feedback", "gate", "gate-check", "idea-abandon", "idea-done", "lesson", "lesson-mark", "list-repos",
-             "merge", "new-idea", "next", "product", "provenance", "prune", "publish", "purge", "qa-login", "read-decision", "read-reviews", "redeploy", "resume", "rework",
+             "merge", "new-idea", "next", "platform", "product", "provenance", "prune", "publish", "purge", "qa-login", "read-decision", "read-reviews", "redeploy", "resume", "rework",
              "set-cost", "set-review", "set-stage", "state-import", "state-migrate", "state-pull", "status", "sweep", "sync-prs"],
             provider.GetServices<ICommand>().Select(c => c.Name).Order());
     }

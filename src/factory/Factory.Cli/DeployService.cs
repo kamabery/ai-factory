@@ -20,7 +20,7 @@ namespace Factory.Cli;
 /// </summary>
 public sealed partial class DeployService(
     IGitHub github, IGitHubCredential credential, IHcpClient hcp, IToolRunner tools, IHttpProbe probe, IGitClient git, IFileStore files,
-    IFactoryPaths paths, IDotEnv dotEnv, ISecrets secrets, IPause pause, TimeProvider clock, IOptions<DeployOptions> options, IOptions<FactoryOptions> factory)
+    IFactoryPaths paths, IDotEnv dotEnv, ISecrets secrets, IPause pause, IPlatform platform, TimeProvider clock, IOptions<DeployOptions> options, IOptions<FactoryOptions> factory)
     : IDeployService
 {
     private DeployOptions O => options.Value;
@@ -111,6 +111,9 @@ public sealed partial class DeployService(
 
     public string? RemovePreview(string workspaceId)
     {
+        // Spec 24: the destroy drops the preview's database and role, so a sleeping platform server is woken first.
+        try { if (platform.Configured && platform.Status() != "awake") platform.Start(); }
+        catch (FactoryException e) { return e.Message; }
         string status;
         try { status = DestroyRun(workspaceId); }
         // No apply ever reached this workspace (J-018), so it has nothing to destroy.

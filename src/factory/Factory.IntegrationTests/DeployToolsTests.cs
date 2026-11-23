@@ -34,6 +34,21 @@ public sealed class DeployToolsTests : IDisposable
     }
 
     [Fact]
+    public void The_az_fake_keeps_a_platform_server_that_starts_and_stops()
+    {
+        // Spec 24: the dashboard's Playwright test drives the platform chip through it.
+        var state = _dir["pg-state.txt"];
+        var tools = new ToolRunner(new ProcessRunner(), Paths(), Options.Create(new DeployOptions { AzCmd = Fakes.Command("tool", "--pg-state", state, "--") }));
+        string Show() => tools.Az(["postgres", "flexible-server", "show", "--ids", "x", "--query", "state", "--output", "tsv"]).Out.Trim();
+
+        Assert.Equal("Ready", Show());
+        tools.Az(["postgres", "flexible-server", "stop", "--ids", "x", "--no-wait"]);
+        Assert.Equal("Stopped", Show());
+        tools.Az(["postgres", "flexible-server", "start", "--ids", "x"]);
+        Assert.Equal("Ready", Show());
+    }
+
+    [Fact]
     public void A_variable_set_to_null_is_removed_for_the_child()
     {
         Environment.SetEnvironmentVariable("FACTORY_IT_PROBE", "inherited");
