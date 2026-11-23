@@ -113,7 +113,8 @@ your local board are not touched, because the deployed factory has a board of it
    ```
 
 3. **The release check.** After every release, the dashboard's read-only Playwright check against the deployed URL:
-   the board loads signed in as `cloud · foundry` with its six columns, its API answers, and New idea offers
+   the board loads signed in as `cloud · foundry` with its six columns, its API answers, the platform chip reads
+   the server through the identity, and New idea offers
    **+ New repo**. It writes nothing and spends no tokens. Sign in once to save the session (gitignored):
 
    ```powershell
