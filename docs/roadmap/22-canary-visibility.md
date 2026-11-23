@@ -1,7 +1,7 @@
 # 22: A Canary column, the canary shown while it runs and why it is due, no Backlog column, and a New repo idea
 
-**Status:** planned (2026-11-20; Backlog removal added 2026-11-21; canary reasons, the New repo idea and local-first
-proofs added 2026-11-22), after 21. **Branch:** `feature/22-canary-visibility`. **Depends on:** 17, 18, 21, 23.
+**Status:** done (2026-11-23), PR open; ai-factory 0.4.3 on the cloud board. Planned 2026-11-20; Backlog removal
+added 2026-11-21; canary reasons, the New repo idea and local-first proofs added 2026-11-22. **Branch:** `feature/22-canary-visibility`. **Depends on:** 17, 18, 21, 23.
 
 ## Why
 
@@ -197,13 +197,21 @@ straight to Approved or Canary. The cloud board runs the released image and pass
 against its URL. The README, TERMINOLOGY, DEPLOY, CLOUD and BUILD-GUIDE docs describe the board as it now is, say
 what the canary is, when it runs and why jobs wait for it, and describe the two kinds of idea.
 
-## Progress (2026-11-22)
+## Progress (2026-11-23)
 
 Built on `feature/22-canary-visibility`: canary reasons (`0d6af9f`, `b852a2e`), phases (`849d339`), the Canary stage
 and column (`0c60468`), its Playwright `@smoke` (`44866e7`), no Backlog column (`de13b60`), and the New repo idea: its
 contract and CLI (`f0156f5`: `product.md`, `new-idea -Product` / `-From -Feature`, `factory product`, the `docs: product`
 commit), its sessions and endpoints (`0de10fb`), the repo card and its `@smoke` (`2f3f3ca`), and the CLI door's
-`--feature` (`4b6aa24`). The docs list is done. Next: the live proof on the local board, then the cloud release.
+`--feature` (`4b6aa24`). The docs list is done (`819ef2a`), and the read-only `@cloud` check is `0ea55ff`.
+
+**Proven (2026-11-23).** On the local board: New repo S-018 grilled to I-030 and a PRODUCT.md, and bootstrap J-038
+opened kamabery/recipebox PR #1 with `docs/PRODUCT.md` in it. After the merge, **Implement first feature** ran S-019
+to I-031, whose specs decided Home. Its job J-039 waited in Canary. Canary 33 failed because the platform's Postgres
+was stopped; after a start, canary 34 passed, and J-039 moved from Canary to Building by itself. It was merged as
+recipebox PR #2 and its eval is good. On the cloud board: ai-factory 0.4.3 (`ghcr.io/kamabery/ai-factory:0.4.3`)
+was applied to the dashboard and the runner job, and `@cloud` passed 3/3 against it, with no live job and no Foundry
+spend. Suites: unit 1265, integration 205 + 1 skipped, Vitest 113, Playwright 44, all coverage gates OK.
 
 Where the build differs from the plan above:
 - **The Canary `@smoke` serves its board and `canary.json` from the test**, not the Simulator: the Playwright
@@ -235,3 +243,10 @@ Where the build differs from the plan above:
   until the reasons have been seen in use.
 - **Two boards, one canary?** Unverified: a local board and the cloud board keep separate `canary.json` files, so
   the same fingerprint may be canaried once on each, both on the shared platform. Check it once both boards run 22.
+- **A second Done is recorded.** The board logged `ready → done` twice for J-039: once for Kurt's merge, then again
+  when `sync-prs` saw "PR #2 merged on GitHub". A job already Done should be skipped by `sync-prs` (or the second
+  transition refused), with one Done event per job.
+- **An escalated bootstrap with no PR still shows Review and Merge** in the New repo session's stepper. A bootstrap
+  that escalated before opening a PR should end the stepper at Scaffold, marked failed.
+- **The approver's preview smoke is GET-only.** One scripted write (a POST, then a GET of what it wrote, timed) would
+  have caught recipebox's slow Save, which the GET-only smoke passed.
