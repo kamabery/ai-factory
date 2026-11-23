@@ -1,6 +1,6 @@
 # 24: Put the preview platform to sleep, and wake it before a deploy
 
-**Status:** building (2026-11-23), after 22. **Branch:** `feature/24-platform-sleep`. **Depends on:** 16, 18, 22.
+**Status:** done (2026-11-23), PR open; ai-factory 0.4.4 on the cloud board. Planned 2026-11-22, after 22. **Branch:** `feature/24-platform-sleep`. **Depends on:** 16, 18, 22.
 
 ## Why
 
