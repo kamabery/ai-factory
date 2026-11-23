@@ -1647,6 +1647,10 @@ in .env; run factory previews-env` when it is missing) and calls `az postgres fl
 - `sleep` does nothing and prints `platform: asleep` when it is asleep. Otherwise it applies the **guard**, then stops
   the server without waiting (`--no-wait`) and prints `platform: stopping`.
 
+`deploy` and `canary` wake the server only when the platform is **configured**: deploys on and
+`FACTORY_PLATFORM_SERVER_ID` set. An `.env` from before spec 24 deploys as it did, and doctor's `previews` check names
+the missing setting.
+
 **The guard.** `sleep` is refused, `platform busy: <holder>`, while anything uses the server, naming the first of:
 - a canary is running (`canary.json` `status: running`): `the canary is running`;
 - the canary's teardown is `destroying`: `the canary is tearing down`;

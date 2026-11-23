@@ -6,8 +6,11 @@ namespace Factory.Cli.Abstractions;
 /// </summary>
 public interface IPlatform
 {
-    /// <summary>Whether deploys are on (HCP_ORG), so the platform exists to wake or put to sleep.</summary>
-    bool Enabled { get; }
+    /// <summary>
+    /// Whether deploys are on (HCP_ORG) and FACTORY_PLATFORM_SERVER_ID is set. A deploy or canary wakes the server only
+    /// then, so an .env from before spec 24 deploys as it did.
+    /// </summary>
+    bool Configured { get; }
 
     /// <summary><c>awake</c>, <c>asleep</c>, <c>starting</c>, <c>stopping</c>, or the server's own state in lower case.</summary>
     string Status();

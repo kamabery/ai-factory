@@ -12,7 +12,7 @@ namespace Factory.Cli;
 /// </summary>
 public sealed class Platform(IDotEnv dotEnv, IToolRunner tools, IPause pause, IOptions<DeployOptions> options) : IPlatform
 {
-    public bool Enabled => dotEnv.Get("HCP_ORG") is not null;
+    public bool Configured => dotEnv.Get("HCP_ORG") is not null && !string.IsNullOrWhiteSpace(dotEnv.Get("FACTORY_PLATFORM_SERVER_ID"));
 
     public string Status() => Word(State());
 
@@ -51,7 +51,7 @@ public sealed class Platform(IDotEnv dotEnv, IToolRunner tools, IPause pause, IO
 
     private string Az(string verb, params string[] more)
     {
-        if (!Enabled) throw new FactoryException("platform refused: deploys are off");
+        if (dotEnv.Get("HCP_ORG") is null) throw new FactoryException("platform refused: deploys are off");
         var id = dotEnv.Get("FACTORY_PLATFORM_SERVER_ID");
         if (string.IsNullOrWhiteSpace(id))
             throw new FactoryException("platform refused: no FACTORY_PLATFORM_SERVER_ID in .env; run factory previews-env");

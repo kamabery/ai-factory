@@ -23,6 +23,7 @@ public class CanaryServiceTests : CommandTestBase
     private readonly IFactoryLauncher _launcher = Substitute.For<IFactoryLauncher>();
     private readonly FakePause _pause;
     private readonly DeployOptions _o = new();
+    private readonly IPlatform _platform = Substitute.For<IPlatform>();
     private readonly IDisposable _held = Substitute.For<IDisposable>();
     private readonly FakeSession _session = FakeSession.With();
     private static readonly string Tfvars = Path.Combine(Work, "canary", "IaC", "envs", "ephemeral.tfvars");
@@ -31,6 +32,8 @@ public class CanaryServiceTests : CommandTestBase
     public CanaryServiceTests()
     {
         _pause = new FakePause(Clock);
+        _platform.Configured.Returns(true);
+        _platform.Status().Returns("awake");
         Paths.WorkRoot.Returns(Work);
         DotEnv.Get("HCP_ORG").Returns("org");
         _canary.Fingerprint().Returns("sha256:fp");
@@ -54,7 +57,7 @@ public class CanaryServiceTests : CommandTestBase
         _deploy.SigninSmoke(default!, default, default!, default!).ReturnsForAnyArgs((string?)null);
     }
 
-    private CanaryService Sut => new(_deploy, _hcp, _canary, _lock, _github, _git, _tools, Files, Paths, DotEnv, _launcher, _pause, Clock, Options.Create(_o));
+    private CanaryService Sut => new(_deploy, _hcp, _canary, _lock, _github, _git, _tools, Files, Paths, DotEnv, _launcher, _pause, _platform, Clock, Options.Create(_o));
 
     private JsonObject Canary => JsonNode.Parse(Files.Text(CanaryJson)!)!.AsObject();
 
@@ -158,6 +161,53 @@ public class CanaryServiceTests : CommandTestBase
         Sut.Run(_session, false, false);
 
         Assert.Equal(["scaffold", "deploy", "smoke", null], phases);
+    }
+
+    // --- wake (spec 24) ----------------------------------------------------------------------------
+
+    private List<string?> Phases()
+    {
+        _canary.Options().Returns(_ => new JsonObject { ["name"] = "canary", ["resource"] = "Item", ["db"] = "sqlite", ["ui"] = "react", ["events"] = false, ["auth"] = false });
+        var phases = new List<string?>();
+        _session.OnShare = _ => phases.Add((string?)Canary["phase"]);
+        return phases;
+    }
+
+    [Fact]
+    public void A_sleeping_platform_is_woken_first_as_the_wake_phase()
+    {
+        _platform.Status().Returns("asleep");
+        var runsBeforeStart = -1;
+        _platform.Start().Returns(_ => { runsBeforeStart = _tools.ReceivedCalls().Count(); return "platform: awake"; });
+        var phases = Phases();
+
+        Sut.Run(_session, false, false);
+
+        Assert.Equal(["wake", "scaffold", "deploy", "smoke", null], phases);
+        Assert.Equal(0, runsBeforeStart);
+    }
+
+    [Fact]
+    public void An_awake_platform_has_no_wake_phase_and_is_not_started()
+    {
+        var phases = Phases();
+        Sut.Run(_session, false, false);
+        Assert.Equal(["scaffold", "deploy", "smoke", null], phases);
+        _platform.DidNotReceive().Start();
+    }
+
+    [Fact]
+    public void A_wake_that_fails_fails_the_canary_before_anything_is_scaffolded()
+    {
+        _platform.Status().Returns("asleep");
+        _platform.Start().Returns<string>(_ => throw new FactoryException("platform refused: az start failed: ERROR: quota"));
+
+        var e = Assert.Throws<FactoryException>(() => Sut.Run(_session, false, false));
+
+        Assert.Equal("canary failed: platform refused: az start failed: ERROR: quota; see canary-1.log", e.Message);
+        Assert.Equal(("failed", null), ((string?)Canary["status"], (string?)Canary["phase"]));
+        Assert.StartsWith("## Platform", Files.Text(Path.Combine(Home, "canary-1.log")));
+        _tools.DidNotReceiveWithAnyArgs().Run(default!, default!, default!);
     }
 
     [Fact]

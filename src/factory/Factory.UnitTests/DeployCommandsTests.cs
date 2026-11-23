@@ -16,12 +16,18 @@ public class DeployCommandsTests : CommandTestBase
     private readonly IHcpClient _hcp = Substitute.For<IHcpClient>();
     private readonly IFactoryLauncher _launcher = Substitute.For<IFactoryLauncher>();
     private readonly DeployOptions _o = new();
+    private readonly IPlatform _platform = Substitute.For<IPlatform>();
 
     private static readonly JsonObject Urls = new() { ["frontend"] = "https://web", ["api"] = "https://api", ["health"] = "https://web/api/health" };
 
-    public DeployCommandsTests() => DotEnv.Get("HCP_ORG").Returns("org");
+    public DeployCommandsTests()
+    {
+        DotEnv.Get("HCP_ORG").Returns("org");
+        _platform.Configured.Returns(true);
+        _platform.Status().Returns("awake");
+    }
 
-    private DeployCommand Deploy => new(_deploy, Paths, Files, DotEnv, Clock);
+    private DeployCommand Deploy => new(_deploy, _platform, Paths, Files, DotEnv, Clock);
 
     private static FakeSession InDeploy(JsonObject? deploy = null) =>
         FakeSession.With(Jobs.New("J-001", "deploy", target: "o/todo").With("deploy", deploy));
@@ -83,6 +89,75 @@ public class DeployCommandsTests : CommandTestBase
         _deploy.Received(1).Attempt(s, Arg.Any<Job>(), true, null);
         Assert.Equal(5, (int)s.Job("J-001")["deploy"]!["attempts"]!);
         Assert.False(s.Job("J-001")["deploy"]!.AsObject().ContainsKey("workspaceId"));
+    }
+
+    // --- wake (spec 24) ----------------------------------------------------------------------------
+
+    [Fact]
+    public void An_awake_platform_is_not_started()
+    {
+        Attempt(new DeployAttempt(true, "sha-1", "r", Urls.DeepClone().AsObject(), "t", "ws-1", ""));
+        Deploy.Run(Args("deploy", "J-001"), InDeploy());
+        _platform.DidNotReceive().Start();
+    }
+
+    [Fact]
+    public void Without_a_configured_platform_nothing_is_woken()
+    {
+        _platform.Configured.Returns(false);
+        Attempt(new DeployAttempt(true, "sha-1", "r", Urls.DeepClone().AsObject(), "t", "ws-1", ""));
+        Deploy.Run(Args("deploy", "J-001"), InDeploy());
+        _platform.DidNotReceive().Status();
+    }
+
+    [Fact]
+    public void A_sleeping_platform_is_woken_within_the_attempt_with_the_lock_released()
+    {
+        _platform.Status().Returns("asleep");
+        var s = InDeploy(new JsonObject { ["env"] = "j001", ["workspace"] = "todo-j001", ["status"] = "failed", ["attempts"] = 1 });
+        string? waking = null, applying = null;
+        _platform.Start().Returns(_ => { waking = s.Saved; return "platform: awake"; });
+        _deploy.Attempt(default!, default!, default, default).ReturnsForAnyArgs(_ =>
+        {
+            applying = s.Saved;
+            return new DeployAttempt(true, "sha-1", "r", Urls.DeepClone().AsObject(), "t", "ws-1", "");
+        });
+
+        Deploy.Run(Args("deploy", "J-001"), s);
+
+        Assert.Contains("\"status\":\"waking\",\"attempts\":2", waking);
+        Assert.Contains("\"status\":\"applying\",\"attempts\":2", applying);
+        Assert.Equal(1, s.Unlocks);
+        Assert.Equal("up", (string?)s.Job("J-001")["deploy"]!["status"]);
+    }
+
+    [Fact]
+    public void A_wake_that_fails_is_a_failed_attempt_and_nothing_is_deployed()
+    {
+        _platform.Status().Returns("asleep");
+        _platform.Start().Returns<string>(_ => throw new FactoryException("platform refused: az start failed: ERROR: quota"));
+        var s = InDeploy(new JsonObject { ["env"] = "j001", ["workspace"] = "todo-j001", ["status"] = "up", ["sha"] = "sha-0", ["attempts"] = 0 });
+
+        var e = Assert.Throws<FactoryException>(() => Deploy.Run(Args("deploy", "J-001"), s));
+
+        Assert.StartsWith("deploy attempt 1 failed: platform refused: az start failed: ERROR: quota", e.Message);
+        var d = s.Job("J-001")["deploy"]!;
+        Assert.Equal(("failed", 1, "sha-0"), ((string?)d["status"], (int)d["attempts"]!, (string?)d["sha"]));
+        Assert.Equal("## Platform\nplatform refused: az start failed: ERROR: quota" + Environment.NewLine, Files.Text(JobFile("J-001", "deploy-1.log")));
+        _deploy.DidNotReceiveWithAnyArgs().Attempt(default!, default!, default, default);
+    }
+
+    [Fact]
+    public void A_deploy_that_died_while_waking_resumes_that_attempt_as_a_fresh_run()
+    {
+        // Nothing was dispatched while waking, so the attempt is resumed without the newest-run rule.
+        var s = InDeploy(new JsonObject { ["env"] = "j001", ["workspace"] = "todo-j001", ["status"] = "waking", ["attempts"] = 5 });
+        Attempt(new DeployAttempt(true, "sha-1", "r", Urls.DeepClone().AsObject(), "t", "ws-1", ""));
+
+        Deploy.Run(Args("deploy", "J-001"), s);
+
+        _deploy.Received(1).Attempt(s, Arg.Any<Job>(), false, null);
+        Assert.Equal(5, (int)s.Job("J-001")["deploy"]!["attempts"]!);
     }
 
     [Fact]

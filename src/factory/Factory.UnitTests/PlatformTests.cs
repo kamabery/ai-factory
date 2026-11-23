@@ -59,7 +59,7 @@ public class PlatformTests : CommandTestBase
     {
         DotEnv.Get("HCP_ORG").Returns((string?)null);
         Assert.Equal("platform refused: deploys are off", Assert.Throws<FactoryException>(() => Platform.Status()).Message);
-        Assert.False(Platform.Enabled);
+        Assert.False(Platform.Configured);
     }
 
     [Fact]
@@ -68,7 +68,11 @@ public class PlatformTests : CommandTestBase
         DotEnv.Get("FACTORY_PLATFORM_SERVER_ID").Returns((string?)null);
         Assert.Equal("platform refused: no FACTORY_PLATFORM_SERVER_ID in .env; run factory previews-env",
             Assert.Throws<FactoryException>(() => Platform.Status()).Message);
+        Assert.False(Platform.Configured);
     }
+
+    [Fact]
+    public void With_deploys_on_and_the_server_id_set_it_is_configured() => Assert.True(Platform.Configured);
 
     [Fact]
     public void An_az_failure_is_a_refusal_with_its_first_error_line()
