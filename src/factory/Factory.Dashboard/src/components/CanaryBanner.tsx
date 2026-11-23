@@ -6,7 +6,7 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import type { Canary } from '@/lib/types'
 
-const PHASES: Record<string, string> = { scaffold: 'scaffolding', deploy: 'deploying', smoke: 'smoke check', signin: 'sign-in check' }
+const PHASES: Record<string, string> = { wake: 'waking the platform', scaffold: 'scaffolding', deploy: 'deploying', smoke: 'smoke check', signin: 'sign-in check' }
 
 /** `deploying 2/3 · 7 of ~15 min` (contract, "Canary", "Phases"): the banner and a Canary card both show it. */
 export function canaryProgress(c: Canary, now: number, typical: number) {

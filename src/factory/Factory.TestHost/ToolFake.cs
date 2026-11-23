@@ -9,7 +9,9 @@ namespace Factory.TestHost;
 /// (FACTORY_TOOL_LOG): { args, stdin, files, ghToken, ghTokenValue }, test tokens only, an <c>@path</c> argument's file
 /// under files. A call whose arguments match the fail regex (FACTORY_TOOL_FAIL) prints the message and exits 1. Otherwise
 /// a <c>list</c> answers the list JSON (FACTORY_TOOL_LIST, else <c>[]</c>), so a caller creates what it ensures, and the
-/// rest answer <c>{}</c>.
+/// rest answer <c>{}</c>. With <c>--pg-state &lt;file&gt;</c> (FACTORY_TOOL_PG_STATE) it also plays the platform's Postgres
+/// server (spec 24): <c>postgres flexible-server show</c> prints the file's state (Ready when there is none), and
+/// <c>start</c> and <c>stop</c> write Ready and Stopped.
 /// </summary>
 public static class ToolFake
 {
@@ -39,6 +41,12 @@ public static class ToolFake
                 Console.WriteLine(parts.Length > 1 ? parts[1] : "");
                 return 1;
             }
+        }
+        if (a.Get("pg-state", "FACTORY_TOOL_PG_STATE") is { } pg && a.Rest is ["postgres", "flexible-server", var verb, ..])
+        {
+            if (verb == "show") Console.WriteLine(File.Exists(pg) ? File.ReadAllText(pg).Trim() : "Ready");
+            else if (verb is "start" or "stop") File.WriteAllText(pg, verb == "start" ? "Ready" : "Stopped");
+            return 0;
         }
         Console.WriteLine(a.Rest.Contains("list") ? a.Get("list", "FACTORY_TOOL_LIST") ?? "[]" : "{}");
         return 0;
