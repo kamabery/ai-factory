@@ -80,10 +80,13 @@ variables {
   image                        = "ghcr.io/kamabery/ai-factory:0.3.0"
   github_owner                 = "kamabery"
   signin_user_object_ids       = ["cccccccc-cccc-cccc-cccc-cccccccccccc", "dddddddd-dddd-dddd-dddd-dddddddddddd"]
-  settings                     = { HCP_ORG = "kurt-mabery", FACTORY_MODE = "local", AZURE_GH_CLIENT_ID = "66666666-6666-6666-6666-666666666666" }
-  monthly_budget               = 25
-  budget_start_date            = "2026-12-01T00:00:00Z"
-  contact_email                = "factory@example.com"
+  settings = {
+    HCP_ORG                    = "kurt-mabery", FACTORY_MODE = "local", AZURE_GH_CLIENT_ID = "66666666-6666-6666-6666-666666666666",
+    FACTORY_PLATFORM_SERVER_ID = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-factory-platform/providers/Microsoft.DBforPostgreSQL/flexibleServers/psql-factory-test"
+  }
+  monthly_budget    = 25
+  budget_start_date = "2026-12-01T00:00:00Z"
+  contact_email     = "factory@example.com"
 }
 
 run "the_identity_is_the_only_credential_with_foundry_user_and_its_own_runner_only" {
@@ -216,6 +219,31 @@ run "without_previews_the_identity_gets_no_graph_role" {
   assert {
     condition     = length(azuread_app_role_assignment.graph) == 0 && length(azuread_application_owner.github) == 0
     error_message = "no deploy app, no Graph role"
+  }
+  assert {
+    condition     = length(azurerm_role_definition.platform) == 0 && length(azurerm_role_assignment.platform) == 0
+    error_message = "no platform server, no role on it"
+  }
+}
+
+run "the_identity_may_only_read_start_and_stop_the_platform_server" {
+  command = apply
+
+  assert {
+    condition = toset(azurerm_role_definition.platform[0].permissions[0].actions) == toset([
+      "Microsoft.DBforPostgreSQL/flexibleServers/read",
+      "Microsoft.DBforPostgreSQL/flexibleServers/start/action",
+      "Microsoft.DBforPostgreSQL/flexibleServers/stop/action",
+    ]) && length(azurerm_role_definition.platform[0].permissions[0].not_actions) == 0
+    error_message = "the platform role reads, starts and stops the server, and nothing else (spec 24)"
+  }
+  assert {
+    condition     = one(azurerm_role_definition.platform[0].assignable_scopes) == var.settings["FACTORY_PLATFORM_SERVER_ID"] && azurerm_role_assignment.platform[0].scope == var.settings["FACTORY_PLATFORM_SERVER_ID"]
+    error_message = "the role is assignable to, and assigned on, the one server"
+  }
+  assert {
+    condition     = azurerm_role_assignment.platform[0].principal_id == azurerm_user_assigned_identity.factory.principal_id
+    error_message = "the factory's identity holds it"
   }
 }
 

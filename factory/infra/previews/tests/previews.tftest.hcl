@@ -160,6 +160,7 @@ run "the_external_tenant" {
       AZURE_TENANT_ID            = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
       AZURE_SUBSCRIPTION_ID      = "00000000-0000-0000-0000-000000000000"
       HCP_AZURE_VARSET           = "varset-AbCdEfGh12345678"
+      FACTORY_PLATFORM_SERVER_ID = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-factory-platform/providers/Microsoft.DBforPostgreSQL/flexibleServers/psql-factory-test"
       FACTORY_ENTRA_TENANT_ID    = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
       FACTORY_ENTRA_SUBDOMAIN    = "factorypreviews"
       FACTORY_ENTRA_USER_FLOW_ID = "88888888-8888-8888-8888-888888888888"
