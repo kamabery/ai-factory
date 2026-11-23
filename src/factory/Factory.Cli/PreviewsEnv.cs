@@ -5,7 +5,7 @@ public static class PreviewsEnv
 {
     public static readonly IReadOnlyList<string> Settings =
     [
-        "AZURE_GH_CLIENT_ID", "AZURE_TENANT_ID", "AZURE_SUBSCRIPTION_ID", "HCP_AZURE_VARSET",
+        "AZURE_GH_CLIENT_ID", "AZURE_TENANT_ID", "AZURE_SUBSCRIPTION_ID", "HCP_AZURE_VARSET", "FACTORY_PLATFORM_SERVER_ID",
         "FACTORY_ENTRA_TENANT_ID", "FACTORY_ENTRA_SUBDOMAIN", "FACTORY_ENTRA_USER_FLOW_ID",
     ];
 

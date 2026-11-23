@@ -116,6 +116,7 @@ public static class Composition
         services.AddSingleton<ICanaryLock, CanaryLock>();
         services.AddSingleton<IDeployService, DeployService>();
         services.AddSingleton<ICanaryService, CanaryService>();
+        services.AddSingleton<IPlatform, Platform>();
 
         services.AddSingleton<ICommand, StatusCommand>();
         services.AddSingleton<ICommand, ApproveCommand>();
@@ -162,6 +163,7 @@ public static class Composition
         services.AddSingleton<ICommand, RedeployCommand>();
         services.AddSingleton<ICommand, DestroyCommand>();
         services.AddSingleton<ICommand, SweepCommand>();
+        services.AddSingleton<ICommand, PlatformCommand>();
         services.AddSingleton<ICommand, CanaryCommand>();
         services.AddSingleton<ICommand, CanaryDestroyCommand>();
         services.AddSingleton<ICommand, QaLoginCommand>();
