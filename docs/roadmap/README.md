@@ -44,6 +44,7 @@ are merged.
 | 21 | [New-repo idea sessions, one flow](21-new-repo-session-flow.md) | 5 | 17, 18 | 1–2 sessions |
 | 22 | [A Canary column, the canary shown while it runs and why it is due, no Backlog column, and a New repo idea](22-canary-visibility.md) | 5 | 17, 18, 21, 23 | 2 sessions |
 | 23 | [A scaffolded app's front door: style guide local, Home decided](23-scaffold-front-door.md) | 5 | 18 (+ a template-projects PR) | 1 session |
+| 24 | [Put the preview platform to sleep, and wake it before a deploy](24-platform-sleep.md) | 5 | 16, 18, 22 | 1 session |
 
 Phase 6 (hosted) is out of scope. The `TenantId` seam (03, 13) and per-job containers (18) are
 what it needs from these specs.
