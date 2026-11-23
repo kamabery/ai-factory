@@ -1647,7 +1647,11 @@ in .env; run factory previews-env` when it is missing) and calls `az postgres fl
 - `sleep` does nothing and prints `platform: asleep` when it is asleep. Otherwise it applies the **guard**, then stops
   the server without waiting (`--no-wait`) and prints `platform: stopping`.
 
-`deploy` and `canary` wake the server only when the platform is **configured**: deploys on and
+`destroy` and `canary-destroy` wake it too, before the destroy run (a destroy drops the preview's database and role
+on it), so a sleeping platform never fails a teardown; a start that fails is the destroy's error. Found by spec 24's
+live proof: a failed teardown does not hold Sleep, and its retry then needs the server.
+
+`deploy`, `canary`, `destroy` and `canary-destroy` wake the server only when the platform is **configured**: deploys on and
 `FACTORY_PLATFORM_SERVER_ID` set. An `.env` from before spec 24 deploys as it did, and doctor's `previews` check names
 the missing setting.
 

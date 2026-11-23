@@ -206,7 +206,8 @@ Log Analytics cost next to nothing idle already. Azure starts a stopped server a
   with **Start** when asleep and **Sleep** when awake. From the CLI: `factory platform status|start|sleep`.
 - **Auto-wake.** A canary (its `wake` phase, `waking the platform` on the banner) and a deploy (`waking`, inside the
   attempt) start a sleeping server first and wait for it to be `Ready`, a few minutes. A start that fails counts as a
-  failed canary or a failed attempt.
+  failed canary or a failed attempt. A teardown (Tear down, a merge or discard, `sweep`, the canary's own) wakes it
+  too, so a preview left half-destroyed can still be cleaned up after Sleep.
 - **The guard.** **Sleep** is refused while anything uses the server, and the refusal names it (`platform busy:
   J-039's preview is up`): a canary running or tearing down, a job in Canary or deploy, or a preview `waking`,
   `applying`, `up` or `destroying`. Tear previews down first. Nothing sleeps it by itself yet; that is a follow-up.

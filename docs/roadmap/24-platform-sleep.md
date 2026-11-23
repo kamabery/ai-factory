@@ -30,6 +30,7 @@ Grilled 2026-11-22.
 | Guard, settled (Kurt, 2026-11-23) | **Keep a job in `canary`** in the guard, though auto-wake would cover it. **Add the destroys:** a preview `destroying` and the canary's teardown `destroying` hold it too (a destroy drops the preview's database and role). The contract has no `deploying`; the guard reads `waking`, `applying`, `up` and `destroying`. | Dropping the `canary` stage from the guard; `up` and `applying` only |
 | Cloud role (Kurt, 2026-11-23) | **A custom role on the one server**: `flexibleServers/read`, `start/action`, `stop/action`. | Contributor on the server |
 | How it finds the server | **`FACTORY_PLATFORM_SERVER_ID`**, the server's resource id, added to `factory/infra/previews`'s `dotenv` output (so `previews-env` writes it, and the cloud board gets it through `settings`). | The resource group and name as two settings |
+| Destroys wake it (Kurt, 2026-11-23, from the live proof) | **`destroy` and `canary-destroy` wake the platform first**, so a failed teardown, which does not hold Sleep, can still be retried after it. | The guard also holding on a failed teardown or preview |
 | The deploy's wake | **`deploy.status: waking`**, inside the attempt (after the increment), then `applying`; resumed like `applying`. | A separate field |
 
 ## Scope
