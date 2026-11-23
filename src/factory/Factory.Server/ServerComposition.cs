@@ -93,6 +93,7 @@ public static class ServerComposition
         services.AddSingleton<JobsApi>();
         services.AddSingleton<ReadsApi>();
         services.AddSingleton<CanaryDue>();
+        services.AddSingleton<PlatformApi>();
         services.AddSingleton<ProductReads>();
         services.AddSingleton<IdeaSessions>();
         services.AddSingleton<Watchdog>();
