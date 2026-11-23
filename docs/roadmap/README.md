@@ -4,14 +4,14 @@ This turns the approved replatform roadmap (2026-10-23, revised 2026-11-08) into
 session can pick up one at a time. The rationale and the decisions table live in
 `C:\Users\kamab\.claude\plans\grill-me-on-the-silly-yao.md`; this folder is the work.
 
-**Where things stand (2026-11-15):** specs 00, 19, 01–14 and 20 are merged (13 in PR #22, 14 in PR #24, 20 in PR #26),
+**Where things stand (2026-11-23):** specs 00, 19, 01–14 and 20 are merged (13 in PR #22, 14 in PR #24, 20 in PR #26),
 15 in PRs #25 and #27: the factory is the .NET `factory` CLI, the PowerShell control
 plane and Pester are gone, and `factory init` / `doctor` set a machine up with a GitHub App (now the only GitHub
 credential) and the OS secret store; nothing but spec 16's setup scripts needs PowerShell. 15's Windows acceptance run
 passed in 14:16 (the Ubuntu VM run was dropped); the repos are public and `ai-factory` 0.1.0 is on NuGet. 17 (the React
-dashboard) is merged (PR #30). 16 is done: the preview setup is Terraform (`factory/infra/previews`), adopted live with no change to Azure, and **deploys are back on**: a canary and a real job previewed from the .NET implementation and were torn down. The repo has no PowerShell. 18 (cloud mode on Container Apps) is done (2026-11-20), merged in PR #32 (2026-11-21): a deployed factory on Foundry with no key, proven live by a merged job with a preview. 21 (the new-repo session flow) is done, merged in PR #33 (2026-11-21): one brief confirmation and one merge take a new repo to its specs, proven in the cloud on kamabery/pantry. 23 (a scaffolded app's front door) is done (2026-11-22): the style guide is dev-only in the template, and every new-app spec decides Home, proven by booklist on the local board and pantry on the cloud board. **Next: 22** (a Canary column with no Backlog column), built against a local board first.
-macOS is out of scope. Last green suites (16): .NET 1070 unit, 196 integration + 1 skipped (Windows), 1070 / 193 + 4
-skipped in WSL; Vitest 79 (17); Playwright smoke 5; `terraform test` 5; no Pester. Reordered 2026-11-09 so previews come last (see below).
+dashboard) is merged (PR #30). 16 is done: the preview setup is Terraform (`factory/infra/previews`), adopted live with no change to Azure, and **deploys are back on**: a canary and a real job previewed from the .NET implementation and were torn down. The repo has no PowerShell. 18 (cloud mode on Container Apps) is done (2026-11-20), merged in PR #32 (2026-11-21): a deployed factory on Foundry with no key, proven live by a merged job with a preview. 21 (the new-repo session flow) is done, merged in PR #33 (2026-11-21): one brief confirmation and one merge take a new repo to its specs, proven in the cloud on kamabery/pantry. 23 (a scaffolded app's front door) is done, merged in PR #35 (2026-11-22): the style guide is dev-only in the template, and every new-app spec decides Home, proven by booklist on the local board and pantry on the cloud board. 22 (a Canary column that says why a canary is due, no Backlog column, and a New repo idea that scaffolds to a PRODUCT.md) is done (2026-11-23), its PR open: proven live on the local board by recipebox (New repo to PRODUCT.md, the bootstrap, then its first feature waiting in Canary and building after the pass), and on the cloud board by ai-factory 0.4.3 applied and the `@cloud` check passing against it. **Next: 24** (put the preview platform to sleep, and wake it before a deploy).
+macOS is out of scope. Last green suites (22, Windows): .NET 1265 unit, 205 integration + 1 skipped; Vitest 113;
+Playwright 44 (the whole suite) and `@cloud` 3; no Pester. Reordered 2026-11-09 so previews come last (see below).
 
 ## Run order
 
@@ -42,8 +42,9 @@ are merged.
 | 16 | [`factory init previews`](16-init-previews.md) | 3 | 09, 14 | 2 sessions |
 | 18 | [Cloud mode on Container Apps](18-cloud-mode.md) | 5 | 13, 16, 17 | 2–3 sessions |
 | 21 | [New-repo idea sessions, one flow](21-new-repo-session-flow.md) | 5 | 17, 18 | 1–2 sessions |
-| 22 | [A Canary column, the canary shown while it runs, and no Backlog column](22-canary-visibility.md) | 5 | 17, 18, 21 | 2 sessions |
+| 22 | [A Canary column, the canary shown while it runs and why it is due, no Backlog column, and a New repo idea](22-canary-visibility.md) (done, PR open) | 5 | 17, 18, 21, 23 | 2 sessions |
 | 23 | [A scaffolded app's front door: style guide local, Home decided](23-scaffold-front-door.md) | 5 | 18 (+ a template-projects PR) | 1 session |
+| 24 | [Put the preview platform to sleep, and wake it before a deploy](24-platform-sleep.md) | 5 | 16, 18, 22 | 1 session |
 
 Phase 6 (hosted) is out of scope. The `TenantId` seam (03, 13) and per-job containers (18) are
 what it needs from these specs.
@@ -68,7 +69,9 @@ the setup scripts, the last of it. **Decided 2026-11-15: 15 is split around 20.*
 (`factory serve`, a local board) or in Azure (`factory init cloud`, the deployed board of 18), whichever the user
 prefers, and every feature works on both. Each is a whole factory with its own board; nothing makes a user pick one
 for good. So every spec from 21 on is proven on a local board first and then in the cloud, and its Done when says
-"in both modes". The last spec's close-out (23) also makes the repo's README offer both, with how to choose: today it
+"in both modes". **Local first (Kurt, 2026-11-22):** from 22 on, live proofs (real ideas, jobs, canaries) run on
+the local board, and the cloud board gets each release applied and the dashboard's read-only Playwright `@cloud` check
+(`factory/tests/dashboard/cloud.spec.ts`) run against its URL, with no live cloud job and no Foundry spend. The end state is unchanged: every feature works on both. The last spec's close-out (23) also makes the repo's README offer both, with how to choose: today it
 says only "a local dashboard is where you work it".
 
 **Previews last.** A deployable job spends about 30 minutes in its preview deploy, and a template
@@ -103,7 +106,8 @@ calls `lesson`. Spec numbers are names, not the order; sessions are one at a tim
   tests exist (seen red, then green), and `factory.ps1` forwards it. PowerShell code is deleted
   only at cutover (12), so the oracle can still run both ways.
 - **Both modes:** a feature that changes the dashboard, the runner or the board is proven on a local board and on
-  the cloud board before its spec is done (from 21 on; see "Both boards at the end").
+  the cloud board before its spec is done (from 21 on; see "Both boards at the end"). From 22 on, the cloud proof is
+  the released image plus the read-only Playwright `@cloud` check against the deployed board, not a live job.
 - Cross-platform from the first line: no named mutex, no `-WindowStyle Hidden`, `Path.Combine`,
   `git`/`claude`/`az`/`terraform` resolved from PATH.
 - A human session changes the factory, never `/factory`. Commit per step, with the suite counts in

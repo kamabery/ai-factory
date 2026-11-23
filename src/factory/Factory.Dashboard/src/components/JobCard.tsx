@@ -1,6 +1,7 @@
 import type { DragEvent, MouseEvent, ReactNode } from 'react'
 import { useState } from 'react'
-import { useData } from '@/app/data'
+import { useCanaryDue, useData } from '@/app/data'
+import { canaryProgress } from '@/components/CanaryBanner'
 import { useUi } from '@/app/ui'
 import { Spinner } from '@/components/ui/spinner'
 import { api, enc } from '@/lib/api'
@@ -68,18 +69,45 @@ function BlockedBar({ j }: { j: Job }) {
   )
 }
 
+/** A Canary card (contract, "Board columns and stages"): the running canary, or its failure with Run canary and Discard. */
+function CanaryBar({ j, now }: { j: Job; now: number }) {
+  const { canary: c } = useData()
+  const due = useCanaryDue()
+  const { toast, move } = useUi()
+  if (j.stage !== 'canary') return null
+  if (c?.status === 'failed') {
+    const run = async () => {
+      const r = await api('POST', '/api/canary', {})
+      toast(r.message, !r.ok)
+    }
+    return (
+      <div className="meta mt-1" data-canary-bar>
+        <span className="sub break-words text-intent-danger" data-canary-failed>canary failed: <code>{c.error}</code></span>
+        {c.log && <a data-canary-log href={`/state/${c.log}`} target="_blank" rel="noopener" draggable={false} onClick={stop} className="chip action bg-surface-raised text-content">Log</a>}
+        <ChipButton data-run-canary onClick={run}>Run canary</ChipButton>
+        <ChipButton data-discard onClick={() => move(j.id, 'discarded')}>Discard</ChipButton>
+      </div>
+    )
+  }
+  const text = c?.status === 'running' ? `canary running · ${canaryProgress(c, now, due?.typicalMinutes ?? 15)}` : 'waiting for the deploy canary'
+  return <div className="meta mt-1" data-canary-bar><span className="sub" data-canary-wait>{text}</span></div>
+}
+
 export function JobCard({ j, now, onDragStart, onDragEnd }: {
   j: Job; now: number; onDragStart: (j: Job, e: DragEvent) => void; onDragEnd: () => void
 }) {
   const { board, canary, config } = useData()
   const { open, openModal, moving } = useUi()
   const isMoving = moving.has(j.id)
-  const draggable = (j.stage === 'backlog' || j.stage === 'ready') && !isMoving
+  const draggable = j.stage === 'ready' && !isMoving
   const reviews = j.reviews && ROLES.some((r) => j.reviews![r] && j.reviews![r] !== 'pending')
   // Stacked on an unmerged job (contract, "Stacked jobs"): built on its branch, merged after it.
   const baseJob = j.base ? board.jobs.find((x) => x.id === j.base) : null
+  // A job waiting in Canary after the canary failed shows red until a pass or a discard.
+  const red = j.stage === 'canary' && canary?.status === 'failed'
   return (
-    <div className={cn('card', open?.id === j.id && 'selected')} data-card={j.id} data-stage={j.stage} draggable={draggable}
+    <div className={cn('card', open?.id === j.id && 'selected', red && 'border-intent-danger')} data-card={j.id} data-stage={j.stage}
+      data-red={red ? '1' : undefined} draggable={draggable}
       onDragStart={(e) => onDragStart(j, e)} onDragEnd={onDragEnd}
       // The rest of a double-click on Approve lands on whatever the closed modal uncovered.
       onClick={(e) => { if (e.detail <= 1) openModal('job', j.id) }}>
@@ -105,6 +133,7 @@ export function JobCard({ j, now, onDragStart, onDragEnd }: {
       </div>
       <PreviewBar j={j} now={now} />
       <BlockedBar j={j} />
+      <CanaryBar j={j} now={now} />
     </div>
   )
 }

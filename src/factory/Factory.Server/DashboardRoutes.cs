@@ -47,6 +47,7 @@ public static class DashboardRoutes
         Map(app, "POST", $"/api/jobs/{Job}/destroy", (JobsApi j, string id, string _) => j.Destroy(id));
         Get(app, $"/api/jobs/{Job}/qa-login", (JobsApi j, string id) => j.QaLogin(id));
         app.MapPost("/api/canary", (HttpContext ctx, JobsApi j) => ReplyWriter.WriteAsync(ctx, j.Canary()));
+        Get(app, "/api/canary", (CanaryDue d) => d.Read());
 
         Get(app, "/api/lessons", (ReadsApi r) => r.Lessons());
         Map(app, "POST", $"/api/lessons/{Job}/mark", (ReadsApi r, string id, string body) => r.MarkLesson(id, body));
@@ -58,6 +59,9 @@ public static class DashboardRoutes
         Get(app, $"/api/sessions/{Session}", (ReadsApi r, string sid) => r.Session(sid));
         app.MapPost("/api/purge", (HttpContext ctx, ReadsApi r) => ReplyWriter.WriteAsync(ctx, r.Purge()));
         Map(app, "POST", "/api/ideas/{id:regex(^I-\\d+$)}/abandon", (ReadsApi r, string id, string _) => r.AbandonIdea(id));
+        Get(app, "/api/ideas/{id:regex(^I-\\d+$)}/product", (ProductReads p, string id) => p.Read(id));
+        Map(app, "POST", "/api/ideas/{id:regex(^I-\\d+$)}/implement", (IdeaSessions s, string id, string _) => s.Implement(id));
+        Map(app, "POST", "/api/ideas/{id:regex(^I-\\d+$)}/dismiss", (IdeaSessions s, string id, string _) => s.Dismiss(id));
 
         app.MapPost("/api/sessions", async (HttpContext ctx, IdeaSessions s) => await ReplyWriter.WriteAsync(ctx, s.New(await Body(ctx))));
         app.MapPost($"/api/sessions/{Session}/{{action:regex(^(reply|brief|write-specs|close)$)}}",

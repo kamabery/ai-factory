@@ -9,6 +9,7 @@ import { COLUMNS, DROP_TARGETS, dropAction } from '@/lib/board'
 import { cn } from '@/lib/cn'
 import type { Board as BoardData, Job } from '@/lib/types'
 import { IdeaCard, SessionCard } from './IdeaCards'
+import { SpecCard } from './SpecRows'
 import { JobCard } from './JobCard'
 
 const TICK_MS = 15_000
@@ -69,12 +70,17 @@ export function Board() {
   }
 
   const inSession = new Set(sessions.map((x) => x.idea).filter(Boolean))
+  const shownIdeas = board.ideas.filter((i) => i.status !== 'done' && i.status !== 'abandoned' && !inSession.has(i.id))
+  // A backlog spec is listed on its idea's card, or its session's; one whose idea is not shown has a card of its own.
+  const listed = new Set([...inSession, ...shownIdeas.filter((i) => i.status !== 'failed').map((i) => i.id)])
+  const loose = board.jobs.filter((j) => j.stage === 'backlog' && !(j.idea && listed.has(j.idea)))
   return (
     <main id="board" ref={root} className="grid grid-cols-[repeat(6,78vw)] items-start gap-3 overflow-x-auto p-4 md:grid-cols-[repeat(6,minmax(200px,1fr))]">
       {COLUMNS.map((c) => {
         const items = c.key === 'ideas'
           ? [...sessions.map((x) => <SessionCard key={x.id} x={x} />),
-            ...board.ideas.filter((i) => i.status !== 'done' && i.status !== 'abandoned' && !inSession.has(i.id)).map((i) => <IdeaCard key={i.id} i={i} stage={board.jobs.find((j) => j.id === i.jobs?.[0])?.stage} />)]
+            ...shownIdeas.map((i) => <IdeaCard key={i.id} i={i} stage={board.jobs.find((j) => j.id === i.jobs?.[0])?.stage} />),
+            ...loose.map((j) => <SpecCard key={j.id} j={j} />)]
           : board.jobs.filter((j) => c.stages!.includes(j.stage)).map((j) => (
             <JobCard key={j.id} j={j} now={now} onDragStart={onDragStart} onDragEnd={() => setDragging(null)} />
           ))

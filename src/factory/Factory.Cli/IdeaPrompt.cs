@@ -23,7 +23,9 @@ public static partial class IdeaPrompt
             "# The brief template (factory/templates/brief.md)\n",
             Read("factory", "templates", "brief.md"),
             "# The spec template (factory/templates/spec.md)\n",
-            Read("factory", "templates", "spec.md"));
+            Read("factory", "templates", "spec.md"),
+            "# The product template (factory/templates/product.md)\n",
+            Read("factory", "templates", "product.md"));
     }
 
     /// <summary>

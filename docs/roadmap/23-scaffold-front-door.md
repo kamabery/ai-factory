@@ -1,6 +1,6 @@
 # 23: A scaffolded app's front door: the style guide stays local, and Home is decided
 
-**Status:** done (2026-11-22), in review. Template: kamabery/template-projects PR #11 (merged). Factory: the Home rule
+**Status:** done (2026-11-22), merged in PR #35. Template: kamabery/template-projects PR #11 (merged). Factory: the Home rule
 in the contract, the grill, the spec template and `submit_specs` / `revise_spec`; ai-factory 0.4.2 on the cloud board.
 Follow-ups: booklist on the local board (J-037, booklist PR #3, merged) and pantry on the cloud board (J-006, pantry
 PR #3, $1.53, one round, eval good). On the pantry preview, `/` opens Pantry, the nav is Pantry only, and

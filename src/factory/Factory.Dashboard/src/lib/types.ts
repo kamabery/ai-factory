@@ -48,7 +48,18 @@ export type Idea = {
   jobs?: string[]
   reason?: string
   base?: string
+  /** idea-done ran while specs waited in backlog: it closes when the last is decided (spec 22). */
+  closeWhenDecided?: boolean
+  /** A New repo idea (spec 22): its features started so far, by heading. */
+  kind?: string
+  features?: { heading: string; idea: string }[]
+  /** A feature idea started from a repo idea. */
+  from?: string
+  feature?: string
 }
+
+/** GET /api/ideas/<I>/product: a repo idea's features on main (contract, "Ideas", "A New repo idea"). */
+export type Product = { features: { k: number; heading: string; text: string; idea: string | null }[]; next: number | null; home: string | null }
 
 export type Board = { jobs: Job[]; ideas: Idea[] }
 
@@ -79,8 +90,15 @@ export type Config = {
   provider?: string | null
 }
 
+/** GET /api/canary (contract, "Canary", "Why it is due"): the due chip. */
+export type CanaryDue = { due?: boolean; reasons?: string[]; typicalMinutes?: number }
+
 export type Canary = {
   status?: string
+  version?: string
+  phase?: 'scaffold' | 'deploy' | 'smoke' | 'signin' | null
+  deploy?: { done: number; total: number } | null
+  run?: string | null
   error?: string | null
   log?: string
   startedAt?: string
@@ -89,7 +107,7 @@ export type Canary = {
 
 /** A session's phase, worked out by the server (contract, "Idea sessions (dashboard)", "The phase"). */
 export type Phase = {
-  name: 'brief' | 'scaffold' | 'specs' | 'build'
+  name: 'brief' | 'scaffold' | 'specs' | 'build' | 'grill' | 'review' | 'merged'
   job?: string
   stage?: string
   pr?: { number: number; url: string } | null
@@ -107,6 +125,9 @@ export type SessionSummary = {
   newTarget?: boolean
   notices?: Partial<Record<'scaffold-ready' | 'specs-ready', string>> | null
   phase?: Phase
+  kind?: string | null
+  from?: string | null
+  feature?: string | null
 }
 
 /** Every write's answer (contract, "Dashboard API"). */

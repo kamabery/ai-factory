@@ -128,6 +128,7 @@ public static class Composition
         services.AddSingleton<ICommand, ReadDecisionCommand>();
         services.AddSingleton<ICommand, EventCommand>();
         services.AddSingleton<ICommand, NewIdeaCommand>();
+        services.AddSingleton<ICommand, ProductCommand>();
         services.AddSingleton<ICommand, AddSpecCommand>();
         services.AddSingleton<ICommand, IdeaDoneCommand>();
         services.AddSingleton<ICommand, IdeaAbandonCommand>();

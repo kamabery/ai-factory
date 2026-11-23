@@ -6,12 +6,15 @@ import type { Phase, SessionSummary } from './types'
 export type { Phase }
 
 const STEPS = ['brief', 'scaffold', 'specs', 'build'] as const
-export type Step = { key: (typeof STEPS)[number]; label: string; state: 'done' | 'now' | 'todo' }
+/** A New repo session's steps (spec 22): it scaffolds and stops; its features are ideas of their own. */
+const REPO_STEPS = ['grill', 'scaffold', 'review', 'merged'] as const
+export type Step = { key: Phase['name']; label: string; state: 'done' | 'now' | 'todo' }
 
-/** The new-repo stepper: Brief → Scaffold (J-NNN) → Specs → Build, the current phase lit. */
-export function phaseSteps(phase: Phase, bootstrap?: string | null): Step[] {
-  const at = STEPS.indexOf(phase.name)
-  return STEPS.map((key, i) => ({
+/** The new-repo stepper: Brief → Scaffold (J-NNN) → Specs → Build, or a repo session's Grill → Scaffold → Review → Merged. */
+export function phaseSteps(phase: Phase, bootstrap?: string | null, repo = false): Step[] {
+  const steps: readonly Phase['name'][] = repo ? REPO_STEPS : STEPS
+  const at = steps.indexOf(phase.name)
+  return steps.map((key, i) => ({
     key,
     label: key === 'scaffold' && bootstrap ? `Scaffold (${bootstrap})` : key[0].toUpperCase() + key.slice(1),
     state: i < at ? 'done' : i === at ? 'now' : 'todo',
@@ -20,7 +23,7 @@ export function phaseSteps(phase: Phase, bootstrap?: string | null): Step[] {
 
 /** A stage as a phrase: "J-2 is scaffolding shelf (in review)". */
 export const stageText = (stage?: string) => ({
-  backlog: 'in Backlog', approved: 'approved', build: 'building', review: 'in review', deploy: 'deploying', approve: 'with the approver',
+  backlog: 'waiting for approval', approved: 'approved', build: 'building', review: 'in review', deploy: 'deploying', approve: 'with the approver',
   gate: 'at the gate', blocked: 'blocked', ready: 'ready for review', done: 'merged', discarded: 'discarded',
 } as Record<string, string>)[stage ?? ''] ?? stage ?? 'not on the board'
 
@@ -30,12 +33,19 @@ type Waiting = { status: string; target?: string; pending?: { name: string } | n
 export function waitingText(phase: Phase, s: Waiting): string {
   const repo = leaf(s.target ?? '')
   switch (phase.name) {
+    case 'grill':
+      if (s.pending?.name === 'submit_product') return 'Confirm the product below. Confirming it also approves the bootstrap job that creates the repo, with it as docs/PRODUCT.md.'
+      return s.status === 'running' ? 'Claude is working.' : 'Answer Claude below: it grills you on the app, then proposes its product: purpose, users, Home and features.'
+    case 'review':
+      return `${phase.job} is ready for review: merge the ${repo} scaffold. Then start its features one at a time, from its card.`
+    case 'merged':
+      return `The ${repo} scaffold is merged. Start its features one at a time with Implement, on its card in Ideas.`
     case 'brief':
       if (s.pending?.name === 'submit_brief') return 'Confirm the brief below. Confirming it also approves the bootstrap job that creates the repo.'
       return s.status === 'running' ? 'Claude is working.' : 'Answer Claude below: it grills you, then proposes a brief.'
     case 'scaffold':
       if (phase.stage === 'ready') return `${phase.job} is ready for review: merge the ${repo} scaffold. Claude then writes the specs, with no click.`
-      if (phase.stage === 'backlog') return `${phase.job} is in Backlog: its approval was refused. Approve it on the board once that is fixed.`
+      if (phase.stage === 'backlog') return `${phase.job} was not approved: its approval was refused. Approve it on its row in Ideas once that is fixed.`
       if (phase.stage === 'blocked') return `${phase.job} is blocked: open it on the board to see why.`
       if (phase.stage === 'discarded') return `${phase.job} was discarded: this repo has no scaffold.`
       return `${phase.job} is scaffolding ${repo} (${stageText(phase.stage)}). Nothing to do until it is ready for review.`
@@ -46,7 +56,7 @@ export function waitingText(phase: Phase, s: Waiting): string {
       return 'Starting the specs…'
     case 'build':
       return phase.jobs?.length && phase.jobs.every((j) => j.stage === 'backlog')
-        ? 'The specs wait in Backlog: approve them on the board when you are ready.'
+        ? 'The specs wait for approval: approve them on this card in Ideas when you are ready.'
         : 'The approved specs are building: follow them here or on the board.'
   }
 }
@@ -55,6 +65,8 @@ export function waitingText(phase: Phase, s: Waiting): string {
 export function cardState(x: Pick<SessionSummary, 'status' | 'phase' | 'notices' | 'bootstrap'>): string {
   const p = x.phase
   if (p?.name === 'scaffold') return p.stage === 'ready' ? 'Ready: merge the scaffold' : `waiting for bootstrap ${p.job} (${stageText(p.stage)})`
+  if (p?.name === 'review') return 'Ready: merge the scaffold'
+  if (p?.name === 'merged') return 'start a feature'
   if (x.status === 'running') return p?.name === 'specs' && x.bootstrap ? 'writing specs' : 'Claude is working'
   if (p?.name === 'specs' && x.notices?.['specs-ready']) return 'specs ready to approve'
   return 'your turn'
@@ -68,7 +80,7 @@ export function noticeText(kind: string, x: Pick<SessionSummary, 'phase' | 'boot
 }
 
 /** The tools whose answer is the human's, shown as the human's message. */
-const UI_TOOLS = ['ask_questions', 'propose_scaffold', 'submit_brief']
+const UI_TOOLS = ['ask_questions', 'propose_scaffold', 'submit_brief', 'submit_product']
 
 export const money = (v: number | undefined | null) => `$${Number(v ?? 0).toFixed(Number(v ?? 0) < 1 ? 3 : 2)}`
 
@@ -83,6 +95,7 @@ export function toolLine(b: ToolUse): string {
   const i = (b.input ?? {}) as ToolInput
   if (b.name === 'ask_questions') return `? ${(i.questions ?? []).map((q) => q.question).join(' · ')}`
   if (b.name === 'submit_brief') return '▸ proposed the brief'
+  if (b.name === 'submit_product') return '▸ proposed the product'
   if (b.name === 'propose_scaffold') return `▸ proposed the scaffold: ${[i.name, i.resource, i.db, i.ui, i.events ? 'events' : 'no events', i.auth ? 'sign-in' : 'no sign-in'].join(' / ')}`
   if (b.name === 'submit_specs') return `▸ wrote ${(i.specs ?? []).length} spec(s)`
   if (b.name === 'revise_spec') return `▸ revised spec ${i.k}`
@@ -112,7 +125,8 @@ export function sessionLog(s: { text: string; status: string; idea?: string | nu
       if (m.role === 'user') {
         // The first message is the prompt the model got; the human typed the session's text.
         if (b.type === 'text') out.push({ kind: 'you', text: mi === 0 ? s.text : String(b.text) })
-        else if (b.type === 'tool_result' && tool === 'submit_brief' && /^The human confirmed/.test(String(b.content))) out.push({ kind: 'tool', text: `✓ brief confirmed${s.idea ? ` as ${s.idea}` : ''}` })
+        else if (b.type === 'tool_result' && (tool === 'submit_brief' || tool === 'submit_product') && /^The human confirmed/.test(String(b.content)))
+          out.push({ kind: 'tool', text: `✓ ${tool === 'submit_brief' ? 'brief' : 'product'} confirmed${s.idea ? ` as ${s.idea}` : ''}` })
         else if (b.type === 'tool_result' && UI_TOOLS.includes(String(tool))) out.push({ kind: 'you', text: String(b.content) })
         else if (b.type === 'tool_result' && b.is_error) out.push({ kind: 'tool', text: `  ↳ ${resultText(b.content)}` })
       } else if (b.type === 'text' && b.text) out.push({ kind: 'claude', text: b.text })

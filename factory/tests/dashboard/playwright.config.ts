@@ -53,6 +53,8 @@ export const factoryEnv = {
 
 export default defineConfig({
   testDir: '.',
+  // cloud.spec.ts runs only against a deployed board (playwright.cloud.config.ts).
+  testIgnore: 'cloud.spec.ts',
   timeout: 120_000,
   // A dashboard move runs the factory CLI synchronously: well under 1 s here, but a
   // rework took 5.4 s on GitHub's windows-latest (PR #3's first CI run) and missed the 5 s default.

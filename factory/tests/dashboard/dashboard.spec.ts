@@ -51,7 +51,10 @@ test.describe.serial('factory dashboard', () => {
     await expect(modal(page).locator('#pr-btn')).toHaveAttribute('href', job('J-003').pr!.url);
     await expect(modal(page).locator('#pr-btn')).toHaveText(`Open PR #${job('J-003').pr!.number}`);
 
-    await expect(column(page, 'backlog').locator('[data-card="J-005"]')).toBeVisible();
+    // No Backlog column: J-005 waits on its idea's card, which idea-done left open for it (spec 22).
+    await expect(column(page, 'ideas').locator('[data-idea="I-004"] [data-spec="J-005"]')).toBeVisible();
+    await expect(page.locator('[data-column="backlog"]')).toHaveCount(0);
+    await expect(column(page, 'ideas').locator('[data-idea="I-001"]')).toHaveCount(0);   // its last spec approved
     await expect(card(page, 'J-004')).toHaveCount(0); // discarded
     await expect(column(page, 'ideas').locator('[data-idea="I-003"]')).toContainText(/failed/i);
 
@@ -59,16 +62,18 @@ test.describe.serial('factory dashboard', () => {
     await expect(card(page, 'J-001').locator('[data-cost]')).toBeVisible();
   });
 
-  test('a new-repo session: Scaffold is lit, Merge in the session, and the specs arrive with no click, deciding Home', { tag: '@smoke' }, async ({ page }) => {
-    // The simulator's S-001: a confirmed brief for sim/shelf, whose bootstrap waits in Ready for review.
+  test('a New repo: Review is lit, Merge in the session, then Implement first feature opens a session seeded with it, whose specs decide Home', { tag: '@smoke' }, async ({ page }) => {
+    // The simulator's S-001: a confirmed product for sim/shelf, whose bootstrap waits in Ready for review.
     const s1 = JSON.parse(readFileSync(path.join(simDir, 'sessions/S-001/session.json'), 'utf8'));
     const boot: string = s1.bootstrap;
+    const repoIdea: string = s1.idea;
     expect(job(boot).stage).toBe('ready');
     const dir = mkdtempSync(path.join(os.tmpdir(), 'ideate-'));
     const spec = `# Spec: Shelve a book\n\n## Target\n- Repo: sim/shelf\n\n## Gate\n- build: \`git --version\`\n\n## Acceptance criteria\n- [ ] AC1: a book is shelved`;
-    // Spec 23: a new app's set must decide Home, so the first submit (no Home) is refused and the second lands.
+    // The repo's first feature must decide Home, as PRODUCT.md says: the first submit (no Home) is refused, the second lands.
     const withHome = `${spec}\n\n## Home\n- Home: redirect: /books`;
     [
+      { content: [{ type: 'tool_use', id: 'b1', name: 'submit_brief', input: { markdown: '# Brief: Shelve a book\n\n## Target\n- Repo: sim/shelf' } }], stop_reason: 'tool_use' },
       { content: [{ type: 'tool_use', id: 's1', name: 'submit_specs', input: { specs: [{ k: 1, markdown: spec }] } }], stop_reason: 'tool_use' },
       { content: [{ type: 'tool_use', id: 's2', name: 'submit_specs', input: { specs: [{ k: 1, markdown: withHome }] } }], stop_reason: 'tool_use' },
       { content: [{ type: 'text', text: 'One spec is ready for you.' }], stop_reason: 'end_turn' },
@@ -76,29 +81,41 @@ test.describe.serial('factory dashboard', () => {
     await fetch(`http://localhost:${stubPort}/__reset`, { method: 'POST', body: JSON.stringify({ dir }) });
 
     await page.goto('/');
-    const sessionCard = column(page, 'ideas').locator('[data-session="S-001"]');
-    await expect(sessionCard.locator('[data-session-state]')).toHaveText('Ready: merge the scaffold');
-    await sessionCard.click();
-    await expect(modal(page).locator('[data-step="scaffold"]')).toHaveAttribute('data-state', 'now');
+    const repoCard = column(page, 'ideas').locator('[data-session="S-001"]');
+    await expect(repoCard.locator('[data-repo-chip]')).toHaveText('New repo');
+    await expect(repoCard.locator('[data-session-state]')).toHaveText('Ready: merge the scaffold');
+    await repoCard.click();
+    await expect(modal(page).locator('[data-step="review"]')).toHaveAttribute('data-state', 'now');
     await expect(modal(page).locator('[data-waiting]')).toContainText(`${boot} is ready for review: merge the shelf scaffold`);
     await expect(modal(page).locator('#s-boot-pr')).toHaveAttribute('href', job(boot).pr!.url);
     await modal(page).locator('#s-merge-boot').click();
 
+    // The merge starts no spec turn: the repo is Merged, and offers its first feature, read from docs/PRODUCT.md on main.
     await expect.poll(() => job(boot).stage).toBe('done');
-    // No Write specs click: the merge starts the spec turn.
-    await expect(modal(page).locator('[data-step="specs"]')).toHaveAttribute('data-state', 'now');
-    await expect(modal(page).locator('[data-spec="1"]')).toContainText('Shelve a book', { timeout: 30_000 });
-    await expect(modal(page).locator('[data-spec="1"]')).toContainText('Home: redirect: /books');
-    await expect(sessionCard.locator('[data-session-state]')).toHaveText('specs ready to approve');
-    await modal(page).locator('[data-spec="1"] [data-decide="backlog"]').click();
+    await expect(modal(page).locator('[data-step="merged"]')).toHaveAttribute('data-state', 'now');
+    const implement = modal(page).locator('[data-implement]');
+    await expect(implement).toHaveText('Implement first feature');
+    await expect(modal(page).locator('[data-next-feature]')).toHaveText('Shelve a book');
+    await implement.click();
 
-    // A new-repo session stays open on Build, following the job its spec made.
-    await expect(modal(page).locator('[data-step="build"]')).toHaveAttribute('data-state', 'now');
-    const made: string = JSON.parse(readFileSync(path.join(simDir, 'sessions/S-001/session.json'), 'utf8')).specs[0].job;
-    await expect(modal(page).locator(`[data-build-job="${made}"]`)).toContainText('in Backlog');
-    expect(job(made).stage).toBe('backlog');
-    await modal(page).locator('button[aria-label="Close"]').first().click();
+    // A feature session on the repo, seeded with the feature's text and PRODUCT.md's Home line.
+    await expect(modal(page).locator('[data-brief]')).toContainText('Shelve a book', { timeout: 30_000 });
+    const sid = readdirSync(path.join(simDir, 'sessions')).find((d) => JSON.parse(readFileSync(path.join(simDir, 'sessions', d, 'session.json'), 'utf8')).from === repoIdea)!;
+    const feature = JSON.parse(readFileSync(path.join(simDir, 'sessions', sid, 'session.json'), 'utf8'));
+    expect([feature.target, feature.feature, feature.home]).toEqual(['sim/shelf', 'Shelve a book', '- Home: redirect: /books']);
+    expect(readFileSync(path.join(simDir, 'sessions', sid, 'chat.json'), 'utf8')).toContain('Put a book on a shelf, and see the shelf.');
+    await modal(page).locator('#s-confirm-brief').click();
+    await expect(modal(page).locator('[data-spec="1"]')).toContainText('Home: redirect: /books', { timeout: 30_000 });
+    const featureIdea: string = JSON.parse(readFileSync(path.join(simDir, 'sessions', sid, 'session.json'), 'utf8')).idea;
+    expect(board().ideas.find((i: { id: string }) => i.id === repoIdea).features).toEqual([{ heading: 'Shelve a book', idea: featureIdea }]);
+    await modal(page).locator('[data-spec="1"] [data-decide="backlog"]').click();
     await expect(modal(page)).toBeHidden();
+
+    // Back on the board, the repo card offers the next feature; Dismiss closes the repo idea and its card.
+    await expect(repoCard.locator('[data-implement]')).toHaveText('Implement Lend a book');
+    await repoCard.locator('[data-dismiss]').click();
+    await expect(repoCard).toHaveCount(0);
+    expect(board().ideas.find((i: { id: string }) => i.id === repoIdea).status).toBe('done');
   });
 
   test('the modal shows the timeline, artifacts rendered as markdown, and the gate result', { tag: '@smoke' }, async ({ page }) => {
@@ -208,9 +225,9 @@ test.describe.serial('factory dashboard', () => {
     expect(board().ideas.find((i: { id: string }) => i.id === idea.id).status).toBe('drafting');
   });
 
-  test('a backlog card opens a large modal with Edit and a live Preview, and Save writes to disk', async ({ page }) => {
+  test('Edit on a spec row opens a large modal with Edit and a live Preview, and Save writes to disk', async ({ page }) => {
     await page.goto('/');
-    await card(page, 'J-005').click();
+    await page.locator('[data-spec="J-005"] [data-spec-edit]').click();
     await expect(modal(page)).toBeVisible();
     expect((await modal(page).boundingBox())!.width).toBeGreaterThanOrEqual(1000);
     const editor = page.locator('#spec-editor');
@@ -226,18 +243,25 @@ test.describe.serial('factory dashboard', () => {
     expect(readFileSync(path.join(simDir, 'jobs/J-005/spec.md'), 'utf8')).toContain('Edited by a human.');
   });
 
-  test('an illegal drop snaps back and shows the refusal', async ({ page }) => {
+  test('a refused approval stays on its spec row, and the spec stays on its idea card', async ({ page }) => {
+    const file = path.join(simDir, 'jobs/J-005/spec.md');
+    const kept = readFileSync(file, 'utf8');
+    writeFileSync(file, kept.replace(/## Gate[\s\S]*?(?=\n## |$)/, ''));
     await page.goto('/');
-    await card(page, 'J-005').dragTo(column(page, 'done'));
+    const row = column(page, 'ideas').locator('[data-idea="I-004"] [data-spec="J-005"]');
+    await row.locator('[data-spec-approve]').click();
+    await expect(row.locator('[data-refused]')).toContainText('approve refused');
     await expect(page.locator('#toast')).toContainText(/refused/i);
-    await expect(column(page, 'backlog').locator('[data-card="J-005"]')).toBeVisible();
+    await page.locator('#toast button').click();
+    await expect(row.locator('[data-refused]')).toContainText('approve refused');
     expect(job('J-005').stage).toBe('backlog');
+    writeFileSync(file, kept);
   });
 
   test('the header names the run mode and its provider, and no card carries a provider chip', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('#mode')).toHaveText('local · subscription');
-    await expect(card(page, 'J-005')).toBeVisible();
+    await expect(page.locator('[data-spec="J-005"]')).toBeVisible();
     await expect(page.locator('[data-provider]')).toHaveCount(0);
     await expect(page.locator('#mode')).toHaveAttribute('data-mode', 'local');
   });
@@ -266,11 +290,14 @@ test.describe.serial('factory dashboard', () => {
     await expect(mode).toHaveAttribute('data-mode', 'invalid');
   });
 
-  test('dragging a backlog card to Approved approves it', { tag: '@smoke' }, async ({ page }) => {
+  test('Approve on a spec row approves it with no drag, and its idea closes with its last spec', { tag: '@smoke' }, async ({ page }) => {
     await page.goto('/');
-    await card(page, 'J-005').dragTo(column(page, 'approved'));
-    await expect(column(page, 'backlog').locator('[data-card="J-005"]')).toHaveCount(0);
+    await column(page, 'ideas').locator('[data-idea="I-004"] [data-spec="J-005"] [data-spec-approve]').click();
+    await expect(page.locator('[data-spec="J-005"]')).toHaveCount(0);
+    await expect(card(page, 'J-005')).toBeVisible();   // in Approved, or already taken on by the runner
     expect(job('J-005').history.some((h) => h.from === 'backlog' && h.to === 'approved' && h.by === 'human')).toBe(true);
+    await expect.poll(() => board().ideas.find((i: { id: string }) => i.id === 'I-004').status).toBe('done');
+    await expect(column(page, 'ideas').locator('[data-idea="I-004"]')).toHaveCount(0);
   });
 
   // Dragging to Done is covered by the bootstrap test above.
@@ -346,20 +373,21 @@ test.describe.serial('factory dashboard', () => {
 
     await expect(modal(page)).toBeHidden();
     const idea = board().ideas.find((i: { text: string }) => i.text === 'Tag books');
-    expect(idea.status).toBe('done');
+    expect([idea.status, idea.closeWhenDecided]).toEqual(['drafting', true]);
     expect(idea.jobs).toHaveLength(2);
     expect(job(idea.jobs[0]).approvedAt).toBeTruthy();
     expect(job(idea.jobs[1]).stage).toBe('backlog');
     await expect(column(page, 'ideas').locator('[data-session]')).toHaveCount(0);
+    await expect(column(page, 'ideas').locator(`[data-idea="${idea.id}"] [data-spec="${idea.jobs[1]}"]`)).toBeVisible();
   });
 
-  test('Add new starts a session with no repo; the scaffold form names it and sets the target', async ({ page }) => {
+  test('New repo starts a session with no repo; the scaffold form names it and sets the target', async ({ page }) => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'ideate-'));
     const replies = [
       { content: [{ type: 'tool_use', id: 'q1', name: 'ask_questions', input: { questions: [
         { question: 'Who uses it?', header: 'Users', multiSelect: false, options: [{ label: 'Just me', description: 'one person' }, { label: 'A team', description: 'several' }] }] } }], stop_reason: 'tool_use' },
       { content: [{ type: 'tool_use', id: 'p1', name: 'propose_scaffold', input: { repo: 'recipes', name: 'recipes', resource: 'Recipe', db: 'sqlite', ui: 'react', events: false, auth: true } }], stop_reason: 'tool_use' },
-      { content: [{ type: 'tool_use', id: 'b1', name: 'submit_brief', input: { markdown: '# Brief: Recipes\n\n## Target\n- Repo: sim/recipes-box' } }], stop_reason: 'tool_use' },
+      { content: [{ type: 'tool_use', id: 'b1', name: 'submit_product', input: { markdown: '# Product: Recipes\n\n## Home\n- Home: keep: the dashboard is fine\n\n## Features\n### Add a recipe\nIt does it.\n' } }], stop_reason: 'tool_use' },
     ];
     replies.forEach((r, i) => writeFileSync(path.join(dir, `${String(i + 1).padStart(3, '0')}.json`), JSON.stringify(r)));
     await fetch(`http://localhost:${stubPort}/__reset`, { method: 'POST', body: JSON.stringify({ dir }) });
@@ -391,23 +419,23 @@ test.describe.serial('factory dashboard', () => {
   });
 
   // The stuck-modal repro (2026-11-20, cloud 0.3.8): Approve bootstrap moved the job on but left the modal saying
-  // "Approve it here or leave it in Backlog", with nothing left to do. Confirming the brief is now the approval.
-  test('confirming a new repo\'s brief approves its bootstrap, and the session moves on to Scaffold', async ({ page }) => {
+  // "Approve it here or leave it in Backlog", with nothing left to do. Confirming the product is now the approval (spec 22).
+  test('confirming a New repo\'s product approves its bootstrap, and the session moves on to Scaffold', async ({ page }) => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'ideate-'));
     [
       { content: [{ type: 'tool_use', id: 'p1', name: 'propose_scaffold', input: { repo: 'pantry', name: 'pantry', resource: 'Item', db: 'sqlite', ui: 'react', events: false } }], stop_reason: 'tool_use' },
-      { content: [{ type: 'tool_use', id: 'b1', name: 'submit_brief', input: { markdown: '# Brief: Pantry\n\n## Target\n- Repo: sim/pantry' } }], stop_reason: 'tool_use' },
+      { content: [{ type: 'tool_use', id: 'b1', name: 'submit_product', input: { markdown: '# Product: Pantry\n\n## Home\n- Home: keep: the dashboard is fine\n\n## Features\n### List the pantry\nIt does it.\n' } }], stop_reason: 'tool_use' },
     ].forEach((r, i) => writeFileSync(path.join(dir, `${String(i + 1).padStart(3, '0')}.json`), JSON.stringify(r)));
     await fetch(`http://localhost:${stubPort}/__reset`, { method: 'POST', body: JSON.stringify({ dir }) });
 
     await page.goto('/');
     await column(page, 'ideas').locator('#new-idea-btn').click();
     await modal(page).locator('#s-target').selectOption('+new');
-    await expect(modal(page).locator('#s-new-note')).toContainText('A new repo is set up first by a bootstrap job.');
+    await expect(modal(page).locator('#s-new-note')).toContainText('a bootstrap job scaffolds it with them as docs/PRODUCT.md');
     await modal(page).locator('#s-text').fill('A pantry list');
     await modal(page).locator('#s-start').click();
     await modal(page).locator('#s-confirm-scaffold').click({ timeout: 20_000 });
-    await expect(modal(page).locator('[data-step="brief"]')).toHaveAttribute('data-state', 'now');
+    await expect(modal(page).locator('[data-step="grill"]')).toHaveAttribute('data-state', 'now');
     await expect(modal(page).locator('[data-waiting]')).toContainText('Confirming it also approves the bootstrap job');
     await modal(page).locator('#s-confirm-brief').click();
 
@@ -421,7 +449,8 @@ test.describe.serial('factory dashboard', () => {
     // Not stuck: the modal closes, and the card says what the session waits on.
     await modal(page).locator('button[aria-label="Close"]').first().click();
     await expect(modal(page)).toBeHidden();
-    await expect(column(page, 'ideas').locator('[data-session] [data-session-state]', { hasText: `waiting for bootstrap ${boot}` })).toHaveCount(1);
+    // The watchdog's runner may already have it in Ready for review.
+    await expect(column(page, 'ideas').locator('[data-session] [data-session-state]', { hasText: new RegExp(`waiting for bootstrap ${boot}|Ready: merge the scaffold`) })).toHaveCount(1);
     // Leave the board as it was: the bootstrap is discarded, and the session and its idea abandoned.
     await page.request.post(`/api/jobs/${boot}/move`, { data: { to: 'discarded' } });
     const sid = readdirSync(path.join(simDir, 'sessions')).find((d) => JSON.parse(readFileSync(path.join(simDir, 'sessions', d, 'session.json'), 'utf8')).idea === idea.id)!;
@@ -710,6 +739,53 @@ test.describe.serial('factory dashboard', () => {
     await expect(card(page, 'J-200').locator('[data-wait]')).toHaveCount(0);
   });
 
+  test('a job waiting in Canary follows the canary: running, then Building after a pass; red with Run canary after a failure', { tag: '@smoke' }, async ({ page }) => {
+    // Served by the test, not the Simulator: this dashboard runs with deploys off, so its watchdog's runner would take
+    // a Canary job straight to Build.
+    const at = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
+    const j = (id: string, stage: string, extra = {}) => ({
+      id, stage, round: 1, title: `job ${id}`, target: 'sim/sandbox', createdAt: at(9), approvedAt: at(9), updatedAt: at(9), history: [], ...extra,
+    });
+    let jobs = [j('J-401', 'canary'), j('J-402', 'canary')];
+    let canary: object = { fingerprint: 'sha256:02', status: 'running', error: null, log: 'canary-7.log', startedAt: at(3), n: 7,
+      version: '0.4.2', phase: 'deploy', deploy: { done: 1, total: 3 }, run: 'https://github.com/sim/factory-canary/actions/runs/7' };
+    await page.route('**/api/ideate/config', (r) => r.fulfill({ json: { enabled: false, deploys: true } }));
+    await page.route('**/api/canary', (r) => r.request().method() === 'GET'
+      ? r.fulfill({ json: { due: false, reasons: [], typicalMinutes: 12 } })
+      : r.fulfill({ json: { ok: true, message: 'canary started' } }));
+    await page.route('**/state/board.json', (r) => r.fulfill({ body: JSON.stringify({ jobs, ideas: [] }) }));
+    await page.route('**/state/events.jsonl', (r) => r.fulfill({ body: '' }));
+    await page.route('**/state/canary.json', (r) => r.fulfill({ body: JSON.stringify(canary) }));
+
+    await page.goto('/');
+    const canaryCol = column(page, 'canary');
+    const c1 = canaryCol.locator('[data-card="J-401"]');
+    await expect(c1.locator('[data-canary-wait]')).toHaveText('canary running · deploying 2/3 · 3 of ~12 min');
+    await expect(canaryCol.locator('[data-card="J-402"]')).toBeVisible();
+    const banner = page.locator('#canary');
+    await expect(banner).toContainText('Deploy canary (0.4.2) · deploying 2/3');
+    await expect(banner.locator('[data-canary-waiting]')).toHaveText('waiting in Canary: J-401, J-402');
+    await expect(banner.locator('a[data-canary-run]')).toHaveAttribute('href', 'https://github.com/sim/factory-canary/actions/runs/7');
+
+    // A failure: both stay in Canary, red, each with the error, Log, Run canary and Discard.
+    canary = { ...canary, status: 'failed', error: 'Error: exec: "az": executable file not found', finishedAt: at(0) };
+    await expect(c1).toHaveAttribute('data-red', '1');
+    await expect(c1.locator('[data-canary-failed]')).toContainText('executable file not found');
+    await expect(c1.locator('a[data-canary-log]')).toHaveAttribute('href', '/state/canary-7.log');
+    await expect(c1.locator('[data-discard]')).toBeVisible();
+    const answer = page.waitForResponse((r) => r.url().endsWith('/api/canary') && r.request().method() === 'POST');
+    await c1.locator('[data-run-canary]').click();
+    expect((await (await answer).json()).ok).toBe(true);
+
+    // A pass: the runner takes the queue's head to Build, and the other waits in Approved order behind it.
+    canary = { ...canary, status: 'pass', error: null, phase: null };
+    jobs = [j('J-401', 'build'), j('J-402', 'canary')];
+    await expect(column(page, 'building').locator('[data-card="J-401"]')).toBeVisible();
+    await expect(canaryCol.locator('[data-card="J-401"]')).toHaveCount(0);
+    await expect(canaryCol.locator('[data-card="J-402"]')).not.toHaveAttribute('data-red', '1');
+    await expect(banner).toBeHidden();
+  });
+
   test('a blocked card waits in Building with its flag and Retry deploy, Rework and Discard, and does not hold the queue', async ({ page }) => {
     // Rendering and wiring only: a board served by the test, and the write calls captured.
     const at = (m: number) => new Date(Date.UTC(2026, 10, 1, 12, m)).toISOString();
@@ -827,9 +903,8 @@ test.describe.serial('factory dashboard', () => {
 
     // The modal is gone while the request is still in flight, and the card says it is moving.
     await expect(page.locator('#backdrop')).not.toHaveClass(/open/);
-    await expect(c.locator('[data-moving] .spinner')).toBeVisible();
-    await expect(c).toHaveAttribute('draggable', 'false');
-    await expect(column(page, 'backlog').locator('[data-card="J-330"]')).toBeVisible();
+    await expect(c.locator('[data-spec-approve] .spinner')).toBeVisible();
+    await expect(column(page, 'ideas').locator('[data-card="J-330"][data-spec-card]')).toBeVisible();
 
     // Reopened meanwhile, the modal offers no second approve.
     await c.click();
@@ -841,17 +916,17 @@ test.describe.serial('factory dashboard', () => {
 
     answers.shift()!(true);
     await expect(column(page, 'approved').locator('[data-card="J-330"]')).toBeVisible();
-    await expect(c.locator('[data-moving]')).toHaveCount(0);
+    await expect(c.locator('[data-spec-approve] .spinner')).toHaveCount(0);
 
-    // A refusal stops the spinner, leaves the card in Backlog draggable, and says why.
+    // A refusal stops the spinner, leaves the spec's card in Ideas, and says why there and in the toast.
     const r = card(page, 'J-331');
     await r.click();
     await page.locator('#approve-btn').click();
-    await expect(r.locator('[data-moving] .spinner')).toBeVisible();
+    await expect(r.locator('[data-spec-approve] .spinner')).toBeVisible();
     await expect.poll(() => answers.length).toBe(1);
     answers.shift()!(false);
-    await expect(r.locator('[data-moving]')).toHaveCount(0);
-    await expect(column(page, 'backlog').locator('[data-card="J-331"]')).toHaveAttribute('draggable', 'true');
+    await expect(r.locator('[data-spec-approve] .spinner')).toHaveCount(0);
+    await expect(column(page, 'ideas').locator('[data-card="J-331"] [data-refused]')).toHaveText('approve refused: no spec');
     await expect(page.locator('#toast')).toContainText('approve refused: no spec');
   });
 

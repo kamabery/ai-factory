@@ -59,6 +59,49 @@ public class JobWorkTests : CommandTestBase
         Assert.Equal("checkout -q -b factory/J-001 origin/main", _git.Ran("checkout").Single().Args);
     }
 
+    private FakeSession RepoBootstrap(string ideaKind = "repo")
+    {
+        var s = FakeSession.With(Jobs.New("J-001", "build").With("kind", "bootstrap").With("idea", "I-001"));
+        var idea = new JsonObject { ["id"] = "I-001", ["target"] = "o/r", ["status"] = "waiting", ["jobs"] = new JsonArray("J-001") };
+        if (ideaKind.Length > 0) idea["kind"] = ideaKind;
+        s.Board["ideas"]!.AsArray().Add(idea);
+        Files.Put(Path.Combine(Home, "ideas", "I-001", "product.md"), "# Product: Todo\n");
+        _git.On("rev-parse --verify --quiet refs/remotes/origin/factory/J-001", 1);
+        return s;
+    }
+
+    [Fact]
+    public void A_repo_ideas_bootstrap_commits_its_product_as_docs_PRODUCT_md_on_its_new_branch()
+    {
+        var s = RepoBootstrap();
+
+        Assert.Null(Sut.EnsureClone(s.Board, "J-001"));
+
+        Assert.Equal("# Product: Todo\n", Files.Text(Path.Combine(Wt, "docs", "PRODUCT.md")));
+        Assert.Equal((Wt, "add -- docs/PRODUCT.md"), _git.Ran("add --").Single());
+        Assert.Equal((Wt, "-c user.name=factory -c user.email=factory@localhost commit -q -m docs: product"), _git.Ran("commit").Single());
+    }
+
+    [Fact]
+    public void A_bootstrap_of_an_idea_with_no_product_commits_nothing()
+    {
+        var s = RepoBootstrap("");
+
+        Assert.Null(Sut.EnsureClone(s.Board, "J-001"));
+
+        Assert.Null(Files.Text(Path.Combine(Wt, "docs", "PRODUCT.md")));
+        Assert.Empty(_git.Ran("commit"));
+    }
+
+    [Fact]
+    public void A_failed_product_commit_says_why()
+    {
+        var s = RepoBootstrap();
+        _git.On("commit -q -m docs: product", 1, "nothing to commit");
+
+        Assert.Equal("checkout: cannot commit docs/PRODUCT.md: nothing to commit", Sut.EnsureClone(s.Board, "J-001"));
+    }
+
     [Fact]
     public void A_pushed_branch_is_checked_out_again_after_a_rework()
     {

@@ -9,7 +9,7 @@ change, but only by editing this file first.
 
 Agents propose and execute; `factory` attests and constrains; a human owns intent and the
 release. A human touches the factory at exactly two points: **approving a spec**, in an idea
-session (or by dragging a Backlog card to Approved), and **accepting the work**
+session (or by **Approve** on a spec waiting on its idea's card in Ideas), and **accepting the work**
 (Ready for review → Done). Everything between those two is automated.
 
 No agent, skill or endpoint writes to `.factory-runs/board.json`. Every state change is a
@@ -21,9 +21,11 @@ No agent, skill or endpoint writes to `.factory-runs/board.json`. Every state ch
  idea session ───────────── human "yes" per spec ────┐
  grill → brief → spec-writer                         │
  (dashboard, or /factory:idea)                       │
-        │ "not yet"                                  ↓
-        └────→ Backlog ──human drag──→ Approved ──runner──→ Building ──→ Ready for review ──human drag──→ Done
+        │ "not yet": the spec waits on its idea's    ↓
+        └────→ card in Ideas ──human Approve──→ Approved ──runner──→ Building ──→ Ready for review ──human drag──→ Done
                (edit spec)             (FIFO queue)        build ←─┐     (flag if the       (merge)
+                                        │    ↑ (pass)                                                         
+                                        └→ Canary: a deployable job waits there for a canary pass (see Canary)
                   │                         ↑              review  │     factory gave up;
                   └──discard                │              deploy ─┘     live preview,
                                             │              approve  app  Launch / Tear down)
@@ -42,17 +44,28 @@ Done and discarded cards stay until a human clears them ([Purge](#purge), the Do
 
 | Column | Stages | Who moves cards out |
 | --- | --- | --- |
-| Ideas | `idea` records with status `waiting`, `drafting` or `failed`, and open dashboard [idea sessions](#idea-sessions-dashboard) (not jobs) | the idea session, or **Abandon**, on the card or in the idea's opened card |
-| Backlog | `backlog` | human (drag to Approved, or discard) |
+| Ideas | `idea` records with status `waiting`, `drafting` or `failed`, and open dashboard [idea sessions](#idea-sessions-dashboard); jobs in `backlog`, listed on their idea's card (see below) | the idea session, or **Abandon**, on the card or in the idea's opened card; a `backlog` spec: human (**Approve**, or **Discard**) |
 | Approved | `approved` | runner |
+| Canary | `canary` | runner (to Building after a canary pass); human (discard) |
 | Building | `build`, `review`, `deploy`, `approve`, `gate`, `blocked` | orchestrator / script; a `blocked` card: human (retry deploy, rework, or discard) |
 | Ready for review | `ready` | human (drag to Done, rework, or discard) |
 | Done | `done` | nobody (terminal) |
 | (hidden) | `discarded` | nobody (terminal) |
 
 In Building, the card shows its sub-stage, its round and the reviewer chips; a `blocked` card also
-shows its flag and the **Retry deploy**, **Rework** and **Discard** buttons. Only Backlog,
-Approved, Ready for review and Done accept drops.
+shows its flag and the **Retry deploy**, **Rework** and **Discard** buttons. Only Approved and Done
+accept drops, of a Ready for review card. A Canary card shows `canary running N of ~M min` with the
+canary's phase while one runs, or, after a failure, red with the canary's error, its **Log** and **Run canary**,
+and a **Discard** button.
+
+**No Backlog column (spec 22).** The `backlog` stage stays, as where an unapproved spec lives, but the board
+has no column for it. A spec in `backlog` is listed on its idea's card in Ideas (on the session card while its
+idea is in an open session), one row per spec (`data-spec="J-NNN"`) with **Approve** (`approve`, as the drag to
+Approved was) and **Edit** (the job's opened card, which edits `spec.md` as the Backlog card did). A spec whose idea
+is not shown in Ideas (a `new-job`, an idea record that is gone, or one that is `done`, `failed` or `abandoned`) gets
+a card of its own in Ideas (`data-card="J-NNN"`), styled as a spec, with **Approve**, **Edit** and **Discard**. A
+refused approval stays on its spec's row (`data-refused`) until the next try succeeds, as well as in the large sticky
+toast. Approving moves the spec to Approved, and the runner takes it on to Canary or Building.
 
 An Approved card says what it is waiting on (`data-wait`), using the rules `next` applies (see
 [Canary](#canary)). The first rule that matches wins:
@@ -60,7 +73,7 @@ An Approved card says what it is waiting on (`data-wait`), using the rules `next
 2. `waiting: deploy canary` while `canary.json` says `running`. The runner runs the canary itself,
    so every approved job waits for it.
 3. `held: deploy canary failed` for a deployable job (deploys on and not a bootstrap) after a failed
-   canary.
+   canary (one approved after the run started; the jobs it held are in Canary).
 4. `after J-NNN` when an older approved job that is not held is ahead of it.
 5. `next` otherwise.
 
@@ -96,7 +109,8 @@ the simulator at a stub.
   through the `aspire-addon` CLI and the gate adds `dotnet build .aspire/apphost.cs` and
   `aspire-addon infra check`. The idea waits (`waiting`) until that job is
   merged; the merge releases it (`drafting`), and the human resumes it with `/factory:idea I-NNN`,
-  so the spec-writer specs features against real code.
+  so the spec-writer specs features against real code. Since spec 22 a new target is a **New repo** idea
+  (see [Ideas](#ideas)): the merge releases it to start its features one by one, from its `docs/PRODUCT.md`.
   The first `checkout` creates the repo on GitHub (**private**; under the token's user when the
   owner is that user, else in the named organization) if it is missing, and pushes `main` with an
   empty initial commit if it has none. The control plane does this, never an agent.
@@ -133,7 +147,7 @@ an existing target (`clone-target`) in `<work>\sessions\<S>` (dashboard) or
 `<work>\cli\<owner>-<name>` (`factory idea`), deleted when the session closes. A session with a
 [base](#stacked-jobs) reads `factory/<base>` instead of `main`.
 
-The spec carries the target and the gate, and the human can edit both in Backlog:
+The spec carries the target and the gate, and the human can edit both while it waits in `backlog` (**Edit** on its row in Ideas):
 
 ```
 ## Target
@@ -366,8 +380,9 @@ An idea is not a job. The session:
    its own. It shows each spec; the human approves it, asks for changes (made to `spec-<k>.md`
    before it reaches the board), defers it, or rejects it.
 5. For each approved spec: `add-spec`, then `approve` (it lands in Approved and the session starts
-   the runner). A deferred spec gets `add-spec` only and waits in Backlog. A rejected spec never
-   reaches the board. Then `idea-done`, or `idea-done -Failed` if every spec was rejected.
+   the runner). A deferred spec gets `add-spec` only and waits in `backlog`, on the idea's card. A
+   rejected spec never reaches the board. Then `idea-done`, or `idea-done -Failed` if every spec was
+   rejected; an idea with a deferred spec stays open until its last one is decided (see `idea-done`).
 
 `drafting` means "open for a session". `/factory:idea I-NNN` resumes a `drafting` idea from its
 `brief.md`, after a bootstrap merge or an interrupted session.
@@ -390,13 +405,57 @@ scaffolded its target (`idea.scaffold` is set; in a dashboard session, `session.
   none of the three words counts as no decision. In the CLI fallback the rule is the spec-writer's
   instructions alone; nothing refuses there.
 
+**A New repo idea (spec 22).** Scaffolding a repo and building a feature are two ideas. A **New repo** idea
+(`kind: "repo"`) is grilled about the repo name, its scaffold options, the app's purpose and users, its Home and
+the features to build, and ends in a confirmed **product document**, not a brief, following
+`factory/templates/product.md`:
+
+```
+# Product: <app name>
+## Purpose        what it is for, in a paragraph
+## Users          who uses it
+## Home
+- Home: <replace | redirect | keep>: <detail>    (the same line spec 23's Home section takes)
+## Features
+### <feature 1>   1 to 10 features in build order, each a ### heading and a paragraph
+```
+
+A product with no such `- Home:` line, or with fewer than 1 or more than 10 `###` headings under `## Features`, is
+refused (`product refused: ...`). The repo idea's one job is the bootstrap, and it writes no specs:
+- `new-idea -Product <file>` (a new target only, with `-Scaffold`) copies the file to `ideas/I-NNN/product.md` and
+  sets `kind: "repo"`. `checkout`, creating the bootstrap's branch, commits it as `docs/PRODUCT.md` (subject
+  `docs: product`, author `factory`) before the builder starts, so the scaffold PR carries it; the bootstrap spec
+  says to leave it unchanged. A rework's checkout of the pushed branch already has it.
+- The bootstrap's merge releases the repo idea (`drafting`) as for any bootstrap. From then on its features are
+  read from `docs/PRODUCT.md` on the target's `main` (`factory product I-NNN`), so edits made there count. The
+  factory never edits PRODUCT.md after its first commit.
+- **A feature is started** by a feature idea that names it: `new-idea <text> -Target <repo> -From <I-NNN>
+  -Feature <heading>` records `from` and `feature` on the new idea and `{ heading, idea }` in the repo idea's
+  `features`, refused when `-From` is not a `drafting` repo idea on that target or the heading already has an idea.
+  The **next** feature is the first in PRODUCT.md's order whose heading (case-insensitive, trimmed) has no idea.
+  When none is left, or the human dismisses it, the repo idea goes `done` (`idea-done`).
+- **Home** moves with it: spec 23's grill question is the New repo grill's, recorded in PRODUCT.md, and the Home
+  rule for specs (the `- Home:` line, and `submit_specs` refusing a set without one) applies to a repo's **first**
+  feature idea (no other feature of its repo idea has started), with PRODUCT.md's Home line as the answer. A second
+  feature needs none.
+- Repos scaffolded before 22 (their idea has no `kind`) keep the old flow, and their targets use New idea.
+
 ```
 board.ideas[] = { "id": "I-001", "text": "...", "target": "kamabery/todo-app",
                   "scaffold": null, "base": null, "status": "waiting|drafting|done|failed|abandoned",
+                  "closeWhenDecided": true,   // idea-done ran while specs waited in backlog (absent otherwise)
+                  "kind": "repo",             // a New repo idea (absent: a feature idea)
+                  "features": [ { "heading": "Borrow a book", "idea": "I-004" } ],   // repo idea: the features started
+                  "from": "I-003", "feature": "Borrow a book",                     // feature idea started from a repo idea
                   "jobs": ["J-004", "J-005"], "createdAt": "..." }
 ```
 
-- `factory new-idea <text> -Target <path> [-Scaffold <json>] [-Base <J-NNN>]` validates the target and options
+- `factory product <I-NNN>` reads `docs/PRODUCT.md` from the repo idea's target's `main` (GitHub contents API) and
+  prints `{ "features": [ { "k", "heading", "text", "idea" } ], "next": <k> | null, "home": "<line>" }`, with `k` from 1
+  in document order and `idea` from the board; it refuses with the read error, `docs/PRODUCT.md on main has no
+  feature to start` when it has none, or `I-NNN is not a repo idea`.
+
+- `factory new-idea <text> -Target <path> [-Scaffold <json> [-Product <file>]] [-Base <J-NNN>] [-From <I-NNN> -Feature <heading>]` validates the target and options
   (see [Targets](#targets)), allocates `I-NNN` and writes `ideas/I-NNN/idea.md` (the text, then a
   last line `Target: <path>`). For an existing repo it sets status `drafting`. For a new target it
   sets status `waiting`, creates the bootstrap job in `backlog` (`kind: "bootstrap"`, listed in the
@@ -410,7 +469,11 @@ board.ideas[] = { "id": "I-001", "text": "...", "target": "kamabery/todo-app",
   `-Base` (an existing target only) records the job the idea builds on as `base`; see
   [Stacked jobs](#stacked-jobs).
 - `factory idea-done <ideaId> [-Failed -Reason <text>]` closes the idea. Ideas in `done`
-  are no longer shown; ideas in `failed` stay in Ideas with the reason until a `purge`.
+  are no longer shown; ideas in `failed` stay in Ideas with the reason until a `purge`. **Not yet keeps the
+  idea open (spec 22):** `idea-done` without `-Failed` on an idea with a job in `backlog` leaves it `drafting`,
+  sets `closeWhenDecided: true` and prints `I-NNN stays open: J-NNN waits in backlog`. When `approve` or `discard`
+  moves the last of its `backlog` jobs on, the idea goes `done` (`closeWhenDecided` cleared, an `idea` event
+  `done`), as `idea-done` would have.
 - `factory idea-abandon <ideaId>` sets an idea in `waiting`, `drafting` or `failed` to
   `abandoned`: the human is not doing it. It is hidden like `done`, its files stay until a
   `purge`, and jobs it already created are left where they are. It appends an `idea` event
@@ -462,7 +525,7 @@ own last write.
 | --- | --- | --- |
 | `read_file`, `list_dir`, `grep` | server, read-only | fenced to the session's clone of the target (`checkout`, when the target exists) and `factory/templates`; any other path is refused |
 | `submit_specs { specs: [{ k, markdown }] }` (1..5) · `revise_spec { k, markdown }` | server | write `ideas/<I>/spec-<k>.md` and the session's `specs`; refused until the brief is confirmed (the session has an idea), for an ambiguous Scope line (see [Scope](#scope)), and for a new app's set with no Home decision (see [Ideas](#ideas)) |
-| `ask_questions { questions }` (AskUserQuestion's shape) · `propose_scaffold { repo?, name, resource, db, ui, events }` (`repo`, a repo name, is required while the session has no target) · `submit_brief { markdown }` | UI | a valid call becomes `session.json.pending`, the model is told to end its turn, and any later tool call in the turn is refused; the human's answer is the next turn's prompt |
+| `ask_questions { questions }` (AskUserQuestion's shape) · `propose_scaffold { repo?, name, resource, db, ui, events }` (`repo`, a repo name, is required while the session has no target) · `submit_brief { markdown }` · `submit_product { markdown }` (a repo session's in place of `submit_brief`; a product [Ideas](#ideas) refuses is a tool error, and `submit_brief` is one there) | UI | a valid call becomes `session.json.pending`, the model is told to end its turn, and any later tool call in the turn is refused; the human's answer is the next turn's prompt |
 
 ```
 sessions/<S>/session.json = { "id": "S-001", "target": "owner/name" | null, "text": "...", "newTarget": false,
@@ -470,6 +533,8 @@ sessions/<S>/session.json = { "id": "S-001", "target": "owner/name" | null, "tex
   "claudeSession": "<uuid>" | null,
   "status": "running|idle|error|closed", "error": null, "model": "claude-opus-5-5", "costUsd": 0.12,
   "scaffold": null, "idea": "I-004", "bootstrap": null,
+  "kind": "repo",                                     // a New repo session (absent: a feature session)
+  "from": "I-003", "feature": "Borrow a book", "home": "- Home: redirect: /books",   // a session Implement opened; home only for a first feature
   "pending": { "id": "toolu_...", "name": "ask_questions", "input": { } } | null,
   "pendingResults": [ ],
   "specs": [ { "k": 1, "title": "...", "decision": null | "approved" | "backlog" | "rejected", "job": "J-007" } ],
@@ -510,7 +575,7 @@ has merged), and closing the session deletes the clone.
    and writes `ideas/<I>/brief.md`.
    - **Existing target:** the turn continues to the specs.
    - **New target:** confirming the brief is the bootstrap's approval: Confirm also runs
-     `approve <bootstrap>` and starts the runner. If `approve` refuses, the bootstrap stays in Backlog
+     `approve <bootstrap>` and starts the runner. If `approve` refuses, the bootstrap stays in `backlog`, on its idea's card,
      and the answer carries the refusal, as a refused spec approval does. The human still merges the
      scaffold: once the bootstrap is Ready for review, the session shows its PR and a **Merge** button,
      the usual move to `done` (a drag to Done works too). When the merge is recorded (the session's
@@ -520,7 +585,26 @@ has merged), and closing the session deletes the clone.
 4. The model calls `submit_specs`. Each spec card offers **Approve** (`add-spec` + `approve`, then
    the runner starts), **Change** (ask the model, which calls `revise_spec`, or edit the markdown
    directly), **Not yet** (`add-spec`), or **Reject**. Once every spec is decided, the panel closes
-   the session: `idea-done`, or `idea-done -Failed -Reason "every spec rejected in session"`.
+   the session: `idea-done`, or `idea-done -Failed -Reason "every spec rejected in session"`. A **Not yet**
+   spec keeps the idea open on its card in Ideas until it is approved or discarded (see [Ideas](#ideas)).
+
+**New repo and its features (spec 22).** A session for a new target (**New repo** in the panel, which replaces
+**+ Add new**, or a picked repo that `check-target` calls `new`) is a repo session, `kind: "repo"`. Its grill ends
+in `submit_product`, and the panel shows the product with **Confirm** and **Correct** as it does a brief. Confirm
+writes it to `sessions/<S>/product.md`, runs `new-idea -Scaffold <json> -Product <that file>`, and then runs
+step 3's new-target branch (`approve <bootstrap>`, the runner, Merge). It writes no `brief.md` and the session
+never writes specs: the sweep starts no spec turn for a repo session.
+
+Once the repo idea is `drafting` (its bootstrap merged), its card in Ideas offers **Implement first feature**, later
+**Implement \<heading\>**, for `factory product`'s `next`, and **Dismiss** (`idea-done`). Implement opens a feature
+session on the repo, as `POST /api/sessions` does for an existing target, with `from`, `feature` and, for the first
+feature, `home` set, and its first message gives the model the feature's text and PRODUCT.md, and says to grill
+only what they and the code leave open. That session runs brief → specs → build, and its Confirm runs `new-idea`
+with `-From <repo idea> -Feature <heading>`, which is when the feature counts as started; until then the repo card
+shows the open session in place of Implement, and abandoning it leaves the feature unstarted. After a Confirm, the
+server reads `product` again and closes the repo idea (`idea-done`) when no feature is left. `home` makes
+`submit_specs` and `revise_spec` apply the Home rule, quoting PRODUCT.md's line. When `product` refuses, the repo card
+shows the refusal and offers Dismiss only.
 
 **The phase.** The server works out a session's phase from `session.json` and the board on every read; it is
 never stored. A new-target session's panel shows it as a stepper (Brief → Scaffold → Specs → Build) with the
@@ -537,11 +621,15 @@ current phase lit and what it waits on in plain text; its card says the same in 
 - `build`: every spec is decided and at least one reached the board; `jobs` are those jobs as the board has them.
   An existing-target session goes brief → specs → build.
 
+A repo session's stepper is Grill → Scaffold → Review → Merged instead: `grill` (no idea yet), `scaffold` (its
+bootstrap short of `ready`), `review` (`ready`, to merge; `job`, `stage` and `pr` as for `scaffold`) and `merged`
+(`done`, or purged off the board).
+
 **Advancing and notices.** After every move, and on every watchdog tick (see [Runner](#runner)), the server sweeps
 the sessions that are not `closed` and have no turn running:
 
-- A session with a bootstrap that is `done`, an idea that is `drafting`, no specs and no `specsStarted` gets the
-  spec turn, exactly as `write-specs` (which sets `specsStarted`). So the turn starts once: a session that has
+- A session (not a repo session) with a bootstrap that is `done`, an idea that is `drafting`, no specs and no
+  `specsStarted` gets the spec turn, exactly as `write-specs` (which sets `specsStarted`). So the turn starts once: a session that has
   specs, has started them, or is running a turn is left alone.
 - Two moments are recorded once each in `notices`, with the time: `scaffold-ready` when the bootstrap is first
   `ready` ("J-NNN is ready for review: merge the *repo* scaffold"), and `specs-ready` when the session first has
@@ -563,6 +651,9 @@ the sessions that are not `closed` and have no turn running:
 | backlog | approved | human; `spec.md` has a valid `## Target` and at least one `## Gate` command, and no [shell line](#gate) (`approve refused: <id>'s gate runs with no shell (contract, "Gate"): <name>: <reason>, so <hint>[; <name>: ...]`, where the reason is `` `<x>` is a PowerShell cmdlet ``, `` `<x>` is a shell builtin ``, `` `<c>` needs a shell `` or `an unterminated quote`, and the hint is `use factory check file` for a cmdlet that reads files (`Test-Path`, `Get-Content`, `Select-String`, `Get-Item`, `Get-ChildItem`), `use the tool's directory flag or path` for a `cd` (`cd`, `Set-Location`, `Push-Location`), else `use one gate line per command, or a script the target commits`). Sets `approvedAt` and `target` | |
 | backlog | discarded | human | |
 | approved | build | runner; no job is in `build`, `review`, `approve` or `gate`, and this is the oldest `approvedAt` | |
+| approved | canary | runner: `factory canary`, when it starts a run, moves every deployable approved job here (see [Canary](#canary), "The gate") | |
+| canary | build / review / deploy / approve | runner, as from `approved`: the job is next in the queue, which it is only after a canary pass for the current fingerprint | |
+| canary | discarded | human `discard <id>`, as from `backlog` | |
 | build | review | `round-<n>/build.md` exists and the [build checks](#build-checks) pass | |
 | build | ready / blocked | `set-stage review` found a file outside the spec's Scope: In (`ready` if not deployable, else `blocked`) | `out-of-scope` |
 | build | ready / blocked | `set-stage review`: the job has `baseMoved` and build.md's `## Spec against base` says `Spec holds: no` | `spec-stale` |
@@ -653,7 +744,7 @@ asking the builder to remove them.
 **2. Base moved.** When a job merges (`merge`, or `sync-prs` recording a GitHub merge), every other
 job of the same idea that is not `done` or `discarded` gets
 `baseMoved: { "by": "<merged id>", "sha": "<merge commit>", "at": "..." }` and a `note` event. A
-Backlog card shows it ("base moved: J-021 merged"), so the human can edit the spec before approving.
+`backlog` spec's row shows it ("base moved: J-021 merged"), so the human can edit the spec before approving.
 In the job's next build round, build.md must contain:
 
 ```
@@ -794,13 +885,15 @@ session. A human marks one `applied` once the fix has merged. `purge` never touc
   canary-<n>.log               canary run n's log
   headless-settings.json       written by the runner for each claude -p run (see Runner)
   sessions/<S-NNN>/            a dashboard idea session (see Idea sessions)
-    session.json  chat.json  stream.jsonl  human.jsonl  turn.lock
+    session.json  chat.json  stream.jsonl  human.jsonl  turn.lock  product.md (a repo session's, at Confirm)
   ideas/<id>/
     idea.md                    the idea's one-line title, then `Target: <path>`
     brief.md                   the grilled brief, in the human's words (factory/templates/brief.md)
+    product.md                 a New repo idea's product document (factory/templates/product.md), committed to the
+                               target as docs/PRODUCT.md
     spec-<k>.md                spec-writer output, one per proposed job
   jobs/<id>/
-    spec.md                    copied from the idea, then edited by the human in Backlog
+    spec.md                    copied from the idea, then edited by the human while in backlog
     rework-<n>.md              the human's rework note for round n
     deploy-fix-<n>.md          the devops agent's diagnosis of a failed deploy, the builder's input for round n
     round-<n>/
@@ -997,7 +1090,8 @@ A crashed holder's lease lapses within 60 s.
 - **Pull:** pulls download every blob whose ETag differs from `.sync.json`, except a path changed
   locally since its last sync. Local changes win, last writer wins, and only `board.json` is
   ETag-checked. A pull never deletes local files.
-- **Dashboard:** when the dashboard polls `/state/board.json` or `/state/events.jsonl`, the server
+- **Dashboard:** when the dashboard polls `/state/board.json`, `/state/events.jsonl` or (with shared files)
+  `/state/canary.json`, the server
   refreshes that file with `If-None-Match`, at most once per `FACTORY_STATE_POLL_SECONDS` (the poll runs
   every 1.5 s; one conditional GET per file per 5 s costs about $0.45 a month while a dashboard is
   open). It pulls a job's folder when the job's files are listed. A transcript whose path is not on
@@ -1210,15 +1304,19 @@ state and takes no board lock.
 on `PATH`. For a resumed idea it sets `FACTORY_IDEA`, so the spec-writer's hook events go to it. An existing
 target is cloned with `clone-target` into `<work>\cli\<owner>-<name>` and passed as `--add-dir` and
 `clone=<dir>`, and the clone is deleted when the session ends.
+`factory idea <owner/name> --feature <k>` (spec 22) starts feature `k` of a repo idea on that target: it runs
+`product` on the target's `drafting` repo idea, refuses when there is none, no feature `k`, or `k` already has an idea,
+and passes `feature=<k> from=<I-NNN>` to `/factory:idea`, whose Confirm step runs `new-idea -From -Feature`. A new
+target's `/factory:idea` grills to a product (the New repo idea) and stops at the bootstrap.
 
 | Command | Used by |
 | --- | --- |
-| `new-idea <text> -Target <path> [-Scaffold <json>] [-Base <J-NNN>]` · `add-spec <ideaId> <file>` · `idea-done <ideaId> [-Failed -Reason]` · `idea-abandon <ideaId>` | `/factory:idea`, the server (idea sessions, **Abandon**) |
+| `new-idea <text> -Target <path> [-Scaffold <json> [-Product <file>]] [-Base <J-NNN>] [-From <I-NNN> -Feature <heading>]` · `add-spec <ideaId> <file>` · `idea-done <ideaId> [-Failed -Reason]` · `idea-abandon <ideaId>` · `product <I-NNN>` | `/factory:idea`, the server (idea sessions, **Abandon**, the repo card) |
 | `check-target <owner/name>` (prints `new` or `existing` from the GitHub API, or refuses as `new-idea` would) · `clone-target <owner/name> <dir> [-Base <J-NNN>]` (replaces `<dir>` with a `--depth 1` clone of `main`, or of `factory/<base>`) | the server (idea sessions), idea.ps1 |
 | `list-repos` (prints a JSON array of the token user's own repos, `owner/name`, newest push first, at most 100) | the server (New idea) |
 | `edit-spec <id> -File <path>` (backlog only) | the server |
 | `approve <id>` | `/factory:idea` (on the human's yes), the server (human drag) |
-| `rework <id> <note>` · `discard <id>` (both from `ready` or `blocked`) · `merge <id>` · `purge` | the server (human drags, the blocked card's buttons, and **Clear**) |
+| `rework <id> <note>` · `discard <id>` (both from `ready` or `blocked`; `discard` also from `backlog` and `canary`) · `merge <id>` · `purge` | the server (human drags, the blocked card's buttons, and **Clear**) |
 | `gate-check <id> [<name>]` (runs the spec's gate commands, or the one named, in the job's work directory exactly as `gate` does, and records nothing on the board; prints the output and exits with the first non-zero code; see [Gate and merge](#gate-and-merge)) · `provenance <id>` (prints this round's template-sourced paths) | the builder, the reviewers, the approver, `/factory run` |
 | `sync-prs` (moves each `ready` job whose PR was merged on GitHub to `done`; prints their ids) | the server (PR sync) |
 | `next` (prints the next runnable approved id, or nothing; nothing at all while any job is flagged `usage-limit`, since the limit holds for every job until the human resumes; a deployable job is runnable only after a canary pass for the current fingerprint, and `next -NeedsCanary` prints `canary` when that is all that holds it back) · `checkout <id>` (creates the GitHub repo if needed, then clones or reuses `<work>\jobs\<id>` on `factory/<id>`, fetches, and points `factory/base` at the base branch; prints the work directory. It builds on a `factory/<id>` already on GitHub only when the job has a PR, that is, when this board published it; otherwise the branch is another board's job of the same id, and checkout fails with `<owner/name> already has factory/<id>, which this board never published (another board's job?); delete or rename that branch, then approve the job again`, before anything is built or pushed) · `publish <id>` (`ready` or `blocked`: pushes `factory/<id>` and opens the job's PR if it has none; prints the PR url) · `set-cost <id> <usd> <ms>` | the runner |
@@ -1226,7 +1324,7 @@ target is cloned with `clone-target` into `<work>\cli\<owner>-<name>` and passed
 | `deploy <id>` (deploy only) · `deploy-log <id>` (prints the last failed attempt's log) · `deploy-fix <id> -File <diagnosis>` · `block <id> -Detail <line>` (both deploy only, after a failed attempt) | `/factory run`, the devops agent (`deploy-log` also the approver) |
 | `redeploy <id>` (`blocked` from `deploy`, or `ready` from `deploy` before `blocked` existed: back to Approved with `resume: deploy` and a fresh attempt budget once the cause is fixed; the runner resumes it at deploy) | the server (**Retry deploy**), a human |
 | `resume <id>` (`ready` or `blocked` with flag `usage-limit`: back to Approved, to continue its claude session in the stage it stopped in) | the server (**Resume**), a human |
-| `canary [-Force]` (see [Canary](#canary)) | the runner (before a deployable job), the server (**Run canary**), a human |
+| `canary [-Force] [-Full] [-Retry] [-Due]` (see [Canary](#canary)) | the runner (before a deployable job), the server (**Run canary**; `-Due` for the due chip), a human |
 | `destroy <id>` (any stage; a no-op without a preview) · `qa-login <id>` (prints the preview's QA user and password) | the server (**Tear down**, **QA login**), and `merge`/`discard` |
 | `sweep` · `canary-destroy` (see [Deploy](#deploy) and [Canary](#canary)) | the server at startup and the runner when it drains; `canary` and `sweep` start `canary-destroy` |
 | `event <json \| -Job -Idea -Kind -Agent>`, or `event` alone: a `SubagentStart` / `SubagentStop` hook payload on stdin, which appends `agent-start` or `agent-stop` for `FACTORY_JOB` (else `FACTORY_IDEA`; neither set, nothing), the plugin's `factory:` prefix stripped and an empty `agent_type` (Claude Code's internal agents) skipped; `agent-start` adds `agentId` and `transcript` (`<transcript_path without .jsonl>/subagents/agent-<agent_id>.jsonl`). The hook form prints nothing and always exits 0, so a hook never breaks a session | the plugin's hooks |
@@ -1560,6 +1658,9 @@ stack. That is the only thing that still proves a from-scratch create, which dev
 Run it by hand after changing template IaC. It takes about 61 minutes (31 before its result), runs
 even when up to date, and records `full: true`. If it fails, deployable jobs wait as for any canary.
 
+**`factory canary -Due`** runs nothing and takes no lock: it prints `{ due, reasons, typicalMinutes }` as JSON (see "Why
+it is due" above) and exits 0.
+
 **`factory canary [-Force] [-Full]`** - one run at a time (`canary.lock`, as `runner.lock`):
 
 1. Computes the fingerprint. Without `-Force`, when `canary.json` already records a pass for it,
@@ -1590,14 +1691,50 @@ retries it.
 { "fingerprint": "sha256:...", "status": "running" | "pass" | "failed", "error": null | "<first error line>",
   "repo": "kamabery/factory-canary", "sha": "<scaffold commit>", "urls": { "frontend": "...", "api": "...", "health": "..." },
   "log": "canary-3.log", "startedAt": "...", "finishedAt": "...", "n": 3, "full": false,
-  "teardown": { "status": "destroying" | "down" | "failed", "error": null | "<first error line>", "startedAt": "...", "failures": 0 } }
+  "teardown": { "status": "destroying" | "down" | "failed", "error": null | "<first error line>", "startedAt": "...", "failures": 0 },
+  "version": "0.4.2", "phase": null | "scaffold" | "deploy" | "smoke" | "signin",
+  "deploy": null | { "done": 1, "total": 3 }, "run": null | "<the deploy workflow run's html_url>",
+  "inputs": { "deploy": "<sha256>", "templates": "<sha256>", "varset": "<sha256>", "settings": "<sha256>" },
+  "passes": [ { "n": 3, "version": "0.4.2", "inputs": { ... }, "startedAt": "...", "finishedAt": "..." } ] }
 ```
 
-**The gate.** `next` does not return a deployable job unless `canary.json` records a pass for the
-current fingerprint. When it does not, the runner runs `canary` itself (logging `canary pass` or
-`canary failed: <error>`) before taking that job. On a failure, deployable jobs stay in Approved and
-the runner takes only jobs that are not deployable (bootstraps); the dashboard shows a banner with
-the error and **Run canary**. A failed canary is not retried automatically, because each run costs
+**Why it is due (spec 22).** The fingerprint's lines come in four groups, in this order: `deploy` (the deploy code's
+lines, or a tool install's `factory <version>` line), `templates` (the `IaC/`, `deploy.yml` and `.nupkg` lines),
+`varset` (the `var` lines) and `settings` (the `canary` line). `inputs` holds a SHA-256 of each group's lines, joined
+by `\n` as in the fingerprint, which is unchanged: a pass recorded before spec 22 still counts. `version` is the
+factory package version that ran. `passes` is the last five passes, newest first, carried over from the last record
+by each run and prepended on a pass.
+
+`reasons` says why a canary is due, against the newest entry in `passes`:
+- no `passes` and no pass recorded: `no pass on record`;
+- no `passes`, but a pass recorded before spec 22: `inputs changed since pass #<n>`;
+- otherwise, in group order, one line per group whose hash differs: `deploy code changed since pass #<n>`
+  (`factory <old> → <new>` when both versions are known and differ, which is how a tool install's deploy group
+  changes), `templates changed since pass #<n>`, `variable set changed since pass #<n>`,
+  `canary settings changed since pass #<n>`.
+
+**Phases (spec 22).** While a canary runs, `phase` says where it is: `scaffold` (the scaffold and its push),
+`deploy` (the workflow run; `deploy` counts its jobs, `done` finished of `total`, from the run's jobs list on each
+poll, and `run` is the run's URL once it is found), `smoke`, then `signin` (only when the scaffold has sign-in).
+The canary saves `canary.json` at its start and at each change of phase or of `deploy.done`, and `phase` is null
+once it finishes. The teardown that follows shows in `teardown`. With shared files (`azure`, or `sql` with
+`FACTORY_BLOB_URL`) each save also uploads `canary.json` at once (the session's `Share`), not only when the command
+ends, so a dashboard in another container sees the phases; an upload that fails is ignored, since the next save or
+the command's own push sends it again.
+
+A canary is **due** when deploys are on, no canary is running (`status` is not `running`), and `canary.json` records
+no pass for the current fingerprint. A failed or `retry` record for it is due too. The **typical duration** is the
+median of `finishedAt - startedAt` over `passes`, in whole minutes, or 15 with fewer than three passes.
+
+**The gate (the `canary` stage, spec 22).** `next` takes from the `approved` and `canary` stages together, oldest
+`approvedAt` first, and does not return a deployable job unless `canary.json` records a pass for the current
+fingerprint. When it does not, the runner runs `canary` itself (logging `canary pass` or `canary failed: <error>`)
+before taking that job. A `canary` that starts a run (not one that is up to date or refused) first moves every
+deployable job in `approved` to `canary` (`by: runner`), under the board lock, so they wait in the Canary column
+for that one run; one approved while it runs waits in Approved. After a pass, the runner takes the `canary` jobs in
+order, each `canary → build` (or the stage its `resume` names). On a failure they stay in `canary`, shown red,
+and the runner takes only jobs that are not deployable (bootstraps); the dashboard shows a banner with the error
+and **Run canary**, and a `canary` card the same. A failed canary is not retried automatically, because each run costs
 real Azure time; the human fixes the cause and clicks **Run canary** (`canary -Force`), and the
 watchdog starts the runner once it passes. In a deployed factory ([Cloud mode](#cloud-mode-deployed)) **Run canary** runs
 `canary -Retry` instead, then starts the runner: the canary runs in a runner execution, which the runner's own
@@ -1629,6 +1766,7 @@ and a refused move snaps the card back and shows the message.
 | `POST /api/jobs/<id>/redeploy` | `redeploy` | **Retry deploy** on a blocked card; starts the runner |
 | `POST /api/jobs/<id>/resume` | `resume` | **Resume** on a card flagged `usage-limit`; starts the runner |
 | `POST /api/canary` | `canary -Force`, started detached | **Run canary** on the canary banner; 409 while `canary.lock` is held. The banner reads `/state/canary.json` and shows the error and the log link |
+| `GET /api/canary` | `canary -Due` | `{ due, reasons, typicalMinutes }` (see [Canary](#canary), "Why it is due"): the due chip. The fingerprint needs the HCP variable set, so the server caches the answer for 60 s; with deploys off `canary -Due` prints `{ due: false, reasons: [], typicalMinutes }` without computing one |
 | `POST /api/purge` | `purge` | |
 | `POST /api/jobs/<id>/destroy` | `destroy`, started detached | **Tear down** on a card with a live preview; answers at once, the card shows `destroying` until the board says `down` |
 | `GET /api/jobs/<id>/qa-login` | `qa-login` | `{ ok, message }` with the user and password; the card's **QA login** shows it, never stores it |
@@ -1637,24 +1775,27 @@ and a refused move snaps the card back and shows the message.
 | `GET /api/evals` | (read-only) | every `evals/<id>.json`, newest job first; the markdown is at `/state/evals/<id>.md` |
 | `PUT /api/evals/<id>/feedback` (text/markdown) | `feedback` | the feedback is at `/state/evals/<id>.feedback.md` |
 | `GET /api/ideate/config` | (read-only) | `{ enabled, model, owner, templatesRepo, deploys, mode, provider }`; `enabled` means the mode can run idea turns (always locally; cloud mode needs `FACTORY_FOUNDRY_RESOURCE`) (see [Idea sessions](#idea-sessions-dashboard)); `mode` and `provider` are the [run mode](#run-mode-and-providers) and its provider, shown in the dashboard header; `owner` is `GITHUB_OWNER`; `templatesRepo` is `FACTORY_TEMPLATES_REPO`; `deploys` means `.env` has `HCP_ORG` (Approved cards' wait reasons); no key is ever returned |
-| `GET /api/sessions` | (read-only) | every session that is not `closed`: `{ id, target, text, status, idea, bootstrap, costUsd, newTarget, notices, phase }` |
+| `GET /api/sessions` | (read-only) | every session that is not `closed`: `{ id, target, text, status, idea, bootstrap, costUsd, newTarget, notices, phase, kind, from, feature }` |
 | `GET /api/sessions/<S>` | (read-only) | that session's summary, the same shape, `closed` or not: the panel's stepper reads it |
 | `GET /api/repos` | `list-repos` | the JSON array, for the New idea picker |
 | `POST /api/sessions` `{ target, text, base? }` or `{ new: true, text }` | `check-target` (not for `new`, which needs `GITHUB_OWNER`), then `clone-target [-Base]` | allocates `S-NNN`, writes `session.json` (with `base`) and the first message, which tells the model the clone is the base's unmerged branch, and starts a turn. The panel's **Base** list is `main` plus every job on the target that is not `done` or `discarded` and has a PR |
 | `POST /api/sessions/<S>/reply` `{ text, scaffold? }` | (session write); `check-target` when the session has no target | answers `pending` (or adds user text), stores `scaffold`, starts a turn; with no target, `scaffold.repo` sets it and must name a new repo; empty text with no pending retries a failed turn |
-| `POST /api/sessions/<S>/brief` | `new-idea`, then writes `brief.md`; new target: then `approve <bootstrap>` | existing target: answers `submit_brief` and starts the spec turn; new target: records the bootstrap job and starts the runner, or, when `approve` refuses, leaves it in Backlog and answers the refusal |
+| `POST /api/sessions/<S>/brief` | `new-idea`, then writes `brief.md`; new target: then `approve <bootstrap>`; a repo session: `new-idea -Scaffold -Product` and `approve <bootstrap>`, no `brief.md`; a feature session: `new-idea -From -Feature`, then `product` | existing target: answers `submit_brief` and starts the spec turn; new target: records the bootstrap job and starts the runner, or, when `approve` refuses, leaves it in `backlog` and answers the refusal; a repo session answers `submit_product`; a feature session's repo idea gets `idea-done` when `product` has no `next` |
 | `POST /api/sessions/<S>/write-specs` | (session write) | after the bootstrap merge (the idea is `drafting`): starts the spec turn and sets `specsStarted`. The server's sweep does the same by itself; the panel has no button for it |
 | `POST /api/sessions/<S>/specs/<k>` `{ decision }` | `add-spec` (+ `approve`) | `approved` starts the runner; `rejected` calls nothing |
 | `PUT /api/sessions/<S>/specs/<k>` (text/markdown) | (session write) | the human's direct edit of `spec-<k>.md` |
 | `POST /api/sessions/<S>/close` `{ failed, reason? }` or `{ abandon: true }` | `idea-done [-Failed -Reason]`, or `idea-abandon` (only once there is an idea, and not when the idea is already `done` or `abandoned`: then any close only closes the session) | the session becomes `closed`; the default reason is "every spec rejected in session". `abandon` is the session card's **Abandon**, refused while a turn is running |
 | `POST /api/ideas/<I>/abandon` | `idea-abandon` | **Abandon** on an idea card |
+| `GET /api/ideas/<I>/product` | `product` | a repo idea's features, `next` and Home, cached 60 s per idea (a GitHub read), and dropped by the two writes below; a refusal is `{ ok: false, message }`, which the repo card shows |
+| `POST /api/ideas/<I>/implement` | `product`, then `clone-target` as `POST /api/sessions` | **Implement** on a repo card: opens a feature session for `next` (`from`, `feature`, `home` for a first feature), refused when there is no `next` or an open session already has that feature; answers the session id |
+| `POST /api/ideas/<I>/dismiss` | `idea-done` | **Dismiss** on a repo card; closes the idea's open repo session |
 
 Session reads use `/state/sessions/<S>/...`. An idea card opens its brief. A card for an open
 session, or for an idea that a session created, reopens the session panel. An idea card from the
 CLI session shows the command that resumes it.
 
 "Starts the runner" means: spawn `factory runner` detached, unless `runner.lock` is held. The
-[watchdog](#runner) also starts it when Approved is not empty and no live runner holds the lock. The claude
+[watchdog](#runner) also starts it when Approved or Canary is not empty and no live runner holds the lock. The claude
 command is taken from `$env:FACTORY_CLAUDE_CMD` (a program and its leading arguments, see
 [Implementations](#implementations)) when it is set, so tests spend no tokens.
 
@@ -1675,7 +1816,8 @@ The runner drains the Approved queue one job at a time. It exits at once if it c
 `runner.lock` (an exclusive file create holding its PID). It takes over a lock whose PID is no
 longer running. Otherwise it loops:
 
-1. `factory next -NeedsCanary`. If it prints `canary`, the runner runs `factory canary` and
+1. `factory next -NeedsCanary`. If it prints `canary`, the runner runs `factory canary` (which moves the
+   deployable approved jobs to `canary` first) and
    logs the outcome; after a pass it goes back to step 1, after a failure it takes only what plain
    `next` returns. If nothing comes back, it deletes the lock and exits.
 2. It calls `factory set-stage <id> build -By runner` (or the stage named by the job's `resume`), then `factory checkout <id>`, which

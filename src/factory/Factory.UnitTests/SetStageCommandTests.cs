@@ -50,6 +50,22 @@ public class SetStageCommandTests : CommandTestBase
         Assert.Equal(0, s.Saves);
     }
 
+    [Theory]
+    [InlineData(CanaryState.Pass, true)]
+    [InlineData(CanaryState.Failed, false)]
+    [InlineData(CanaryState.None, false)]
+    public void A_job_waiting_in_canary_goes_to_build_only_after_a_pass(CanaryState state, bool moves)
+    {
+        DotEnv.Get("HCP_ORG").Returns("org");
+        _canary.State().Returns(state);
+        var s = FakeSession.With(Approved("J-001").With("stage", "canary"));
+
+        if (moves) Sut.Run(Args("set-stage", "J-001", "build", "-By", "runner"), s);
+        else Assert.Throws<FactoryException>(() => Sut.Run(Args("set-stage", "J-001", "build", "-By", "runner"), s));
+
+        Assert.Equal(moves ? "build" : "canary", (string?)s.Job("J-001")["stage"]);
+    }
+
     [Fact]
     public void A_deployable_head_held_for_the_canary_lets_a_bootstrap_behind_it_through()
     {

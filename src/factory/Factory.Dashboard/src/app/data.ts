@@ -2,7 +2,7 @@
 // Query's structural sharing keeps an unchanged file's data identical, so nothing re-renders when nothing changed.
 import { useQuery } from '@tanstack/react-query'
 import { getJson, getText } from '@/lib/api'
-import type { Board, Canary, Config, FactoryEvent, SessionSummary } from '@/lib/types'
+import type { Board, Canary, CanaryDue, Config, FactoryEvent, SessionSummary } from '@/lib/types'
 
 export const POLL_MS = 1500
 const EMPTY: Board = { jobs: [], ideas: [] }
@@ -10,7 +10,19 @@ const EMPTY: Board = { jobs: [], ideas: [] }
 export const parseEvents = (text: string): FactoryEvent[] =>
   text.split('\n').filter(Boolean).flatMap((l) => { try { return [JSON.parse(l)] } catch { return [] } })
 
-export const keys = { config: ['config'], board: ['board'], events: ['events'], sessions: ['sessions'], canary: ['canary'] } as const
+export const keys = { config: ['config'], board: ['board'], events: ['events'], sessions: ['sessions'], canary: ['canary'], canaryDue: ['canary-due'] } as const
+
+/** Whether a canary is due and why: asked only while deploys are on, every 30 s (the server caches it for 60 s). */
+export function useCanaryDue() {
+  const { config } = useConfig()
+  const q = useQuery({
+    queryKey: keys.canaryDue,
+    queryFn: async () => (await getJson<CanaryDue>('/api/canary')) ?? {},
+    refetchInterval: 30_000,
+    enabled: !!config.deploys,
+  })
+  return config.deploys ? (q.data ?? null) : null
+}
 
 export function useConfig() {
   const q = useQuery({ queryKey: keys.config, queryFn: async () => (await getJson<Config>('/api/ideate/config')) ?? {}, staleTime: Infinity })

@@ -148,6 +148,25 @@ public sealed class IdeaToolsTests : IDisposable
             Call("submit_specs", $$"""{"specs":[{"k":1,"markdown":{{Json("# Spec: Books\n")}}}]}"""));
     }
 
+    // Spec 22: a New repo idea decides Home in its PRODUCT.md, and its first feature's specs carry it.
+    [Fact]
+    public void A_repos_first_feature_must_decide_home_as_its_product_says()
+    {
+        Session("""{"id":"S-001","target":"a/b","checkout":"CHECKOUT","idea":"I-002","from":"I-001","feature":"Books","home":"- Home: redirect: /books","specs":[]}""");
+
+        Assert.Equal(new ToolAnswer("this is the app's first feature, so one spec must decide Home: add '## Home' with '- Home: redirect: /books', as docs/PRODUCT.md says", true),
+            Call("submit_specs", $$"""{"specs":[{"k":1,"markdown":{{Json("# Spec: Books\n")}}}]}"""));
+        Assert.False(Call("submit_specs", $$"""{"specs":[{"k":1,"markdown":{{Json("# Spec: Books\n## Home\n- Home: redirect: /books\n")}}}]}""").IsError);
+    }
+
+    [Fact]
+    public void A_repos_later_feature_needs_no_home_decision()
+    {
+        Session("""{"id":"S-001","target":"a/b","checkout":"CHECKOUT","idea":"I-003","from":"I-001","feature":"Loans","home":null,"specs":[]}""");
+
+        Assert.False(Call("submit_specs", $$"""{"specs":[{"k":1,"markdown":{{Json("# Spec: Loans\n")}}}]}""").IsError);
+    }
+
     [Fact]
     public void With_no_clone_yet_only_the_templates_can_be_read()
     {

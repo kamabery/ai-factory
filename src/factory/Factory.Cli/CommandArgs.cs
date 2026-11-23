@@ -7,11 +7,11 @@ public sealed class CommandArgs
 {
     /// <summary>factory.ps1's [switch] parameters; every other -Name takes a value.</summary>
     public static readonly IReadOnlySet<string> Switches =
-        new HashSet<string>(["Failed", "Json", "Force", "Full", "NeedsCanary", "Azure", "Retry"], StringComparer.OrdinalIgnoreCase);
+        new HashSet<string>(["Failed", "Json", "Force", "Full", "NeedsCanary", "Azure", "Retry", "Due"], StringComparer.OrdinalIgnoreCase);
 
     /// <summary>factory.ps1's [string] parameters. Any other token starting with '-' is a positional value (a rework note can).</summary>
     public static readonly IReadOnlySet<string> Values = new HashSet<string>(
-        ["By", "Reason", "Detail", "File", "Job", "Idea", "Kind", "Agent", "Target", "Scaffold", "Base", "Session"], StringComparer.OrdinalIgnoreCase);
+        ["By", "Reason", "Detail", "File", "Job", "Idea", "Kind", "Agent", "Target", "Scaffold", "Base", "Session", "Product", "From", "Feature"], StringComparer.OrdinalIgnoreCase);
 
     private readonly Dictionary<string, string?> _named = new(StringComparer.OrdinalIgnoreCase);
 

@@ -15,7 +15,7 @@ public sealed record ToolAnswer(string Text, bool IsError = false);
 /// </summary>
 public sealed partial class IdeaTools(IdeaFiles files, string session)
 {
-    public static readonly string[] UiTools = ["ask_questions", "propose_scaffold", "submit_brief"];
+    public static readonly string[] UiTools = ["ask_questions", "propose_scaffold", "submit_brief", "submit_product"];
     private static readonly HashSet<string> Skip = new(StringComparer.OrdinalIgnoreCase) { ".git", "node_modules", "bin", "obj", ".vs" };
     private const long MaxFile = 256 * 1024;
     private const int MaxHits = 200;
@@ -61,6 +61,8 @@ public sealed partial class IdeaTools(IdeaFiles files, string session)
                 ("auth", Obj(("type", "boolean"), ("description", "sign-in: Keycloak locally, Entra External ID in Azure; only with a web ui (not none)")))),
                 "name", "resource", "db", "ui", "events")),
             Tool("submit_brief", "Show the human the whole brief for confirmation. Ends your turn; a correction comes back as the next message.", Schema(Obj(("markdown", Str())), "markdown")),
+            Tool("submit_product", "New repo session only, in place of submit_brief: show the human the whole product document (the product template: purpose, users, a Home decision and 1-10 features) for confirmation. Ends your turn; a correction comes back as the next message.",
+                Schema(Obj(("markdown", Str())), "markdown")),
         ];
     }
 
@@ -112,7 +114,11 @@ public sealed partial class IdeaTools(IdeaFiles files, string session)
                         return "every question needs text and at least 2 options";
                 return null;
             case "submit_brief":
+                if (Text(s["kind"]) == "repo") return "this is a New repo session: call submit_product with the product document, not submit_brief";
                 return string.IsNullOrEmpty(Text(input["markdown"])) ? "markdown is required" : null;
+            case "submit_product":
+                if (Text(s["kind"]) != "repo") return "submit_product is only for a New repo session; call submit_brief";
+                return ProductText.Error(Text(input["markdown"]));
             case "propose_scaffold":
                 foreach (var k in new[] { "name", "resource", "db", "ui" })
                     if (string.IsNullOrEmpty(Text(input[k]))) return $"{k} is required";
@@ -263,9 +269,13 @@ public sealed partial class IdeaTools(IdeaFiles files, string session)
     /// <summary>A new app's spec set (the session scaffolded its target) must decide Home in one spec (contract, "Ideas").</summary>
     private static void RequireHome(JsonObject s, IEnumerable<string> specs)
     {
-        if (s["scaffold"] is not JsonObject) return;
-        if (!specs.Any(md => SpecText.HomeDecision(PsText.Lines(md)) is not null))
-            throw new FactoryException("this idea scaffolded a new app, so one spec must decide Home: add '## Home' with '- Home: replace|redirect|keep: <detail>', from the brief's Home");
+        // A repo's first feature (spec 22) carries PRODUCT.md's Home line in `home`.
+        var home = Text(s["home"]);
+        if (s["scaffold"] is not JsonObject && string.IsNullOrEmpty(home)) return;
+        if (specs.Any(md => SpecText.HomeDecision(PsText.Lines(md)) is not null)) return;
+        throw new FactoryException(string.IsNullOrEmpty(home)
+            ? "this idea scaffolded a new app, so one spec must decide Home: add '## Home' with '- Home: replace|redirect|keep: <detail>', from the brief's Home"
+            : $"this is the app's first feature, so one spec must decide Home: add '## Home' with '{home}', as docs/PRODUCT.md says");
     }
 
     /// <summary>A path written after other words on a Scope line is refused, so the model rewrites it (contract, "Targets").</summary>

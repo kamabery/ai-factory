@@ -22,14 +22,30 @@ describe('the session stepper', () => {
     expect(waitingText(scaffold('build'), s)).toBe('J-2 is scaffolding shelf (building). Nothing to do until it is ready for review.')
     expect(waitingText(scaffold('review'), s)).toBe('J-2 is scaffolding shelf (in review). Nothing to do until it is ready for review.')
     expect(waitingText(scaffold('ready'), s)).toBe('J-2 is ready for review: merge the shelf scaffold. Claude then writes the specs, with no click.')
-    expect(waitingText(scaffold('backlog'), s)).toBe('J-2 is in Backlog: its approval was refused. Approve it on the board once that is fixed.')
+    expect(waitingText(scaffold('backlog'), s)).toBe('J-2 was not approved: its approval was refused. Approve it on its row in Ideas once that is fixed.')
     expect(waitingText(scaffold('blocked'), s)).toBe('J-2 is blocked: open it on the board to see why.')
     expect(waitingText({ name: 'specs' }, { ...s, status: 'running' })).toBe('Claude is reading the new repo and writing the specs.')
     expect(waitingText({ name: 'specs' }, { ...s, specs: [{ k: 1 }] })).toBe('Decide each spec below.')
     expect(waitingText({ name: 'specs' }, { ...s, status: 'error' })).toBe('Writing the specs failed: Retry below.')
     expect(waitingText({ name: 'specs' }, s)).toBe('Starting the specs…')
     expect(waitingText({ name: 'build', jobs: [{ id: 'J-3', stage: 'build' }, { id: 'J-4', stage: 'backlog' }] }, s)).toBe('The approved specs are building: follow them here or on the board.')
-    expect(waitingText({ name: 'build', jobs: [{ id: 'J-4', stage: 'backlog' }] }, s)).toBe('The specs wait in Backlog: approve them on the board when you are ready.')
+    expect(waitingText({ name: 'build', jobs: [{ id: 'J-4', stage: 'backlog' }] }, s)).toBe('The specs wait for approval: approve them on this card in Ideas when you are ready.')
+  })
+})
+
+describe('a New repo session (spec 22)', () => {
+  const s = { status: 'idle', target: 'sim/todo', newTarget: true }
+  it('steps Grill → Scaffold → Review → Merged', () => {
+    expect(phaseSteps({ name: 'review', job: 'J-2', stage: 'ready' }, 'J-2', true).map((x) => `${x.label}:${x.state}`))
+      .toEqual(['Grill:done', 'Scaffold (J-2):done', 'Review:now', 'Merged:todo'])
+  })
+  it('says what each step waits on, and whose move it is', () => {
+    expect(waitingText({ name: 'grill' }, { ...s, pending: { name: 'submit_product' } })).toBe('Confirm the product below. Confirming it also approves the bootstrap job that creates the repo, with it as docs/PRODUCT.md.')
+    expect(waitingText({ name: 'review', job: 'J-2', stage: 'ready' }, s)).toBe('J-2 is ready for review: merge the todo scaffold. Then start its features one at a time, from its card.')
+    expect(waitingText({ name: 'merged' }, s)).toBe('The todo scaffold is merged. Start its features one at a time with Implement, on its card in Ideas.')
+    const x = { id: 'S-1', text: 't', status: 'idle', bootstrap: 'J-2' }
+    expect(cardState({ ...x, phase: { name: 'review', job: 'J-2', stage: 'ready' } })).toBe('Ready: merge the scaffold')
+    expect(cardState({ ...x, phase: { name: 'merged' } })).toBe('start a feature')
   })
 })
 

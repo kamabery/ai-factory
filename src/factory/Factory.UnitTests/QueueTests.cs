@@ -68,6 +68,30 @@ public class QueueTests
         Assert.Equal(expected, Queue.Next(b, deploysOn: true, () => canary, needsCanary));
     }
 
+    [Theory]
+    [InlineData(CanaryState.Pass, true, "J-001")]
+    [InlineData(CanaryState.Failed, false, "J-003")]
+    [InlineData(CanaryState.Failed, true, "J-003")]
+    [InlineData(CanaryState.None, true, "canary")]
+    public void Jobs_waiting_in_canary_are_taken_first_by_approval_and_only_after_a_pass(CanaryState canary, bool needsCanary, string expected)
+    {
+        var b = BoardOf(J("J-002", "approved", "2026-11-01T11:00:00.000Z"),
+                        J("J-001", "canary", "2026-11-01T09:00:00.000Z"),
+                        J("J-003", "approved", "2026-11-01T12:00:00.000Z", ""","kind":"bootstrap" """));
+
+        Assert.Equal(expected, Queue.Next(b, deploysOn: true, () => canary, needsCanary));
+    }
+
+    [Fact]
+    public void To_hold_is_every_deployable_approved_job_in_queue_order()
+    {
+        var b = BoardOf(J("J-002", "approved", "2026-11-01T11:00:00.000Z"), J("J-001", "approved", "2026-11-01T09:00:00.000Z"),
+                        J("J-003", "approved", "2026-11-01T08:00:00.000Z", ""","kind":"bootstrap" """), J("J-004", "canary", "2026-11-01T07:00:00.000Z"));
+
+        Assert.Equal(["J-001", "J-002"], Queue.ToHold(b, deploysOn: true).Select(j => j.Id));
+        Assert.Empty(Queue.ToHold(b, deploysOn: false));
+    }
+
     [Fact]
     public void The_canary_state_is_read_once_and_only_for_a_deployable_job()
     {

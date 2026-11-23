@@ -91,6 +91,15 @@ public sealed partial class GitHubStubApp(string gitBase, string login, int port
             if (sha.Length == 0) return StubReply.Message(404, "Branch not found");
             return StubReply.Json(200, new JsonObject { ["name"] = b, ["commit"] = new JsonObject { ["sha"] = sha } });
         }
+        // A file as GitHub's contents API answers it (base64, wrapped), from the branch q["ref"] (default main).
+        if (method == "GET" && rest.StartsWith("/contents/", StringComparison.Ordinal))
+        {
+            var at = q["ref"].ToString() is { Length: > 0 } rf ? rf : "main";
+            var show = Git(bare, "show", $"refs/heads/{at}:{rest["/contents/".Length..]}");
+            if (show.Code != 0) return StubReply.Message(404, "Not Found");
+            var b64 = System.Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(show.Out + "\n"));
+            return StubReply.Json(200, new JsonObject { ["encoding"] = "base64", ["content"] = string.Join('\n', b64.Chunk(60).Select(c => new string(c))) });
+        }
         if (method == "GET" && rest == "/pulls")
         {
             var state = q["state"].ToString();

@@ -24,30 +24,38 @@ public sealed partial class CanaryCheck(IFactoryPaths paths, IFileStore files, I
         return Canary.State(text is null ? null : JsonNode.Parse(text) as JsonObject, Fingerprint);
     }
 
-    public string Fingerprint()
+    public string Fingerprint() => "sha256:" + Sha(string.Join("\n", Groups().SelectMany(g => g.Lines)));
+
+    public IReadOnlyDictionary<string, string> Inputs() => Groups().ToDictionary(g => g.Name, g => Sha(string.Join("\n", g.Lines)));
+
+    public string Version => PackageVersion;
+
+    /// <summary>The fingerprint's lines in their four groups, in order (contract, "Canary", "Why it is due").</summary>
+    private List<(string Name, List<string> Lines)> Groups()
     {
-        var lines = new List<string>();
+        var deploy = new List<string>();
         // A tool install has no sources: the package version stands for its deploy code (contract, "Canary").
-        if (paths.IsToolInstall) lines.Add($"factory {PackageVersion}");
+        if (paths.IsToolInstall) deploy.Add($"factory {PackageVersion}");
         else
         {
             // factory/scripts -> factory -> the factory's own checkout, where the deploy code's sources are.
             var root = Path.GetFullPath(Path.Combine(paths.ScriptsDir, "..", ".."));
             foreach (var f in DeployCode)
-                lines.Add($"{f} {HashLf(Path.Combine(root, f))}");
+                deploy.Add($"{f} {HashLf(Path.Combine(root, f))}");
         }
         var t = paths.TemplatesRoot;
         var inputs = files.Files(Path.Combine(t, "IaC")).Where(f => !DotTerraform().IsMatch(f.Path)).Select(f => f.Path).ToList();
         if (files.Stat(Path.Combine(t, "base-project", ".github", "workflows", "deploy.yml")) is { } deployYml) inputs.Add(deployYml.Path);
         var nupkg = Path.Combine(t, "artifacts", "nupkg");
         inputs.AddRange(files.Files(nupkg).Where(f => Path.GetDirectoryName(f.Path) == Path.GetFullPath(nupkg) && f.Path.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase)).Select(f => f.Path));
-        foreach (var p in inputs.OrderBy(p => p, PsOrder))
-            lines.Add($"{Path.GetRelativePath(t, p).Replace('\\', '/')} {Hash(p)}");
-        foreach (var v in hcp.VarsetVars().OrderBy(v => v.Category, PsOrder).ThenBy(v => v.Key, PsOrder))
-            lines.Add($"var {v.Category} {v.Key} {(v.Sensitive ? "<sensitive>" : v.Value ?? "")}");
-        lines.Add($"canary {Repo()} {PsJson.WriteCompact(Options())}");
-        return "sha256:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("\n", lines)))).ToLowerInvariant();
+        var templates = inputs.OrderBy(p => p, PsOrder).Select(p => $"{Path.GetRelativePath(t, p).Replace('\\', '/')} {Hash(p)}").ToList();
+        var varset = hcp.VarsetVars().OrderBy(v => v.Category, PsOrder).ThenBy(v => v.Key, PsOrder)
+            .Select(v => $"var {v.Category} {v.Key} {(v.Sensitive ? "<sensitive>" : v.Value ?? "")}").ToList();
+        List<string> settings = [$"canary {Repo()} {PsJson.WriteCompact(Options())}"];
+        return [("deploy", deploy), ("templates", templates), ("varset", varset), ("settings", settings)];
     }
+
+    private static string Sha(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant();
 
     /// <summary>The package version this build carries, without the source revision after '+'.</summary>
     public static string PackageVersion { get; } =

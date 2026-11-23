@@ -30,6 +30,7 @@ public sealed class ApproveCommand(IFactoryPaths paths, IFileStore files, TimePr
         var e = Transitions.Move(j, Stages.Approved, "human", null, null, null, now);
         session.Save();
         session.AddEvent(e);
+        IdeaClosing.AfterDecided(session, j, clock);
         return CommandResult.Ok();
     }
 }

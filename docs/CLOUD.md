@@ -43,6 +43,10 @@ image is `factory/container/Dockerfile`.
 
   Then, under the package's **Package settings**, set its visibility to public (`https://github.com/users/<owner>/packages/container/ai-factory/settings`).
 
+  **A new image forces a canary.** The fingerprint includes the package version, so after a release the first
+  deployable job waits in the Canary column while it runs ([DEPLOY.md](DEPLOY.md), "The canary"). A release is
+  checked with the read-only `@cloud` check below, not a live cloud job.
+
 ## 1. Apply the Terraform
 
 State lives in HCP Terraform (workspace `factory-cloud`, execution mode local). The apply runs on your machine under
@@ -106,7 +110,17 @@ your local board are not touched, because the deployed factory has a board of it
    | project TimeGenerated, Job, Usd, In, Out
    ```
 
-3. **No key anywhere.** The containers' environment holds no key, token or password (the Terraform test pins this).
+3. **The release check.** After every release, the dashboard's read-only Playwright check against the deployed URL:
+   the board loads signed in as `cloud · foundry` with its six columns, its API answers, and New idea offers
+   **+ New repo**. It writes nothing and spends no tokens. Sign in once to save the session (gitignored):
+
+   ```powershell
+   cd factory/tests/dashboard
+   npx playwright open --save-storage=.cloud-auth.json https://<the dashboard URL>   # sign in, then close the window
+   $env:FACTORY_CLOUD_URL = 'https://<the dashboard URL>'; npx playwright test -c playwright.cloud.config.ts
+   ```
+
+4. **No key anywhere.** The containers' environment holds no key, token or password (the Terraform test pins this).
    The secrets are in the vault, read through the identity.
 
 ## Troubleshooting

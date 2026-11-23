@@ -62,7 +62,7 @@ public static class ClaudeFake
     };
 
     private static readonly string[] Flags = ["-p", "--verbose", "--include-partial-messages", "--strict-mcp-config"];
-    private static readonly string[] UiTools = ["ask_questions", "propose_scaffold", "submit_brief"];
+    private static readonly string[] UiTools = ["ask_questions", "propose_scaffold", "submit_brief", "submit_product"];
 
     private static void Out(JsonNode o)
     {

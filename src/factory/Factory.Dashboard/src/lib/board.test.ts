@@ -117,11 +117,9 @@ describe('the pipeline strip', () => {
 
 describe('a drop on a column', () => {
   it('is nothing on its own column, a rework note from Ready to Approved, else a move', () => {
-    expect(dropAction('backlog', 'backlog')).toBe('none')
+    expect(dropAction('ready', 'ready')).toBe('none')
     expect(dropAction('blocked', 'building')).toBe('none')
     expect(dropAction('ready', 'approved')).toBe('rework')
-    expect(dropAction('backlog', 'approved')).toBe('move')
-    expect(dropAction('backlog', 'done')).toBe('move')
-    expect(dropAction('backlog', 'ideas')).toBe('move')
+    expect(dropAction('ready', 'done')).toBe('move')
   })
 })

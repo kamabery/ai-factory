@@ -126,7 +126,7 @@ public class ServerReadsTests : ServerTestBase
         Files.Put(Path.Combine(Home, "sessions", "S-001", "session.json"), """{"id":"S-001","status":"closed"}""");
         Files.Put(Path.Combine(Home, "sessions", "S-003", "chat.json"), "{}");
 
-        Assert.Equal("""[{"id":"S-002","target":"a/b","text":"x","status":"idle","idea":null,"bootstrap":null,"costUsd":null,"newTarget":null,"notices":null,"phase":{"name":"brief"}}]""", Reads.Sessions().Body);
+        Assert.Equal("""[{"id":"S-002","target":"a/b","text":"x","status":"idle","idea":null,"bootstrap":null,"costUsd":null,"newTarget":null,"notices":null,"kind":null,"from":null,"feature":null,"phase":{"name":"brief"}}]""", Reads.Sessions().Body);
     }
 
     [Fact]
@@ -148,9 +148,11 @@ public class ServerReadsTests : ServerTestBase
         Assert.Equal(400, files.State("../outside.txt").Status);
         files.State("board.json");
         files.State("events.jsonl");
+        files.State("canary.json");
 
         Cache.Received(1).Board();
         Cache.Received(1).Events();
+        Cache.Received(1).Canary();
     }
 
     [Fact]

@@ -125,6 +125,7 @@ cd src/factory/Factory.Dashboard; npm test                      # the SPA's Vite
 cd src/factory/Factory.Dashboard; npm run build                 # rebuilds factory/dashboard/ (committed)
 cd factory/tests/dashboard; npx playwright test --grep @smoke   # the smoke set
 cd factory/tests/dashboard; npx playwright test                 # the whole e2e suite
+cd factory/tests/dashboard; npx playwright test -c playwright.cloud.config.ts   # @cloud: a deployed board, read-only (FACTORY_CLOUD_URL; docs/CLOUD.md)
 dotnet run --project src/factory/Factory.TestGates               # .NET unit + integration, tier counts, coverage gates
 cd factory/infra/previews; terraform test                        # the preview setup's Terraform, offline
 cd factory/infra/cloud; terraform test                           # the deployed factory's Terraform, offline (AVM modules overridden)

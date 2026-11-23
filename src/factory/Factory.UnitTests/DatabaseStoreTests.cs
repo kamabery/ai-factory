@@ -156,6 +156,23 @@ public class DatabaseStoreTests
     }
 
     [Fact]
+    public void Share_uploads_just_that_file_with_shared_files_ignores_a_failure_and_is_nothing_without()
+    {
+        using (var s = Store().Open()) s.Share("canary.json");
+        _sync.DidNotReceiveWithAnyArgs().Push(default);
+
+        _settings.SharesFiles.Returns(true);
+        Func<string, bool>? skip = null;
+        _sync.Push(Arg.Do<Func<string, bool>?>(f => skip = f)).Returns(_ => throw new FactoryException("blob 403"));
+        using var shared = Store().Open();
+        shared.Share("canary.json");
+
+        Assert.False(skip!("canary.json"));
+        Assert.True(skip("board.json"));
+        Assert.True(skip("canary-3.log"));
+    }
+
+    [Fact]
     public void A_failed_push_is_reported_not_thrown_and_state_import_does_not_pull()
     {
         _settings.SharesFiles.Returns(true);

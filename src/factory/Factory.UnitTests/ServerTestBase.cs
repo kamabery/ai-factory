@@ -42,7 +42,7 @@ public abstract class ServerTestBase : CommandTestBase
 
     protected SessionFiles Sessions => new(Paths, Files, Procs, Opts, Clock);
 
-    protected IdeaSessions Ideas => new(Factory, Launcher, Paths, Files, Settings, Board, Sessions, Jobs, Sync, State, Opts, Clock);
+    protected IdeaSessions Ideas => new(Factory, Launcher, Paths, Files, Settings, Board, Sessions, Jobs, Sync, State, Opts, Clock, new ProductReads(Factory, Clock));
 
     protected ReadsApi Reads => new(Factory, Paths, Files, Settings, Procs, Board);
 

@@ -77,24 +77,25 @@ describe('dragging a card', () => {
     fireEvent.drop(to, { dataTransfer })
   }
 
-  it('to Approved approves a backlog card, and lights the columns it may land on', async () => {
-    const calls = fakeServer({}, { jobs: [job('J-1', 'backlog')], ideas: [] })
+  it('to Done merges a ready card, and lights the columns it may land on', async () => {
+    const calls = fakeServer({}, { jobs: [job('J-1', 'ready')], ideas: [] })
     const { $ } = renderApp()
     const card = await find('[data-card="J-1"]')
     expect(card).toHaveAttribute('draggable', 'true')
     fireEvent.dragStart(card, { dataTransfer: { setData: vi.fn() } })
     expect($('[data-column="approved"]')).toHaveClass('drop-ok')
-    expect($('[data-column="ready"]')).not.toHaveClass('drop-ok')
-    fireEvent.drop($('[data-column="approved"]')!)
-    await waitFor(() => expect(writes(calls)).toEqual([{ method: 'POST', url: '/api/jobs/J-1/move', body: { to: 'approved' } }]))
-    await waitFor(() => expect($('#toast')).toHaveTextContent('J-1 → Approved'))
+    expect($('[data-column="done"]')).toHaveClass('drop-ok')
+    expect($('[data-column="building"]')).not.toHaveClass('drop-ok')
+    fireEvent.drop($('[data-column="done"]')!)
+    await waitFor(() => expect(writes(calls)).toEqual([{ method: 'POST', url: '/api/jobs/J-1/move', body: { to: 'done' } }]))
+    await waitFor(() => expect($('#toast')).toHaveTextContent('J-1 → Done'))
   })
 
   it('a refused move says why; a drop on its own column does nothing', async () => {
-    const calls = fakeServer({ 'POST /api/jobs/J-1/move': { ok: false, message: 'merge refused: not ready' } }, { jobs: [job('J-1', 'backlog')], ideas: [] })
+    const calls = fakeServer({ 'POST /api/jobs/J-1/move': { ok: false, message: 'merge refused: not ready' } }, { jobs: [job('J-1', 'ready')], ideas: [] })
     const { $ } = renderApp()
     const card = await find('[data-card="J-1"]')
-    drag(card, $('[data-column="backlog"]')!)
+    drag(card, $('[data-column="ready"]')!)
     expect(writes(calls)).toEqual([])
     drag(card, $('[data-column="done"]')!)
     await waitFor(() => expect($('#toast')).toHaveTextContent('merge refused: not ready'))
@@ -249,7 +250,7 @@ describe('the canary banner', () => {
   it('a running canary, and a pass whose teardown failed, say so', async () => {
     fakeServer({ 'GET /state/canary.json': { status: 'running', startedAt: '2026-11-01T12:00:00Z' } })
     const { $, unmount } = renderApp()
-    await waitFor(() => expect($('#canary')).toHaveTextContent('Deploy canary running'))
+    await waitFor(() => expect($('#canary')).toHaveTextContent('Deploy canary · running · '))
     unmount()
     fakeServer({ 'GET /state/canary.json': { status: 'pass', log: 'c.log', teardown: { status: 'failed', error: '404', failures: 2 } } })
     const r = renderApp()
@@ -257,10 +258,56 @@ describe('the canary banner', () => {
     expect(r.$('#canary')).not.toHaveTextContent('Deployable jobs are waiting')
   })
 
+  it('a running canary shows its version, phase, elapsed of typical minutes and the Actions run', async () => {
+    const startedAt = new Date(Date.now() - 7.5 * 60_000).toISOString()
+    fakeServer({
+      'GET /state/canary.json': { status: 'running', startedAt, version: '0.4.2', phase: 'deploy', deploy: { done: 1, total: 3 }, run: 'https://gh/run/1' },
+      'GET /api/canary': { due: false, reasons: [], typicalMinutes: 16 },
+    })
+    const { $ } = renderApp()
+    await waitFor(() => expect($('#canary')).toHaveTextContent('Deploy canary (0.4.2) · deploying 2/3 · 7 of ~16 min'))
+    expect($('#canary a[data-canary-run]')).toHaveAttribute('href', 'https://gh/run/1')
+  })
+
+  it('names each phase', async () => {
+    for (const [phase, text] of [['scaffold', 'scaffolding'], ['smoke', 'smoke check'], ['signin', 'sign-in check'], ['deploy', 'deploying']]) {
+      fakeServer({ 'GET /state/canary.json': { status: 'running', startedAt: new Date().toISOString(), phase } })
+      const r = renderApp()
+      await waitFor(() => expect(r.$('#canary')).toHaveTextContent(`Deploy canary · ${text} · 0 of ~15 min`))
+      expect(r.$('#canary a[data-canary-run]')).toBeNull()
+      r.unmount()
+    }
+  })
+
   it('a pass shows no banner', async () => {
     fakeServer({ 'GET /state/canary.json': { status: 'pass' } }, { jobs: [job('J-1', 'backlog')], ideas: [] })
     const { $ } = renderApp()
     await find('[data-card="J-1"]')
     expect($('#canary')).toBeNull()
+  })
+})
+
+describe('the canary due chip', () => {
+  it('says why a canary is due and how long it takes, and is quiet when none is', async () => {
+    fakeServer({ 'GET /api/canary': { due: true, reasons: ['templates changed since pass #32', 'factory 0.4.1 → 0.4.2'], typicalMinutes: 17 } })
+    const { unmount } = renderApp()
+    const chip = await find('#canary-due')
+    expect(chip).toHaveTextContent('canary due: templates changed since pass #32; factory 0.4.1 → 0.4.2')
+    expect(chip).toHaveTextContent('the next deployable job waits in Canary for it (~17 min)')
+    unmount()
+    fakeServer({ 'GET /api/canary': { due: false, reasons: [], typicalMinutes: 15 } }, { jobs: [job('J-1', 'backlog')], ideas: [] })
+    const r = renderApp()
+    await find('[data-card="J-1"]')
+    expect(r.$('#canary-due')).toBeNull()
+  })
+
+  it('is not asked for while deploys are off', async () => {
+    const calls = fakeServer({ 'GET /api/ideate/config': { ...config, deploys: false }, 'GET /api/canary': { due: true, reasons: ['no pass on record'], typicalMinutes: 15 } },
+      { jobs: [job('J-1', 'backlog')], ideas: [] })
+    const { $ } = renderApp()
+    await find('[data-card="J-1"]')
+    await new Promise((r) => setTimeout(r, 50))
+    expect($('#canary-due')).toBeNull()
+    expect(calls.some((c) => c.url === '/api/canary' && c.method === 'GET')).toBe(false)
   })
 })

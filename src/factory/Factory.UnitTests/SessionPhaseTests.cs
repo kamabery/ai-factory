@@ -27,6 +27,13 @@ public class SessionPhaseTests
     [InlineData("""{"idea":"I-1","bootstrap":"J-1","specs":[{"k":1,"decision":"approved","job":"J-2"},{"k":2,"decision":"rejected"},{"k":3,"decision":"backlog","job":"J-3"}]}""",
         """[{"id":"J-1","stage":"done"},{"id":"J-2","stage":"review","title":"Tag","pr":null,"deploy":{"status":"up"}},{"id":"J-3","stage":"backlog","title":"Filter"}]""",
         """{"name":"build","jobs":[{"id":"J-2","title":"Tag","stage":"review","pr":null,"deploy":{"status":"up"}},{"id":"J-3","title":"Filter","stage":"backlog","pr":null,"deploy":null}]}""")]
+    // A New repo session (spec 22): grill, scaffold, review (ready to merge), merged (done, or purged since).
+    [InlineData("""{"kind":"repo","status":"running"}""", "[]", """{"name":"grill"}""")]
+    [InlineData("""{"kind":"repo","idea":"I-1","bootstrap":"J-1"}""", """[{"id":"J-1","stage":"build"}]""", """{"name":"scaffold","job":"J-1","stage":"build","pr":null}""")]
+    [InlineData("""{"kind":"repo","idea":"I-1","bootstrap":"J-1"}""", """[{"id":"J-1","stage":"ready","pr":{"number":3,"url":"u"}}]""",
+        """{"name":"review","job":"J-1","stage":"ready","pr":{"number":3,"url":"u"}}""")]
+    [InlineData("""{"kind":"repo","idea":"I-1","bootstrap":"J-1"}""", """[{"id":"J-1","stage":"done"}]""", """{"name":"merged"}""")]
+    [InlineData("""{"kind":"repo","idea":"I-1","bootstrap":"J-1"}""", "[]", """{"name":"merged"}""")]
     public void The_phase_follows_the_session_and_the_board(string session, string jobs, string phase) =>
         Assert.Equal(phase, SessionPhase.Of(Obj(session), Jobs(jobs)).ToJsonString());
 }

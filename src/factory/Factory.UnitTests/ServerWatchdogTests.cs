@@ -22,6 +22,16 @@ public class ServerWatchdogTests : ServerTestBase
     }
 
     [Fact]
+    public void Starts_the_runner_when_only_canary_holds_jobs_so_a_pass_takes_them_on()
+    {
+        SetBoard(("J-001", "canary", false));
+
+        Dog.Tick();
+
+        Launcher.Received(1).StartDetached(Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "runner" })));
+    }
+
+    [Fact]
     public async Task The_server_starts_a_sweep_as_it_starts()
     {
         var hosted = new Microsoft.Extensions.DependencyInjection.ServiceCollection()

@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Factory.Cli;
+using Factory.Cli.Abstractions;
 using Factory.Core;
 using Factory.Store;
 using Factory.Store.Abstractions;
@@ -35,6 +36,8 @@ public class IdeaCommandsTests : CommandTestBase
         s.Board["ideas"]!.AsArray().Add(new JsonObject { ["id"] = "I-001", ["text"] = "x", ["target"] = "o/r", ["status"] = status, ["jobs"] = new JsonArray() });
         return s;
     }
+
+    private const string ApprovableSpec = "# Spec: x\n## Target\n- Repo: o/r\n## Gate\n- build: `dotnet build`\n";
 
     private static JsonObject Idea(FakeSession s) => s.Board["ideas"]![0]!.AsObject();
 
@@ -80,7 +83,7 @@ public class IdeaCommandsTests : CommandTestBase
     }
 
     [Theory]
-    [InlineData(new[] { "new-idea" }, "usage: new-idea <text> -Target <owner/name> [-Scaffold <json>] [-Base <J-NNN>]")]
+    [InlineData(new[] { "new-idea" }, "usage: new-idea <text> -Target <owner/name> [-Scaffold <json> [-Product <file>]] [-Base <J-NNN>] [-From <I-NNN> -Feature <heading>]")]
     [InlineData(new[] { "new-idea", "x" }, "new-idea refused: a target repo (owner/name) is required")]
     [InlineData(new[] { "new-idea", "x", "-Target", "a/b/c" }, "new-idea refused: target 'a/b/c' is not a GitHub repo written owner/name")]
     [InlineData(new[] { "new-idea", "x", "-Target", "o/r", "-Scaffold", Scaffold }, "new-idea refused: 'o/r' is an existing repo; scaffold options are only for a new one")]
@@ -96,6 +99,106 @@ public class IdeaCommandsTests : CommandTestBase
 
         Assert.Equal(refusal, Assert.Throws<FactoryException>(() => NewIdea.Run(Args(args), s)).Message);
         Assert.Equal(0, s.Saves);
+    }
+
+    private static readonly string ProductFile = Path.Combine(Path.GetTempPath(), "S-001", "product.md");
+    private const string ProductMd = "# Product: Todo\n## Home\n- Home: redirect: /todos\n## Features\n### Add a todo\nType it in.\n### Share a list\nWith a friend.\n";
+
+    [Fact]
+    public void NewIdea_with_a_product_is_a_repo_idea_and_keeps_its_product()
+    {
+        _gh.Lookup("o/new").Returns(RepoState.Missing);
+        Files.Put(ProductFile, ProductMd);
+        var s = FakeSession.With();
+
+        var r = NewIdea.Run(Args("new-idea", "todo app", "-Target", "o/new", "-Scaffold", Scaffold, "-Product", ProductFile), s);
+
+        Assert.Equal(["I-001 J-001"], r.Out);
+        Assert.Equal(("repo", "waiting"), ((string?)Idea(s)["kind"], (string?)Idea(s)["status"]));
+        Assert.Equal(ProductMd, Files.Text(Path.Combine(Home, "ideas", "I-001", "product.md")));
+    }
+
+    [Theory]
+    [InlineData("o/r", true, "new-idea refused: 'o/r' is an existing repo; a product is only for a new one")]
+    [InlineData("o/new", false, "new-idea refused: no product file")]
+    public void NewIdea_refuses_a_product_out_of_place(string target, bool present, string refusal)
+    {
+        _gh.Lookup("o/new").Returns(RepoState.Missing);
+        if (present) Files.Put(ProductFile, ProductMd);
+        string[] scaffold = target == "o/new" ? ["-Scaffold", Scaffold] : [];
+        var s = FakeSession.With();
+
+        Assert.Equal(refusal, Assert.Throws<FactoryException>(() => NewIdea.Run(Args(["new-idea", "x", "-Target", target, .. scaffold, "-Product", ProductFile]), s)).Message);
+        Assert.Equal(0, s.Saves);
+    }
+
+    [Fact]
+    public void NewIdea_refuses_a_product_the_rules_refuse()
+    {
+        _gh.Lookup("o/new").Returns(RepoState.Missing);
+        Files.Put(ProductFile, "# Product: Todo\n## Home\n- Home: redirect: /todos\n## Features\n");
+
+        Assert.Equal("new-idea refused: list 1 to 10 features, each a ### heading under ## Features (it has 0)",
+            Assert.Throws<FactoryException>(() => NewIdea.Run(Args("new-idea", "x", "-Target", "o/new", "-Scaffold", Scaffold, "-Product", ProductFile), FakeSession.With())).Message);
+    }
+
+    private static FakeSession WithRepoIdea(string status = "drafting", string target = "o/r", JsonArray? features = null)
+    {
+        var s = FakeSession.With();
+        s.Board["ideas"]!.AsArray().Add(new JsonObject
+        {
+            ["id"] = "I-001", ["text"] = "todo app", ["target"] = target, ["status"] = status, ["kind"] = "repo",
+            ["features"] = features ?? new JsonArray(), ["jobs"] = new JsonArray(),
+        });
+        return s;
+    }
+
+    [Fact]
+    public void NewIdea_from_a_repo_idea_starts_that_feature()
+    {
+        var s = WithRepoIdea();
+
+        var r = NewIdea.Run(Args("new-idea", "Add a todo", "-Target", "o/r", "-From", "I-001", "-Feature", "Add a todo"), s);
+
+        Assert.Equal(["I-002"], r.Out);
+        var feature = s.Board["ideas"]![1]!.AsObject();
+        Assert.Equal(("I-001", "Add a todo", "drafting"), ((string?)feature["from"], (string?)feature["feature"], (string?)feature["status"]));
+        Assert.Equal("""[{"heading":"Add a todo","idea":"I-002"}]""", Idea(s)["features"]!.ToJsonString());
+    }
+
+    public static TheoryData<string[], string?, string> FromRefusals => new()
+    {
+        { ["-From", "I-001"], null, "new-idea refused: -From and -Feature go together" },
+        { ["-Feature", "Add a todo"], null, "new-idea refused: -From and -Feature go together" },
+        { ["-From", "I-009", "-Feature", "Add a todo"], null, "new-idea refused: no idea I-009" },
+        { ["-From", "I-001", "-Feature", "Add a todo"], "waiting", "new-idea refused: I-001 is waiting, not a drafting repo idea" },
+        { ["-From", "I-001", "-Feature", "Add a todo"], "other", "new-idea refused: I-001 is a repo idea on o/other, not o/r" },
+        { ["-From", "I-001", "-Feature", " add A TODO"], "started", "new-idea refused: feature 'Add a todo' of I-001 already has I-005" },
+    };
+
+    [Theory]
+    [MemberData(nameof(FromRefusals))]
+    public void NewIdea_refuses_a_feature_it_cannot_start(string[] from, string? setup, string refusal)
+    {
+        var s = setup switch
+        {
+            "waiting" => WithRepoIdea("waiting"),
+            "other" => WithRepoIdea(target: "o/other"),
+            "started" => WithRepoIdea(features: [new JsonObject { ["heading"] = "Add a todo", ["idea"] = "I-005" }]),
+            _ => WithRepoIdea(),
+        };
+
+        Assert.Equal(refusal, Assert.Throws<FactoryException>(() => NewIdea.Run(Args(["new-idea", "x", "-Target", "o/r", .. from]), s)).Message);
+        Assert.Equal(0, s.Saves);
+    }
+
+    [Fact]
+    public void NewIdea_refuses_a_feature_of_an_idea_that_is_not_a_repo_idea()
+    {
+        var s = WithIdea("drafting");
+
+        Assert.Equal("new-idea refused: I-001 is not a repo idea",
+            Assert.Throws<FactoryException>(() => NewIdea.Run(Args("new-idea", "x", "-Target", "o/r", "-From", "I-001", "-Feature", "A"), s)).Message);
     }
 
     [Fact]
@@ -160,6 +263,48 @@ public class IdeaCommandsTests : CommandTestBase
 
         Assert.Equal(("failed", "too vague"), ((string?)Idea(s)["status"], (string?)Idea(s)["reason"]));
         Assert.Equal(["done", "failed"], s.Events.Select(e => (string?)e["detail"]));
+    }
+
+    [Fact]
+    public void IdeaDone_with_a_spec_in_backlog_keeps_the_idea_open_until_its_last_spec_is_decided()
+    {
+        // Spec 22: Not yet keeps the idea open on its card in Ideas.
+        var s = WithIdea("drafting", Jobs.New("J-001", "backlog"), Jobs.New("J-002", "backlog"), Jobs.New("J-003", "approved"));
+        Files.Put(JobFile("J-001", "spec.md"), ApprovableSpec);
+
+        var r = new IdeaDoneCommand(Clock).Run(Args("idea-done", "I-001"), s);
+
+        Assert.Equal(["I-001 stays open: J-001, J-002 wait in backlog"], r.Out);
+        Assert.Equal(("drafting", true), ((string?)Idea(s)["status"], (bool?)Idea(s)["closeWhenDecided"]));
+        Assert.Empty(s.Events);
+
+        new ApproveCommand(Paths, Files, Clock).Run(Args("approve", "J-001"), s);
+        Assert.Equal("drafting", (string?)Idea(s)["status"]);
+
+        new DiscardCommand(Substitute.For<IJobWork>(), Clock).Run(Args("discard", "J-002"), s);
+        Assert.Equal(("done", null), ((string?)Idea(s)["status"], Idea(s)["closeWhenDecided"]));
+        Assert.Equal("""{"ts":"2026-11-10T12:00:00.000Z","idea":"I-001","kind":"idea","detail":"done"}""", s.Events.Last().ToJsonString());
+    }
+
+    [Fact]
+    public void Approving_a_spec_of_an_idea_still_being_specced_leaves_it_open()
+    {
+        var s = WithIdea("drafting", Jobs.New("J-001", "backlog"));
+        Files.Put(JobFile("J-001", "spec.md"), ApprovableSpec);
+
+        new ApproveCommand(Paths, Files, Clock).Run(Args("approve", "J-001"), s);
+
+        Assert.Equal("drafting", (string?)Idea(s)["status"]);
+    }
+
+    [Fact]
+    public void IdeaDone_Failed_closes_whatever_waits_in_backlog()
+    {
+        var s = WithIdea("drafting", Jobs.New("J-001", "backlog"));
+
+        new IdeaDoneCommand(Clock).Run(Args("idea-done", "I-001", "-Failed", "-Reason", "r"), s);
+
+        Assert.Equal(("failed", null), ((string?)Idea(s)["status"], Idea(s)["closeWhenDecided"]));
     }
 
     [Fact]

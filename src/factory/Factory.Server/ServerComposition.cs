@@ -92,6 +92,8 @@ public static class ServerComposition
         services.AddSingleton<StaticFiles>();
         services.AddSingleton<JobsApi>();
         services.AddSingleton<ReadsApi>();
+        services.AddSingleton<CanaryDue>();
+        services.AddSingleton<ProductReads>();
         services.AddSingleton<IdeaSessions>();
         services.AddSingleton<Watchdog>();
         services.AddHostedService(sp => sp.GetRequiredService<Watchdog>());

@@ -234,6 +234,34 @@ FACTORY_TEMPLATES_REPO=you/template-projects
 
 `HCP_TOKEN` and `HCP_TEAM_TOKEN` belong in the secret store, not here (`factory doctor` warns).
 
+## The canary
+
+Before the first deployable job after a change to the deploy machinery, the factory runs a **canary**: it scaffolds
+`kamabery/factory-canary` from the current templates, deploys it to the reserved preview `j000` the way a job's
+preview deploys, smoke-tests it, signs in and tears it down. A broken template or deploy change fails there, in about
+15 minutes and no tokens, instead of in a real job ([TERMINOLOGY.md](TERMINOLOGY.md), "Canary", has its limits).
+
+When it runs:
+
+| | |
+| --- | --- |
+| Deploys off (no `HCP_ORG`) | never |
+| Run mode, or which board | no difference: it runs no LLM |
+| A bootstrap job | never waits: a bootstrap does not deploy |
+| How often | once per fingerprint: the first deployable job after a change waits, and any taken meanwhile wait on the same run |
+| The fingerprint | the deploy code (in a tool install, the package version) and the HCP variable set, which affect every target's previews; the templates (`IaC/`, `deploy.yml`, the template pack), which mostly affect targets scaffolded after the change, since a target deploys its own committed copy; and the canary's own settings |
+
+On the board:
+- **The "canary due" chip** in the header says a canary will run before the next deployable job, and why:
+  `templates changed since pass #32`, `factory 0.4.1 → 0.4.2`, or `no pass on record`, with the typical duration (the
+  median of the last passes, or ~15 min). It goes when a canary starts.
+- **The Canary column** holds the jobs waiting for it. While it runs, their cards and the top banner show its phase
+  (scaffold, deploying 1/3 to 3/3, smoke, sign-in, tearing down), the minutes so far of the typical, and a link to the
+  deploy's Actions run. A pass moves them to Building in board order.
+- **A red Canary card** means the canary failed: the card and the banner show its error and its log
+  (`canary-<n>.log`). Fix the cause, then **Run canary** (`factory canary -Force`; on the Azure board the dashboard
+  runs `canary -Retry` as a runner execution). Discard takes a job out of Canary.
+
 ## Check it
 
 Approve a small job against a scaffolded target and watch its card: Building shows `deploy r1 · 1/3`,

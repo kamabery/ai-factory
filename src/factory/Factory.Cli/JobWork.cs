@@ -54,9 +54,30 @@ public sealed partial class JobWork(
                 return $"{target} already has {branch}, which this board never published (another board's job?); delete or rename that branch, then approve the job again";
             r = git.Run(wt, "checkout", "-q", "-B", branch, $"origin/{branch}");
         }
-        else if (git.Run(wt, "rev-parse", "--verify", "--quiet", $"refs/remotes/origin/{start}").Code == 0) r = git.Run(wt, "checkout", "-q", "-b", branch, $"origin/{start}");
+        else if (git.Run(wt, "rev-parse", "--verify", "--quiet", $"refs/remotes/origin/{start}").Code == 0)
+        {
+            r = git.Run(wt, "checkout", "-q", "-b", branch, $"origin/{start}");
+            if (r.Code == 0 && CommitProduct(board, j, wt) is { } why) return why;
+        }
         else return $"{target} has no {start} branch";
         return r.Code == 0 ? null : $"checkout {branch} failed: {r.Out}";
+    }
+
+    /// <summary>
+    /// A New repo idea's bootstrap: its product goes in as docs/PRODUCT.md, the branch's first commit, before the builder
+    /// starts (contract, "Ideas", "A New repo idea"). Only on a new branch: a pushed one already has it.
+    /// </summary>
+    private string? CommitProduct(JsonObject board, Job j, string wt)
+    {
+        if (!j.IsBootstrap || string.IsNullOrEmpty(j.Idea)) return null;
+        var idea = board.Ideas().FirstOrDefault(i => PsJsonReader.Is(i.Id, j.Idea));
+        if (idea is null || !PsJsonReader.Is(PsJsonReader.Str(idea.Node["kind"]), "repo")) return null;
+        if (files.ReadBytes(Path.Combine(paths.Home, "ideas", idea.Id, "product.md")) is not { } product) return $"checkout: {idea.Id} has no product.md";
+        files.EnsureDirectory(Path.Combine(wt, "docs"));
+        files.WriteAtomic(Path.Combine(wt, "docs", "PRODUCT.md"), product);
+        var r = git.Run(wt, "add", "--", "docs/PRODUCT.md");
+        if (r.Code == 0) r = git.Run(wt, "-c", "user.name=factory", "-c", "user.email=factory@localhost", "commit", "-q", "-m", "docs: product");
+        return r.Code == 0 ? null : $"checkout: cannot commit docs/PRODUCT.md: {r.Out}";
     }
 
     /// <summary>Ensure-GitHubRepo: creates the target if it is missing, and pushes main with an empty first commit if it has none.</summary>

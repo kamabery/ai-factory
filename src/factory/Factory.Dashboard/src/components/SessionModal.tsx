@@ -16,6 +16,8 @@ type Question = { question: string; header?: string; multiSelect?: boolean; opti
 type SpecEntry = { k: number; title: string; decision?: string; job?: string }
 export type SessionFile = {
   id?: string; text: string; status: string; target?: string; newTarget?: boolean; base?: string; model?: string
+  /** A New repo session (spec 22); a feature session started from a repo idea has `from` and `feature`. */
+  kind?: string | null; from?: string | null; feature?: string | null
   costUsd?: number; idea?: string | null; bootstrap?: string | null; error?: string
   pending?: { id: string; name: string; input?: { questions?: Question[]; markdown?: string } & Partial<Scaffold> } | null
   specs?: SpecEntry[]
@@ -138,6 +140,7 @@ function SessionActions({ id, s, sessApi }: { id: string; s: SessionFile; sessAp
       {p?.name === 'ask_questions' ? <QuestionsForm key={p.id} questions={p.input?.questions ?? []} sessApi={sessApi} />
         : p?.name === 'propose_scaffold' ? <ScaffoldForm key={p.id} proposal={p.input ?? {}} hasTarget={!!s.target} sessApi={sessApi} />
         : p?.name === 'submit_brief' ? <BriefForm key={p.id} markdown={p.input?.markdown ?? ''} sessApi={sessApi} />
+        : p?.name === 'submit_product' ? <BriefForm key={p.id} markdown={p.input?.markdown ?? ''} sessApi={sessApi} what="product" />
         : specs.length ? <SpecsForm id={id} s={s} sessApi={sessApi} /> : null}
       {!p && (
         <Actions className="items-end">
@@ -219,22 +222,23 @@ function ScaffoldForm({ proposal, hasTarget, sessApi }: { proposal: Partial<Scaf
   )
 }
 
-function BriefForm({ markdown, sessApi }: { markdown: string; sessApi: SessApi }) {
+/** The brief, or a New repo session's product (spec 22): Confirm, or a correction Claude revises it from. */
+function BriefForm({ markdown, sessApi, what = 'brief' }: { markdown: string; sessApi: SessApi; what?: 'brief' | 'product' }) {
   const { toast } = useUi()
   const [correction, setCorrection] = useState('')
   const [busy, setBusy] = useState(false)
   const confirm = async () => {
     setBusy(true)
     const { r } = await sessApi('brief')
-    if (r.ok) toast(`Brief saved as ${r.message.split(' ')[0]}`); else setBusy(false)
+    if (r.ok) toast(`${what === 'brief' ? 'Brief' : 'Product'} saved as ${r.message.split(' ')[0]}`); else setBusy(false)
   }
   return (
     <>
-      <p>Read the brief. Confirm it, or say what is wrong and Claude revises it.</p>
+      <p>Read the {what}. Confirm it, or say what is wrong and Claude revises it.</p>
       <Md html={md(markdown)} data-brief className="s-brief mb-2 rounded-surface border border-border-subtle px-3.5 py-1" />
       <textarea id="s-correction" rows={3} value={correction} onChange={(e) => setCorrection(e.target.value)} placeholder="What is wrong or missing?" className={control} />
       <Actions>
-        <Button id="s-confirm-brief" disabled={busy} onClick={confirm}>Confirm brief</Button>
+        <Button id="s-confirm-brief" disabled={busy} onClick={confirm}>Confirm {what}</Button>
         <Button id="s-correct" variant="secondary" onClick={() => (correction.trim() ? sessApi('reply', { text: correction.trim() }) : toast('Say what to correct', true))}>Send correction</Button>
       </Actions>
     </>
@@ -250,20 +254,20 @@ function SpecsForm({ id, s, sessApi }: { id: string; s: SessionFile; sessApi: Se
   const specs = s.specs ?? []
   const decide = async (sp: SpecEntry, decision: string) => {
     const { r, s: fresh } = await sessApi(`specs/${sp.k}`, { decision })
-    if (r.ok) toast(decision === 'rejected' ? `Spec ${sp.k} rejected` : `${r.message} → ${decision === 'approved' ? 'Approved' : 'Backlog'}`)
+    if (r.ok) toast(decision === 'rejected' ? `Spec ${sp.k} rejected` : `${r.message} → ${decision === 'approved' ? 'Approved' : 'waits on its card in Ideas'}`)
     const now = fresh?.specs ?? []
     if (!now.length || !now.every((x) => x.decision)) return
     const kept = now.filter((x) => x.decision !== 'rejected')
     const { r: c } = await sessApi('close', { failed: !kept.length })
     if (!c.ok) return
-    toast(kept.length ? `${fresh?.idea} done: ${kept.map((x) => `${x.job} ${x.decision === 'approved' ? 'approved' : 'in Backlog'}`).join(', ')}` : `${fresh?.idea} closed: every spec rejected`)
+    toast(kept.length ? `${fresh?.idea} done: ${kept.map((x) => `${x.job} ${x.decision === 'approved' ? 'approved' : 'waits for approval'}`).join(', ')}` : `${fresh?.idea} closed: every spec rejected`)
     // A new-repo session stays open on its Build phase: the stepper follows the jobs it made.
     if (!(s.newTarget && kept.length)) closeModal(true)
     await refresh()
   }
   return (
     <>
-      <p>Decide each spec. <b>Approve</b> builds it now, <b>Not yet</b> puts it in Backlog, <b>Reject</b> drops it. To change one, edit it, or ask Claude below.</p>
+      <p>Decide each spec. <b>Approve</b> builds it now, <b>Not yet</b> leaves it on this idea's card in Ideas, <b>Reject</b> drops it. To change one, edit it, or ask Claude below.</p>
       {specs.map((sp) => <SpecCard key={sp.k} id={id} idea={s.idea} sp={sp} decide={decide} sessApi={sessApi} />)}
     </>
   )
