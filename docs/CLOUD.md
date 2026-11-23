@@ -18,7 +18,9 @@ image is `factory/container/Dockerfile`.
 **Security:**
 - One user-assigned managed identity is the factory's only credential. It holds Foundry User on the account, Entra
   admin of its own SQL server (Entra-only), Storage Blob Data Owner on the artifacts container, Key Vault Secrets
-  Officer on its vault, and Container Apps Jobs Operator on its runner job. There are no keys, passwords or
+  Officer on its vault, and Container Apps Jobs Operator on its runner job. With previews on, it also holds a custom
+  role on the platform's Postgres server that can only read, start and stop it (`platform.tf`, spec 24), so the runner
+  wakes it before a canary or a deploy and the dashboard's chip puts it to sleep. There are no keys, passwords or
   connection secrets.
 - Easy Auth stands in front of the dashboard. Its app registration requires assignment, so only the users you name
   can sign in. Easy Auth signs in to Entra as the managed identity through a federated credential, so the app has
@@ -63,7 +65,7 @@ foundry_resource_name        = "<factory/infra/llm's resource_name>"
 image                        = "ghcr.io/<owner>/ai-factory:<version>"
 github_owner                 = "<GITHUB_OWNER>"
 signin_user_object_ids       = ["<your object id in this tenant>"]
-settings                     = { HCP_ORG = "<org>", AZURE_GH_CLIENT_ID = "...", ... }  # the previews-env settings, for previews
+settings                     = { HCP_ORG = "<org>", AZURE_GH_CLIENT_ID = "...", FACTORY_PLATFORM_SERVER_ID = "...", ... }  # the previews-env settings, for previews
 budget_start_date            = "<this month>-01T00:00:00Z"
 contact_email                = "<you>"
 ```
@@ -72,7 +74,7 @@ contact_email                = "<you>"
 cd factory/infra/cloud
 terraform init -backend=false; terraform test     # offline, every provider mocked
 terraform init                                    # creates the factory-cloud workspace; set it to local execution
-terraform plan                                    # read it: nothing outside rg-factory-cloud but two role assignments and the app registration
+terraform plan                                    # read it: nothing outside rg-factory-cloud but the role assignments, the platform role and the app registration
 terraform apply
 ```
 
