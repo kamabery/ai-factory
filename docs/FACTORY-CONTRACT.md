@@ -1547,6 +1547,8 @@ which owns that app and holds Graph's `Application.ReadWrite.OwnedBy`, so it can
    `<react_url>/api/health` when there is a React front end, else `<api_url>/health`. React's Static
    Web App links the API as its backend, which puts the API behind the Static Web App's own auth, so
    `<api_url>` itself answers 401 to anything else.
+   When the workspace has a `telemetry_workbook_url` output, it is kept as `urls.workbook`, the
+   dashboard's Open observability button.
 7. Smoke: `GET <urls.health>` and, when there is one, `GET <urls.frontend>` must both answer
    200. A freshly started container can take a while, so each is retried every 10 seconds for up to
    `$env:FACTORY_SMOKE_SECONDS` (default 300). A probe that never answers 200 is a failed attempt,

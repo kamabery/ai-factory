@@ -38,6 +38,13 @@ public class PreviewTests
     }
 
     [Fact]
+    public void The_telemetry_workbook_url_is_kept_when_the_workspace_has_one()
+    {
+        Assert.Equal("""{"frontend":"https://web","api":null,"health":"https://web/api/health","workbook":"https://portal/wb"}""",
+            Preview.Urls(new Dictionary<string, string?> { ["react_url"] = "https://web", ["telemetry_workbook_url"] = "https://portal/wb" }).ToJsonString());
+    }
+
+    [Fact]
     public void A_react_url_keeps_its_own_spelling_as_the_front_end()
     {
         var urls = Preview.Urls(new Dictionary<string, string?> { ["react_url"] = "https://web/" });
