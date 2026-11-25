@@ -8,7 +8,7 @@ export type HistoryEntry = { ts?: string; from: string; to: string; by: string }
 export type Deploy = {
   status?: string
   attempts?: number
-  urls?: { frontend?: string | null; api?: string | null } | null
+  urls?: { frontend?: string | null; api?: string | null; workbook?: string | null } | null
   destroyAt?: string
   destroyError?: string
   destroyFailures?: number

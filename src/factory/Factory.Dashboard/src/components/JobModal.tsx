@@ -59,7 +59,11 @@ function JobHead({ j, focusRework }: { j: Job; focusRework: boolean }) {
 
   const flag = j.flag
   const live = j.deploy?.status ? preview(j, now) : null
-  const previewBtn = live?.live && live.url && <a className="button" id="preview-btn" href={live.url} target="_blank" rel="noopener">{btn('Open preview')}</a>
+  const workbook = live?.live && j.deploy?.urls?.workbook
+  const previewBtn = live?.live && live.url && <>
+    <a className="button" id="preview-btn" href={live.url} target="_blank" rel="noopener">{btn('Open preview')}</a>
+    {workbook && <a className="button" id="observability-btn" href={workbook} target="_blank" rel="noopener">{btn('Open observability')}</a>}
+  </>
   const prBtn = j.pr?.url && <a className="button" id="pr-btn" href={j.pr.url} target="_blank" rel="noopener">{btn(`Open PR #${j.pr.number}`)}</a>
   const gate = j.gate ? Object.entries(j.gate).filter(([k]) => k !== 'at' && k !== 'sha').map(([k, v]) => `${k}=${v}`).join(' ') + (j.gate.sha ? ` · ${j.gate.sha.slice(0, 7)}` : '') : ''
   const m = j.merged

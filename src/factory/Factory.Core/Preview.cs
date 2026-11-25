@@ -44,7 +44,8 @@ public static partial class Preview
     /// <summary>
     /// Preview-Urls: the front end (react_url, else blazor_web_url), the API, and /health as a browser reaches it. React's
     /// Static Web App links the API as its backend, which puts the API's own address behind the Static Web App's auth
-    /// (it answers 401), so /health goes through the front end's /api.
+    /// (it answers 401), so /health goes through the front end's /api. The telemetry Workbook's portal address
+    /// (telemetry_workbook_url) is kept as workbook only when the workspace has one.
     /// </summary>
     public static JsonObject Urls(IReadOnlyDictionary<string, string?> outputs)
     {
@@ -52,7 +53,9 @@ public static partial class Preview
         var api = outputs.GetValueOrDefault("api_url");
         var health = !string.IsNullOrEmpty(react) ? $"{react.TrimEnd('/')}/api/health"
             : !string.IsNullOrEmpty(api) ? $"{api.TrimEnd('/')}/health" : null;
-        return new JsonObject { ["frontend"] = react ?? outputs.GetValueOrDefault("blazor_web_url"), ["api"] = api, ["health"] = health };
+        var urls = new JsonObject { ["frontend"] = react ?? outputs.GetValueOrDefault("blazor_web_url"), ["api"] = api, ["health"] = health };
+        if (outputs.GetValueOrDefault("telemetry_workbook_url") is { Length: > 0 } workbook) urls["workbook"] = workbook;
+        return urls;
     }
 
     /// <summary>Whether the branch's deploy.yml declares a <c>since</c> input; GitHub refuses a dispatch with one it does not.</summary>

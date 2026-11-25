@@ -71,6 +71,25 @@ describe('a backlog card', () => {
 })
 
 describe('a ready card', () => {
+  it('opens the telemetry Workbook in a new tab, right after Open preview, when the preview has one', async () => {
+    fakeServer({ 'GET /state/jobs/J-2/spec.md': '# Spec' }, {
+      jobs: [
+        job('J-2', 'ready', { deploy: { status: 'up', urls: { frontend: 'https://fe', workbook: 'https://portal/wb' } } }),
+        job('J-3', 'ready', { deploy: { status: 'up', urls: { frontend: 'https://fe' } } }),
+      ], ideas: [],
+    })
+    const { $ } = renderApp()
+    await open('J-2')
+    const wb = $('#preview-btn + #observability-btn')
+    expect(wb).toHaveTextContent('Open observability')
+    expect(wb).toHaveAttribute('href', 'https://portal/wb')
+    expect(wb).toHaveAttribute('target', '_blank')
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await open('J-3')
+    expect($('#preview-btn')).toBeInTheDocument()
+    expect($('#observability-btn')).not.toBeInTheDocument()
+  })
+
   it('shows the gate, PR and preview first; Rework needs a note; Merge closes on success', async () => {
     const calls = fakeServer({ 'GET /state/jobs/J-2/spec.md': '# Spec' }, {
       jobs: [job('J-2', 'ready', {
